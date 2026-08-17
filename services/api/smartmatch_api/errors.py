@@ -16,6 +16,33 @@ from pydantic import BaseModel, Field
 from smartmatch_authz import AuthorizationError
 from smartmatch_domain.consent import ConsentViolationError
 from smartmatch_domain.jobs import InvalidTransitionError
+from smartmatch_persistence.idempotency import IdempotencyConflictError
+
+
+class ApiError(Exception):
+    """An error to render in the standard envelope.
+
+    Raised by dependencies and handlers instead of ``HTTPException``, so every
+    non-2xx response carries the same shape and a stable ``code`` clients can
+    branch on. ``HTTPException`` produces ``{"detail": ...}``, which would give
+    the contract two error shapes and force clients to handle both.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.details = details
+        self.headers = headers
 
 
 class ErrorBody(BaseModel):
@@ -90,9 +117,38 @@ async def invalid_transition_handler(_request: Request, exc: Exception) -> JSONR
     )
 
 
-#: Wired into the app in :mod:`app.main`.
+async def api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Render an :class:`ApiError` in the standard envelope."""
+    assert isinstance(exc, ApiError)
+    return error_response(
+        exc.status_code,
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+        headers=exc.headers,
+    )
+
+
+async def idempotency_conflict_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Map an idempotency-key conflict to 409.
+
+    Never 200 with the original job: the caller reused a key for a *different*
+    request, and answering with the earlier result would silently discard what
+    they actually asked for.
+    """
+    assert isinstance(exc, IdempotencyConflictError)
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        code="idempotency_key_reused",
+        message=str(exc),
+    )
+
+
+#: Wired into the app in :mod:`smartmatch_api.main`.
 EXCEPTION_HANDLERS = {
+    ApiError: api_error_handler,
     AuthorizationError: authorization_error_handler,
     ConsentViolationError: consent_error_handler,
     InvalidTransitionError: invalid_transition_handler,
+    IdempotencyConflictError: idempotency_conflict_handler,
 }

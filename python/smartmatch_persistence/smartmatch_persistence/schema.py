@@ -26,6 +26,7 @@ __all__ = [
     "membership",
     "org_unit",
     "outbox_record",
+    "rate_limit_counter",
     "redrive_record",
     "resource_grant",
     "tenant",
@@ -234,6 +235,20 @@ tenant_budget = sa.Table(
     sa.Column("spent", sa.Numeric(12, 4), nullable=False, server_default="0"),
     sa.Column("ceiling", sa.Numeric(12, 4), nullable=False),
     sa.Column("kill_switch", sa.Boolean, nullable=False, server_default=sa.text("false")),
+)
+
+
+rate_limit_counter = sa.Table(
+    "rate_limit_counter",
+    METADATA,
+    sa.Column("tenant_id", _UUID, sa.ForeignKey("tenant.id"), primary_key=True),
+    # Text, not UUID: the subject is a user id for authenticated operations and
+    # an IP for unauthenticated ones, and forcing an IP into a UUID column would
+    # mean encoding it as a fake identifier.
+    sa.Column("subject", sa.Text, primary_key=True),
+    sa.Column("operation", sa.Text, primary_key=True),
+    sa.Column("window_start", _TS, primary_key=True),
+    sa.Column("count", sa.Integer, nullable=False, server_default="0"),
 )
 
 

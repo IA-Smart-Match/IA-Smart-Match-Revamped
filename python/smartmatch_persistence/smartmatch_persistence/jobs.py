@@ -232,6 +232,20 @@ class JobRepository:
             created_at=row.created_at,
         )
 
+    def latest_sequence(self, session: Session, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> int:
+        """Return the highest event sequence for a job, or 0 when it has none.
+
+        Lets a status response tell a client where to resume from without
+        shipping the whole event history alongside it.
+        """
+        highest: int | None = session.execute(
+            sa.select(sa.func.max(schema.job_event.c.sequence)).where(
+                schema.job_event.c.tenant_id == tenant_id,
+                schema.job_event.c.job_id == job_id,
+            )
+        ).scalar_one_or_none()
+        return highest or 0
+
     def events_since(
         self,
         session: Session,

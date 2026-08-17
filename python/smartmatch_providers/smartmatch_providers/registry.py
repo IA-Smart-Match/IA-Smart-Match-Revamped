@@ -20,9 +20,15 @@ from smartmatch_providers.base import (
     RouteMatrixProvider,
 )
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
+from smartmatch_providers.identity import FixtureTokenVerifier, TokenVerifier
 from smartmatch_providers.tasks import FixtureTaskQueue, TaskQueue
 
-__all__ = ["build_email_provider", "build_route_matrix_provider", "build_task_queue"]
+__all__ = [
+    "build_email_provider",
+    "build_route_matrix_provider",
+    "build_task_queue",
+    "build_token_verifier",
+]
 
 #: Editions that may never construct a live provider client, regardless of what
 #: credentials happen to be present in the environment.
@@ -171,4 +177,43 @@ def build_task_queue(
         "the live Cloud Tasks adapter is not implemented in the Foundation "
         "scaffold. It requires a deployed worker URL and service identity to "
         "target, neither of which exists yet."
+    )
+
+
+def build_token_verifier(
+    edition: Edition,
+    *,
+    project_id: str | None = None,
+    use_fixture: bool = False,
+) -> TokenVerifier:
+    """Construct the identity token verifier for this edition.
+
+    The live Google Identity Platform verifier is not implemented in the
+    Foundation scaffold. Implementing it means fetching and caching Google's
+    JWKS, validating signature, issuer, audience, and expiry, and handling key
+    rotation — none of which can be exercised meaningfully before a real project
+    and audience exist.
+
+    The fixture is not a weaker version of that. It accepts only tokens
+    explicitly registered with it, so it cannot be mistaken for "authentication
+    that happens to be permissive".
+
+    Raises:
+        ProviderConfigurationError: if a live verifier is requested under a
+            fixture-only edition, or requested at all — it does not exist yet.
+    """
+    if use_fixture or edition in _FIXTURE_ONLY_EDITIONS:
+        return FixtureTokenVerifier()
+
+    _assert_fixture_only(edition, "identity")
+
+    if not project_id:
+        raise ProviderConfigurationError(
+            f"no identity project configured for edition {edition.value!r}."
+        )
+
+    raise ProviderConfigurationError(
+        "the live Google Identity Platform verifier is not implemented in the "
+        "Foundation scaffold. It is Foundation item A1 and requires a real "
+        "project and audience to validate against."
     )

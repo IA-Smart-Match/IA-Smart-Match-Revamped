@@ -1,6 +1,36 @@
 {
   "components": {
     "schemas": {
+      "CommandAcceptedResponse": {
+        "description": "Standard acknowledgement for every command resource.",
+        "properties": {
+          "events_url": {
+            "title": "Events Url",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "accepted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "events_url"
+        ],
+        "title": "CommandAcceptedResponse",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The inner error object.",
         "properties": {
@@ -61,6 +91,96 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ImportRequest": {
+        "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.",
+        "properties": {
+          "dataset": {
+            "description": "Logical dataset name, e.g. 'professionals'",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Dataset",
+            "type": "string"
+          },
+          "dry_run": {
+            "default": true,
+            "description": "When true the import validates and reports without creating review items. Defaults to true: the safe outcome should be the one you get by not thinking about it.",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "source_reference": {
+            "description": "Opaque reference to previously uploaded content in Cloud Storage",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_reference",
+          "dataset"
+        ],
+        "title": "ImportRequest",
+        "type": "object"
+      },
+      "JobState": {
+        "description": "Every state a durable job may occupy.",
+        "enum": [
+          "queued",
+          "dispatched",
+          "running",
+          "succeeded",
+          "partial",
+          "failed_provider",
+          "failed_budget",
+          "failed_policy",
+          "cancelled",
+          "timed_out",
+          "redrive_pending",
+          "abandoned"
+        ],
+        "title": "JobState",
+        "type": "string"
+      },
+      "JobStatusResponse": {
+        "description": "A job's current state.",
+        "properties": {
+          "command_type": {
+            "title": "Command Type",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latest_sequence": {
+            "default": 0,
+            "description": "Highest job_event sequence emitted so far",
+            "title": "Latest Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command_type",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobStatusResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -112,7 +232,7 @@
   "paths": {
     "/api/health": {
       "get": {
-        "description": "Report that the process is serving requests.\n\nDeliberately exposes no dependency or topology detail \u2014 not the database\nhost, not the queue, not which providers are configured (v1.1 \u00a71.11).\nReadiness, which does check dependencies, is a separate private endpoint and\nis not part of the public surface.",
+        "description": "Report that the process is serving requests.\n\nExposes no dependency or topology detail \u2014 not the database host, not the\nqueue, not which providers are configured (v1.1 \u00a71.11). Readiness, which\ndoes check dependencies, is a separate private endpoint and is deliberately\nnot part of the public surface.",
         "operationId": "health_api_health_get",
         "responses": {
           "200": {
@@ -137,6 +257,16 @@
             },
             "description": "Bad Request"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "403": {
             "content": {
               "application/json": {
@@ -147,6 +277,16 @@
             },
             "description": "Forbidden"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -156,6 +296,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "summary": "Liveness probe",
@@ -166,7 +316,7 @@
     },
     "/u/{token}": {
       "get": {
-        "description": "Render the unsubscribe confirmation page. **Never changes state.**\n\nFixes the v1.0 mutating-GET unsubscribe (v1.1 \u00a71.10). A GET here is reached\nby link scanners, mail-client prefetchers, and security proxies; if it\nmutated, those would silently unsubscribe recipients who never clicked.\n\nThe actual unsubscribe is the signed POST below, or the RFC 8058 one-click\nPOST that mail providers issue directly.",
+        "description": "Render the unsubscribe confirmation page. **Never changes state.**\n\nFixes the v1.0 mutating-GET unsubscribe (v1.1 \u00a71.10). A GET here is reached\nby link scanners, mail-client prefetchers, and security proxies; if it\nmutated, those would silently unsubscribe recipients who never clicked.\n\nThe actual unsubscribe is the signed POST, or the RFC 8058 one-click POST\nthat mail providers issue directly. Both arrive with R4.",
         "operationId": "unsubscribe_page_u__token__get",
         "parameters": [
           {
@@ -200,6 +350,16 @@
             },
             "description": "Bad Request"
           },
+          "401": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "403": {
             "content": {
               "text/html": {
@@ -209,6 +369,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "409": {
             "content": {
@@ -229,11 +399,441 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "summary": "Unsubscribe confirmation page",
         "tags": [
           "outreach"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "description": "Return one job's current state.\n\nTenant-scoped by the caller's own tenant, which is derived server-side from\ntheir token and never read from the request.",
+        "operationId": "get_job_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get a job's status",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}/events": {
+      "get": {
+        "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
+        "operationId": "stream_job_events_v1_jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resume cursor for polling clients that cannot send headers",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Resume cursor for polling clients that cannot send headers",
+              "title": "After"
+            }
+          },
+          {
+            "description": "Resume from this sequence. Standard SSE reconnect header.",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Resume from this sequence. Standard SSE reconnect header.",
+              "title": "Last-Event-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Stream a job's events (SSE)",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/imports": {
+      "post": {
+        "description": "Accept an import command.\n\nReturns ``202``, not ``200``: nothing has been imported when this returns.\nThe command is recorded and will be dispatched; the job is where the outcome\nlives. Saying ``200`` here would be reporting success for work that has not\nstarted (v1.1 \u00a73.6 N2).\n\nAuthorization runs against the *owning unit*, after loading it \u2014 which is\nwhy it happens here rather than in a dependency. A dependency cannot\nauthorize a resource it has not fetched.",
+        "operationId": "create_import_v1_units__unit_id__imports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit an import command",
+        "tags": [
+          "imports"
         ]
       }
     }

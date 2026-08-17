@@ -1,28 +1,63 @@
 """SmartMatch API application.
 
-Foundation scaffold. The routes here are deliberately minimal: health, and the
-unsubscribe pair that demonstrates the corrected GET/POST semantics. Feature
-routes arrive with their release, behind their gates.
+The routes here are those whose contracts and gates are settled. Feature routes
+arrive with their release, behind their gates — a route that exists before its
+gate closes is a route someone will call.
 
 What is **not** present, and why:
 
-* ``POST /auth/mock-login`` — archived. Caller-selected identity is the single
-  most dangerous pattern in the legacy baseline
-  (``bdce024:src/api/routers/portals.py:435``).
-* Match-run, discovery, import, and send commands — these are R1–R4 and require
-  the outbox, dispatcher, and their release gates.
-* Any handler that calls a provider inline — prohibited by v1.1 §1.6.
+* ``POST /auth/mock-login`` — archived (MM-A01). Caller-selected identity was the
+  single most dangerous pattern in the legacy baseline
+  (``bdce024:src/api/routers/portals.py:435``). Identity now comes from a
+  verified token, and the local account, tenant, and roles are read server-side.
+* Match-run, discovery, and send commands — each waits on its gate: G1 for the
+  factor registry, G3 for agent controls, G4 for consent-origin policy. The
+  submission machinery they will use is built and exercised by ``/imports``.
+* Any handler that calls a provider inline — prohibited by v1.1 §1.6. The
+  request path records intent; the dispatcher moves it; the worker performs it.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, status
 from fastapi.responses import HTMLResponse
+from smartmatch_persistence.engine import create_session_factory
+from smartmatch_providers import build_token_verifier
 
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope
+from smartmatch_api.routers import imports, jobs
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Build shared resources once per process.
+
+    The session factory and token verifier are constructed here rather than per
+    request: a connection pool created per request is not a pool, and a verifier
+    rebuilt per request would discard the key cache a real JWKS verifier needs.
+
+    Settings are read (and validated) at startup, so a misconfigured
+    deployment — a classroom edition carrying provider credentials, say — fails
+    to boot rather than failing later under load.
+    """
+    settings = get_settings()
+
+    app.state.settings = settings
+    app.state.session_factory = create_session_factory(settings.database_url)
+    app.state.token_verifier = build_token_verifier(
+        settings.edition,
+        use_fixture=settings.use_fixture_providers,
+    )
+
+    yield
+
+    app.state.session_factory.kw["bind"].dispose()
+
 
 app = FastAPI(
     title="SmartMatch API",
@@ -32,29 +67,32 @@ app = FastAPI(
         "OpenAPI is the source of truth; the TypeScript client is generated from "
         "it and never hand-maintained."
     ),
+    lifespan=lifespan,
     responses={
         400: {"model": ErrorEnvelope},
+        401: {"model": ErrorEnvelope},
         403: {"model": ErrorEnvelope},
+        404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope},
     },
 )
 
 for exception_type, handler in EXCEPTION_HANDLERS.items():
     app.add_exception_handler(exception_type, handler)
 
+app.include_router(jobs.router)
+app.include_router(imports.router)
 
-@app.get(
-    "/api/health",
-    tags=["operations"],
-    summary="Liveness probe",
-)
+
+@app.get("/api/health", tags=["operations"], summary="Liveness probe")
 def health() -> dict[str, Any]:
     """Report that the process is serving requests.
 
-    Deliberately exposes no dependency or topology detail — not the database
-    host, not the queue, not which providers are configured (v1.1 §1.11).
-    Readiness, which does check dependencies, is a separate private endpoint and
-    is not part of the public surface.
+    Exposes no dependency or topology detail — not the database host, not the
+    queue, not which providers are configured (v1.1 §1.11). Readiness, which
+    does check dependencies, is a separate private endpoint and is deliberately
+    not part of the public surface.
     """
     settings = get_settings()
     return {"status": "ok", "release": settings.release}
@@ -73,11 +111,11 @@ def unsubscribe_page(token: str) -> HTMLResponse:
     by link scanners, mail-client prefetchers, and security proxies; if it
     mutated, those would silently unsubscribe recipients who never clicked.
 
-    The actual unsubscribe is the signed POST below, or the RFC 8058 one-click
-    POST that mail providers issue directly.
+    The actual unsubscribe is the signed POST, or the RFC 8058 one-click POST
+    that mail providers issue directly. Both arrive with R4.
     """
-    # Rendered from a template in R4; the scaffold returns the shape only, and
-    # deliberately does not echo the token back into the HTML.
+    # Rendered from a template in R4. The token is deliberately not echoed into
+    # the HTML — reflecting it invites both leakage and injection.
     return HTMLResponse(
         "<!doctype html><title>Unsubscribe</title>"
         "<h1>Confirm unsubscribe</h1>"

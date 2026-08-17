@@ -56,8 +56,14 @@ def test_mock_login_endpoint_does_not_exist():
 
 
 def test_no_route_advertises_a_mock_or_demo_login():
-    paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
-    assert not any("mock" in p or "demo" in p for p in paths)
+    """Checked against the published contract, not the route table.
+
+    ``app.routes`` mixes route objects with router wrappers that have no
+    ``.path``, and it is the OpenAPI document that clients actually see — so
+    asserting on the document is both more robust and more meaningful.
+    """
+    paths = set(app.openapi()["paths"])
+    assert not any("mock" in path or "demo" in path for path in paths)
 
 
 # ---------------------------------------------------------------------------

@@ -19,10 +19,17 @@ from smartmatch_providers.base import (
     TravelEstimate,
 )
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
+from smartmatch_providers.identity import (
+    FixtureTokenVerifier,
+    TokenVerificationError,
+    TokenVerifier,
+    VerifiedIdentity,
+)
 from smartmatch_providers.registry import (
     build_email_provider,
     build_route_matrix_provider,
     build_task_queue,
+    build_token_verifier,
 )
 from smartmatch_providers.tasks import (
     FixtureTaskQueue,
@@ -39,6 +46,7 @@ __all__ = [
     "FixtureEmailProvider",
     "FixtureRouteMatrixProvider",
     "FixtureTaskQueue",
+    "FixtureTokenVerifier",
     "ProviderConfigurationError",
     "RouteMatrixProvider",
     "SendRequest",
@@ -48,10 +56,14 @@ __all__ = [
     "TaskQueue",
     "TaskQueueError",
     "TaskRequest",
+    "TokenVerificationError",
+    "TokenVerifier",
     "TravelEstimate",
+    "VerifiedIdentity",
     "build_email_provider",
     "build_route_matrix_provider",
     "build_task_queue",
+    "build_token_verifier",
 ]
 
 __version__ = "0.1.0"
