@@ -8,7 +8,6 @@ command handlers are unimplemented.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-
 from smartmatch_worker.main import app
 
 client = TestClient(app)

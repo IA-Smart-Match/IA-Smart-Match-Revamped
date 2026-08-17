@@ -15,24 +15,25 @@ This replaces the v1.0 circular opt-in design (v1.1 Appendix A, diagram 17).
 
 from __future__ import annotations
 
-from enum import Enum
+from collections.abc import Mapping
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 __all__ = [
-    "ContactState",
-    "ConsentSource",
     "APPROVED_CONSENT_SOURCES",
-    "ConsentViolationError",
     "STATE_TRANSITIONS",
-    "can_transition",
-    "assert_transition",
-    "is_send_eligible",
+    "ConsentSource",
+    "ConsentViolationError",
+    "ContactState",
     "assert_send_eligible",
+    "assert_transition",
+    "can_transition",
+    "is_send_eligible",
 ]
 
 
-class ContactState(str, Enum):
+class ContactState(StrEnum):
     """States in the contact-confidence lifecycle (v1.1 §2.3)."""
 
     DISCOVERED = "discovered"
@@ -45,7 +46,7 @@ class ContactState(str, Enum):
     STALE = "stale"
 
 
-class ConsentSource(str, Enum):
+class ConsentSource(StrEnum):
     """Where a consent record originated."""
 
     #: The person opted in themselves through a SmartMatch form.

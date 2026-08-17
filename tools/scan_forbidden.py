@@ -185,6 +185,11 @@ RULES: tuple[Rule, ...] = (
 #: Files excluded from scanning entirely, with a reason each.
 EXCLUDED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("tools/scan_forbidden.py", "the scanner necessarily contains the patterns"),
+    (
+        "tests/unit/test_forbidden_scanner.py",
+        "the scanner's self-tests feed it known-bad source on purpose; excluding "
+        "them is what lets the gate be verified rather than merely trusted",
+    ),
     (".venv/", "third-party dependencies are not our source"),
     ("node_modules/", "third-party dependencies are not our source"),
     ("clients/typescript/", "generated code, verified by the drift check instead"),
@@ -268,11 +273,7 @@ def tracked_files() -> list[Path]:
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
-    return [
-        p
-        for p in REPO_ROOT.rglob("*")
-        if p.is_file() and ".git" not in p.parts
-    ]
+    return [p for p in REPO_ROOT.rglob("*") if p.is_file() and ".git" not in p.parts]
 
 
 def _is_excluded(relative: str) -> bool:

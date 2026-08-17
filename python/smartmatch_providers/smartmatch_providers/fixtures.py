@@ -67,9 +67,7 @@ class FixtureRouteMatrixProvider:
         if not self._available:
             return TravelEstimate.unavailable()
         if origin == destination:
-            return TravelEstimate(
-                duration=timedelta(0), is_available=True, quality="route_matrix"
-            )
+            return TravelEstimate(duration=timedelta(0), is_available=True, quality="route_matrix")
         return TravelEstimate(
             duration=timedelta(minutes=45), is_available=True, quality="route_matrix"
         )

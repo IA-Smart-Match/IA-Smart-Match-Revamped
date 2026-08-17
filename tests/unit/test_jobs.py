@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from smartmatch_domain.jobs import (
     TERMINAL_STATES,
     TRANSITIONS,
@@ -93,7 +92,7 @@ def test_terminal_states_match_the_empty_transition_sets():
         JobState.FAILED_POLICY,
         JobState.ABANDONED,
     }
-    assert TERMINAL_STATES == expected
+    assert expected == TERMINAL_STATES
 
 
 def test_error_message_lists_the_legal_moves():

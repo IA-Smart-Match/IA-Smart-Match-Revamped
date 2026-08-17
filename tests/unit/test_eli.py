@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-
 from smartmatch_domain.eli import (
     ELI_FORMULA_VERSION,
     CapDecision,
@@ -49,9 +48,7 @@ def test_travel_hours_count_toward_load():
     )
     with_travel = compute_eli(
         _inputs(
-            engagements=(
-                EngagementRecord(occurred_on=AS_OF, event_hours=10.0, travel_hours=6.0),
-            )
+            engagements=(EngagementRecord(occurred_on=AS_OF, event_hours=10.0, travel_hours=6.0),)
         )
     )
     assert with_travel.score > without.score
@@ -65,9 +62,7 @@ def test_recency_decay_reduces_older_engagement_weight():
     older = compute_eli(
         _inputs(
             engagements=(
-                EngagementRecord(
-                    occurred_on=AS_OF - timedelta(days=45), event_hours=20.0
-                ),
+                EngagementRecord(occurred_on=AS_OF - timedelta(days=45), event_hours=20.0),
             )
         )
     )
@@ -79,9 +74,7 @@ def test_engagements_outside_the_window_are_ignored_not_rejected():
     snapshot = compute_eli(
         _inputs(
             engagements=(
-                EngagementRecord(
-                    occurred_on=AS_OF - timedelta(days=91), event_hours=40.0
-                ),
+                EngagementRecord(occurred_on=AS_OF - timedelta(days=91), event_hours=40.0),
             )
         )
     )
@@ -94,9 +87,7 @@ def test_raw_hours_are_reported_alongside_decayed_hours():
     snapshot = compute_eli(
         _inputs(
             engagements=(
-                EngagementRecord(
-                    occurred_on=AS_OF - timedelta(days=45), event_hours=20.0
-                ),
+                EngagementRecord(occurred_on=AS_OF - timedelta(days=45), event_hours=20.0),
             )
         )
     )

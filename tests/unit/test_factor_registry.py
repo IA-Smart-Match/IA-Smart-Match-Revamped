@@ -7,7 +7,6 @@ which encodes the defect found in the legacy baseline so it cannot recur.
 from __future__ import annotations
 
 import pytest
-
 from smartmatch_domain.factor_registry import (
     PROHIBITED_INPUTS,
     PROPOSED_FACTORS,

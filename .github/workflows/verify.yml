@@ -1,0 +1,168 @@
+# Foundation verification gates.
+#
+# Architecture v1.1 §4.1 stages gate adoption as now / before-live / before-scale
+# so Foundation is not blocked on the full matrix. This workflow implements the
+# `now` set. Gates deferred to a later stage are listed at the bottom of this
+# file with the release that introduces them, rather than being silently absent.
+#
+# Actions are pinned to immutable commit SHAs, not tags: a tag can be moved, and
+# a moved tag in a workflow with repository write access is a supply-chain
+# compromise. Permissions default to read-only and are widened per job only
+# where a job genuinely needs more.
+
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  DOMAIN_PATH: python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_providers
+
+jobs:
+  python:
+    name: python — lint, types, boundaries, tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+        env:
+          POSTGRES_USER: smartmatch
+          POSTGRES_PASSWORD: smartmatch
+          POSTGRES_DB: smartmatch
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e python/smartmatch_domain -e python/smartmatch_authz \
+                      -e python/smartmatch_providers
+          pip install fastapi 'uvicorn[standard]' pydantic pydantic-settings httpx \
+                      alembic 'sqlalchemy>=2.0' 'psycopg[binary]' \
+                      pytest pytest-cov ruff mypy import-linter
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Static typing (strict)
+        run: mypy python/ services/
+
+      - name: Architecture import boundaries
+        # Domain and authz packages must import no framework, storage, provider,
+        # filesystem, or network module. See pyproject [tool.importlinter].
+        run: PYTHONPATH="$DOMAIN_PATH" lint-imports --config pyproject.toml
+
+      - name: Migrations apply from an empty database
+        run: cd db && alembic upgrade head
+
+      - name: Tests
+        run: >-
+          pytest tests/
+          --cov=smartmatch_domain --cov=smartmatch_authz --cov=smartmatch_providers
+          --cov-report=term-missing
+
+      - name: OpenAPI contract is current
+        # Fails if the API surface changed without the committed contract being
+        # regenerated — the property that lets the TypeScript client be generated
+        # rather than hand-maintained.
+        run: |
+          PYTHONPATH="$DOMAIN_PATH:services/api" \
+            python tools/export_openapi.py contracts/openapi/smartmatch.json --check
+
+  isolation:
+    name: isolation — no forbidden legacy behavior, no live providers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Forbidden legacy behavior scan
+        # Implements §15 of the migration orchestrator contract. Self-tested in
+        # tests/unit/test_forbidden_scanner.py so a green result means something.
+        run: python tools/scan_forbidden.py
+
+      - name: No committed environment files
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example'; then
+            echo "::error::a .env file is tracked; secrets must never be committed"
+            exit 1
+          fi
+
+      - name: No local databases or archives committed
+        # The legacy tracked demo.db, smartmatch.db, and archive bundles. Business
+        # persistence belongs in PostgreSQL, and binaries do not belong in git.
+        run: |
+          if git ls-files | grep -E '\.(db|sqlite3?|zip|tar\.gz|jsonl)$'; then
+            echo "::error::a local database, archive, or JSONL data file is tracked"
+            exit 1
+          fi
+
+  secrets:
+    name: security — secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# ---------------------------------------------------------------------------
+# Gates deferred, with the release that introduces each (v1.1 §4.1 staging).
+# Listed rather than omitted so the matrix is honest about what is not yet run.
+#
+#   before-live (R1+):
+#     - web: npm ci, tsc, vitest, a11y smoke, bundle budget   (needs apps/web)
+#     - generated TypeScript client drift check               (needs clients/)
+#     - Playwright critical-flow E2E                          (needs real flows)
+#     - outbox dispatcher integration: crash between commit and task creation
+#       must not lose a job; duplicate delivery must not double-execute
+#     - CodeQL, dependency review, OSV, Trivy, SBOM
+#
+#   before-scale (R3+):
+#     - IaC scan (needs real Terraform beyond the skeleton)
+#     - container image scan and signing, provenance attestation
+#     - agent evaluation dataset gate
+# ---------------------------------------------------------------------------

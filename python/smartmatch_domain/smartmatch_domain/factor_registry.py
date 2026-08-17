@@ -30,24 +30,25 @@ docs/migration/migration-manifest.yaml (MM-002).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 __all__ = [
-    "REGISTRY_VERSION",
+    "PROHIBITED_INPUTS",
+    "PROPOSED_FACTORS",
     "REGISTRY_STATUS",
+    "REGISTRY_VERSION",
     "FactorKind",
     "FactorSpec",
-    "PROPOSED_FACTORS",
-    "PROHIBITED_INPUTS",
     "RegistryNotApprovedError",
-    "factor_keys",
-    "proposed_weights",
     "active_weights",
-    "normalize_weights",
     "assert_registry_approved",
+    "factor_keys",
+    "normalize_weights",
+    "proposed_weights",
 ]
 
 REGISTRY_VERSION: Final[str] = "1.1.0-proposed"
@@ -58,7 +59,7 @@ REGISTRY_VERSION: Final[str] = "1.1.0-proposed"
 REGISTRY_STATUS: Final[str] = "proposed"
 
 
-class FactorKind(str, Enum):
+class FactorKind(StrEnum):
     """How a factor participates in assignment.
 
     Architecture v1.1 §1.2 splits matching into Stage A (hard eligibility
@@ -110,8 +111,7 @@ class FactorSpec:
             raise ValueError(f"{self.key}: proposed_weight must be in [0.0, 1.0]")
         if self.kind is FactorKind.ELIGIBILITY and self.proposed_weight != 0.0:
             raise ValueError(
-                f"{self.key}: eligibility factors are Stage A filters and carry no "
-                "Stage B weight"
+                f"{self.key}: eligibility factors are Stage A filters and carry no Stage B weight"
             )
 
     @property
@@ -217,8 +217,7 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         proposed_weight=0.0,
         implemented=False,
         rationale=(
-            "No valid contact status. Scraped or purchased contacts are never "
-            "eligible (v1.1 §2.3)."
+            "No valid contact status. Scraped or purchased contacts are never eligible (v1.1 §2.3)."
         ),
     ),
     FactorSpec(

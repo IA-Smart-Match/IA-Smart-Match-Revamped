@@ -32,16 +32,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 __all__ = [
     "ELI_FORMULA_VERSION",
-    "LoadModifier",
+    "CapDecision",
+    "EliSnapshot",
     "EngagementRecord",
     "LoadInputs",
-    "EliSnapshot",
-    "CapDecision",
+    "LoadModifier",
     "compute_eli",
     "evaluate_cap",
     "load_penalty",
@@ -60,7 +60,7 @@ _DECAY_HALF_LIFE_DAYS: Final[float] = 45.0
 _ROLLING_WINDOW_DAYS: Final[int] = 90
 
 
-class LoadModifier(str, Enum):
+class LoadModifier(StrEnum):
     """Visible modifiers permitted by v1.1 §1.3.
 
     Each is a factual, checkable property of the schedule. They are surfaced to
@@ -159,7 +159,7 @@ class EliSnapshot:
     utilization: float
 
 
-class CapDecision(str, Enum):
+class CapDecision(StrEnum):
     """Stage A outcome for the declared-capacity hard constraint."""
 
     #: Under the declared cap. Proceeds to Stage B with a soft penalty.

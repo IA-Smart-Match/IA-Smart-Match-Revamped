@@ -23,9 +23,7 @@ class ErrorBody(BaseModel):
 
     code: str = Field(description="Stable machine-readable code; safe to branch on")
     message: str = Field(description="Human-readable summary; not for branching")
-    details: dict[str, Any] | None = Field(
-        default=None, description="Optional structured context"
-    )
+    details: dict[str, Any] | None = Field(default=None, description="Optional structured context")
 
 
 class ErrorEnvelope(BaseModel):
@@ -51,9 +49,7 @@ def error_response(
     )
 
 
-async def authorization_error_handler(
-    _request: Request, exc: Exception
-) -> JSONResponse:
+async def authorization_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Map an authorization denial to 403.
 
     The stable reason code is returned, but nothing about *why* the resource

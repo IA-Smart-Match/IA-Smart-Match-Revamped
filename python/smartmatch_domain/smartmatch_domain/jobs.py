@@ -16,22 +16,23 @@ Two states carry specific corrections from v1.0:
 
 from __future__ import annotations
 
-from enum import Enum
+from collections.abc import Mapping
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 __all__ = [
-    "JobState",
-    "InvalidTransitionError",
-    "TRANSITIONS",
     "TERMINAL_STATES",
-    "can_transition",
+    "TRANSITIONS",
+    "InvalidTransitionError",
+    "JobState",
     "assert_transition",
+    "can_transition",
     "is_terminal",
 ]
 
 
-class JobState(str, Enum):
+class JobState(StrEnum):
     """Every state a durable job may occupy."""
 
     QUEUED = "queued"

@@ -10,21 +10,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 __all__ = [
     "Edition",
+    "EmailProvider",
     "ProviderConfigurationError",
+    "RouteMatrixProvider",
     "SendRequest",
     "SendResult",
     "TravelEstimate",
-    "EmailProvider",
-    "RouteMatrixProvider",
 ]
 
 
-class Edition(str, Enum):
+class Edition(StrEnum):
     """Which edition of the platform is running.
 
     ``CLASSROOM`` is not a cosmetic label. Boot-time configuration validation

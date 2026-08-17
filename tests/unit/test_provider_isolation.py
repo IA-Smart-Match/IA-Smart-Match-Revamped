@@ -8,7 +8,6 @@ construct a live provider client, which the verification matrix requires.
 from __future__ import annotations
 
 import pytest
-
 from smartmatch_providers import (
     Edition,
     FixtureEmailProvider,
@@ -42,9 +41,7 @@ def _send_request(**overrides: object) -> SendRequest:
 
 def test_classroom_edition_yields_fixture_adapters():
     assert isinstance(build_email_provider(Edition.CLASSROOM), FixtureEmailProvider)
-    assert isinstance(
-        build_route_matrix_provider(Edition.CLASSROOM), FixtureRouteMatrixProvider
-    )
+    assert isinstance(build_route_matrix_provider(Edition.CLASSROOM), FixtureRouteMatrixProvider)
 
 
 def test_classroom_edition_with_a_credential_fails_closed():
@@ -86,9 +83,7 @@ def test_live_adapter_without_credentials_fails_closed(edition: Edition):
 
 def test_use_fixture_flag_works_in_any_edition():
     """Local development and CI opt into fixtures explicitly."""
-    assert isinstance(
-        build_email_provider(Edition.DEV, use_fixture=True), FixtureEmailProvider
-    )
+    assert isinstance(build_email_provider(Edition.DEV, use_fixture=True), FixtureEmailProvider)
 
 
 # ---------------------------------------------------------------------------

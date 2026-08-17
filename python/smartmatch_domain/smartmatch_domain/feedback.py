@@ -26,14 +26,14 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
 __all__ = [
+    "REASON_TO_FACTOR",
     "Decision",
     "DeclineReason",
-    "REASON_TO_FACTOR",
     "FeedbackEntry",
     "WeightProposal",
     "aggregate",
@@ -55,14 +55,14 @@ PER_REASON_BUMP: Final[float] = 0.03
 MIN_DECISIONS_FOR_PROPOSAL: Final[int] = 5
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     """A coordinator's decision on a proposed assignment."""
 
     ACCEPTED = "accepted"
     DECLINED = "declined"
 
 
-class DeclineReason(str, Enum):
+class DeclineReason(StrEnum):
     """Why a coordinator declined a proposal.
 
     A closed vocabulary, ported from the legacy ``DECLINE_REASONS`` list. Free
@@ -174,9 +174,7 @@ def aggregate(entries: Sequence[FeedbackEntry]) -> FeedbackAggregate:
     """
     accepted = sum(1 for e in entries if e.decision is Decision.ACCEPTED)
     declined = sum(1 for e in entries if e.decision is Decision.DECLINED)
-    reasons: Counter[DeclineReason] = Counter(
-        e.reason for e in entries if e.reason is not None
-    )
+    reasons: Counter[DeclineReason] = Counter(e.reason for e in entries if e.reason is not None)
     return FeedbackAggregate(
         total=len(entries),
         accepted=accepted,

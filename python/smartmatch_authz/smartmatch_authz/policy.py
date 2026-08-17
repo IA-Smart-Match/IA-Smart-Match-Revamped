@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Self
 
 __all__ = [
@@ -46,7 +46,7 @@ __all__ = [
 ]
 
 
-class Effect(str, Enum):
+class Effect(StrEnum):
     """The effect of an explicit resource grant."""
 
     ALLOW = "allow"
@@ -128,9 +128,7 @@ class Membership:
         """Whether this membership is in force at ``moment``."""
         if self.valid_from is not None and moment < self.valid_from:
             return False
-        if self.valid_until is not None and moment >= self.valid_until:
-            return False
-        return True
+        return not (self.valid_until is not None and moment >= self.valid_until)
 
 
 @dataclass(frozen=True, slots=True)

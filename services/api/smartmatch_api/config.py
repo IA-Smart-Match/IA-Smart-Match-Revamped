@@ -59,8 +59,7 @@ class Settings(BaseSettings):
         if self.edition is Edition.CLASSROOM:
             if not self.use_fixture_providers:
                 raise ValueError(
-                    "edition=classroom requires use_fixture_providers=true "
-                    "(architecture v1.1 §3.3)"
+                    "edition=classroom requires use_fixture_providers=true (architecture v1.1 §3.3)"
                 )
             if self.email_api_key or self.routes_api_key:
                 raise ValueError(

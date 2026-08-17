@@ -55,9 +55,7 @@ def test_catches_demo_mode_fallback():
 
 
 def test_catches_hard_coded_credential():
-    assert _fires(
-        "hard-coded-credential", 'api_key = "re_abcdefghijklmnop123456"'
-    )
+    assert _fires("hard-coded-credential", 'api_key = "re_abcdefghijklmnop123456"')
 
 
 def test_catches_legacy_imports():
@@ -77,11 +75,7 @@ def test_catches_fabricated_meeting_url():
 
 
 def test_catches_a_genuinely_mutating_get():
-    source = (
-        '@router.get("/u/{token}")\n'
-        "def unsubscribe(token: str):\n"
-        "    suppress(token)\n"
-    )
+    source = '@router.get("/u/{token}")\ndef unsubscribe(token: str):\n    suppress(token)\n'
     assert _fires("mutating-get", source)
 
 

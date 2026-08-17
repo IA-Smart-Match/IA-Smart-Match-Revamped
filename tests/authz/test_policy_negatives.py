@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from smartmatch_authz import (
     AuthorizationError,
     Effect,
@@ -233,9 +232,7 @@ def test_sibling_subtree_is_not_covered():
         tenant_id=TENANT,
         memberships=(_member("iawest.cpp.engineering.ie"),),
     )
-    decision = evaluate(
-        principal, _resource(path="iawest.cpp.engineering.cs"), at=NOW
-    )
+    decision = evaluate(principal, _resource(path="iawest.cpp.engineering.cs"), at=NOW)
 
     assert not decision.allowed
 

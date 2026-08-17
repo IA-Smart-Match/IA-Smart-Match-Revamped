@@ -22,18 +22,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 __all__ = [
-    "Severity",
-    "QualityFinding",
     "DatasetQuality",
-    "validate_columns",
+    "QualityFinding",
+    "Severity",
     "normalize_header",
+    "validate_columns",
 ]
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """How badly a finding compromises the dataset."""
 
     #: The dataset cannot be used. Import fails closed.

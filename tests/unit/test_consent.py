@@ -7,8 +7,9 @@ is the rule that keeps SmartMatch inside Resend's acceptable-use policy.
 
 from __future__ import annotations
 
-import pytest
+from itertools import pairwise
 
+import pytest
 from smartmatch_domain.consent import (
     APPROVED_CONSENT_SOURCES,
     STATE_TRANSITIONS,
@@ -32,10 +33,8 @@ def test_happy_path_walks_discovery_to_active_candidate():
         ContactState.CONSENTED,
         ContactState.ACTIVE_CANDIDATE,
     ]
-    for current, following in zip(path[:-1], path[1:], strict=True):
-        source = (
-            ConsentSource.SELF_SERVICE if following is ContactState.CONSENTED else None
-        )
+    for current, following in pairwise(path):
+        source = ConsentSource.SELF_SERVICE if following is ContactState.CONSENTED else None
         assert_transition(current, following, consent_source=source)
 
 
@@ -66,9 +65,7 @@ def test_consented_is_the_only_predecessor_of_active_candidate():
 
 def test_reaching_consented_requires_a_consent_source():
     with pytest.raises(ConsentViolationError, match="consent source is required"):
-        assert_transition(
-            ContactState.RELATIONSHIP_RECORDED, ContactState.CONSENTED
-        )
+        assert_transition(ContactState.RELATIONSHIP_RECORDED, ContactState.CONSENTED)
 
 
 @pytest.mark.parametrize(
@@ -101,8 +98,11 @@ def test_rejected_is_terminal():
 
 def test_illegal_transition_is_refused():
     with pytest.raises(ConsentViolationError, match="illegal contact lifecycle"):
-        assert_transition(ContactState.DISCOVERED, ContactState.CONSENTED,
-                          consent_source=ConsentSource.SELF_SERVICE)
+        assert_transition(
+            ContactState.DISCOVERED,
+            ContactState.CONSENTED,
+            consent_source=ConsentSource.SELF_SERVICE,
+        )
 
 
 def test_stale_returns_to_review_not_straight_back_to_active():
@@ -141,9 +141,7 @@ def test_suppression_blocks_send_even_for_a_consented_active_candidate():
 def test_scraped_source_is_never_send_eligible_in_any_state():
     """Belt and braces: even if a state machine bug let it through, sending fails."""
     for state in ContactState:
-        assert not is_send_eligible(
-            state, consent_source=ConsentSource.SCRAPED, suppressed=False
-        )
+        assert not is_send_eligible(state, consent_source=ConsentSource.SCRAPED, suppressed=False)
 
 
 def test_missing_consent_source_is_not_send_eligible():

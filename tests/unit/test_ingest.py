@@ -31,9 +31,7 @@ def test_empty_dataset_is_an_error_not_a_silent_pass():
 
 def test_missing_required_column_fails_closed():
     """The legacy loader returned a partial frame and let scoring proceed."""
-    quality = validate_columns(
-        "professionals", [{"full_name": "A. Rivera"}], required=REQUIRED
-    )
+    quality = validate_columns("professionals", [{"full_name": "A. Rivera"}], required=REQUIRED)
 
     assert not quality.is_usable
     finding = quality.errors[0]
@@ -118,18 +116,14 @@ def test_csv_null_sentinels_count_as_blank():
 
 
 def test_findings_accumulate_across_categories():
-    quality = validate_columns(
-        "professionals", [{"stray": "x"}], required=REQUIRED
-    )
+    quality = validate_columns("professionals", [{"stray": "x"}], required=REQUIRED)
     codes = {f.code for f in quality.findings}
     assert "missing_required_columns" in codes
     assert "unexpected_columns" in codes
 
 
 def test_severity_partitioning():
-    quality = validate_columns(
-        "professionals", [{"stray": "x"}], required=REQUIRED
-    )
+    quality = validate_columns("professionals", [{"stray": "x"}], required=REQUIRED)
     assert all(f.severity is Severity.ERROR for f in quality.errors)
     assert all(f.severity is Severity.WARNING for f in quality.warnings)
 

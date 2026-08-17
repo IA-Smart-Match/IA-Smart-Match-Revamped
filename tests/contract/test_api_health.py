@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-
 from smartmatch_api.main import app
 
 
@@ -24,8 +23,19 @@ def test_health_leaks_no_dependency_or_topology_detail():
     body = TestClient(app).get("/api/health").json()
     serialized = str(body).lower()
 
-    for leaked in ("postgres", "database", "database_url", "localhost", "queue",
-                   "cloud", "resend", "api_key", "secret", "password", "5432"):
+    for leaked in (
+        "postgres",
+        "database",
+        "database_url",
+        "localhost",
+        "queue",
+        "cloud",
+        "resend",
+        "api_key",
+        "secret",
+        "password",
+        "5432",
+    ):
         assert leaked not in serialized, f"health response leaks {leaked!r}"
 
 

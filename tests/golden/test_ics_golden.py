@@ -16,7 +16,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-
 from smartmatch_domain.ics import (
     CalendarInvite,
     UnschedulableEventError,

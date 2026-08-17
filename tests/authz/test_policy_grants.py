@@ -47,9 +47,7 @@ def test_membership_at_the_exact_owning_unit_grants_access():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(
-            Membership(OrgPath.parse("iawest.cpp.engineering.ie"), "coordinator"),
-        ),
+        memberships=(Membership(OrgPath.parse("iawest.cpp.engineering.ie"), "coordinator"),),
     )
     assert evaluate(principal, _resource(), at=NOW).allowed
 
@@ -77,9 +75,7 @@ def test_required_roles_are_satisfied_by_a_matching_membership():
         tenant_id=TENANT,
         memberships=(Membership(OrgPath.parse("iawest"), "admin"),),
     )
-    decision = evaluate(
-        principal, _resource(), at=NOW, required_roles=frozenset({"admin"})
-    )
+    decision = evaluate(principal, _resource(), at=NOW, required_roles=frozenset({"admin"}))
     assert decision.allowed
 
 

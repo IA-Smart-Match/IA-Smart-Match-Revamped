@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from smartmatch_domain.feedback import (
     MAX_FACTOR_DELTA,
     MIN_DECISIONS_FOR_PROPOSAL,
@@ -26,9 +25,7 @@ def _declines(reason: DeclineReason, count: int) -> list[FeedbackEntry]:
 
 
 def _accepts(count: int) -> list[FeedbackEntry]:
-    return [
-        FeedbackEntry(match_run_id=RUN, decision=Decision.ACCEPTED) for _ in range(count)
-    ]
+    return [FeedbackEntry(match_run_id=RUN, decision=Decision.ACCEPTED) for _ in range(count)]
 
 
 # ---------------------------------------------------------------------------
