@@ -1,31 +1,26 @@
 # apps/web
 
-**Not yet built.** This is R1 work, sequenced deliberately.
+**On hold. Blocked on [`DESIGN.md`](DESIGN.md).**
 
-The frontend consumes a **generated** TypeScript client (v1.1 §5.1), and that
-client is generated from the OpenAPI document, which currently describes only
-health and the unsubscribe page. Building components now would mean writing API
-calls by hand and rewriting them when the client arrives — recreating exactly the
-hand-maintained coupling the contract forbids.
+Nothing is built here until a standardized design system exists and has an owner.
+`DESIGN.md` is a brief, not a design: Part 1 records the constraints already
+settled by architecture v1.1, and Part 2 lists the eight decisions the redesign
+must make.
 
-## Order of work
+Read `DESIGN.md` before writing any code in this directory.
 
-1. Scaffold React 18 + TypeScript + Vite (Foundation item W1)
-2. Generate the client once feature routes exist; add a drift check to CI (W2)
-3. Port presentational components from the legacy (MM-F01) — confirm upstream
-   shadcn/ui licensing first, and leave `mockData.ts` and `mockProfilePhotos.ts`
-   behind (W3)
-4. Build the provenance and truthful-state components (W4) — these are what
-   replace the legacy's demo-mode ambiguity, and they should exist before the
-   screens that need them
-5. Matching control center, 13 views (W5)
+## Why the hold
 
-## Non-negotiables when it is built
+1. **No design standard.** The legacy accumulated four portal experiences, two
+   landing pages, a Streamlit UI, and 44 imported components with no shared
+   decisions behind them. Rebuilding without a standard reproduces that.
+2. **No generated client yet.** Architecture v1.1 §5.1 requires a *generated*
+   TypeScript client. Building screens now means hand-writing API calls and
+   rewriting them later — the coupling the contract forbids.
+3. **Little that is truthful to show.** The control center depends on match runs,
+   blocked on gate G1. A screen built early gets filled with placeholder content,
+   and placeholder content that looks real is the habit this revamp exists to end.
 
-- Route guards are **user experience only**. API authorization is authoritative.
-- No hard-coded demo identity, and no fallback records that look live.
-- Every data element carries a visible source label: observed, inferred,
-  heuristic, model output, or synthetic.
-- Failure states render truthfully — "travel estimate unavailable",
-  "unsynchronized calendar", "partial discovery: 3 of 5 sources".
-- WCAG 2.2 AA: keyboard, screen reader, contrast, focus.
+The API it will consume is real and growing —
+`contracts/openapi/smartmatch.json` currently describes health, unsubscribe, job
+status, job event streaming, and the import command.

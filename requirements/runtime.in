@@ -1,0 +1,9 @@
+# Direct runtime dependencies. Compiled to runtime.txt with hashes.
+# Regenerate: make lock
+fastapi>=0.115,<0.150
+uvicorn[standard]>=0.30,<0.40
+pydantic>=2.8,<3
+pydantic-settings>=2.4,<3
+sqlalchemy>=2.0,<2.1
+psycopg[binary]>=3.2,<4
+alembic>=1.13,<2

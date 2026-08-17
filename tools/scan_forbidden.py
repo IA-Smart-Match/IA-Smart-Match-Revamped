@@ -223,6 +223,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "mock-login",
     ): "Asserts the archived endpoint returns 404.",
     (
+        "tests/integration/test_command_path.py",
+        "mock-login",
+    ): "Asserts the archived endpoint returns 404 on the authenticated app too.",
+    (
         "python/smartmatch_providers/smartmatch_providers/fixtures.py",
         "demo-mode-fallback",
     ): "Docstring explains why fixtures are not a demo-data source.",

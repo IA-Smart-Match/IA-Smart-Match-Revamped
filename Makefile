@@ -3,9 +3,9 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-# The domain, authz, and provider packages are pure and live outside site-packages
-# during development, so tooling needs them on the path explicitly.
-DOMAIN_PATH := python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_providers
+# Workspace packages live outside site-packages during development, so tooling
+# needs them on the path explicitly.
+DOMAIN_PATH := python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_providers:python/smartmatch_persistence
 export SMARTMATCH_DATABASE_URL ?= postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch
 
 .PHONY: help
@@ -18,15 +18,25 @@ help: ## Show this help
 # ---------------------------------------------------------------------------
 
 .PHONY: setup
-setup: ## Create the virtualenv and install all dev dependencies
+setup: ## Create the virtualenv and install pinned dev dependencies
 	python3 -m venv $(VENV)
 	$(PIP) install -q --upgrade pip
-	$(PIP) install -q -e python/smartmatch_domain -e python/smartmatch_authz \
-		-e python/smartmatch_providers
-	$(PIP) install -q fastapi 'uvicorn[standard]' pydantic pydantic-settings httpx \
-		alembic 'sqlalchemy>=2.0' 'psycopg[binary]' \
-		pytest pytest-cov ruff mypy import-linter
+	# Hash-verified, so a compromised or newly-broken upstream release cannot be
+	# picked up silently. Resolves security finding S-003.
+	$(PIP) install -q --require-hashes -r requirements/dev.txt
+	# Workspace packages, installed editable so local edits take effect.
+	$(PIP) install -q --no-deps -e python/smartmatch_domain -e python/smartmatch_authz \
+		-e python/smartmatch_providers -e python/smartmatch_persistence
 	@echo "Setup complete. Run 'make check' to verify."
+
+.PHONY: lock
+lock: ## Recompile the dependency locks from requirements/*.in
+	$(PIP) install -q pip-tools
+	$(VENV)/bin/pip-compile --generate-hashes --strip-extras --quiet \
+		--output-file=requirements/runtime.txt requirements/runtime.in
+	$(VENV)/bin/pip-compile --generate-hashes --strip-extras --quiet \
+		--output-file=requirements/dev.txt requirements/dev.in
+	@echo "Locks regenerated. Review the diff before committing."
 
 # ---------------------------------------------------------------------------
 # Verification gates — these mirror CI exactly

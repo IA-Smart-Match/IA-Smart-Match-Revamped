@@ -30,12 +30,13 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| F1 | Pin dependencies to a lock file with hashes | — | Resolves security finding S-003; blocks F2 |
-| F2 | Add dependency vulnerability, license, and SBOM scanning to CI | F1 | Scanning unpinned dependencies gives results that do not match what installs |
-| F3 | Independent review of the four `ported_unverified` manifest entries | — | §6 of the orchestrator contract forbids self-approval; moves MM-001/003/004/005 to `verified` |
+| ~~F1~~ | ~~Pin dependencies to a lock file with hashes~~ | — | **Done.** `requirements/*.txt`, hash-verified, with a CI drift gate. Resolves S-003. |
+| ~~F2a~~ | ~~Dependency vulnerability scanning~~ | F1 | **Done.** `pip-audit --strict` against the lock. Resolves S-004. |
+| F2b | License-policy check and SBOM generation | F1 | The remainder of F2. Not blocking. |
+| F3 | Independent review of the four `ported_unverified` manifest entries | — | §6 of the orchestrator contract forbids self-approval; moves MM-001/003/004/005 to `verified`. **Still the cheapest unblocked item.** |
 | F4 | Containerize API and worker; add image build to CI | F1 | Needed before any deployment; also unblocks container scanning |
 | F5 | Flesh out Terraform environment skeletons | F4 | Still no deployment — configuration only, with the CI assertion that environments share no identifiers |
-| F6 | Add ADRs for decisions made during scaffolding | — | Package boundaries, LTree type declaration, StrEnum adoption, scanner design |
+| F6 | Add ADRs for decisions made during scaffolding | — | Partially done (ADR-0001..0003). Still to record: the LTree type declaration, the outbox CTE claim pattern, and the fixed-window limiter tradeoff. |
 
 ---
 
@@ -60,32 +61,53 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| J1 | Outbox dispatcher: lease, claim, create task, record evidence | — | Tables exist. Needs a lag metric, an alert, and crash recovery via lease expiry. |
-| J2 | Command resource pattern with idempotency and 202 + job id | J1 | Explicit resources per v1.1 §1.11, not a generic job-type switch |
-| J3 | SSE `GET /v1/jobs/{id}/events` with `Last-Event-ID` | J1 | Backed by `job_event.sequence`; this is why Redis is not required |
-| J4 | Re-drive command with authorization and audit | J1 | Cloud Tasks has no native DLQ |
-| J5 | Integration tests: crash between commit and task creation must not lose a job; duplicate delivery must not double-execute | J1 | Named explicitly in the v1.1 §4.1 gate list |
-| J6 | Real OIDC task-identity verification in the worker | J1 | Resolves security finding S-001 |
-| A1 | Google Identity Platform token verification in the API | — | Replaces the archived mock login |
-| A2 | Wire `smartmatch_authz` into request handling as a dependency | A1 | The policy is written and tested; nothing calls it yet |
-| A3 | PostgreSQL transactional rate limiter | A1 | Resolves security finding S-002. **Must ship with the first command endpoint, not after it.** |
-| A4 | Authorization policy matrix with negative tests per operation | A2 | v1.1 §2.1 names this as a workstream |
+| ~~J1~~ | ~~Outbox dispatcher~~ | — | **Done.** Lease/claim with `FOR UPDATE SKIP LOCKED`, deterministic task names, dispatch evidence, lag metric, crash recovery via lease expiry. |
+| ~~J2~~ | ~~Command resource pattern with idempotency and 202 + job id~~ | J1 | **Done.** `submit_command` commits reservation, quota, job, and outbox in one transaction. `/imports` is the first resource. |
+| ~~J3~~ | ~~SSE with `Last-Event-ID`~~ | J1 | **Done.** Backed by `job_event.sequence`; polling reads the same rows. |
+| ~~J5~~ | ~~The two named integration scenarios~~ | J1 | **Done.** `tests/integration/test_outbox_dispatcher.py`. |
+| J4 | Re-drive command with authorization and audit | J1 | Cloud Tasks has no native DLQ. Table exists; the command does not. |
+| J6 | Real OIDC task-identity verification in the worker | J1 | Resolves security finding S-001. The stub fails closed meanwhile. |
+| J7 | Worker command handlers, and the `running -> succeeded/partial/failed` transitions | J1, J6 | The dispatcher delivers; nothing executes yet. |
+| J8 | Dispatcher scheduling (Cloud Scheduler → dispatcher endpoint) and its alert | J1, F4 | `run_once` and `lag` exist; nothing calls them on a timer. |
+| ~~A1a~~ | ~~Token verification adapter and principal resolution~~ | — | **Done.** Interface, fixture, and database-backed principal lookup. |
+| A1b | Live Google Identity Platform verifier (JWKS, audience, rotation) | — | The fixture accepts only registered tokens, so it cannot be mistaken for permissive auth. |
+| ~~A2~~ | ~~Wire `smartmatch_authz` into request handling~~ | A1a | **Done.** Applied in handlers after the resource is loaded, not as a blanket dependency. |
+| ~~A3~~ | ~~PostgreSQL transactional rate limiter~~ | A1a | **Done.** Shipped with the first command endpoint, as S-002 required. |
+| A4 | Authorization policy matrix with negative tests per operation | A2 | v1.1 §2.1 names this as a workstream. One operation is covered; the matrix is not. |
 
 ---
 
-## R1 — Frontend
+## R1 — Frontend — **ON HOLD**
 
-Sequenced deliberately. Building components before the generated client exists
-would recreate the hand-written-API coupling v1.1 §5.1 forbids.
+**Blocked on `apps/web/DESIGN.md`**, which is a brief, not a design, and has no
+owner. Nothing in `apps/web` is built until a standardized design system exists.
+
+This is a deliberate hold, not a backlog item waiting its turn. Three reasons,
+set out in full in that document:
+
+1. There is no design standard. The legacy accumulated four portals, two landing
+   pages, a Streamlit UI, and 44 imported components with no shared decisions
+   behind them; rebuilding without a standard reproduces that.
+2. The generated TypeScript client does not exist yet, and building screens
+   against a hand-written client recreates the coupling v1.1 §5.1 forbids.
+3. Most screens have nothing truthful to show — the control center depends on
+   match runs, which are blocked on gate G1. A screen built early gets filled
+   with placeholder content, which is the exact habit this revamp exists to end.
+
+`DESIGN.md` already records the constraints that are *settled* (provenance
+labelling, truthful failure states, guards-are-UX-only, no hard-coded identity,
+WCAG 2.2 AA, the professional's right to correct their own workload data) so the
+redesign starts from them rather than rediscovering them.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| W1 | Scaffold `apps/web` — React 18, TypeScript, Vite | — | |
-| W2 | Generate the TypeScript client from OpenAPI; add a drift check to CI | J2 (routes must exist) | Generated only, never hand-edited |
-| W3 | Port presentational components (MM-F01) | W1, W2 | Confirm upstream shadcn/ui licensing first. Leave `mockData.ts` and `mockProfilePhotos.ts` behind. |
-| W4 | Provenance and truthful-state components | W1 | Observed / inferred / heuristic / model output / synthetic labels; "travel estimate unavailable"; "partial discovery: 3 of 5". This component family is what kills the demo-mode ambiguity. |
-| W5 | Matching control center — 13 views | M8, W2 | |
+| **D-0** | **Assign a DESIGN.md owner and settle the eight open decisions** | — | **Blocks everything below.** See `apps/web/DESIGN.md` Part 2. |
+| W1 | Scaffold `apps/web` — React 18, TypeScript, Vite | D-0 | |
+| W2 | Generate the TypeScript client from OpenAPI; add a drift check to CI | W1 | Routes now exist (`/imports`, `/v1/jobs/*`), so this is unblocked once W1 is |
+| W4 | Provenance and truthful-state components | W1 | **Before W3 and W5, deliberately.** These enforce the labelling rule; anything built before them needs revisiting. |
+| W3 | Port presentational components (MM-F01) | W1, W2, W4 | Confirm upstream shadcn/ui licensing first. Leave `mockData.ts` and `mockProfilePhotos.ts` behind. |
 | W6 | Accessibility: WCAG 2.2 AA, plus a11y smoke tests in CI | W1 | |
+| W5 | Matching control center — 13 views | M8, W2, W4 | Also blocked on gate G1 via M8 |
 | W7 | Add web gates to CI (npm ci, tsc, vitest, bundle budget, Playwright) | W1 | Listed as deferred in `.github/workflows/verify.yml` |
 
 ---
@@ -110,12 +132,17 @@ Recorded so the sequencing is visible, not scheduled here.
 
 ## Suggested next three
 
-If work resumes tomorrow, this is where it starts:
+The durable command path is now complete end to end: a command is authenticated,
+authorized, rate-limited, recorded, dispatched, and followable. What it cannot
+yet do is *execute*.
 
-1. **F3** — get the four ported components independently reviewed. Cheap,
-   unblocks the manifest, and needs no decisions.
-2. **D1** — start the factor-registry approval conversation. It is the longest
-   pole and the only thing blocking the product's core.
-3. **J1 + A1** — the outbox dispatcher and real token verification. Both are
-   unblocked, both are prerequisites for every command endpoint, and A3 must land
-   alongside the first one.
+1. **J7 + J6** — worker command handlers and real OIDC task verification. The
+   dispatcher delivers tasks that nothing consumes; this closes the loop and
+   resolves S-001. Largest remaining unblocked engineering item.
+2. **D1** — start the factor-registry approval conversation. Still the longest
+   pole and still the only thing blocking the product's core.
+3. **D-0** — assign a DESIGN.md owner. The frontend is blocked until someone owns
+   it, and that is a staffing decision, not an engineering one.
+
+**F3** (independent review of the four ports) remains cheap, unblocked, and
+worth doing whenever a reviewer is free.

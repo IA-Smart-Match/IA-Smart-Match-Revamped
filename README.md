@@ -33,11 +33,15 @@ was kept, what was rejected, and why.
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 29 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
 | Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
+| Transactional outbox + dispatcher | `smartmatch_worker.dispatcher` | 17 integration |
+| Job/outbox/idempotency repositories | `smartmatch_persistence` | 8 schema-drift |
+| Transactional rate limiter | `smartmatch_persistence.rate_limit` | 14 integration |
+| Authenticated command path, end to end | `services/api` | 26 integration |
 | API health + non-mutating unsubscribe GET | `services/api` | 10 contract |
 | Worker boundary, failing closed | `services/worker` | 4 contract |
 | Forbidden-legacy-behavior scanner | `tools/scan_forbidden.py` | 25 self-tests |
 
-**208 tests total** (207 pass, 1 skipped by design — see
+**287 tests total** (286 pass, 1 skipped by design — see
 `test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
 second implemented scoring factor).
 
@@ -48,11 +52,12 @@ second implemented scoring factor).
 | Matching / scoring | **Blocked** — registry proposed, scoring fails closed | Gate G1 (see finding F-001) |
 | CP-SAT portfolio assignment | Not started | Gate G1, then R1 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
-| Outbox dispatcher | Tables exist; dispatcher not written | R1 |
+| Worker command execution | Dispatcher delivers; no handler consumes yet | R1 |
+| Live identity verifier (JWKS) | Fixture only; accepts registered tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
 | Research agents / crawler | Not scaffolded | Gate G3, R3 |
-| `apps/web` frontend | Directory only | R1 (needs generated client first) |
+| `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
@@ -92,11 +97,13 @@ a live provider without credentials that do not exist in this repository.
 python/smartmatch_domain/      Pure domain logic. Zero dependencies.
 python/smartmatch_authz/       Deny-by-default policy. Pure.
 python/smartmatch_providers/   Provider interfaces + fixture adapters.
+python/smartmatch_persistence/ PostgreSQL schema and repositories.
 services/api/                  FastAPI HTTP boundary.
-services/worker/               Private Cloud Tasks target.
-apps/web/                      React frontend (not yet built).
+services/worker/               Private Cloud Tasks target + outbox dispatcher.
+apps/web/                      Frontend. ON HOLD — see apps/web/DESIGN.md.
 contracts/openapi/             Generated contract — source of truth for clients.
 db/migrations/                 Alembic, expand → migrate → contract.
+requirements/                  Hash-pinned dependency locks.
 infra/terraform/               Environment skeletons. Nothing deployed.
 tools/                         Verification scripts.
 tests/                         unit · golden · authz · contract · integration
@@ -165,6 +172,7 @@ Contract-Refs: v1.1 §N.N
 | [Security review](docs/security/scaffold-security-review.md) | Scaffold security posture and residual risk |
 | [Verification record](docs/testing/scaffold-verification.md) | Every check run, with its exact result |
 | [Remaining work](docs/plans/remaining-foundation-r1-work.md) | Foundation and R1 backlog in dependency order |
+| [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eight decisions the redesign must make |
 
 ---
 

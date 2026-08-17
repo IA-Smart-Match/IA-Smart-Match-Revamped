@@ -43,35 +43,45 @@ added.
 
 **Residual risk:** none while unimplemented. **Owner:** engineering, R1.
 
-### S-002 — No rate limiting or budget enforcement in the request path
+### S-002 — Rate limiting **(RESOLVED)**
 
 v1.1 §3.4 specifies a three-layer scheme (Cloud Armor → PostgreSQL transactional
-limiter → budget reservation). The Foundation scaffold implements the *tables*
-(`tenant_budget`, `concurrency_lease`) and proves the transactional pattern works
-(`test_transactional_budget_reservation_cannot_exceed_the_ceiling`), but no
-middleware enforces limits.
+limiter → budget reservation). Layer 2 is now implemented in
+`smartmatch_persistence.rate_limit` and enforced on the command path, shipping in
+the same commit as the first command resource as this finding required.
 
-**Residual risk:** low today — the API exposes only health and a static
-unsubscribe page, neither of which consumes provider budget. Rises to **high**
-the moment any command endpoint ships. **Owner:** engineering, R1. Must land in
-the same release as the first command resource.
+Counters are PostgreSQL rows incremented by a single `INSERT ... ON CONFLICT DO
+UPDATE` with a guard on the SET clause, so there is no read-then-write window in
+which two instances both observe room. `test_the_counter_is_shared_across_sessions`
+asserts the property that matters: an in-process counter would let each Cloud Run
+instance permit the full quota independently.
 
-### S-003 — Dependencies are not pinned to a lock file
+**Remaining:** layer 1 (Cloud Armor) requires deployed infrastructure; layer 3
+(budget reservation) ships with the first paid provider call in R4. Neither is
+reachable today — no endpoint spends provider budget.
 
-`make setup` and CI install from unpinned specifiers. A compromised or
-newly-broken upstream release would be picked up silently.
+### S-003 — Dependency pinning **(RESOLVED)**
 
-**Residual risk:** medium. **Owner:** engineering, before-live gate. Resolution:
-generate a lock file (`uv.lock` or `requirements.txt` with hashes) and switch CI
-to a frozen install.
+`requirements/runtime.txt` and `requirements/dev.txt` are compiled from `.in`
+files with `--generate-hashes`, and both `make setup` and CI install with
+`--require-hashes`. A compromised or newly-published upstream artifact fails the
+hash check rather than being installed silently.
 
-### S-004 — No dependency vulnerability or license scanning yet
+CI also recompiles the locks and fails if they differ from what is committed, so
+a `.in` edited without running `make lock` cannot leave CI installing something
+other than what the author intended.
 
-Deferred to the before-live gate set per v1.1 §4.1 staging. Blocked on S-003:
-scanning unpinned dependencies produces results that do not correspond to what
-actually gets installed.
+Verified by a clean frozen install into an empty virtualenv, not only by the
+files existing.
 
-**Residual risk:** medium. **Owner:** engineering, before-live.
+### S-004 — Dependency vulnerability scanning **(RESOLVED)**
+
+The `audit` job runs `pip-audit --strict` against `requirements/runtime.txt`.
+Auditing the lock rather than a fresh resolve means the result describes exactly
+what gets installed. Current result: no known vulnerabilities.
+
+**Remaining:** license-policy checking and SBOM generation stay in the
+before-live gate set. Neither blocks anything today.
 
 ### S-005 — Legacy repository contains committed local databases
 
