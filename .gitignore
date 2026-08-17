@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# Secrets and credentials — never committed.
+# The forbidden-legacy-behavior scan (tools/scan_forbidden.py) also fails the
+# build if any of these appear in tracked files.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-credentials.json
+service-account*.json
+gha-creds-*.json
+
+# ---------------------------------------------------------------------------
+# Local business persistence is prohibited by architecture v1.1 §"Forbidden
+# legacy behavior". These patterns exist so an accidental local write is never
+# committed; PostgreSQL is the only system of record.
+# ---------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+data/feedback/
+cache/
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+apps/web/dist/
+apps/web/.vite/
+*.tsbuildinfo
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

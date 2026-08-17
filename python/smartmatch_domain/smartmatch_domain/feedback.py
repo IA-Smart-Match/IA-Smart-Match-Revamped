@@ -1,0 +1,231 @@
+"""Coordinator feedback validation and shadow-mode weight proposals.
+
+Ported from Nebiux-Team-IA-West-SmartMatch@bdce024:src/feedback/acceptance.py
+under migration manifest entry MM-005.
+
+Retained: the decline-reason vocabulary, the reason-to-factor mapping, and the
+aggregation that turns accept/decline decisions into a weight-adjustment
+proposal. That is the useful core of the legacy "governed feedback loop".
+
+Rejected: the Streamlit imports and ``render_*`` functions (presentation in a
+domain module); ``st.session_state`` as authoritative storage; the CSV/JSONL
+append in ``_persist_to_csv`` (business writes to repository-local files are
+prohibited — PostgreSQL is the system of record); and the demo-fixture fallback
+in ``aggregate_feedback``, which returned fabricated aggregates when no real
+feedback existed.
+
+Architecture v1.1 Appendix B requires this loop stay **shadow-mode**: it
+proposes weight deltas, and a human approves them. Generative AI never chooses
+ranking weights (v1.1 §1.2), and neither does this module — it only computes an
+arithmetic proposal from recorded human decisions, bounded so no single feedback
+round can swing the model.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
+from typing import Final
+
+__all__ = [
+    "Decision",
+    "DeclineReason",
+    "REASON_TO_FACTOR",
+    "FeedbackEntry",
+    "WeightProposal",
+    "aggregate",
+    "propose_weight_adjustments",
+]
+
+#: Maximum a single factor's weight may move in one proposal. Carried forward
+#: from the legacy ``OPTIMIZER_MAX_FACTOR_DELTA`` default (0.08), which was a
+#: reasonable bound; here it is a domain constant rather than an env var, so a
+#: misconfigured environment cannot widen the blast radius.
+MAX_FACTOR_DELTA: Final[float] = 0.08
+
+#: Weight bump applied per net decline attributed to a factor. Carried forward
+#: from the legacy ``OPTIMIZER_REASON_WEIGHT_BUMP`` default (0.03).
+PER_REASON_BUMP: Final[float] = 0.03
+
+#: Below this many decisions a proposal is not produced at all. The legacy had
+#: no floor and would happily "learn" from a single click.
+MIN_DECISIONS_FOR_PROPOSAL: Final[int] = 5
+
+
+class Decision(str, Enum):
+    """A coordinator's decision on a proposed assignment."""
+
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class DeclineReason(str, Enum):
+    """Why a coordinator declined a proposal.
+
+    A closed vocabulary, ported from the legacy ``DECLINE_REASONS`` list. Free
+    text is deliberately not a reason code: it cannot be aggregated, and the
+    legacy's attempt to map free text to factors by substring matching was the
+    source of its noisiest weight suggestions.
+    """
+
+    WRONG_TOPIC = "wrong_topic"
+    WRONG_ROLE = "wrong_role"
+    TOO_FAR = "too_far"
+    UNAVAILABLE = "unavailable"
+    OVERCOMMITTED = "overcommitted"
+    RECENTLY_ENGAGED = "recently_engaged"
+    OTHER = "other"
+
+
+#: Which factor a decline reason implicates. ``OTHER`` maps to nothing on
+#: purpose — an uncategorized decline must not move any weight.
+REASON_TO_FACTOR: Final[Mapping[DeclineReason, str | None]] = MappingProxyType(
+    {
+        DeclineReason.WRONG_TOPIC: "topic_relevance",
+        DeclineReason.WRONG_ROLE: "role_fit",
+        DeclineReason.TOO_FAR: "travel_burden",
+        DeclineReason.UNAVAILABLE: "availability",
+        DeclineReason.OVERCOMMITTED: "engagement_load",
+        DeclineReason.RECENTLY_ENGAGED: "repeat_penalty",
+        DeclineReason.OTHER: None,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackEntry:
+    """One recorded coordinator decision.
+
+    Attributes:
+        match_run_id: The immutable match run the proposal came from. Feedback
+            is always attributed to a specific versioned run, so a weight
+            proposal can be traced to the exact model that produced the
+            proposals being judged.
+        decision: Accepted or declined.
+        reason: Required when declined, forbidden when accepted.
+    """
+
+    match_run_id: str
+    decision: Decision
+    reason: DeclineReason | None = None
+
+    def __post_init__(self) -> None:
+        if self.decision is Decision.DECLINED and self.reason is None:
+            raise ValueError("a declined proposal must carry a decline reason")
+        if self.decision is Decision.ACCEPTED and self.reason is not None:
+            raise ValueError("an accepted proposal must not carry a decline reason")
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackAggregate:
+    """Counts derived from a set of feedback entries."""
+
+    total: int
+    accepted: int
+    declined: int
+    reason_counts: Mapping[DeclineReason, int]
+
+    @property
+    def acceptance_rate(self) -> float | None:
+        """Fraction accepted, or ``None`` when there is no feedback.
+
+        ``None`` rather than ``0.0``: an empty feedback set means *unknown*, and
+        rendering it as a 0% acceptance rate is the kind of confident-looking
+        fabrication v1.1 §5.5 exists to eliminate.
+        """
+        if self.total == 0:
+            return None
+        return round(self.accepted / self.total, 4)
+
+
+@dataclass(frozen=True, slots=True)
+class WeightProposal:
+    """A shadow-mode proposal to adjust factor weights.
+
+    Never applied automatically. Architecture v1.1 Appendix B requires human
+    approval, and :attr:`requires_approval` is always ``True`` — it exists so
+    the requirement is visible in the payload the UI renders, not so it can be
+    toggled.
+
+    Attributes:
+        deltas: Per-factor weight change, each bounded by :data:`MAX_FACTOR_DELTA`.
+        based_on: The aggregate the proposal was derived from.
+        rationale: Human-readable explanation, one line per implicated factor.
+    """
+
+    deltas: Mapping[str, float]
+    based_on: FeedbackAggregate
+    rationale: tuple[str, ...]
+
+    @property
+    def requires_approval(self) -> bool:
+        """Always ``True``. Weight changes are a human decision."""
+        return True
+
+
+def aggregate(entries: Sequence[FeedbackEntry]) -> FeedbackAggregate:
+    """Count decisions and decline reasons.
+
+    Returns zeroed counts for an empty input rather than substituting demo
+    fixtures, which is what the legacy did when no feedback had been recorded.
+    """
+    accepted = sum(1 for e in entries if e.decision is Decision.ACCEPTED)
+    declined = sum(1 for e in entries if e.decision is Decision.DECLINED)
+    reasons: Counter[DeclineReason] = Counter(
+        e.reason for e in entries if e.reason is not None
+    )
+    return FeedbackAggregate(
+        total=len(entries),
+        accepted=accepted,
+        declined=declined,
+        reason_counts=MappingProxyType(dict(reasons)),
+    )
+
+
+def propose_weight_adjustments(entries: Sequence[FeedbackEntry]) -> WeightProposal | None:
+    """Derive a bounded, shadow-mode weight proposal from recorded decisions.
+
+    A factor implicated by declines gets its weight nudged up, on the reasoning
+    that the model under-weighted something coordinators clearly care about. The
+    nudge is ``PER_REASON_BUMP`` per decline, clamped to ``MAX_FACTOR_DELTA``.
+
+    Args:
+        entries: Recorded decisions, typically scoped to one tenant and a recent
+            window by the caller.
+
+    Returns:
+        A proposal, or ``None`` when there is too little feedback to justify one
+        (fewer than :data:`MIN_DECISIONS_FOR_PROPOSAL` decisions, or no
+        categorized declines). ``None`` means "no opinion" and must be rendered
+        as such — never as a proposal of zero deltas, which would read as a
+        positive finding that the current weights are correct.
+    """
+    counts = aggregate(entries)
+    if counts.total < MIN_DECISIONS_FOR_PROPOSAL:
+        return None
+
+    deltas: dict[str, float] = {}
+    rationale: list[str] = []
+
+    for reason, count in sorted(counts.reason_counts.items(), key=lambda kv: kv[0].value):
+        factor = REASON_TO_FACTOR[reason]
+        if factor is None or count == 0:
+            continue
+        delta = min(MAX_FACTOR_DELTA, PER_REASON_BUMP * count)
+        deltas[factor] = round(delta, 4)
+        rationale.append(
+            f"{count} decline(s) for {reason.value!r} suggest {factor!r} is "
+            f"under-weighted; proposing +{delta:.4f}"
+        )
+
+    if not deltas:
+        return None
+
+    return WeightProposal(
+        deltas=MappingProxyType(deltas),
+        based_on=counts,
+        rationale=tuple(rationale),
+    )
