@@ -1,0 +1,342 @@
+# SmartMatch migration manifest
+#
+# One entry per legacy component considered for the target, per §10 of the
+# migration orchestrator contract. No code-port commit is complete until its
+# entry reaches at least `ported_unverified`; no Foundation/R1 gate passes until
+# every included entry is `verified`, `rejected`, or `archived`.
+#
+# Dispositions: REUSE / ADAPT / REPLACE / ARCHIVE
+# Statuses: inventoried, blocked_contract, blocked_provenance, characterized,
+#           porting, ported_unverified, verified, rejected, archived
+
+metadata:
+  legacy_repository: BrooklynD23/Nebiux-Team-IA-West-SmartMatch
+  legacy_sha: bdce024de1a9bf488c6bd9a7c24a3c87e03ffa42
+  legacy_sha_verified: true
+  legacy_sha_verified_by: git cat-file -t + git log -1 (Fri Apr 17 12:00:15 2026 -0700)
+  legacy_worktree_modified: false
+  architecture_contract_version: "1.1"
+  target_repository: BrooklynD23/IA-Smart-Match-Revamped
+  target_branch: claude/smart-match-v1-migration-sp1t49
+  migration_owner: engineering
+  generated: 2026-08-17
+
+# ---------------------------------------------------------------------------
+# Ported
+# ---------------------------------------------------------------------------
+
+entries:
+  - id: MM-001
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/outreach/ics_generator.py"
+    legacy_symbol: "generate_ics, _escape_ics_text, _make_uid, _parse_date"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/ics.py
+    target_symbol: "generate_ics, CalendarInvite, _fold_line, _escape_text"
+    disposition: ADAPT
+    contract_refs: ["v1.1 §3.1", "v1.1 §3.6", "v1.1 §5.5"]
+    behavior_retained: >-
+      Pure RFC 5545 string building with no external library; the VCALENDAR and
+      VEVENT envelope; deterministic UID derivation so a regenerated invite
+      updates rather than duplicates; CRLF line endings; TEXT escaping of
+      backslash, semicolon, comma, and newline; omission of absent optional
+      fields; the one-hour default duration.
+    behavior_rejected: >-
+      Three defects, each now covered by a golden test that fails against the
+      legacy. (1) Unparseable dates silently became "30 days from now",
+      fabricating a meeting slot nobody chose — prohibited by v1.1 §3.6 N1;
+      generate_ics now requires a resolved timezone-aware datetime and raises
+      UnschedulableEventError otherwise. (2) Naive datetimes were formatted with
+      a trailing Z, asserting UTC for a value that had no timezone and shifting
+      the event by the local offset in every consuming calendar. (3) No RFC 5545
+      §3.1 line folding, so long SUMMARY/DESCRIPTION values produced documents
+      strict parsers reject; folding is now octet-based and never splits a
+      multi-byte codepoint.
+    dependencies_removed: ["logging (module-level logger)", "implicit clock reads"]
+    data_provenance: no data; pure string generation
+    characterization_tests: tests/golden/test_ics_golden.py (7 preserved-behavior cases)
+    target_tests: tests/golden/test_ics_golden.py (8 corrected-behavior cases, 15 total)
+    security_review: >-
+      No IO, no network, no secrets. UID namespace uses a .invalid TLD rather
+      than a real domain, since domain registration is open decision 8 and a real
+      domain would imply mail routing that does not exist.
+    migration_owner: engineering
+    reviewer: pending
+    status: ported_unverified
+    completion_commit: 7b5ab9f
+    notes: >-
+      Verification pending a reviewer other than the author, per §6 of the
+      orchestrator contract: an agent may not approve its own port.
+
+  - id: MM-003
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/matching/factors.py"
+    legacy_symbol: "volunteer_fatigue, volunteer_recovery_details, _recurrence_pressure"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/eli.py
+    target_symbol: "compute_eli, evaluate_cap, load_penalty, LoadInputs, EliSnapshot"
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.3", "v1.1 §2.2", "v1.1 §5.1"]
+    behavior_retained: >-
+      The shape of the computation only: recent assignment pressure, travel
+      burden, and event cadence combined into a bounded score, with recency
+      weighting.
+    behavior_rejected: >-
+      The health framing and its coordinator-facing labels ("Rest Recommended",
+      "Needs Rest"), which implied an assessment SmartMatch has no evidence to
+      make. The inference from a pipeline `stage_order` column to
+      "days_since_last_assignment", which invented a number the data never
+      contained. The single blended score with no separable hard cap — v1.1 §1.3
+      requires the cap (Stage A) and the penalty (Stage B) be applied and
+      reported separately. The pandas DataFrame coupling.
+    dependencies_removed: ["pandas", "src.config constants", "geographic_proximity"]
+    data_provenance: operational workload facts only; prohibited-input list enforced by schema
+    characterization_tests: n/a — REPLACE, not a port; legacy outputs are not a target
+    target_tests: tests/unit/test_eli.py (20 cases)
+    security_review: >-
+      Closed input structure (LoadInputs) means a prohibited field cannot reach
+      the computation. Prohibited-input list asserted in
+      tests/unit/test_factor_registry.py.
+    migration_owner: engineering
+    reviewer: pending
+    status: ported_unverified
+    completion_commit: 7b5ab9f
+    notes: >-
+      Decay half-life (45d), rolling window (90d), and modifier weighting are
+      proposed defaults. Open decision 2 assigns final parameters to the program
+      owner.
+
+  - id: MM-004
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/data_loader.py"
+    legacy_symbol: "_validate_columns, DataQualityResult, generate_quality_report"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/ingest.py
+    target_symbol: "validate_columns, DatasetQuality, QualityFinding, normalize_header"
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.5", "v1.1 §5.5"]
+    behavior_retained: >-
+      Column validation against a required set, accumulating findings rather than
+      stopping at the first, and reporting data quality separately from the data
+      itself.
+    behavior_rejected: >-
+      All filesystem coupling: `_try_read_csv`, encoding sniffing, the DATA_DIR
+      constants, and the pandas DataFrame return type. Repository-local CSVs are
+      demo persistence; PostgreSQL is the system of record and file parsing
+      belongs in an adapter. Also rejected: returning a partially-populated frame
+      when required columns were missing and letting downstream scoring proceed —
+      the import now fails closed. Added: a required column present but blank in
+      every row is an error, which the legacy reported as healthy.
+    dependencies_removed: ["pandas", "pathlib", "src.config", "streamlit caching"]
+    data_provenance: operates on already-parsed rows; knows nothing of their source
+    characterization_tests: tests/unit/test_ingest.py (column-validation parity cases)
+    target_tests: tests/unit/test_ingest.py (14 cases)
+    security_review: no IO; no path handling; cannot be induced to read a file
+    migration_owner: engineering
+    reviewer: pending
+    status: ported_unverified
+    completion_commit: 7b5ab9f
+
+  - id: MM-005
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/feedback/acceptance.py"
+    legacy_symbol: "DECLINE_REASONS, REASON_TO_FACTOR, aggregate_feedback, generate_weight_suggestions"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/feedback.py
+    target_symbol: "aggregate, propose_weight_adjustments, DeclineReason, WeightProposal"
+    disposition: ADAPT
+    contract_refs: ["v1.1 Appendix B", "v1.1 §1.2", "v1.1 §5.5"]
+    behavior_retained: >-
+      The decline-reason vocabulary, the reason-to-factor mapping, the
+      aggregation of accept/decline decisions, and the bounded weight-delta
+      proposal (MAX_FACTOR_DELTA 0.08, PER_REASON_BUMP 0.03 carried forward from
+      the legacy env-var defaults).
+    behavior_rejected: >-
+      Streamlit imports and every render_* function (presentation in a domain
+      module). st.session_state as authoritative storage. The CSV append in
+      _persist_to_csv — business writes to repository-local files are prohibited.
+      The demo-fixture fallback in aggregate_feedback, which returned fabricated
+      aggregates when no real feedback existed. Free-text decline reasons mapped
+      to factors by substring matching, the source of the noisiest suggestions.
+      Added: a minimum decision floor (5), because the legacy would learn from a
+      single click; and acceptance_rate returns None rather than 0.0 for an empty
+      set, since empty means unknown.
+    dependencies_removed: ["streamlit", "pandas", "pathlib", "json", "src.demo_mode"]
+    data_provenance: coordinator decisions only, attributed to a versioned match_run
+    characterization_tests: tests/unit/test_feedback.py (reason-mapping parity cases)
+    target_tests: tests/unit/test_feedback.py (16 cases)
+    security_review: >-
+      Shadow mode enforced structurally — WeightProposal.requires_approval is a
+      property returning True, not a settable field, so no caller can mark a
+      proposal auto-applicable.
+    migration_owner: engineering
+    reviewer: pending
+    status: ported_unverified
+    completion_commit: 7b5ab9f
+
+# ---------------------------------------------------------------------------
+# Blocked
+# ---------------------------------------------------------------------------
+
+  - id: MM-002
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/matching/{engine,factors,explanations}.py"
+    legacy_symbol: "compute_match_score, rank_speakers, topic_relevance, role_fit, geographic_proximity, calendar_fit, historical_conversion, student_interest"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/factor_registry.py (registry proposal only)
+    target_symbol: PROPOSED_FACTORS, normalize_weights, assert_registry_approved
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.2", "v1.1 gate G1", "v1.1 Appendix C item 1"]
+    behavior_retained: none yet — the scoring path is not ported
+    behavior_rejected: >-
+      Deferred pending gate G1. See docs/architecture/review/contract-findings.md
+      finding F-001 for the measured defect.
+    dependencies_removed: []
+    data_provenance: n/a
+    characterization_tests: >-
+      Cannot be written. Characterization requires agreed-correct expected
+      outputs, and the legacy's outputs are provably wrong (systematic ~10%
+      deflation). Pinning them would enshrine the defect.
+    target_tests: >-
+      tests/unit/test_factor_registry.py asserts the corrected normalization
+      invariant and that scoring fails closed while the gate is open.
+    security_review: n/a
+    migration_owner: engineering
+    reviewer: pending
+    status: blocked_contract
+    blocking_owner: program owner (named in v1.1 gate G1)
+    notes: >-
+      The orchestrator contract §Phase 5 states: "Start with pure matching
+      behavior only if factor definitions and golden cases are resolved.
+      Otherwise record it as blocked." Recorded as blocked. The registry
+      proposal is committed so the contradiction is resolved in the open, and
+      assert_registry_approved() fails closed so no scoring path can ship before
+      the gate closes.
+
+# ---------------------------------------------------------------------------
+# Archived — not copied, with the reason recorded
+# ---------------------------------------------------------------------------
+
+  - id: MM-A01
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/api/routers/portals.py:435"
+    legacy_symbol: 'POST /auth/mock-login'
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.11", "v1.1 §2.2"]
+    behavior_rejected: >-
+      Caller-selected identity. The single most dangerous pattern in the
+      baseline. Identity and tenant are derived server-side from a verified
+      token. tests/contract/test_api_health.py asserts the endpoint returns 404,
+      and tools/scan_forbidden.py fails the build if the pattern reappears.
+    status: archived
+
+  - id: MM-A02
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/runtime_state.py, src/coordinator/result_bus.py"
+    legacy_symbol: module-level dictionaries, queues, and result buses
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.6", "v1.1 §2.4"]
+    behavior_rejected: >-
+      Authoritative state in process memory. Incorrect across multiple Cloud Run
+      instances: a job written by one instance is invisible to another, and an
+      instance restart loses it entirely. Replaced by the job/job_event/outbox
+      tables with transactional counters and leases.
+    status: archived
+
+  - id: MM-A03
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/demo_mode.py, cache/demo_fixtures/*.json"
+    legacy_symbol: "load_fixture, DEMO_MODE, populated-screen fallbacks"
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §5.5", "v1.1 §3.6 N3"]
+    behavior_rejected: >-
+      Serving seed content unlabeled so a screen stays populated. v1.1 §5.5 names
+      this the anti-pattern the provenance component family exists to kill.
+      Fixture providers in the target return visibly synthetic results
+      (provider_message_id prefixed "fixture-") and never substitute for a
+      failed call.
+    status: archived
+
+  - id: MM-A04
+    legacy_path: "Category 3 - IA West Smart Match CRM/data/{demo.db,smartmatch.db}, data/feedback/feedback-log.jsonl"
+    legacy_symbol: SQLite and JSONL business persistence
+    disposition: REPLACE
+    contract_refs: ["v1.1 §3.1", "v1.1 §2.2"]
+    behavior_rejected: >-
+      Business records in repository-local files. PostgreSQL is the single system
+      of record. .gitignore blocks these patterns and CI fails if one is tracked.
+    status: archived
+
+  - id: MM-A05
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/app.py, src/ui/**"
+    legacy_symbol: Streamlit application and 20 UI modules
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §5.1"]
+    behavior_rejected: >-
+      Streamlit is not the target frontend; v1.1 §5.1 specifies React + TypeScript
+      + Vite consuming a generated client. The design-system decisions are worth
+      revisiting when apps/web is built (MM-F01), but no Streamlit code carries
+      forward.
+    status: archived
+
+  - id: MM-A06
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/voice/{stt,tts}.py"
+    legacy_symbol: Whisper STT and KittenTTS voice experiments
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.1"]
+    behavior_rejected: >-
+      Outside target scope. No accepted contract restores voice as a production
+      capability; per §8 of the orchestrator contract, experiments are archived
+      unless a contract restores them separately.
+    status: archived
+
+  - id: MM-A07
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/coordinator/**"
+    legacy_symbol: "nemoclaw_adapter, intent_parser, in-request agentic stream, tools/*"
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.4", "v1.1 §1.6", "v1.1 gate G3"]
+    behavior_rejected: >-
+      In-request agent orchestration with provider calls in the browser request
+      path. v1.1 §1.6 requires every consequential action be persisted as a
+      command and dispatched through the outbox. Agents ship in R3 behind gate
+      G3 (eval set, tool allowlist, cost controls approved), inside the worker
+      boundary. The useful requirement — a conversational surface over typed
+      capabilities — survives as the Jarvis design in v1.1 §1.4.
+    status: archived
+
+  - id: MM-A08
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/scraping/scraper.py"
+    legacy_symbol: crawl orchestration and extraction
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.5", "v1.1 gate G3"]
+    behavior_rejected: >-
+      Deferred to R3 pending the crawler threat model (SSRF, DNS rebinding,
+      redirect escape, decompression bombs, size/type/time limits,
+      prompt-injection isolation of fetched content). Per the expected first port
+      batch, this candidate is "security review first" — that review has not
+      happened, so nothing is ported.
+    status: archived
+    notes: Not yet inventoried in depth; revisit at R3 with a security reviewer.
+
+# ---------------------------------------------------------------------------
+# Not yet inventoried — deliberately, with the release that needs them
+# ---------------------------------------------------------------------------
+
+  - id: MM-F01
+    legacy_path: "Category 3 - IA West Smart Match CRM/frontend/src/app/components/ui/**"
+    legacy_symbol: 44 presentational components (shadcn/ui derived)
+    disposition: ADAPT
+    contract_refs: ["v1.1 §5.1"]
+    status: inventoried
+    notes: >-
+      Candidate 6 in the expected first port batch. Not ported: apps/web does not
+      exist yet, and porting components before the generated client exists would
+      recreate the hand-written-API coupling the contract forbids. Blocking
+      review when it happens: accessibility (WCAG 2.2 AA), demo-data coupling
+      (lib/mockData.ts, lib/mockProfilePhotos.ts must not come along), and the
+      generated-client boundary. Upstream shadcn/ui licensing must be confirmed
+      before any component is copied.
+
+  - id: MM-F02
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/qr/service.py"
+    legacy_symbol: QR encoding and rendering helpers
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.9"]
+    status: inventoried
+    notes: >-
+      Candidate 7. Only the visual encoding helpers are portable; the token
+      consumption and attendance trust model are replaced entirely — v1.1 §1.9
+      makes the event QR a reusable expiring artifact with idempotent check-in,
+      not a single-use nonce. Scheduled for R2 alongside attendance.
