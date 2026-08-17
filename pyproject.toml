@@ -10,6 +10,7 @@ members = [
     "python/smartmatch_domain",
     "python/smartmatch_authz",
     "python/smartmatch_providers",
+    "python/smartmatch_persistence",
     "services/api",
     "services/worker",
 ]
@@ -18,6 +19,7 @@ members = [
 smartmatch-domain = { workspace = true }
 smartmatch-authz = { workspace = true }
 smartmatch-providers = { workspace = true }
+smartmatch-persistence = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -45,7 +47,7 @@ ignore = ["B008"]  # FastAPI Depends() in defaults is idiomatic
 # En dash, em dash, and the section sign are intentional in prose: numeric and
 # release ranges (0–100, R1–R4) and architecture citations (v1.1 §1.3). Degrading
 # them to ASCII would make the documentation worse, not safer.
-allowed-confusables = ["–", "—", "§"]
+allowed-confusables = ["–", "—", "§", "×"]
 
 # ---------------------------------------------------------------------------
 # Typing
@@ -61,6 +63,7 @@ mypy_path = [
     "python/smartmatch_domain",
     "python/smartmatch_authz",
     "python/smartmatch_providers",
+    "python/smartmatch_persistence",
     "services/api",
     "services/worker",
 ]
@@ -80,6 +83,7 @@ pythonpath = [
     "python/smartmatch_domain",
     "python/smartmatch_authz",
     "python/smartmatch_providers",
+    "python/smartmatch_persistence",
     "services/api",
     "services/worker",
 ]
@@ -101,6 +105,7 @@ root_packages = [
     "smartmatch_domain",
     "smartmatch_authz",
     "smartmatch_providers",
+    "smartmatch_persistence",
 ]
 # Required so the forbidden contracts below can name third-party and stdlib
 # modules. Without it, "domain must not import FastAPI" cannot be expressed.
@@ -143,10 +148,27 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Layering: providers may use domain types, never the reverse"
+name = "Layering: outer packages may use domain types, never the reverse"
 type = "layers"
 layers = [
+    "smartmatch_persistence",
     "smartmatch_providers",
     "smartmatch_authz",
     "smartmatch_domain",
+]
+
+# Persistence is allowed SQLAlchemy — it is the storage layer — but it must not
+# reach the network, spawn processes, or call providers. Storage that quietly
+# makes an HTTP call is the coupling this contract exists to prevent.
+[[tool.importlinter.contracts]]
+name = "Persistence is storage only — no network, providers, or frameworks"
+type = "forbidden"
+source_modules = ["smartmatch_persistence"]
+forbidden_modules = [
+    "fastapi",
+    "starlette",
+    "httpx",
+    "requests",
+    "subprocess",
+    "smartmatch_providers",
 ]

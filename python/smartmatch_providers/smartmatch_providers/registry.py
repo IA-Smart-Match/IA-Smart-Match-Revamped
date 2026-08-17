@@ -20,8 +20,9 @@ from smartmatch_providers.base import (
     RouteMatrixProvider,
 )
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
+from smartmatch_providers.tasks import FixtureTaskQueue, TaskQueue
 
-__all__ = ["build_email_provider", "build_route_matrix_provider"]
+__all__ = ["build_email_provider", "build_route_matrix_provider", "build_task_queue"]
 
 #: Editions that may never construct a live provider client, regardless of what
 #: credentials happen to be present in the environment.
@@ -123,4 +124,51 @@ def build_route_matrix_provider(
         "the live Routes adapter is not implemented in the Foundation scaffold. "
         "It ships in R1, pending open decision 6 (provider terms and per-run call "
         "budget)."
+    )
+
+
+def build_task_queue(
+    edition: Edition,
+    *,
+    queue_path: str | None = None,
+    use_fixture: bool = False,
+) -> TaskQueue:
+    """Construct the task queue for this edition.
+
+    Mirrors :func:`build_email_provider`. Cloud Tasks is not a "paid provider"
+    in the outreach sense, but it is still an external dependency that reaches
+    outside the project, so the classroom edition gets the fixture for the same
+    reason it gets fixture mail: a classroom deployment must not be able to
+    address a production queue (v1.1 §3.3).
+
+    Args:
+        queue_path: Fully-qualified Cloud Tasks queue path. Absent in every
+            environment except a deliberately configured deployment.
+        use_fixture: Force the in-memory queue, for tests and local development.
+
+    Raises:
+        ProviderConfigurationError: if a live queue is requested under a
+            fixture-only edition, or if the live client is requested at all —
+            it is not implemented in the Foundation scaffold.
+    """
+    if use_fixture or edition in _FIXTURE_ONLY_EDITIONS:
+        if queue_path and edition in _FIXTURE_ONLY_EDITIONS:
+            raise ProviderConfigurationError(
+                f"a Cloud Tasks queue path is configured under edition "
+                f"{edition.value!r}, which must not address any production queue. "
+                "Failing closed."
+            )
+        return FixtureTaskQueue()
+
+    _assert_fixture_only(edition, "task queue")
+
+    if not queue_path:
+        raise ProviderConfigurationError(
+            f"no Cloud Tasks queue configured for edition {edition.value!r}."
+        )
+
+    raise ProviderConfigurationError(
+        "the live Cloud Tasks adapter is not implemented in the Foundation "
+        "scaffold. It requires a deployed worker URL and service identity to "
+        "target, neither of which exists yet."
     )

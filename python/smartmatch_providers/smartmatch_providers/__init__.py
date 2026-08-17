@@ -19,20 +19,39 @@ from smartmatch_providers.base import (
     TravelEstimate,
 )
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
-from smartmatch_providers.registry import build_email_provider, build_route_matrix_provider
+from smartmatch_providers.registry import (
+    build_email_provider,
+    build_route_matrix_provider,
+    build_task_queue,
+)
+from smartmatch_providers.tasks import (
+    FixtureTaskQueue,
+    TaskAlreadyExists,
+    TaskHandle,
+    TaskQueue,
+    TaskQueueError,
+    TaskRequest,
+)
 
 __all__ = [
     "Edition",
     "EmailProvider",
     "FixtureEmailProvider",
     "FixtureRouteMatrixProvider",
+    "FixtureTaskQueue",
     "ProviderConfigurationError",
     "RouteMatrixProvider",
     "SendRequest",
     "SendResult",
+    "TaskAlreadyExists",
+    "TaskHandle",
+    "TaskQueue",
+    "TaskQueueError",
+    "TaskRequest",
     "TravelEstimate",
     "build_email_provider",
     "build_route_matrix_provider",
+    "build_task_queue",
 ]
 
 __version__ = "0.1.0"
