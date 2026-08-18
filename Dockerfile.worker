@@ -1,0 +1,107 @@
+# SmartMatch worker image — Foundation scaffold.
+#
+# Builds a runnable container for services/worker. It does not deploy anything
+# and nothing here is claimed to be production-ready: the migration contract
+# sets ALLOW_CLOUD_DEPLOY=false, and image publication, scanning, and signing
+# are before-scale gates (see the deferred-gate list at the bottom of
+# .github/workflows/verify.yml).
+#
+# This file is deliberately the same shape as Dockerfile.api, instruction for
+# instruction. Two service images that drift apart in structure become two
+# things to reason about; keeping them aligned means a fix to one is obviously
+# a fix to the other. They differ in exactly three places, each marked below:
+# which service package is installed, which application is imported and served,
+# and which health path is probed.
+#
+# The reasoning behind the non-obvious choices — the two-step install, the
+# non-editable workspace packages, the root-owned virtualenv, the
+# `sh -c ... exec` start — is written out once in Dockerfile.api and at length
+# in docs/operations/containers.md rather than duplicated here.
+
+# ---------------------------------------------------------------------------
+# Stage 1 — builder. Produces /opt/venv and is then discarded.
+# ---------------------------------------------------------------------------
+# python:3.11-slim-bookworm (Debian 12 "bookworm", CPython 3.11), pinned by
+# digest so the base cannot change under a rebuild. Same digest as
+# Dockerfile.api, on purpose: two services on two different bases is two
+# patching stories.
+FROM python:3.11-slim-bookworm@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91 AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /src
+
+# Hash-verified third-party dependencies (security finding S-003). The worker
+# installs the same runtime lock as the API rather than a trimmed one: a second
+# lock would be a second thing to keep current, and the saving is small next to
+# the cost of the two services disagreeing about which version of a shared
+# library they run.
+COPY requirements/runtime.txt requirements/runtime.txt
+RUN pip install --require-hashes -r requirements/runtime.txt
+
+# Separate invocation, because --require-hashes cannot coexist with local path
+# requirements that have no published artifact to hash. Non-editable, because an
+# editable install points at a source tree and a shipped image should contain
+# built packages. See Dockerfile.api for the full explanation.
+#
+# DIFFERENCE 1 of 3: services/worker rather than services/api. All four
+# workspace packages are installed in both images even though the worker does
+# not currently import smartmatch_persistence, so that the two images stay
+# interchangeable in what they contain and differ only in what they run.
+COPY python/ python/
+COPY services/worker/ services/worker/
+RUN pip install --no-deps \
+        python/smartmatch_domain \
+        python/smartmatch_authz \
+        python/smartmatch_providers \
+        python/smartmatch_persistence \
+        services/worker
+
+# DIFFERENCE 2 of 3: import the worker application, so an image that cannot
+# boot fails the build rather than the deployment.
+RUN python -c "import smartmatch_worker.main"
+
+# ---------------------------------------------------------------------------
+# Stage 2 — runtime. Carries the virtualenv and nothing else.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim-bookworm@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91 AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}"
+
+RUN groupadd --system --gid 10001 smartmatch \
+ && useradd --system --uid 10001 --gid 10001 \
+        --home-dir /home/smartmatch --create-home \
+        --shell /usr/sbin/nologin smartmatch
+
+# root-owned: readable and executable by the application user, writable by
+# nobody it runs as.
+COPY --from=builder --chown=root:root /opt/venv /opt/venv
+
+USER 10001:10001
+WORKDIR /home/smartmatch
+ENV HOME=/home/smartmatch
+
+ENV PORT=8080
+EXPOSE 8080
+
+# No secrets, no .env, no provider configuration. The worker reads no
+# SMARTMATCH_ settings of its own today; its task endpoint fails closed until
+# OIDC verification is implemented, which is the safe placeholder rather than a
+# permissive one.
+
+# DIFFERENCE 3 of 3: the worker's liveness path is /health, not /api/health.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8080'), timeout=2).status == 200 else 1)"]
+
+# `sh -c ... exec` so that uvicorn becomes PID 1 and receives SIGTERM directly,
+# while ${PORT} still expands. Shell-form CMD would leave the shell as PID 1,
+# swallowing the signal and turning every restart into a hard kill of whatever
+# was in flight.
+CMD ["sh", "-c", "exec uvicorn smartmatch_worker.main:app --host 0.0.0.0 --port \"${PORT:-8080}\""]

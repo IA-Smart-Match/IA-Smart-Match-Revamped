@@ -56,3 +56,11 @@ apps/web/.vite/
 .idea/
 .vscode/
 *.swp
+
+# Downloaded distribution artifacts. Dependencies are installed from the
+# hash-pinned locks in requirements/, never from a wheel sitting in the tree —
+# a committed wheel is an unreviewed binary that bypasses hash verification
+# entirely. These appeared once already, downloaded into the repository root by
+# tooling run with the wrong working directory.
+*.whl
+*.tar.gz
