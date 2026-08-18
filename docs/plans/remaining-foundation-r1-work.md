@@ -33,10 +33,13 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 | ~~F1~~ | ~~Pin dependencies to a lock file with hashes~~ | — | **Done.** `requirements/*.txt`, hash-verified, with a CI drift gate. Resolves S-003. |
 | ~~F2a~~ | ~~Dependency vulnerability scanning~~ | F1 | **Done.** `pip-audit --strict` against the lock. Resolves S-004. |
 | F2b | License-policy check and SBOM generation | F1 | The remainder of F2. Not blocking. |
-| F3 | Independent review of the four `ported_unverified` manifest entries | — | §6 of the orchestrator contract forbids self-approval; moves MM-001/003/004/005 to `verified`. **Still the cheapest unblocked item.** |
-| F4 | Containerize API and worker; add image build to CI | F1 | Needed before any deployment; also unblocks container scanning |
+| ~~F3~~ | ~~Independent review of the four `ported_unverified` manifest entries~~ | — | **Done, and it did not approve most of them.** MM-001 → `verified` with findings. MM-003, MM-004, MM-005 remain `ported_unverified`: the review found the manifest's own descriptions inaccurate. See `docs/migration/port-verification.md` and F9 below. |
+| F9 | Act on the port-verification findings (F-1..F-27) | F3 | **The review's real output.** Three entries were rejected not because the ported code is bad — it is better than the legacy in every case — but because the manifest describes it wrongly: MM-005 claims a decline vocabulary was *retained* when it was replaced, and claims a legacy substring-matching defect that does not reproduce; MM-004 cites characterization tests that do not exist. Remedy is a manifest correction plus a small number of code fixes, then re-review. One genuine code defect: MM-003's Stage A cap boundary is set by 4-decimal-place rounding. |
+| ~~F4~~ | ~~Containerize API and worker; add image build to CI~~ | F1 | **Done.** `Dockerfile.api`, `Dockerfile.worker`, `.dockerignore`, `.github/workflows/build.yml`, `docs/operations/containers.md`. Images build, run non-root, serve health, and stop on SIGTERM; CI asserts each on the built artifact. Still no deployment and no registry. |
 | F5 | Flesh out Terraform environment skeletons | F4 | Still no deployment — configuration only, with the CI assertion that environments share no identifiers |
-| F6 | Add ADRs for decisions made during scaffolding | — | Partially done (ADR-0001..0003). Still to record: the LTree type declaration, the outbox CTE claim pattern, and the fixed-window limiter tradeoff. |
+| ~~F6~~ | ~~Add ADRs for decisions made during scaffolding~~ | — | **Done.** ADR-0004 (hand-written schema + `LTree`), 0005 (outbox CTE claim), 0006 (fixed-window limiter), 0007 (deterministic task names). |
+| F7 | Widen the schema drift test beyond column names | — | It compares column *name sets*, composite FKs, and three named constraints. Types, nullability, server defaults, indexes, and FK actions are unchecked — `schema.py` declares `org_unit.tenant_id` without the `ondelete="RESTRICT"` the migration specifies, and CI cannot see it. The database is correct; the hand-written mirror is not. |
+| F8 | Add an ADR index | — | ADR-0004..0007 are discoverable only by directory listing. |
 
 ---
 

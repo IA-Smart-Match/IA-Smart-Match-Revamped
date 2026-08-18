@@ -60,12 +60,20 @@ entries:
       than a real domain, since domain registration is open decision 8 and a real
       domain would imply mail routing that does not exist.
     migration_owner: engineering
-    reviewer: pending
-    status: ported_unverified
+    reviewer: A4 (independent review agent)
+    status: verified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; see docs/migration/port-verification.md. Verified with findings: all three claimed legacy defects reproduce against the legacy source. Open findings F-1 (METHOD:REQUEST emitted with no ORGANIZER/ATTENDEE, RFC 5546 3.2.2), F-2, F-3.
     completion_commit: 7b5ab9f
     notes: >-
-      Verification pending a reviewer other than the author, per §6 of the
-      orchestrator contract: an agent may not approve its own port.
+      Verified 18 Aug 2026 by a reviewer other than the author, per §6 of the
+      orchestrator contract. The verdict is "verified with findings": the three
+      claimed legacy defects were each reproduced against the legacy source, and
+      three further findings (F-1..F-3) are open against the target. F-1 is the
+      substantive one — METHOD:REQUEST is emitted with no ORGANIZER or ATTENDEE,
+      which RFC 5546 §3.2.2 requires — and is tracked for R2 alongside the
+      delivery path that will actually send these invites. None blocks the entry,
+      because none is a regression against the legacy.
 
   - id: MM-003
     legacy_path: "Category 3 - IA West Smart Match CRM/src/matching/factors.py"
@@ -96,8 +104,10 @@ entries:
       the computation. Prohibited-input list asserted in
       tests/unit/test_factor_registry.py.
     migration_owner: engineering
-    reviewer: pending
+    reviewer: A4 (independent review agent)
     status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-4 (behavior_retained names an event-cadence input the module does not have), F-5 (test count), F-6 (Stage A cap boundary set by a 4-dp rounding), F-7, F-8, F-9, F-10.
     completion_commit: 7b5ab9f
     notes: >-
       Decay half-life (45d), rolling window (90d), and modifier weighting are
@@ -130,8 +140,10 @@ entries:
     target_tests: tests/unit/test_ingest.py (14 cases)
     security_review: no IO; no path handling; cannot be induced to read a file
     migration_owner: engineering
-    reviewer: pending
+    reviewer: A4 (independent review agent)
     status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-13 (characterization_tests names parity cases that do not exist), F-12 (added-behavior claim inaccurate; legacy flagged blank required columns for empty and nan values), F-11, F-14, F-15, F-16, F-17.
     completion_commit: 7b5ab9f
 
   - id: MM-005
@@ -166,8 +178,10 @@ entries:
       property returning True, not a settable field, so no caller can mark a
       proposal auto-applicable.
     migration_owner: engineering
-    reviewer: pending
+    reviewer: A4 (independent review agent)
     status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-18/F-19 (decline vocabulary and reason-to-factor mapping were replaced, not retained), F-21 (claimed substring-matching defect does not reproduce in the legacy), F-22, F-20, F-23, F-24, F-25, F-26, F-27.
     completion_commit: 7b5ab9f
 
 # ---------------------------------------------------------------------------
