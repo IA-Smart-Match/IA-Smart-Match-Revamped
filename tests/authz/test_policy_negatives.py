@@ -281,3 +281,63 @@ def test_assert_allowed_raises_on_denial():
         assert_allowed(principal, _resource(), at=NOW)
 
     assert excinfo.value.decision.reason == "no_grant"
+
+
+# ---------------------------------------------------------------------------
+# Role gating applies to BOTH grant paths
+# ---------------------------------------------------------------------------
+
+
+def test_explicit_resource_grant_does_not_satisfy_a_role_gated_operation():
+    """An access grant is not authority to perform any operation on the resource.
+
+    A resource grant says "you may reach this event". An operation's
+    ``required_roles`` says "this action needs a coordinator". Treating the
+    first as satisfying the second lets a guest reviewer submit imports, because
+    the explicit-allow path returned before any role was consulted.
+
+    ``ResourceGrant`` carries no role, so the fail-closed reading is that a bare
+    grant cannot satisfy a role-gated operation. Which roles a grant *should*
+    convey is open policy-matrix work (v1.1 §2.1, item A4).
+    """
+    principal = Principal(
+        user_id="guest",
+        tenant_id=TENANT,
+        resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
+    )
+    decision = evaluate(
+        principal,
+        _resource(),
+        at=NOW,
+        required_roles=frozenset({"admin", "coordinator"}),
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "resource_grant_lacks_required_role"
+
+
+def test_explicit_resource_grant_still_works_for_ungated_operations():
+    """The guest-reviewer case must keep working where no role is demanded."""
+    principal = Principal(
+        user_id="guest",
+        tenant_id=TENANT,
+        resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
+    )
+    decision = evaluate(principal, _resource(), at=NOW)
+
+    assert decision.allowed
+    assert decision.reason == "explicit_resource_allow"
+
+
+def test_resource_grant_plus_qualifying_membership_is_allowed():
+    """A grant does not block someone who independently holds the role."""
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest", role="coordinator"),),
+        resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
+    )
+    decision = evaluate(principal, _resource(), at=NOW, required_roles=frozenset({"coordinator"}))
+
+    assert decision.allowed
+    assert decision.reason == "inherited_unit_grant"

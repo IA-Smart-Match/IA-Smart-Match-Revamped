@@ -30,6 +30,7 @@ from typing import Any
 
 from fastapi import status
 from smartmatch_persistence.idempotency import (
+    IdempotencyConflictError,
     IdempotencyRepository,
     fingerprint_request,
 )
@@ -123,14 +124,23 @@ def submit_command(
     enforce_rate_limit(session, principal, rate_limit)
 
     job_id = uuid.uuid4()
-    reservation = _idempotency.reserve(
-        session,
-        tenant_id=principal.tenant_id,
-        command_type=command_type,
-        idempotency_key=idempotency_key.strip(),
-        request_fingerprint=fingerprint_request(payload),
-        job_id=job_id,
-    )
+    try:
+        reservation = _idempotency.reserve(
+            session,
+            tenant_id=principal.tenant_id,
+            command_type=command_type,
+            idempotency_key=idempotency_key.strip(),
+            request_fingerprint=fingerprint_request(payload),
+            job_id=job_id,
+        )
+    except IdempotencyConflictError:
+        # Commit the quota consumption before the 409 propagates. Without this,
+        # the request-scoped session is rolled back on the way out and the
+        # increment goes with it — making an unbounded stream of conflicting
+        # requests free, which is precisely the traffic a limiter exists to
+        # bound. A rejected request still costs the caller quota.
+        session.commit()
+        raise
 
     if reservation.is_replay:
         # The work already exists. Commit so the rate-limit consumption sticks —

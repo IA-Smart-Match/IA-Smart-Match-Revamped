@@ -165,7 +165,7 @@ class OutboxDispatcher:
                 outcome = "already_existed"
             except TaskQueueError as exc:
                 logger.warning("outbox row %s: dispatch failed: %s", record.id, exc)
-                self._record_failure(record.id, str(exc))
+                self._record_failure(record.id, str(exc), record.dispatch_attempts)
                 failed += 1
                 continue
 
@@ -217,12 +217,12 @@ class OutboxDispatcher:
             self._outbox.mark_dispatched(session, record_id=record_id)
             session.commit()
 
-    def _record_failure(self, record_id: uuid.UUID, error: str) -> None:
+    def _record_failure(self, record_id: uuid.UUID, error: str, attempts: int) -> None:
         """Record a dispatch failure without touching the job's state.
 
         The job stays ``queued``: it has not been dispatched, and saying
         otherwise would strand it.
         """
         with self._session_factory() as session:
-            self._outbox.mark_failed(session, record_id=record_id, error=error)
+            self._outbox.mark_failed(session, record_id=record_id, error=error, attempts=attempts)
             session.commit()

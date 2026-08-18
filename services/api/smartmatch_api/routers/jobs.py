@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Path, Query, status
@@ -25,9 +26,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRepository
+from smartmatch_persistence.principals import ResolvedPrincipal
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession
 from smartmatch_api.errors import ApiError
+from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 
@@ -60,6 +63,11 @@ class JobEventResponse(BaseModel):
     occurred_at: str
 
 
+#: Roles that may read jobs they did not themselves create. Reading a job exposes
+#: its command type and event payloads, which carry operational detail.
+_JOB_OVERSIGHT_ROLES = frozenset({"admin", "coordinator"})
+
+
 def _load_job_or_404(session: Any, tenant_id: uuid.UUID, job_id: uuid.UUID) -> Any:
     """Fetch a job within the caller's tenant, or raise 404.
 
@@ -75,6 +83,55 @@ def _load_job_or_404(session: Any, tenant_id: uuid.UUID, job_id: uuid.UUID) -> A
             message="No such job.",
         )
     return job
+
+
+def _authorize_job_read(principal: ResolvedPrincipal, job: Any, *, at: datetime) -> None:
+    """Authorize a job read. Tenant scoping alone is not authorization.
+
+    These routes previously relied on tenant scoping and nothing else, which had
+    two consequences: a **suspended** account kept full read access, because
+    suspension is enforced by the policy and the policy was never invoked; and
+    any authenticated tenant member could read every job in the tenant.
+
+    Suspension is checked first and unconditionally — it is the control that must
+    not be reachable around.
+
+    **Known limitation, deliberately not papered over:** the ``job`` table has no
+    owning org unit, so a job read cannot be scoped to a subtree the way
+    ``/imports`` scopes its unit. Authorization here is therefore
+    actor-or-oversight-role within the tenant. Making job reads unit-scoped needs
+    a ``job.owning_unit_id`` column and an expand-phase migration; until then a
+    coordinator in one department can read another department's job, and
+    inventing a unit path to feed the policy would be fabricating authorization
+    data rather than enforcing it.
+
+    Raises:
+        ApiError: 403 when the caller may not read this job.
+    """
+    if principal.principal.suspended:
+        raise ApiError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="forbidden",
+            message="You do not have access to this resource.",
+            details={"reason": "principal_suspended"},
+        )
+
+    if job.actor_id is not None and job.actor_id == principal.user_id:
+        return
+
+    holds_oversight_role = any(
+        membership.is_active_at(at) and membership.role in _JOB_OVERSIGHT_ROLES
+        for membership in principal.principal.memberships
+    )
+    if holds_oversight_role:
+        return
+
+    raise ApiError(
+        status_code=status.HTTP_403_FORBIDDEN,
+        code="forbidden",
+        message="You do not have access to this resource.",
+        details={"reason": "no_grant"},
+    )
 
 
 @router.get(
@@ -93,6 +150,7 @@ def get_job(
     their token and never read from the request.
     """
     job = _load_job_or_404(session, principal.tenant_id, job_id)
+    _authorize_job_read(principal, job, at=utc_now())
 
     return JobStatusResponse(
         id=job.id,
@@ -144,7 +202,8 @@ def stream_job_events(
     explicit, persisted, authorized command (v1.1 §1.6) — closing a tab must
     never stop a running job.
     """
-    _load_job_or_404(session, principal.tenant_id, job_id)
+    job = _load_job_or_404(session, principal.tenant_id, job_id)
+    _authorize_job_read(principal, job, at=utc_now())
 
     cursor = last_event_id if last_event_id is not None else (after or 0)
     if cursor < 0:

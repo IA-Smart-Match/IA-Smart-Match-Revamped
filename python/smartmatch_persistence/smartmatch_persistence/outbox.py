@@ -41,6 +41,7 @@ __all__ = [
     "ClaimedOutboxRecord",
     "OutboxRepository",
     "OutboxStatus",
+    "backoff_for",
     "derive_task_name",
 ]
 
@@ -53,6 +54,11 @@ DEFAULT_LEASE: Final[timedelta] = timedelta(seconds=60)
 #: Dispatch failures are almost always systemic (bad queue configuration, denied
 #: credentials), so retrying forever floods the logs without ever succeeding.
 MAX_DISPATCH_ATTEMPTS: Final[int] = 5
+
+#: Ceiling on the exponential retry backoff, in seconds. Without a cap the last
+#: attempts would wait far longer than an operator would tolerate for work that
+#: is merely waiting on a recovered dependency.
+_MAX_BACKOFF_SECONDS: Final[float] = 300.0
 
 
 class OutboxStatus(StrEnum):
@@ -101,6 +107,18 @@ def _claimable_predicate(now: datetime) -> sa.ColumnElement[bool]:
         ),
         schema.outbox_record.c.dispatch_attempts < MAX_DISPATCH_ATTEMPTS,
     )
+
+
+def backoff_for(attempts: int) -> timedelta:
+    """Return how long to wait before retrying after ``attempts`` failures.
+
+    Exponential — ``2 ** attempts`` seconds — capped at
+    :data:`_MAX_BACKOFF_SECONDS`. Exponential rather than fixed so a persistent
+    outage is not hammered, and capped so the last attempts do not wait longer
+    than an operator would tolerate for work merely awaiting a recovered
+    dependency.
+    """
+    return timedelta(seconds=min(2.0**attempts, _MAX_BACKOFF_SECONDS))
 
 
 def derive_task_name(job_id: uuid.UUID, command_type: str) -> str:
@@ -251,35 +269,53 @@ class OutboxRepository:
             )
         )
 
-    def mark_failed(self, session: Session, *, record_id: uuid.UUID, error: str) -> None:
-        """Record a dispatch failure.
+    def mark_failed(
+        self,
+        session: Session,
+        *,
+        record_id: uuid.UUID,
+        error: str,
+        attempts: int,
+        now: datetime | None = None,
+    ) -> None:
+        """Record a dispatch failure, backing off before the next attempt.
 
-        While attempts remain the row returns to ``pending`` and its lease is
-        cleared, so the next poll retries it immediately rather than waiting out
-        a lease that no longer protects anything — the dispatcher that held it
-        has already finished with it.
+        While attempts remain the row is re-armed as ``leased`` with a lease
+        expiring :func:`backoff_for` seconds out. The claim predicate already
+        treats a live lease as "not yet claimable", so the lease doubles as the
+        backoff timer — no new mechanism and no new column.
 
-        Returning it to ``pending`` rather than leaving it ``leased`` matters:
-        the claim predicate matches a leased row only when
-        ``lease_expires_at < now``, and a NULL lease never satisfies that
-        comparison. A leased row with a cleared lease would be permanently
+        Backoff is not a refinement here, it is correctness. Re-arming
+        immediately meant a dispatcher polling every couple of seconds burned all
+        five attempts within about ten seconds, permanently parking work for an
+        outage that may have resolved a minute later — turning a survivable blip
+        into lost work requiring manual re-drive.
+
+        The row must never be left ``leased`` with a NULL lease: the predicate
+        matches a leased row only when ``lease_expires_at < now``, and NULL never
+        satisfies that comparison, so such a row would be permanently
         unclaimable — invisible work, silently stuck.
 
-        Once attempts are exhausted the row becomes ``failed``: no longer
-        claimable, and visible in the operations view rather than looping.
+        Once attempts are exhausted the row becomes ``failed`` with its lease
+        cleared: terminal, no longer claimable, and visible in the operations
+        view rather than looping. Leaving a lease on a terminal row would make it
+        look claimable again once the timer elapsed.
+
+        Args:
+            attempts: The attempt count this failure belongs to, as returned by
+                :meth:`claim_batch`. Passed in rather than recomputed in SQL so
+                the backoff schedule is plain Python and unit-testable without a
+                database.
         """
+        moment = now or datetime.now(UTC)
+        exhausted = attempts >= MAX_DISPATCH_ATTEMPTS
+
         session.execute(
             sa.update(schema.outbox_record)
             .where(schema.outbox_record.c.id == record_id)
             .values(
-                status=sa.case(
-                    (
-                        schema.outbox_record.c.dispatch_attempts >= MAX_DISPATCH_ATTEMPTS,
-                        OutboxStatus.FAILED.value,
-                    ),
-                    else_=OutboxStatus.PENDING.value,
-                ),
-                lease_expires_at=None,
+                status=(OutboxStatus.FAILED.value if exhausted else OutboxStatus.LEASED.value),
+                lease_expires_at=(None if exhausted else moment + backoff_for(attempts)),
                 last_error=error[:2000],
             )
         )

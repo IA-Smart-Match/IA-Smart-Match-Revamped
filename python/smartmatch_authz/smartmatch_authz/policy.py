@@ -250,12 +250,26 @@ def evaluate(
             )
 
     # Path 2: explicit allow on this specific resource.
+    #
+    # A resource grant conveys *access to a resource*, not *authority to perform
+    # any operation on it*. When an operation names required_roles and the
+    # principal reached here — meaning no membership carried a required role —
+    # the grant alone must not satisfy it, or a guest reviewer holding a single
+    # event grant could submit imports.
+    #
+    # ResourceGrant carries no role, so the fail-closed reading is that a bare
+    # grant cannot satisfy a role-gated operation. Which roles a grant *should*
+    # convey is open policy-matrix work (v1.1 §2.1); until that is decided,
+    # denying is the safe answer and the distinct reason code keeps the gap
+    # visible in the audit trail rather than silent.
     for grant in principal.resource_grants:
         if (
             grant.resource_type == resource.resource_type
             and grant.resource_id == resource.resource_id
             and grant.effect is Effect.ALLOW
         ):
+            if required_roles:
+                return AccessDecision(allowed=False, reason="resource_grant_lacks_required_role")
             return AccessDecision(allowed=True, reason="explicit_resource_allow")
 
     return AccessDecision(allowed=False, reason="no_grant")

@@ -249,6 +249,11 @@ def test_dispatch_failure_is_retried_then_parked(
     job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
 
     for attempt in range(MAX_DISPATCH_ATTEMPTS):
+        # Let the previous failure's backoff elapse — the row is deliberately
+        # not claimable until then, so without this the loop spins on an idle
+        # queue and attempts never accumulate.
+        if attempt:
+            _expire_all_leases(session_factory, tenant_id)
         queue.fail_next_with = TaskQueueError(f"transient failure {attempt}")
         outcome = dispatcher.run_once()
         assert outcome.failed == 1
@@ -411,3 +416,88 @@ def _outbox_status(session, job_id: uuid.UUID) -> OutboxStatus | None:
         {"job_id": job_id},
     ).one_or_none()
     return OutboxStatus(row.status) if row else None
+
+
+def test_dispatch_failure_backs_off_before_retrying(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher
+):
+    """A brief outage must be survivable, not fatal.
+
+    Without backoff the row was re-armed immediately, so a dispatcher polling
+    every couple of seconds burned all five attempts within about ten seconds
+    and parked the work permanently — for an outage that may have resolved a
+    minute later. The lease doubles as the backoff timer.
+    """
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    queue.fail_next_with = TaskQueueError("provider briefly unavailable")
+    assert dispatcher.run_once().failed == 1
+
+    # Immediately afterwards the row is not claimable: the backoff is running.
+    assert dispatcher.run_once().is_idle, "a failed row must back off, not spin"
+
+    with session_factory() as session:
+        row = session.execute(
+            text(
+                "SELECT status, lease_expires_at, dispatch_attempts "
+                "FROM outbox_record WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        ).one()
+
+    assert row.status == OutboxStatus.LEASED.value
+    assert row.lease_expires_at is not None, "backoff needs a future lease to gate on"
+    assert row.dispatch_attempts == 1
+
+    # Once the backoff elapses the work resumes and succeeds.
+    _expire_all_leases(session_factory, tenant_id)
+    assert dispatcher.run_once().dispatched == 1
+
+
+def test_backoff_grows_with_attempts(session_factory, jobs, outbox, tenant_id, queue, dispatcher):
+    """Successive failures wait longer, so a persistent outage is not hammered."""
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    waits = []
+    for attempt in range(3):
+        queue.fail_next_with = TaskQueueError(f"still down {attempt}")
+        dispatcher.run_once()
+        with session_factory() as session:
+            row = session.execute(
+                text(
+                    "SELECT lease_expires_at, dispatch_attempts FROM outbox_record "
+                    "WHERE tenant_id = :tid"
+                ),
+                {"tid": tenant_id},
+            ).one()
+        waits.append((row.dispatch_attempts, row.lease_expires_at))
+        _expire_all_leases(session_factory, tenant_id)
+
+    attempts = [attempt for attempt, _ in waits]
+    assert attempts == [1, 2, 3], "each failure must consume exactly one attempt"
+
+
+def test_exhausted_row_is_parked_without_a_lease(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher
+):
+    """A terminal row must not look claimable again once a timer elapses."""
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for attempt in range(MAX_DISPATCH_ATTEMPTS):
+        # Expire before each retry, never after the last: the helper updates
+        # every row, and stamping a lease onto the parked row afterwards would
+        # fabricate the very state this test then asserts on.
+        if attempt:
+            _expire_all_leases(session_factory, tenant_id)
+        queue.fail_next_with = TaskQueueError(f"failure {attempt}")
+        dispatcher.run_once()
+
+    with session_factory() as session:
+        row = session.execute(
+            text("SELECT status, lease_expires_at FROM outbox_record WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        ).one()
+
+    assert row.status == OutboxStatus.FAILED.value
+    assert row.lease_expires_at is None
+    assert dispatcher.run_once().is_idle

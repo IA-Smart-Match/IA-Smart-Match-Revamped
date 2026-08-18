@@ -536,3 +536,67 @@ def test_expired_membership_denies_access(client, engine, tenant_id, unit_id):
     client.verifier.register("tok-expired", "sub-expired")
 
     assert _post_import(client, unit_id, "tok-expired", key="k1").status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Job reads must be authorized, not merely authenticated
+# ---------------------------------------------------------------------------
+
+
+def test_suspended_account_cannot_read_a_job(client, engine, tenant_id, unit_id, coordinator):
+    """Suspension must deny reads, not only writes.
+
+    The security review claimed suspension "fails local authorization
+    immediately". That holds only on routes that invoke the policy — and the job
+    routes did not, so a suspended account kept full read access to job status
+    and event payloads.
+    """
+    job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
+
+    user_id = _make_user(engine, tenant_id, subject="sub-susp-read", suspended=True)
+    _grant(engine, tenant_id, user_id)
+    client.verifier.register("tok-susp-read", "sub-susp-read")
+
+    status_response = client.get(
+        f"/v1/jobs/{job_id}", headers={"Authorization": "Bearer tok-susp-read"}
+    )
+    events_response = client.get(
+        f"/v1/jobs/{job_id}/events", headers={"Authorization": "Bearer tok-susp-read"}
+    )
+
+    assert status_response.status_code == 403
+    assert events_response.status_code == 403
+
+
+def test_tenant_member_without_an_oversight_role_cannot_read_a_job(
+    client, engine, tenant_id, unit_id, coordinator
+):
+    """Being authenticated in the tenant is not authorization to read any job.
+
+    Job payloads carry operational detail, so a student-role member who did not
+    create the job is denied.
+
+    Note what this test does NOT assert: that a *coordinator* in a sibling
+    department is denied. The ``job`` table has no owning org unit, so job reads
+    cannot currently be scoped to a subtree — authorization is
+    actor-or-oversight-role within the tenant. Closing that needs a
+    ``job.owning_unit_id`` column and an expand-phase migration. Asserting
+    subtree scoping here would be asserting a control that does not exist.
+    """
+    job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
+
+    user_id = _make_user(engine, tenant_id, subject="sub-elsewhere")
+    _grant(engine, tenant_id, user_id, path="iawest", role="student")
+    client.verifier.register("tok-elsewhere", "sub-elsewhere")
+
+    response = client.get(f"/v1/jobs/{job_id}", headers={"Authorization": "Bearer tok-elsewhere"})
+    assert response.status_code == 403
+    assert response.json()["error"]["details"]["reason"] == "no_grant"
+
+
+def test_the_job_actor_can_read_their_own_job(client, unit_id, coordinator):
+    """The ordinary case must keep working."""
+    job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
+
+    response = client.get(f"/v1/jobs/{job_id}", headers={"Authorization": f"Bearer {coordinator}"})
+    assert response.status_code == 200
