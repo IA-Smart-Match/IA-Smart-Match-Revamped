@@ -234,6 +234,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "docs/security/scaffold-security-review.md",
         "mock-login",
     ): "Security review cites the archived pattern.",
+    (
+        "apps/web/DESIGN.md",
+        "mock-login",
+    ): "The design brief names the archived pattern to state that no frontend may reintroduce it.",
 }
 
 
@@ -257,15 +261,22 @@ class ScanResult:
 
 
 def tracked_files() -> list[Path]:
-    """Return git-tracked files, falling back to a filesystem walk.
+    """Return the files CI would see, falling back to a filesystem walk.
 
-    Scanning tracked files only is deliberate: an untracked scratch file cannot
-    reach CI, and including them produces noise that trains people to ignore the
-    gate.
+    ``--cached --others --exclude-standard`` covers tracked files *and* untracked
+    ones that are not gitignored. Both matter: in CI everything is committed, so
+    a scan restricted to tracked files gives a different answer locally than it
+    does in CI, and the difference is exactly the window in which a new file is
+    written but not yet staged.
+
+    That is not hypothetical — a design document naming an archived pattern was
+    committed past a locally-clean scan because it was untracked when the scan
+    ran. Gitignored files stay excluded, so build output and virtualenvs do not
+    generate noise.
     """
     try:
         output = subprocess.run(
-            ["git", "ls-files"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
