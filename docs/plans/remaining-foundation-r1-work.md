@@ -73,7 +73,8 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 | A1b | Live Google Identity Platform verifier (JWKS, audience, rotation) | — | The fixture accepts only registered tokens, so it cannot be mistaken for permissive auth. |
 | ~~A2~~ | ~~Wire `smartmatch_authz` into request handling~~ | A1a | **Done.** Applied in handlers after the resource is loaded, not as a blanket dependency. |
 | ~~A3~~ | ~~PostgreSQL transactional rate limiter~~ | A1a | **Done.** Shipped with the first command endpoint, as S-002 required. |
-| A4 | Authorization policy matrix with negative tests per operation | A2 | v1.1 §2.1 names this as a workstream. One operation is covered; the matrix is not. |
+| A4 | Authorization policy matrix with negative tests per operation | A2 | v1.1 §2.1 names this as a workstream. One operation is covered; the matrix is not. Includes deciding which roles a `resource_grant` conveys — currently a bare grant cannot satisfy a role-gated operation (fail-closed, see S-007). |
+| A5 | Add `job.owning_unit_id` so job reads can be unit-scoped | A2 | Expand-phase migration. Until then a coordinator in one department can read another department's job (S-006). |
 
 ---
 
