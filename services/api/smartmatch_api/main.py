@@ -74,6 +74,11 @@ app = FastAPI(
         403: {"model": ErrorEnvelope},
         404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
+        # Declared explicitly, which also *replaces* FastAPI's automatic 422.
+        # Left to itself it documents ``HTTPValidationError`` — the second error
+        # shape — on every route that takes a parameter, so the contract would
+        # advertise a body the API no longer returns.
+        422: {"model": ErrorEnvelope},
         429: {"model": ErrorEnvelope},
     },
 )
@@ -101,8 +106,25 @@ def health() -> dict[str, Any]:
 @app.get(
     "/u/{token}",
     tags=["outreach"],
-    response_class=HTMLResponse,
     summary="Unsubscribe confirmation page",
+    # Media types are declared per response rather than through
+    # ``response_class=HTMLResponse``. A route-wide response class sets the
+    # media type for *every* response the route publishes, including the error
+    # responses inherited from the application-level ``responses`` above — so
+    # this route, and only this route, documented its 4xx bodies as
+    # ``text/html`` while the exception handlers return ``application/json``.
+    # A generated client would take the contract at its word and try to parse
+    # an error envelope as HTML.
+    #
+    # The handler still returns an ``HTMLResponse``; only the documented
+    # contract changes. Declaring 200 as HTML here keeps that accurate.
+    responses={
+        200: {"content": {"text/html": {}}, "description": "Confirmation page"},
+        **{
+            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
+            for code in (400, 401, 403, 404, 409, 422, 429)
+        },
+    },
 )
 def unsubscribe_page(token: str) -> HTMLResponse:
     """Render the unsubscribe confirmation page. **Never changes state.**

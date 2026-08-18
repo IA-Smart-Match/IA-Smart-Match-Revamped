@@ -25,9 +25,15 @@ from smartmatch_persistence.outbox import (
     OutboxStatus,
     derive_task_name,
 )
-from smartmatch_providers.tasks import FixtureTaskQueue, TaskQueueError
+from smartmatch_providers.tasks import (
+    FixtureTaskQueue,
+    TaskHandle,
+    TaskQueueError,
+    TaskRequest,
+)
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 pytestmark = pytest.mark.integration
 
@@ -501,3 +507,227 @@ def test_exhausted_row_is_parked_without_a_lease(
     assert row.status == OutboxStatus.FAILED.value
     assert row.lease_expires_at is None
     assert dispatcher.run_once().is_idle
+
+
+# ---------------------------------------------------------------------------
+# One bad row must not stall the batch
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingQueue(FixtureTaskQueue):
+    """A queue that raises an unanticipated error for one named task.
+
+    ``fail_next_with`` fails whichever row happens to be attempted first, which
+    would make these tests depend on the order the batch was claimed in. Keying
+    the failure to a task name pins it to a specific row instead, so the
+    assertions about *the other* rows mean what they say.
+    """
+
+    explode_for: str | None = None
+
+    def enqueue(self, request: TaskRequest) -> TaskHandle:
+        if request.name == self.explode_for:
+            raise ValueError("client blew up in a way nobody anticipated")
+        return super().enqueue(request)
+
+
+def test_an_unexpected_error_does_not_abort_the_batch(session_factory, jobs, outbox, tenant_id):
+    """The docstring's promise, asserted for an exception nobody anticipated.
+
+    ``TaskAlreadyExists`` and ``TaskQueueError`` are the failures the dispatcher
+    was written for. A live queue client can raise anything else — a driver
+    error, a credentials refresh failure, a ``ValueError`` from a payload it
+    dislikes — and when that escaped ``run_once`` the rest of the claimed batch
+    was abandoned mid-pass, still leased, with nothing reported.
+    """
+    first_job = _accept_command(session_factory, jobs, outbox, tenant_id)
+    second_job = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    # A ValueError, not a TaskQueueError: this is the class of failure the
+    # dispatcher does not anticipate, which is the whole point.
+    queue = _ExplodingQueue()
+    queue.explode_for = derive_task_name(first_job, COMMAND)
+    dispatcher = OutboxDispatcher(session_factory, queue)
+
+    outcome = dispatcher.run_once()
+
+    assert outcome.claimed == 2
+    assert outcome.failed == 1
+    assert outcome.dispatched == 1, "the row after the bad one must still be dispatched"
+    assert len(queue.enqueued) == 1
+
+    with session_factory() as session:
+        # The failed row keeps its evidence and its retry, exactly as a
+        # TaskQueueError would.
+        assert _outbox_status(session, first_job) == OutboxStatus.LEASED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=first_job).status is JobState.QUEUED
+        assert _outbox_status(session, second_job) == OutboxStatus.DISPATCHED
+        assert (
+            jobs.get(session, tenant_id=tenant_id, job_id=second_job).status is JobState.DISPATCHED
+        )
+
+
+def test_an_unexpected_error_is_recorded_against_the_row(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher
+):
+    """An unexplained failure must leave an explanation on the row.
+
+    Counting it is not enough: without ``last_error`` an operator looking at a
+    parked row has no way to tell a queue outage from a bug in the dispatcher.
+    """
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    queue.fail_next_with = ValueError("client blew up in a way nobody anticipated")
+    dispatcher.run_once()
+
+    with session_factory() as session:
+        row = session.execute(
+            text("SELECT last_error, dispatch_attempts FROM outbox_record WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        ).one()
+
+    assert row.dispatch_attempts == 1, "an unexpected failure consumes an attempt like any other"
+    assert "ValueError" in row.last_error, "the failure type must be recoverable from the row"
+
+
+def test_a_failure_while_recording_a_dispatch_does_not_abort_the_batch(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, monkeypatch
+):
+    """A database blip while writing evidence must not abandon the rest.
+
+    Recording happened outside the per-row ``try`` entirely, so a connection
+    dropped between the enqueue and the ``mark_dispatched`` commit took the
+    whole batch with it. The task itself was already created, so the row is
+    recovered by lease expiry and the deterministic name makes the retry a
+    no-op — but only if the dispatcher survives long enough to keep going.
+    """
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+    second_job = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    real_record = dispatcher._record_dispatched
+    seen: list[uuid.UUID] = []
+
+    def flaky(tenant_id_, job_id, record_id):
+        seen.append(record_id)
+        if len(seen) == 1:
+            raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
+        real_record(tenant_id_, job_id, record_id)
+
+    monkeypatch.setattr(dispatcher, "_record_dispatched", flaky)
+    outcome = dispatcher.run_once()
+
+    assert outcome.claimed == 2
+    assert len(queue.enqueued) == 2, "both rows were attempted"
+    assert outcome.failed == 1, "an unrecorded dispatch is not a dispatch"
+    assert outcome.dispatched == 1
+
+    with session_factory() as session:
+        assert _outbox_status(session, second_job) == OutboxStatus.DISPATCHED
+
+
+def test_a_failure_while_recording_a_failure_does_not_abort_the_batch(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, monkeypatch
+):
+    """The same, for the path that records a failure.
+
+    This is the shape a full database outage takes: every row fails to enqueue
+    *and* fails to record. The pass must still terminate, having reported what
+    it could not do.
+    """
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    def always_broken(record_id, error, attempts):
+        raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
+
+    monkeypatch.setattr(dispatcher, "_record_failure", always_broken)
+    queue.fail_next_with = TaskQueueError("queue unavailable")
+    outcome = dispatcher.run_once()
+
+    assert outcome.claimed == 2
+    assert outcome.failed + outcome.dispatched + outcome.already_existed == 2
+
+
+def test_dispatch_outcome_totals_always_add_up(session_factory, jobs, outbox, tenant_id):
+    """Every claimed row lands in exactly one bucket, on every path.
+
+    The counts are what an operator alerts on. A batch that claims five rows and
+    reports four accounted for is a silent loss of exactly the kind the outbox
+    exists to make impossible, so assert the arithmetic across a batch that
+    exercises all three outcomes at once.
+    """
+    exploding = _accept_command(session_factory, jobs, outbox, tenant_id)
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+    already_dispatched = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    queue = _ExplodingQueue()
+    queue.explode_for = derive_task_name(exploding, COMMAND)
+    # A task the queue already holds — the crash-recovery path.
+    queue.enqueued.append(
+        TaskRequest(name=derive_task_name(already_dispatched, COMMAND), payload={})
+    )
+    dispatcher = OutboxDispatcher(session_factory, queue)
+
+    outcome = dispatcher.run_once()
+
+    assert outcome.claimed == 3
+    assert outcome.claimed == outcome.dispatched + outcome.already_existed + outcome.failed
+    assert (outcome.dispatched, outcome.already_existed, outcome.failed) == (1, 1, 1)
+
+
+def test_a_keyboard_interrupt_still_terminates_the_batch(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher
+):
+    """Resilience must not extend to swallowing a shutdown signal.
+
+    ``KeyboardInterrupt`` and ``SystemExit`` are how a process is asked to stop.
+    A dispatcher that caught them would keep working through the batch while the
+    operator waited, which is why the per-row guard catches ``Exception`` and
+    not ``BaseException``.
+    """
+    _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    queue.fail_next_with = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):
+        dispatcher.run_once()
+
+
+def test_a_row_whose_dispatch_is_never_recorded_ends_up_visible(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, monkeypatch
+):
+    """An unrecordable dispatch must park as ``failed``, not vanish.
+
+    The evidence write is the fragile step: the task is already created, and if
+    every attempt to record it fails, the row consumes an attempt each time.
+    Counting the row as failed without *recording* the failure leaves it exactly
+    as the claim left it — ``leased``, with a lease that expires and attempts
+    that keep climbing.
+
+    That is fine while attempts remain, and silently wrong at the end.
+    ``_claimable_predicate`` requires ``dispatch_attempts <
+    MAX_DISPATCH_ATTEMPTS``, so on the final attempt the row stops being
+    claimable while its status still reads ``leased``. It is then never retried,
+    never counted by the lag metric — which uses the same predicate — and never
+    shows up as ``failed`` in an operations view. It is the "invisible work,
+    silently stuck" state ``mark_failed`` exists to prevent, reached by a path
+    that never calls it.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    def always_fails(tenant_id_, job_id_, record_id):
+        raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
+
+    monkeypatch.setattr(dispatcher, "_record_dispatched", always_fails)
+
+    for attempt in range(MAX_DISPATCH_ATTEMPTS):
+        if attempt:
+            _expire_all_leases(session_factory, tenant_id)
+        assert dispatcher.run_once().failed == 1
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.FAILED, (
+            "a row that exhausted its attempts must be parked and visible, "
+            "not left leased and unclaimable"
+        )
+        # The lag metric must not be able to report zero while work is stuck.
+        assert outbox.pending_count(session) == 0

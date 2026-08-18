@@ -210,16 +210,16 @@ def test_invalid_limits_are_rejected():
         RateLimit(operation="x", max_requests=1, window=timedelta(0))
 
 
-def test_sweep_removes_elapsed_windows(session_factory, limiter, limit, tenant_id):
+def test_sweep_removes_counters_once_their_own_window_has_elapsed(
+    session_factory, limiter, limit, tenant_id
+):
     """Without a sweep the table grows unbounded for IP-keyed limits."""
     with session_factory() as session:
         _check(session, limiter, limit, tenant_id)
         session.commit()
 
     with session_factory() as session:
-        removed = limiter.sweep_expired(
-            session, older_than=timedelta(hours=1), now=NOW + timedelta(days=1)
-        )
+        removed = limiter.sweep_expired(session, limits=[limit], now=NOW + timedelta(days=1))
         session.commit()
 
     assert removed == 1
@@ -231,7 +231,136 @@ def test_sweep_leaves_current_windows_alone(session_factory, limiter, limit, ten
         session.commit()
 
     with session_factory() as session:
-        removed = limiter.sweep_expired(session, older_than=timedelta(hours=1), now=NOW)
+        removed = limiter.sweep_expired(session, limits=[limit], now=NOW)
         session.commit()
 
     assert removed == 0
+
+
+def test_sweep_never_reopens_a_window_that_is_still_running(session_factory, limiter, tenant_id):
+    """The property the sweep must never violate: it cannot grant quota.
+
+    The window length belongs to the operation, not to the sweep. When the sweep
+    deleted anything older than a fixed hour, a daily quota that a caller had
+    already spent was erased two hours into its window and the caller got the
+    whole day's allowance again — a rate limiter that silently stops limiting,
+    which is the failure mode this module exists to prevent (see the module
+    docstring on failing closed).
+
+    Asserted on the *decision*, not on the row count: a sweep that deletes
+    nothing but leaves the caller able to spend again would satisfy a
+    row-counting test and still be the bug.
+    """
+    daily = RateLimit(operation="import.daily", max_requests=1, window=timedelta(days=1))
+
+    with session_factory() as session:
+        assert _check(session, limiter, daily, tenant_id).allowed
+        assert not _check(session, limiter, daily, tenant_id).allowed, "quota is spent"
+        session.commit()
+
+    # Two hours later: far past any fixed grace the sweep might use, and nowhere
+    # near the end of the caller's window.
+    midwindow = NOW + timedelta(hours=2)
+    with session_factory() as session:
+        removed = limiter.sweep_expired(session, limits=[daily], now=midwindow)
+        session.commit()
+
+    assert removed == 0
+
+    with session_factory() as session:
+        decision = _check(session, limiter, daily, tenant_id, now=midwindow)
+        session.commit()
+
+    assert not decision.allowed, "the sweep handed back quota the caller had already spent"
+
+
+def test_sweep_applies_each_operations_own_window(session_factory, limiter, tenant_id):
+    """One pass, two window lengths, one cutoff each.
+
+    A single global cutoff cannot serve both: whatever it is, it either spares
+    the short-window rows the sweep exists to remove or deletes the long-window
+    rows that are still counting.
+    """
+    minutely = RateLimit(operation="job.read", max_requests=5, window=timedelta(minutes=1))
+    daily = RateLimit(operation="import.daily", max_requests=5, window=timedelta(days=1))
+
+    with session_factory() as session:
+        _check(session, limiter, minutely, tenant_id)
+        _check(session, limiter, daily, tenant_id)
+        session.commit()
+
+    with session_factory() as session:
+        removed = limiter.sweep_expired(
+            session, limits=[minutely, daily], now=NOW + timedelta(hours=2)
+        )
+        session.commit()
+
+    assert removed == 1
+    assert _operations_with_counters(session_factory) == {"import.daily"}
+
+
+def test_sweep_waits_out_the_grace_period(session_factory, limiter, limit, tenant_id):
+    """A window that closed a moment ago is left alone deliberately.
+
+    Instances do not share a clock, and a request that began before the window
+    closed may still be committing its increment. Deleting exactly at the
+    boundary would race that increment away and hand the caller a fresh quota;
+    the grace makes the sweep wait until no live request can still be counting
+    against the row.
+    """
+    just_closed = NOW + timedelta(minutes=1, seconds=30)
+
+    with session_factory() as session:
+        _check(session, limiter, limit, tenant_id)
+        session.commit()
+
+    with session_factory() as session:
+        assert limiter.sweep_expired(session, limits=[limit], now=just_closed) == 0
+        session.commit()
+
+    with session_factory() as session:
+        assert limiter.sweep_expired(session, limits=[limit], now=NOW + timedelta(hours=1)) == 1
+        session.commit()
+
+
+def test_sweep_eventually_removes_counters_for_operations_it_was_not_told_about(
+    session_factory, engine, limiter, limit, tenant_id
+):
+    """Renamed and retired operations must not accumulate forever.
+
+    The counter table stores the operation as a plain string, so a sweep given
+    today's limits cannot know the window of a counter written by yesterday's
+    code. Those rows are removed against
+    :data:`~smartmatch_persistence.rate_limit.MAX_RATE_LIMIT_WINDOW` instead —
+    conservative, because no ``RateLimit`` may declare a longer window, and
+    still bounded, because the alternative is a table that only grows.
+    """
+    with engine.begin() as conn:
+        for label, age in (("retired.recent", timedelta(days=2)), ("retired.ancient", None)):
+            conn.execute(
+                text(
+                    "INSERT INTO rate_limit_counter "
+                    "(tenant_id, subject, operation, window_start, count) "
+                    "VALUES (:t, 'user-1', :op, :ws, 1)"
+                ),
+                {
+                    "t": tenant_id,
+                    "op": label,
+                    "ws": NOW - (age if age else timedelta(days=90)),
+                },
+            )
+
+    with session_factory() as session:
+        removed = limiter.sweep_expired(session, limits=[limit], now=NOW)
+        session.commit()
+
+    assert removed == 1
+    assert _operations_with_counters(session_factory) == {"retired.recent"}
+
+
+def _operations_with_counters(session_factory) -> set[str]:
+    with session_factory() as session:
+        return {
+            row.operation
+            for row in session.execute(text("SELECT operation FROM rate_limit_counter")).all()
+        }
