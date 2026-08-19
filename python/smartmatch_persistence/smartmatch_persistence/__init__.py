@@ -22,6 +22,12 @@ from smartmatch_persistence.outbox import (
     OutboxRepository,
     OutboxStatus,
 )
+from smartmatch_persistence.redrive import (
+    ParkedRecord,
+    RedriveConflictError,
+    RedriveOutcome,
+    RedriveRepository,
+)
 
 __all__ = [
     "ClaimedOutboxRecord",
@@ -32,6 +38,10 @@ __all__ = [
     "JobRepository",
     "OutboxRepository",
     "OutboxStatus",
+    "ParkedRecord",
+    "RedriveConflictError",
+    "RedriveOutcome",
+    "RedriveRepository",
     "create_session_factory",
 ]
 

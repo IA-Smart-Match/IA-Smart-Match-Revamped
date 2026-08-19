@@ -1,6 +1,26 @@
 {
   "components": {
     "schemas": {
+      "AbandonedResponse": {
+        "description": "Acknowledgement that a parked job was closed permanently.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "abandoned",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "AbandonedResponse",
+        "type": "object"
+      },
       "CommandAcceptedResponse": {
         "description": "Standard acknowledgement for every command resource.",
         "properties": {
@@ -166,6 +186,59 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "RedriveAcceptedResponse": {
+        "description": "Acknowledgement that a re-drive was recorded and will be dispatched.",
+        "properties": {
+          "events_url": {
+            "title": "Events Url",
+            "type": "string"
+          },
+          "generation": {
+            "default": 0,
+            "description": "Dispatch generation this re-drive created",
+            "title": "Generation",
+            "type": "integer"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "accepted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "events_url"
+        ],
+        "title": "RedriveAcceptedResponse",
+        "type": "object"
+      },
+      "RedriveRequest": {
+        "description": "A re-drive decision.\n\n``reason`` is required and has no default. An optional reason becomes an\nabsent reason, and a parked-work table full of blank reasons answers none of\nthe questions it exists to answer \u2014 who decided this was worth re-running,\nand on what basis.",
+        "properties": {
+          "reason": {
+            "description": "Why this work is being re-run. Recorded in the audit trail.",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RedriveRequest",
         "type": "object"
       }
     }
@@ -493,6 +566,154 @@
         ]
       }
     },
+    "/v1/jobs/{job_id}/abandon": {
+      "post": {
+        "description": "Close a parked job permanently: this will never work, stop showing it.\n\n``200``, not ``202``: unlike a re-drive this starts nothing. The state change\nis complete when the response is written, and there is no job to follow.\n\nExists because ``redrive_pending -> abandoned`` is declared, and because a\nparked-work view whose items cannot be dismissed is a view people stop\nreading \u2014 which costs attention on the items that *are* actionable.\n\nThe reason is required here too. \"Why did nobody re-run this?\" is a question\nasked months later, usually by someone who was not in the room.",
+        "operationId": "abandon_job_v1_jobs__job_id__abandon_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedriveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbandonedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Abandon a parked job",
+        "tags": [
+          "redrive"
+        ]
+      }
+    },
     "/v1/jobs/{job_id}/events": {
       "get": {
         "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
@@ -642,6 +863,154 @@
         "summary": "Stream a job's events (SSE)",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}/redrive": {
+      "post": {
+        "description": "Re-queue work that failed terminally, under audit.\n\nReturns ``202``, not ``200``: nothing has re-run when this returns. The job\nis queued again and a fresh outbox row exists; the dispatcher moves it and\nthe worker performs it. Reporting ``200`` would be claiming success for work\nthat has not started (v1.1 \u00a73.6 N2) \u2014 the same mistake the ``partial`` state\nexists to correct.\n\nA job still sitting in ``failed_provider`` or ``timed_out`` is parked as part\nof this call rather than requiring a separate step. Both moves are declared\ntransitions; a job in any other state is refused with ``409``.\n\nEverything commits at once \u2014 the idempotency reservation, the quota, the\nparking, the state change, the audit stamp, and the new outbox row. A\nre-drive recorded without its outbox row would be an audit trail describing\nwork that never ran; an outbox row without the audit record would be work\nnobody authorized.",
+        "operationId": "redrive_job_v1_jobs__job_id__redrive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedriveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedriveAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Re-drive a parked job",
+        "tags": [
+          "redrive"
         ]
       }
     },

@@ -121,8 +121,8 @@ def backoff_for(attempts: int) -> timedelta:
     return timedelta(seconds=min(2.0**attempts, _MAX_BACKOFF_SECONDS))
 
 
-def derive_task_name(job_id: uuid.UUID, command_type: str) -> str:
-    """Derive a deterministic Cloud Tasks task name.
+def derive_task_name(job_id: uuid.UUID, command_type: str, *, redrive_generation: int = 0) -> str:
+    """Derive a deterministic Cloud Tasks task name for one dispatch generation.
 
     Determinism is the dedupe mechanism: Cloud Tasks rejects a task whose name
     already exists, so a retried dispatch after an ambiguous failure cannot
@@ -132,8 +132,54 @@ def derive_task_name(job_id: uuid.UUID, command_type: str) -> str:
     The name is a hash rather than the raw job id so it carries no tenant or
     command information into the queue's metadata, which is visible in Cloud
     Console to anyone with queue-viewer access.
+
+    ## Why a generation, and why it does not cost determinism
+
+    ADR-0007 records the consequence that bites: because the name was a pure
+    function of ``(job_id, command_type)``, a job **re-driven under its original
+    identifiers derived the name its own failed attempt already used**. That
+    fails twice over. ``uq_outbox_task_name`` is global, so PostgreSQL refuses
+    the second outbox row before the queue is ever consulted; and past the
+    database the queue rejects the duplicate, which the dispatcher counts as
+    *success* — marking the row ``dispatched`` and advancing the job while the
+    work never runs. An audit trail saying the job was re-driven, and nothing
+    executed, is the worst outcome available here.
+
+    ``redrive_generation`` separates the two kinds of repeat:
+
+    * An **accidental** repeat — the dispatcher retrying one dispatch after an
+      ambiguous enqueue — stays inside a single generation. The name is
+      identical, the queue rejects the duplicate, and ADR-0007's guarantee is
+      untouched. Nothing in the dispatch path chooses a generation: the name is
+      computed once by :meth:`OutboxRepository.enqueue` and *stored* in
+      ``outbox_record.task_name``, and every retry reads that stored value. The
+      dispatcher never calls this function at all.
+    * A **deliberate** repeat — an authorized, audited re-drive — is a new
+      generation, so it derives a different name and is genuinely new work.
+
+    So determinism is preserved exactly where it is load-bearing (within one
+    attempt) and broken only where it was actively harmful (across attempts a
+    human explicitly asked for). ADR-0007 anticipates precisely this shape:
+    "any input that varies between attempts of the same dispatch destroys the
+    property"; the generation varies between *dispatches*, never within one.
+
+    Generation ``0`` — the original attempt — derives byte-identically to the
+    pre-re-drive formula. The change is additive: no name any existing row or
+    queue entry carries shifts underneath it.
+
+    Args:
+        redrive_generation: How many times this job has already been enqueued.
+            ``0`` is the first attempt.
+
+    Raises:
+        ValueError: on a negative generation, which is a caller bug that would
+            otherwise silently derive a plausible-looking name.
     """
-    digest = hashlib.sha256(f"{job_id}|{command_type}".encode()).hexdigest()[:40]
+    if redrive_generation < 0:
+        raise ValueError(f"redrive_generation must not be negative, got {redrive_generation}")
+
+    suffix = "" if redrive_generation == 0 else f"|r{redrive_generation}"
+    digest = hashlib.sha256(f"{job_id}|{command_type}{suffix}".encode()).hexdigest()[:40]
     return f"sm-{digest}"
 
 
@@ -152,6 +198,7 @@ class OutboxRepository:
         tenant_id: uuid.UUID,
         job_id: uuid.UUID,
         command_type: str,
+        redrive_generation: int = 0,
     ) -> str:
         """Record the intent to dispatch a job. Does not commit.
 
@@ -159,10 +206,21 @@ class OutboxRepository:
         caller commits both at once; there is no valid state in which a job
         exists without its outbox row.
 
+        Args:
+            redrive_generation: Which dispatch of this job this row represents.
+                ``0`` is the original submission, which is why every caller on
+                the command path can ignore it. Re-drive passes the next
+                generation so the derived task name differs from the failed
+                attempt's — see :func:`derive_task_name` for why that is
+                necessary and why it does not weaken retry determinism.
+
         Returns:
-            The deterministic task name that will be used for this job.
+            The deterministic task name that will be used for this dispatch.
+            It is stored on the row, and the dispatcher reads it from there
+            rather than recomputing it, so a retry can never derive a different
+            name than the attempt it is retrying.
         """
-        task_name = derive_task_name(job_id, command_type)
+        task_name = derive_task_name(job_id, command_type, redrive_generation=redrive_generation)
 
         session.execute(
             sa.insert(schema.outbox_record).values(

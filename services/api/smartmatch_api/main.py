@@ -30,7 +30,7 @@ from smartmatch_providers import build_token_verifier
 
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope
-from smartmatch_api.routers import imports, jobs
+from smartmatch_api.routers import imports, jobs, redrive
 
 
 @asynccontextmanager
@@ -88,6 +88,7 @@ for exception_type, handler in EXCEPTION_HANDLERS.items():
 
 app.include_router(jobs.router)
 app.include_router(imports.router)
+app.include_router(redrive.router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")
