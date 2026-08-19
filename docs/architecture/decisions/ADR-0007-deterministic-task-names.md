@@ -1,6 +1,6 @@
 # ADR-0007 — Deterministic Cloud Tasks names as the deduplication mechanism
 
-**Status:** Accepted
+**Status:** Accepted — amended 19 August 2026, see [Amendment](#amendment--19-august-2026-the-re-drive-collision-is-resolved) below
 **Date:** 18 August 2026
 **Contract:** Architecture v1.1 §1.6, §3.1
 
@@ -118,12 +118,14 @@ earlier, at the database, when a second outbox row for the same job and command
 is written.
 
 So determinism, which makes retries safe, makes re-drive unsafe under exactly the
-identifiers re-drive wants to use. **This is a constraint on backlog item J4, not
-a solved problem.** Whoever implements re-drive has to make the task name differ
-across deliberate re-attempts while still being identical across accidental
-retries of one attempt — and must not weaken the property in the first table
-above while doing it. No design for that is recorded here, and none should be
-inferred from this ADR.
+identifiers re-drive wants to use. **This was a constraint on backlog item J4, not
+a solved problem, when this ADR was written.** Whoever implements re-drive has to
+make the task name differ across deliberate re-attempts while still being
+identical across accidental retries of one attempt — and must not weaken the
+property in the first table above while doing it. No design for that was
+recorded here, and none should have been inferred from this ADR at the time.
+
+**Resolved by `redrive_generation` — see the amendment below.**
 
 Also worth stating: Cloud Tasks' name-based deduplication is a property of a live
 queue, not a permanent registry, and this ADR does not assert how long a
@@ -150,3 +152,57 @@ dispatcher's own retries: any input that varies between attempts of the same
 dispatch destroys the property this ADR exists to provide. It is a plausible
 ingredient for J4's *deliberate* re-attempts, where varying the name is the goal
 — which is a different decision, to be recorded when it is made.
+
+## Amendment — 19 August 2026: the re-drive collision is resolved
+
+Landed in `b0a6a48` (J4), alongside the re-drive command itself
+(`python/smartmatch_persistence/smartmatch_persistence/redrive.py`,
+`services/api/smartmatch_api/routers/redrive.py`). The decision above — a
+deterministic name as the dedupe mechanism, and the conditional `claim` as the
+separate defence against duplicate delivery — is unchanged and still holds. What
+changes is `derive_task_name`'s signature:
+
+```python
+def derive_task_name(job_id, command_type, *, redrive_generation: int = 0) -> str:
+    suffix = "" if redrive_generation == 0 else f"|r{redrive_generation}"
+    digest = hashlib.sha256(f"{job_id}|{command_type}{suffix}".encode()).hexdigest()[:40]
+    return f"sm-{digest}"
+```
+
+**Why a generation number, and not one of the alternatives this ADR already
+rejected.** A timestamp or an always-incrementing attempt counter was rejected
+above because it would vary the name *within* one dispatch attempt, which is
+exactly the property this ADR depends on: the dispatcher must retry an ambiguous
+enqueue under the identical name, or the deduplication guarantee is gone.
+`redrive_generation` is different in kind, not degree — it varies only *between*
+dispatches a human explicitly authorized, never within one:
+
+* The dispatcher's own retries — `run_once` re-processing a row still `pending`
+  or `leased`-with-an-expired-lease after a crash — never call
+  `derive_task_name` at all. The name is computed once, in
+  `OutboxRepository.enqueue`, and *stored* on `outbox_record.task_name`; every
+  retry of that same row reads the stored value back. So "accidental repeat
+  keeps the identical name" is not re-verified by the generation number, it is
+  structurally untouched by it.
+* `RedriveRepository.redrive` computes the next generation by counting the
+  job's existing outbox rows (`_next_generation`) and passes it to `enqueue`,
+  which derives a name that has never been used for this job before, and which
+  `uq_outbox_task_name` will accept.
+
+**Why generation `0` hashing byte-identically matters.** The suffix is empty
+exactly when `redrive_generation == 0`, so the derived name for every job's
+first, ordinary dispatch — which is the entire fleet of names any queue or
+outbox row carries today — is bit-for-bit what the pre-amendment formula
+produced. The change is additive rather than a migration: no existing
+`outbox_record.task_name` value, and no task already live in Cloud Tasks, means
+anything different under the new code. `test_task_names_differ_across_generations_but_are_stable_within_one`
+(`tests/integration/test_redrive.py`) asserts both halves of this: generation 0
+is unchanged, and generation 1 differs from it.
+
+**What this does not change.** The two-defence table above — deterministic name
+for an ambiguous *dispatch*, conditional claim for an ambiguous *delivery* — is
+exactly as it was. Re-drive adds a third case to think about, not a third
+defence: a *deliberate* repeat, authorized by a human, which now gets a
+genuinely new name because it is genuinely new work, while an *accidental*
+repeat of any single dispatch — original or re-driven — still resolves to one
+name and one task, exactly as designed here.

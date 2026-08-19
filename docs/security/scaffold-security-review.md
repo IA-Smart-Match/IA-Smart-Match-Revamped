@@ -1,6 +1,10 @@
 # Scaffold security review
 
 **Reviewed:** 17 August 2026 · Foundation scaffold
+**Amended:** 19 August 2026 — Wave B (`2cdc5a8`, `2564d33`, `b0a6a48`): worker
+command execution, real OIDC task-identity verification, and the re-drive
+command. See S-001, the posture table below, and the notes added to S-006 and
+S-008.
 **Scope:** the target repository as committed. Not a review of a deployed system —
 nothing is deployed.
 
@@ -20,7 +24,8 @@ rather than defaulting open.
 | No caller-selected identity | `Principal.tenant_id` derived server-side; no endpoint accepts it | Contract test asserts `/auth/mock-login` → 404 |
 | Suspension denies reads as well as writes | Authorization on every job route, suspension checked first | 3 integration tests (added after review finding S-006) |
 | Classroom cannot reach live providers | Registry raises before credential checks; config validator rejects at boot | 16 provider-isolation tests |
-| Worker cannot be invoked unauthenticated | Identity stub raises unconditionally | 4 worker boundary tests |
+| Worker refuses task delivery without a verified caller | Real OIDC verification (signature, issuer, audience, expiry, service-account allowlist); ships with no signature backend, so it fails closed exactly as the stub did | 31 worker-execution integration tests + 4 worker-boundary contract tests |
+| A duplicate Cloud Tasks delivery cannot execute a job twice | Conditional `dispatched -> running` claim (`JobRepository.claim`); a losing delivery is acknowledged and runs nothing | Covered within the worker-execution tests above, e.g. `test_a_duplicate_delivery_is_acknowledged_without_executing_twice` |
 | Scraped contacts cannot be emailed | Lifecycle state machine with no path to `ACTIVE_CANDIDATE` except via `CONSENTED` | 20 consent tests, incl. a graph-property assertion |
 | Legacy anti-patterns cannot return | 12-rule scanner in CI | 25 scanner self-tests |
 | Domain cannot acquire IO | import-linter forbidden contracts | Verified non-vacuous by deliberate violation |
@@ -29,20 +34,47 @@ rather than defaulting open.
 
 ## Findings
 
-### S-001 — Worker task authentication is a stub (accepted, fails closed)
+### S-001 — Worker task authentication: real verification, shipped unconfigured (RESOLVED as far as this repository can resolve it)
 
-`services/worker/smartmatch_worker/main.py::_verify_task_identity` raises
-unconditionally: `401` without credentials, `501` with them. No request can reach
-command dispatch.
+Superseded by `2cdc5a8` (J6). `services/worker/smartmatch_worker/identity.py`
+replaces the unconditional-raise stub with a real verifier that checks, in
+order: the token's **signature** against a resolved JWKS key, that the **issuer**
+is Google, that the **audience** matches this service's configured URL, that the
+token is **currently valid** (`exp`/`iat`/`nbf`, with a bounded clock-skew
+leeway), and that the **service account** in the `email` claim is on an explicit
+allowlist. `alg: none` and the `HS*`/`dir` family are rejected unconditionally
+before any backend is consulted — the algorithm-confusion and unsigned-token
+bypasses cannot be reached by wiring in a permissive backend. Tests
+(`tests/integration/test_worker_execution.py`) supply a real local key pair and
+assert the signature check actually runs, that the algorithm is pinned by the
+resolved key rather than by the token's own header, and that a tampered payload,
+a wrong-audience token, and `alg: none` are each rejected.
 
-This is deliberate. Real verification means checking an OIDC token signature
-against Google's public keys, validating the audience against the service's
-deployed URL, and checking the service account against an allowlist — none of
-which is meaningful before the service has a URL and an identity. A permissive
-placeholder would become an unauthenticated entry point the moment a handler was
-added.
+**The one thing that is not implemented, named precisely rather than hidden:**
+verifying an RS256 signature needs an asymmetric-cryptography primitive, and
+`requirements/runtime.txt` — hash-pinned, and regenerating that lock was out of
+scope for J6 — contains none: no `cryptography`, no `pyjwt`, no `google-auth`.
+Rather than hand-roll RSA verification (exactly the kind of code whose bugs are
+silent and total), the signature primitive is an injected `SignatureVerifier`
+port, and `build_task_verifier` ships **no default implementation of it**. With
+no backend, no `SMARTMATCH_TASK_AUDIENCE`, or no
+`SMARTMATCH_TASK_SERVICE_ACCOUNTS` — any one of the three — it returns an
+`UnconfiguredTaskVerifier`, which raises `401` with no credential and `501` with
+one, refusing every request. **This is not a stub that pretends to verify.** It
+is the same real verifier class, checked at every call, refusing because a
+required collaborator is absent rather than because verification was never
+written. The practical effect for today's deployment is identical to the
+scaffold's stub: no request can reach command dispatch, because nothing has
+supplied a signature backend, an audience, or an allowlist.
 
-**Residual risk:** none while unimplemented. **Owner:** engineering, R1.
+Deploying real verification from here requires three separate, deliberate acts,
+none of which is done in this repository: adding a vetted asymmetric-crypto
+dependency to the hash-pinned lock, configuring `SMARTMATCH_TASK_AUDIENCE` and
+`SMARTMATCH_TASK_SERVICE_ACCOUNTS` for the deployed service, and wiring a JWKS
+source that fetches and caches Google's published keys.
+
+**Residual risk:** none while unconfigured — the failure mode is unchanged from
+the pre-Wave-B stub. **Owner:** engineering, before this service is deployed.
 
 ### S-002 — Rate limiting **(RESOLVED)**
 
@@ -105,6 +137,16 @@ coordinator in one department can read another department's job. Closing that
 requires a `job.owning_unit_id` column and an expand-phase migration.
 **Owner:** engineering, R1.
 
+**Extended by the re-drive command (`b0a6a48`).** `POST /v1/jobs/{id}/redrive`
+and `/abandon` (`services/api/smartmatch_api/routers/redrive.py`) carry the same
+gap for the same reason: the route cannot call `smartmatch_authz.assert_allowed`
+because there is no `owning_unit_path` to match it against, so it applies the
+policy's own rules by hand — suspension, tenant match, explicit deny, then
+role — over a job with no unit. A coordinator in one department can therefore
+re-drive, and re-run the side effects of, another department's job, not only
+read it. The router's own module docstring names this rather than papering over
+it. The fix is the same one: `job.owning_unit_id`.
+
 ### S-007 — Resource grants bypassed role requirements **(RESOLVED)**
 
 The explicit-allow path in `smartmatch_authz.policy.evaluate` returned before
@@ -124,6 +166,12 @@ The rate-limit increment was still uncommitted when `IdempotencyConflictError`
 propagated, and the request-scoped session rolled it back — so an unbounded
 stream of 409-producing requests cost nothing. The increment is now committed
 before the error propagates.
+
+**Applied proactively in the re-drive command (`b0a6a48`).** `redrive_job` and
+`abandon_job` commit before re-raising both an idempotency conflict and a
+`RedriveConflictError`/`InvalidTransitionError` from a job that cannot be
+re-driven — the same pattern, applied where a second command was written rather
+than being found there as a second instance of the defect.
 
 ### S-005 — Legacy repository contains committed local databases
 
@@ -197,7 +245,8 @@ defect and fails**, rather than being ignored.
 - Frontend — `apps/web` contains no application.
 - Crawler / SSRF threat model — deferred to R3 with the research pipeline; no
   crawl code exists in the target.
-- Container images — none built.
+- Container images — built and proven to run (`docs/operations/containers.md`),
+  but not scanned and not deployed. No registry, no running instance.
 
 ---
 

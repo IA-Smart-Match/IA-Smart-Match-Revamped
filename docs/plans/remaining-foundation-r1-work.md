@@ -68,16 +68,18 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 | ~~J2~~ | ~~Command resource pattern with idempotency and 202 + job id~~ | J1 | **Done.** `submit_command` commits reservation, quota, job, and outbox in one transaction. `/imports` is the first resource. |
 | ~~J3~~ | ~~SSE with `Last-Event-ID`~~ | J1 | **Done.** Backed by `job_event.sequence`; polling reads the same rows. |
 | ~~J5~~ | ~~The two named integration scenarios~~ | J1 | **Done.** `tests/integration/test_outbox_dispatcher.py`. |
-| J4 | Re-drive command with authorization and audit | J1 | Cloud Tasks has no native DLQ. Table exists; the command does not. |
-| J6 | Real OIDC task-identity verification in the worker | J1 | Resolves security finding S-001. The stub fails closed meanwhile. |
-| J7 | Worker command handlers, and the `running -> succeeded/partial/failed` transitions | J1, J6 | The dispatcher delivers; nothing executes yet. |
+| ~~J4~~ | ~~Re-drive command with authorization and audit~~ | J1 | **Done.** `POST /v1/jobs/{id}/redrive` and `/abandon` (`services/api/smartmatch_api/routers/redrive.py`), role-gated (`admin`/`coordinator`), idempotent, and audited with actor + reason in `redrive_record`. The task-name collision ADR-0007 recorded as an unsolved constraint is closed by `redrive_generation` — see the ADR's amendment. Authorization shares the same gap as job reads (S-006/A5): the `job` table has no owning unit, so a coordinator in one department can re-drive another department's job. |
+| ~~J6~~ | ~~Real OIDC task-identity verification in the worker~~ | J1 | **Done, with an honest, named gap.** `services/worker/smartmatch_worker/identity.py` checks signature, issuer, audience, expiry, and a service-account allowlist. The signature primitive is an injected `SignatureVerifier` port; `requirements/runtime.txt` carries no asymmetric-crypto library, so the shipped default backend is `None` and the worker refuses every request until one is supplied — the same closed door the 501 stub gave. See S-001. |
+| ~~J7~~ | ~~Worker command handlers, and the `running -> succeeded/partial/failed` transitions~~ | J1, J6 | **Done.** `services/worker/smartmatch_worker/{execution,handlers}.py`. `JobRepository.claim` (`dispatched -> running`, conditional) guards against Cloud Tasks' at-least-once delivery; a losing delivery is acknowledged and executes nothing, and a delivery that races the dispatcher's own `queued -> dispatched` commit gets `503` so the queue retries instead of the job being silently stranded. Two handlers ship: `test.noop` (a path check, not reachable from the API) and `import.create`, which **always fails** as `failed_policy` — see J10. |
 | J8 | Dispatcher scheduling (Cloud Scheduler → dispatcher endpoint) and its alert | J1, F4 | `run_once` and `lag` exist; nothing calls them on a timer. |
+| J9 | Lease + sweeper for a job stuck in `running` | J7 | Named but not closed in `execution.py`: a worker that dies after `claim` succeeds and before the terminal transition commits leaves the job `running` with no worker behind it. Recovering it needs `job.lease_expires_at` (an expand-phase migration) and a scheduled sweep — neither exists. Today such a job stays `running` until someone notices. |
+| J10 | Durable command payload (`job.payload`) | J7 | `import.create` is the only real command wired end-to-end, and it cannot execute: `submit_command` uses the request body only for the idempotency fingerprint, and neither `job` nor `outbox_record` has a payload column. Every import that reaches the worker fails immediately with `failed_policy` and the reason `command_not_executable`. Needs a `job.payload` column written inside the same transaction as the job and outbox rows. |
 | ~~A1a~~ | ~~Token verification adapter and principal resolution~~ | — | **Done.** Interface, fixture, and database-backed principal lookup. |
 | A1b | Live Google Identity Platform verifier (JWKS, audience, rotation) | — | The fixture accepts only registered tokens, so it cannot be mistaken for permissive auth. |
 | ~~A2~~ | ~~Wire `smartmatch_authz` into request handling~~ | A1a | **Done.** Applied in handlers after the resource is loaded, not as a blanket dependency. |
 | ~~A3~~ | ~~PostgreSQL transactional rate limiter~~ | A1a | **Done.** Shipped with the first command endpoint, as S-002 required. |
 | A4 | Authorization policy matrix with negative tests per operation | A2 | v1.1 §2.1 names this as a workstream. One operation is covered; the matrix is not. Includes deciding which roles a `resource_grant` conveys — currently a bare grant cannot satisfy a role-gated operation (fail-closed, see S-007). |
-| A5 | Add `job.owning_unit_id` so job reads can be unit-scoped | A2 | Expand-phase migration. Until then a coordinator in one department can read another department's job (S-006). |
+| A5 | Add `job.owning_unit_id` so job reads can be unit-scoped | A2 | Expand-phase migration. Until then a coordinator in one department can read (S-006), re-drive, or abandon (added by J4) another department's job. |
 
 ---
 
@@ -136,17 +138,24 @@ Recorded so the sequencing is visible, not scheduled here.
 
 ## Suggested next three
 
-The durable command path is now complete end to end: a command is authenticated,
-authorized, rate-limited, recorded, dispatched, and followable. What it cannot
-yet do is *execute*.
+The durable command path is now complete end to end, including execution: a
+command is authenticated, authorized, rate-limited, recorded, dispatched,
+delivered, claimed, and run to a terminal state a client can follow over SSE.
+See `docs/architecture/command-path.md` for the diagrammed version.
 
-1. **J7 + J6** — worker command handlers and real OIDC task verification. The
-   dispatcher delivers tasks that nothing consumes; this closes the loop and
-   resolves S-001. Largest remaining unblocked engineering item.
-2. **D1** — start the factor-registry approval conversation. Still the longest
+1. **J10** — a durable command payload. `/imports` is the only real command
+   resource wired end-to-end today, and every import job that reaches the
+   worker fails immediately with `failed_policy`, because the parameters the
+   caller submitted were never recorded anywhere the worker can read them.
+   Without this, the one implemented command cannot do anything.
+2. **J8** — dispatcher scheduling. `run_once` and `lag` exist; nothing calls
+   them on a timer, so a command commits and then waits for someone to invoke
+   the dispatcher by hand or in a test.
+3. **D1** — start the factor-registry approval conversation. Still the longest
    pole and still the only thing blocking the product's core.
-3. **D-0** — assign a DESIGN.md owner. The frontend is blocked until someone owns
-   it, and that is a staffing decision, not an engineering one.
 
-**F3** (independent review of the four ports) remains cheap, unblocked, and
-worth doing whenever a reviewer is free.
+**D-0** (assign a DESIGN.md owner) and **F3** (independent review of the four
+ports) remain cheap, unblocked, and worth doing whenever an owner or a reviewer
+is free. **J9** (the lease + sweeper for a job stuck in `running`) is not urgent
+at today's traffic but should not be forgotten before anything depends on the
+worker recovering from a crash mid-execution.
