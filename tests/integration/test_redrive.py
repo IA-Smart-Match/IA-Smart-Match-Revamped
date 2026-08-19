@@ -32,6 +32,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from conftest import unique_subject
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
 from smartmatch_domain.jobs import JobState
@@ -138,7 +139,9 @@ def _register(
 
 @pytest.fixture
 def coordinator(client, engine, tenant_id) -> str:
-    return _register(client, engine, tenant_id, subject="sub-coordinator", role="coordinator")
+    return _register(
+        client, engine, tenant_id, subject=unique_subject("sub-coordinator"), role="coordinator"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +417,7 @@ def test_the_redrive_record_names_the_actor_and_the_reason(
             text("SELECT external_subject FROM user_account WHERE id = :uid"),
             {"uid": record.redriven_by},
         ).scalar_one()
-    assert subject == "sub-coordinator"
+    assert subject == unique_subject("sub-coordinator")
 
 
 def test_attempt_history_survives_a_second_redrive(
@@ -474,7 +477,9 @@ def test_an_unauthorized_principal_is_denied(
     client, engine, session_factory, jobs, outbox, tenant_id, dispatcher
 ):
     """Tenant membership is not authority to re-run failed work."""
-    viewer = _register(client, engine, tenant_id, subject="sub-viewer", role="viewer")
+    viewer = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-viewer"), role="viewer"
+    )
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     response = _post_redrive(client, job_id, viewer, key="viewer-redrive")
@@ -495,12 +500,13 @@ def test_a_resource_grant_alone_does_not_authorize_a_redrive(
     a role-gated operation, and the distinct reason code keeps the open
     policy-matrix gap visible rather than silent.
     """
-    guest = _register(client, engine, tenant_id, subject="sub-guest", role="viewer")
+    guest = _register(client, engine, tenant_id, subject=unique_subject("sub-guest"), role="viewer")
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     with engine.begin() as conn:
         user_id = conn.execute(
-            text("SELECT id FROM user_account WHERE external_subject = 'sub-guest'")
+            text("SELECT id FROM user_account WHERE external_subject = :sub"),
+            {"sub": unique_subject("sub-guest")},
         ).scalar_one()
         conn.execute(
             text(
@@ -521,12 +527,15 @@ def test_an_explicit_deny_beats_the_role(
     client, engine, session_factory, jobs, outbox, tenant_id, dispatcher
 ):
     """A resource-level deny is how an administrator carves out an exception."""
-    token = _register(client, engine, tenant_id, subject="sub-denied", role="coordinator")
+    token = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-denied"), role="coordinator"
+    )
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     with engine.begin() as conn:
         user_id = conn.execute(
-            text("SELECT id FROM user_account WHERE external_subject = 'sub-denied'")
+            text("SELECT id FROM user_account WHERE external_subject = :sub"),
+            {"sub": unique_subject("sub-denied")},
         ).scalar_one()
         conn.execute(
             text(
@@ -548,7 +557,12 @@ def test_a_suspended_principal_is_denied(
 ):
     """Suspension is enforced locally and first, not by waiting for the IdP."""
     suspended = _register(
-        client, engine, tenant_id, subject="sub-suspended", role="admin", suspended=True
+        client,
+        engine,
+        tenant_id,
+        subject=unique_subject("sub-suspended"),
+        role="admin",
+        suspended=True,
     )
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
@@ -571,7 +585,9 @@ def test_another_tenants_job_is_not_found(
         )
     try:
         job_id = _a_failed_job(session_factory, jobs, outbox, other_tenant, dispatcher)
-        token = _register(client, engine, tenant_id, subject="sub-outsider", role="admin")
+        token = _register(
+            client, engine, tenant_id, subject=unique_subject("sub-outsider"), role="admin"
+        )
 
         response = _post_redrive(client, job_id, token, key="cross-tenant")
 
@@ -640,7 +656,9 @@ def test_two_coordinators_racing_produce_one_run(
     different keys — so the guard has to be the job's own state. The loser sees
     the job already re-driven and is refused rather than queuing a second run.
     """
-    other = _register(client, engine, tenant_id, subject="sub-coordinator-2", role="coordinator")
+    other = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-coordinator-2"), role="coordinator"
+    )
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     first = _post_redrive(client, job_id, coordinator, key="click-a")
@@ -704,7 +722,9 @@ def test_abandon_requires_authorization(
     client, engine, session_factory, jobs, outbox, tenant_id, dispatcher
 ):
     """Closing work permanently is at least as privileged as re-running it."""
-    viewer = _register(client, engine, tenant_id, subject="sub-viewer-2", role="viewer")
+    viewer = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-viewer-2"), role="viewer"
+    )
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     response = _post_abandon(client, job_id, viewer, key="viewer-abandon")

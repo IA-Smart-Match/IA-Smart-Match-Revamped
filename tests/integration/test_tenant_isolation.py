@@ -21,6 +21,7 @@ import uuid
 import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
+from conftest import unique_subject  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
@@ -95,7 +96,10 @@ def _make_user(conn, tenant_id: uuid.UUID) -> uuid.UUID:
         {
             "id": user_id,
             "tenant_id": tenant_id,
-            "sub": f"sub-{user_id.hex[:8]}",
+            # Already distinct per row; routed through the shared helper so the
+            # run token is on every user_account this suite writes, without
+            # exception.
+            "sub": unique_subject(f"sub-{user_id.hex[:8]}"),
             "email": f"{user_id.hex[:8]}@example.edu",
         },
     )

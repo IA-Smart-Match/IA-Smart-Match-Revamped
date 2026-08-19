@@ -120,6 +120,13 @@ user_account = sa.Table(
     sa.PrimaryKeyConstraint("id", name="user_account_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_user_account_tenant_id"),
     sa.UniqueConstraint("tenant_id", "external_subject", name="uq_user_account_tenant_subject"),
+    # Globally unique, not merely unique per tenant. ``principals.py`` looks an
+    # account up by subject alone — the token proves who you are, the database
+    # decides which tenant you are in — so a subject held by accounts in two
+    # tenants returned two rows and 500'd every request for that person. See
+    # migration 0003. This constraint implies the one above, which is kept
+    # because dropping it is a contract-phase action (v1.1 §4.2).
+    sa.UniqueConstraint("external_subject", name="uq_user_account_external_subject"),
 )
 
 
