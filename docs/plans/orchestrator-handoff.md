@@ -75,9 +75,19 @@ rule is in the plan for a reason.
   It **must fail loudly** on duplicate subjects rather than deduplicating — that
   is the whole point, and the draft raises with the offending subjects named
   rather than letting PostgreSQL emit a one-key error. Still to do: mirror the
-  constraint in `schema.py` (the drift test will catch it otherwise), update the
-  `principals.py` docstring to say the constraint is what makes `.one_or_none()`
-  safe, and add tests.
+  constraint in `schema.py`, update the `principals.py` docstring to say the
+  constraint is what makes `.one_or_none()` safe, and add tests.
+
+  > **Correction to an earlier version of this document.** It said the drift
+  > test would catch the new constraint if it were not mirrored in `schema.py`.
+  > **That is false, and relying on it would have been a silent gap.** The drift
+  > test compares column *name sets*, checks composite foreign keys are
+  > composite, and asserts three specifically-named unique constraints exist on
+  > `job_event`, `outbox_record`, and `idempotency_record`. Nothing compares
+  > unique constraints as a set, and Wave C adds **no column** — so an unmirrored
+  > constraint on `user_account` is invisible to CI in both directions.
+  > **Do F7 before Wave C**, or mirror the constraint by hand knowing nothing
+  > verifies that you did.
   **Why:** `PrincipalRepository.load_by_subject` filters on `external_subject`
   alone and calls `.one_or_none()`, while the constraint is only
   `(tenant_id, external_subject)` — so one IdP subject with accounts in two
@@ -168,6 +178,13 @@ Stated plainly, because a handoff that only lists successes is not useful:
 - **The port review's severity ratings are its own.** Where the remediation plan
   disagrees with them, the plan was asked to argue the case — read the argument,
   do not defer to either automatically.
+- **ADR-0004 understates the schema divergence.** It names `org_unit.tenant_id`
+  as the example of a `schema.py` foreign key missing the migration's
+  `ondelete`. In fact **all seven** tenant-parent foreign keys in `schema.py`
+  carry no `ondelete`, while the migrations deliberately specify `RESTRICT` for
+  some and `CASCADE` for others — so the hand-written mirror cannot represent a
+  distinction the database is actually making. Verified by count. The ADR is not
+  wrong, it is narrower than the truth; widen it when F7 lands.
 
 ---
 
