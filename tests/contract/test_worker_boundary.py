@@ -1,8 +1,14 @@
 """Worker boundary contract tests.
 
-The worker is private and consequential. These tests assert it fails closed
-before it does anything, which is the property that matters most while the
-command handlers are unimplemented.
+The worker is private and consequential. These tests assert that the shipped
+application — the one uvicorn serves, built from whatever environment it finds —
+fails closed before it does anything.
+
+They deliberately exercise the *default* worker rather than a configured one.
+Verification being correct when configured is proved in
+``tests/integration/test_worker_execution.py``, with real tokens and real keys;
+what is proved here is the property that survives someone forgetting to
+configure it.
 """
 
 from __future__ import annotations
@@ -25,12 +31,20 @@ def test_task_execution_rejects_an_unauthenticated_caller():
     assert response.status_code == 401
 
 
-def test_task_execution_fails_closed_even_with_a_bearer_token():
-    """The scaffold's identity verification is a stub that rejects everything.
+def test_task_execution_fails_closed_when_verification_is_not_configured():
+    """An unconfigured deployment refuses everything, exactly as the stub did.
 
-    A permissive stub would let unverified callers reach command dispatch the
-    moment a handler is added. 501 makes the missing control explicit rather
-    than silently absent.
+    **Changed in J6, deliberately.** Real OIDC verification now exists, so 501 no
+    longer means "the control is missing from the codebase"; it means this
+    process has no audience, no service-account allowlist, and no signature
+    backend, so there is nothing to verify against. The wording moved from "not
+    implemented" to "not configured" to say that accurately.
+
+    The status code and the property it guards are unchanged, and that is the
+    point of keeping this test: the module-level ``app`` is built from an
+    environment that configures none of it, and it must still be a closed door.
+    A verifier that treated missing configuration as nothing to check would be
+    the one regression that turns this endpoint into an open one.
     """
     response = client.post(
         "/tasks/execute",
@@ -38,11 +52,16 @@ def test_task_execution_fails_closed_even_with_a_bearer_token():
         headers={"Authorization": "Bearer anything"},
     )
     assert response.status_code == 501
-    assert "not implemented" in response.json()["detail"].lower()
+    assert "not configured" in response.json()["detail"].lower()
 
 
-def test_worker_exposes_no_command_routes_yet():
-    """Command handlers arrive with their releases and their gates."""
+def test_worker_exposes_no_command_routes_beyond_the_task_target():
+    """Commands are executed through the one task endpoint, never as routes.
+
+    Handlers were added in J7, and none of them brought a route with it: the
+    worker is reachable only by Cloud Tasks, and a per-command HTTP route would
+    be a second way in that nothing verifies.
+    """
     paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
     business_paths = {
         p for p in paths if not p.startswith(("/health", "/openapi", "/docs", "/redoc"))
