@@ -52,7 +52,17 @@ class JobState(StrEnum):
 #: Legal transitions, transcribed from the v1.1 §1.7 state diagram.
 TRANSITIONS: Final[Mapping[JobState, frozenset[JobState]]] = MappingProxyType(
     {
-        JobState.QUEUED: frozenset({JobState.DISPATCHED, JobState.CANCELLED}),
+        # ``failed_provider`` from ``queued`` is not a job that ran and failed —
+        # it is a job that could never be *handed over*. The outbox exhausts its
+        # dispatch attempts and parks the row, and without this the job stayed
+        # ``queued`` forever: no dispatcher revisits a parked row, and ``queued``
+        # reaches neither a terminal state nor ``redrive_pending``, so the one
+        # job that most needed re-driving was the one job re-drive could not
+        # touch. The queue is the provider that failed, which is what the state
+        # says.
+        JobState.QUEUED: frozenset(
+            {JobState.DISPATCHED, JobState.CANCELLED, JobState.FAILED_PROVIDER}
+        ),
         JobState.DISPATCHED: frozenset({JobState.RUNNING, JobState.CANCELLED}),
         JobState.RUNNING: frozenset(
             {

@@ -51,6 +51,7 @@ from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import (
     DEFAULT_LEASE,
+    MAX_DISPATCH_ATTEMPTS,
     ClaimedOutboxRecord,
     OutboxRepository,
 )
@@ -297,7 +298,7 @@ class OutboxDispatcher:
         takes.
         """
         try:
-            self._record_failure(record.id, error, record.dispatch_attempts)
+            self._record_failure(record, error, record.dispatch_attempts)
         except Exception:
             logger.exception("outbox row %s: recording the failure itself failed", record.id)
         return "failed"
@@ -327,12 +328,33 @@ class OutboxDispatcher:
             self._outbox.mark_dispatched(session, record_id=record_id)
             session.commit()
 
-    def _record_failure(self, record_id: uuid.UUID, error: str, attempts: int) -> None:
-        """Record a dispatch failure without touching the job's state.
+    def _record_failure(self, record: ClaimedOutboxRecord, error: str, attempts: int) -> None:
+        """Record a dispatch failure, and park the job once attempts run out.
 
-        The job stays ``queued``: it has not been dispatched, and saying
-        otherwise would strand it.
+        While attempts remain the job stays ``queued``: it has not been
+        dispatched, and saying otherwise would strand it. The row backs off and
+        another pass will try again.
+
+        **At exhaustion that stops being true.** The row becomes ``failed`` and
+        no dispatcher will look at it again, so a job left ``queued`` is
+        describing a state it is no longer in — and ``queued`` reaches neither a
+        terminal state nor ``redrive_pending``, so the re-drive command answers
+        409 forever on precisely the work the dispatcher gave up on. The job is
+        moved to ``failed_provider``: the queue is the provider that failed, and
+        it is one of the two states with a route back through re-drive.
+
+        Both writes share one transaction. A parked row beside a ``queued`` job,
+        or a failed job beside a live row, are each a state nothing would
+        reconcile.
         """
         with self._session_factory() as session:
-            self._outbox.mark_failed(session, record_id=record_id, error=error, attempts=attempts)
+            self._outbox.mark_failed(session, record_id=record.id, error=error, attempts=attempts)
+            if attempts >= MAX_DISPATCH_ATTEMPTS:
+                self._jobs.transition(
+                    session,
+                    tenant_id=record.tenant_id,
+                    job_id=record.job_id,
+                    to_state=JobState.FAILED_PROVIDER,
+                    expected_from=JobState.QUEUED,
+                )
             session.commit()

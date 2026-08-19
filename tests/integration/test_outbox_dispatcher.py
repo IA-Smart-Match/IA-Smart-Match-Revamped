@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from smartmatch_domain.jobs import JobState
+from smartmatch_domain.jobs import JobState, can_transition
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import (
     MAX_DISPATCH_ATTEMPTS,
@@ -266,8 +266,19 @@ def test_dispatch_failure_is_retried_then_parked(
 
     with session_factory() as session:
         assert _outbox_status(session, job_id) == OutboxStatus.FAILED
-        # The job never claimed to be dispatched, because it never was.
-        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status is (JobState.QUEUED)
+        # The job never claimed to be dispatched, because it never was — but it
+        # does not stay ``queued`` either.
+        #
+        # **Changed deliberately.** This assertion used to require ``queued``,
+        # which described the row honestly and the job dishonestly: a parked row
+        # is never revisited, so the job was not queued for anything, and
+        # ``queued`` reaches neither a terminal state nor ``redrive_pending``.
+        # The job that most needed re-driving was the one job re-drive could not
+        # touch. ``failed_provider`` is what actually happened — the queue is the
+        # provider that failed — and it has a route back through re-drive.
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status is (
+            JobState.FAILED_PROVIDER
+        )
 
     # A parked row is no longer claimable, so it cannot loop forever.
     assert dispatcher.run_once().is_idle
@@ -731,3 +742,40 @@ def test_a_row_whose_dispatch_is_never_recorded_ends_up_visible(
         )
         # The lag metric must not be able to report zero while work is stuck.
         assert outbox.pending_count(session) == 0
+
+
+def test_a_job_whose_dispatch_is_exhausted_becomes_redrivable(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher
+):
+    """Parking the outbox row is not enough; the job must say so too.
+
+    When dispatch attempts run out the outbox row becomes ``failed``, but the
+    job was left ``queued`` — on the reasoning that it had not been dispatched
+    and saying otherwise would strand it. That reasoning holds for a *retryable*
+    failure and breaks at exhaustion, because ``queued`` admits only
+    ``dispatched`` and ``cancelled``.
+
+    So the job that most needs re-driving was the one job re-drive could not
+    touch: the command answers 409 forever, and no dispatcher will look at the
+    row again. ``failed_provider`` is the truthful state — dispatch failed at
+    the queue — and it is one of the two states with a route to
+    ``redrive_pending``.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for attempt in range(MAX_DISPATCH_ATTEMPTS):
+        if attempt:
+            _expire_all_leases(session_factory, tenant_id)
+        queue.fail_next_with = TaskQueueError(f"queue unavailable {attempt}")
+        assert dispatcher.run_once().failed == 1
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.FAILED
+        job = jobs.get(session, tenant_id=tenant_id, job_id=job_id)
+        assert job.status is JobState.FAILED_PROVIDER, (
+            "a job whose dispatch is exhausted must reach a state re-drive can "
+            f"reach, not stay queued forever (got {job.status.value})"
+        )
+
+    # And that state genuinely admits a re-drive.
+    assert can_transition(JobState.FAILED_PROVIDER, JobState.REDRIVE_PENDING)
