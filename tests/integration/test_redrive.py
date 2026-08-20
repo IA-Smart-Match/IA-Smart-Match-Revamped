@@ -29,6 +29,8 @@ the queue.
 
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 
 import pytest
@@ -629,22 +631,33 @@ def test_a_duplicate_redrive_does_not_double_run(
 
 
 def test_a_key_reused_for_a_different_reason_is_a_conflict(
-    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher, engine
 ):
     """A replayed key with a different body is a client bug, not a retry.
 
     Answering with the earlier decision would silently discard the new one — and
     the reason is the audited part, so quietly keeping the wrong one is exactly
     the failure the audit trail exists to prevent.
+
+    The quota assertion guards S-008 on this specific path. ``_reserve`` used to
+    commit the transaction itself before letting the conflict propagate, purely
+    so the rate-limit increment stuck; that commit is gone and the savepoint in
+    the handler carries the property instead. Nothing else in the suite would
+    notice if it stopped being carried, and an unbounded stream of conflicting
+    requests costing nothing is precisely the traffic a limiter exists to bound.
     """
     job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
 
     assert _post_redrive(client, job_id, coordinator, key="reused", reason="A.").status_code == 202
+    before = _quota_consumed(engine, tenant_id)
     response = _post_redrive(client, job_id, coordinator, key="reused", reason="B.")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "idempotency_key_reused"
     assert len(_outbox_rows(session_factory, job_id)) == 2
+    assert _quota_consumed(engine, tenant_id) > before, (
+        "a key-reuse conflict is a rejection, and a rejection still costs quota"
+    )
 
 
 def test_two_coordinators_racing_produce_one_run(
@@ -837,3 +850,252 @@ def test_a_rejected_redrive_still_consumes_quota(
     assert response.status_code == 409, response.text
 
     assert _consumed() > before, "a rejected re-drive must still cost quota"
+
+
+def _quota_consumed(engine, tenant_id) -> int:
+    """Total rate-limit units this tenant has spent.
+
+    Both re-drive routes share the ``job.redrive`` bucket, so this is the whole
+    picture for either of them.
+    """
+    with engine.begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    "SELECT coalesce(sum(count), 0) FROM rate_limit_counter WHERE tenant_id = :tid"
+                ),
+                {"tid": tenant_id},
+            ).scalar_one()
+            or 0
+        )
+
+
+def _idempotency_keys(session_factory, tenant_id, command_type: str) -> list[str]:
+    with session_factory() as session:
+        return [
+            row[0]
+            for row in session.execute(
+                text(
+                    "SELECT idempotency_key FROM idempotency_record "
+                    "WHERE tenant_id = :tid AND command_type = :ct ORDER BY idempotency_key"
+                ),
+                {"tid": tenant_id, "ct": command_type},
+            )
+        ]
+
+
+def _a_running_job(session_factory, jobs, outbox, tenant_id, dispatcher) -> uuid.UUID:
+    """A job the worker is still executing: accepted, dispatched, running.
+
+    ``running`` has no declared path to ``abandoned``, so this is the state that
+    produces the worst sentence the poisoned-key defect can produce — a caller
+    told the job is closed permanently while it is in fact still executing.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+    dispatcher.run_once()
+    with session_factory() as session:
+        jobs.transition(
+            session,
+            tenant_id=tenant_id,
+            job_id=job_id,
+            to_state=JobState.RUNNING,
+            expected_from=JobState.DISPATCHED,
+        )
+        session.commit()
+    return job_id
+
+
+def test_a_refused_redrive_does_not_consume_its_idempotency_key(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher, engine
+):
+    """A refusal must leave the key free, and must still cost quota.
+
+    A key names *accepted* work. Holding the reservation past a 409 meant the
+    retry — the one thing an idempotency key exists to make safe — found the
+    reservation and answered ``202 {"replayed": true}`` for a command that was
+    refused and never ran. The first request told the truth and every retry
+    lied, which inverts the contract and is exactly what a client library does
+    automatically.
+
+    Both halves are asserted here on purpose. The reservation must go and the
+    quota must stay, and the savepoint boundary is the only thing separating
+    them: open it one line too early, around ``enforce_rate_limit``, and the
+    quota half regresses silently while this test's first assertions still pass.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    closed = _post_abandon(client, job_id, coordinator, key="close")
+    assert closed.status_code == 200, closed.text
+
+    before = _quota_consumed(engine, tenant_id)
+
+    first = _post_redrive(client, job_id, coordinator, key="K")
+    assert first.status_code == 409, first.text
+    assert first.json()["error"]["code"] == "invalid_state_transition", first.text
+    after_first = _quota_consumed(engine, tenant_id)
+    assert after_first > before, "a refused re-drive must still cost quota"
+
+    retry = _post_redrive(client, job_id, coordinator, key="K")
+
+    assert retry.status_code == 409, (
+        f"a retry of a refused command must be refused again, not replayed: {retry.text}"
+    )
+    assert retry.json()["error"]["code"] == "invalid_state_transition", retry.text
+    assert _quota_consumed(engine, tenant_id) > after_first, (
+        "the retry is a fresh attempt and costs quota too"
+    )
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.ABANDONED
+    assert len(_outbox_rows(session_factory, job_id)) == 1, "no re-drive means no new outbox row"
+    assert "K" not in _idempotency_keys(session_factory, tenant_id, "job.redrive"), (
+        "a refused command must leave its key free for a later, legitimate attempt"
+    )
+
+
+def test_a_refused_abandon_does_not_report_the_job_abandoned(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The sharpest instance: a running job reported closed while it still runs.
+
+    ``running`` has no declared transition to ``abandoned``, so the first request
+    is correctly refused. The retry then found the surviving reservation and
+    answered ``200 {"status": "abandoned"}`` — while the worker was still
+    executing the job and with no ``redrive_record`` written, so the durable
+    audit trail says nothing happened and the only artifact claiming otherwise
+    is an HTTP response nobody keeps.
+    """
+    job_id = _a_running_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    first = _post_abandon(client, job_id, coordinator, key="K2")
+    assert first.status_code == 409, first.text
+
+    retry = _post_abandon(client, job_id, coordinator, key="K2")
+
+    assert retry.status_code == 409, (
+        f"a refused abandon must not report the job abandoned on retry: {retry.text}"
+    )
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.RUNNING
+    assert _redrive_rows(session_factory, job_id) == [], "a refused abandon parks nothing"
+    assert "K2" not in _idempotency_keys(session_factory, tenant_id, "job.abandon")
+
+
+def _wait_until_blocked_by(engine, blocker_pid: int, *, timeout: float = 10.0) -> None:
+    """Block until some backend is waiting on a lock held by ``blocker_pid``.
+
+    This is the handoff that makes the race test deterministic rather than
+    timing-dependent. Sleeping a fixed interval and hoping the other thread got
+    far enough is how a race test becomes a flaky test; PostgreSQL reports the
+    wait directly through ``pg_blocking_pids``, so the test observes the exact
+    interleaving it needs.
+
+    Naming the blocker matters as much as waiting at all. "Is anything blocked?"
+    would also answer yes to an unrelated backend, hand control back too early,
+    and produce a test that passes for the wrong reason — which is the failure
+    mode a race test is most likely to have and least likely to show.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with engine.begin() as conn:
+            waiting = conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND :blocker = ANY(pg_blocking_pids(pid))"
+                ),
+                {"blocker": blocker_pid},
+            ).scalar_one()
+        if waiting:
+            return
+        time.sleep(0.01)
+    raise AssertionError(
+        f"no backend ever blocked on the lock held by pid {blocker_pid}; the race did not set up"
+    )
+
+
+def test_a_redrive_that_loses_the_parking_race_leaves_no_stray_audit_record(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher, engine
+):
+    """A lost compare-and-set must undo the record the attempt already wrote.
+
+    This is the one path where deleting the idempotency reservation would not
+    have been enough. ``_open_parking`` has a third branch: a job sitting in
+    ``redrive_pending`` with no open audit record — the worker owns that
+    transition and does not know this table exists — is *backfilled* a record
+    before the ``redrive_pending -> queued`` compare-and-set is attempted. If
+    that set then loses, the attempt has already written a ``redrive_record``,
+    and a fix aimed only at the reservation would commit it: a durable audit row
+    for a re-drive that was refused and never happened.
+
+    Reached with two genuinely concurrent transactions and no fault injection.
+    A rival re-drive moves the job out of ``redrive_pending`` and holds the row
+    lock uncommitted; the request under test reads the still-committed
+    ``redrive_pending``, backfills its record, and blocks on the rival's lock.
+    Committing the rival releases it, PostgreSQL re-evaluates the ``WHERE``
+    against the new committed row, matches nothing, and the conflict is raised
+    where the plan says it is raised.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    # The state _open_parking backfills for: parked, with no audit record.
+    with session_factory() as session:
+        jobs.transition(
+            session,
+            tenant_id=tenant_id,
+            job_id=job_id,
+            to_state=JobState.REDRIVE_PENDING,
+            expected_from=JobState.FAILED_PROVIDER,
+        )
+        session.commit()
+    assert _redrive_rows(session_factory, job_id) == [], "setup: no record to reuse"
+
+    result: dict[str, object] = {}
+    failure: list[Exception] = []
+
+    def _redrive_under_the_rival() -> None:
+        # Anything raised here would otherwise die in the worker thread, leaving
+        # the main thread to fail on a missing ``result`` key and report a
+        # ``KeyError`` in place of the actual cause. Carried across and re-raised
+        # below instead: a test this fiddly must not be able to lie about why it
+        # failed.
+        try:
+            result["response"] = _post_redrive(client, job_id, coordinator, key="race")
+        except Exception as exc:  # re-raised in the main thread, below
+            failure.append(exc)
+
+    contender = threading.Thread(target=_redrive_under_the_rival, daemon=True)
+
+    # A rival coordinator's re-drive, committed only once we are wedged behind it.
+    rival = session_factory()
+    try:
+        rival_pid = rival.execute(text("SELECT pg_backend_pid()")).scalar_one()
+        assert jobs.transition(
+            rival,
+            tenant_id=tenant_id,
+            job_id=job_id,
+            to_state=JobState.QUEUED,
+            expected_from=JobState.REDRIVE_PENDING,
+        ), "setup: the rival must win the compare-and-set it is here to win"
+        contender.start()
+        _wait_until_blocked_by(engine, rival_pid)
+        rival.commit()
+    finally:
+        # Before the join, never after: the contender is blocked on this
+        # session's row lock, so joining first would wait on a thread waiting on
+        # us. Closing here also covers the setup assertion above failing, which
+        # would otherwise leak an open session on the session-scoped engine.
+        rival.close()
+
+    contender.join(timeout=15)
+    assert not contender.is_alive(), "the blocked request never completed"
+    if failure:
+        raise AssertionError("the re-drive request raised instead of answering") from failure[0]
+
+    response = result["response"]
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "redrive_conflict", response.text
+
+    assert _redrive_rows(session_factory, job_id) == [], (
+        "the backfilled audit record belonged to a re-drive that was refused; "
+        "rolling back only the reservation would have left it committed"
+    )
+    assert "race" not in _idempotency_keys(session_factory, tenant_id, "job.redrive")
