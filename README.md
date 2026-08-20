@@ -30,20 +30,23 @@ was kept, what was rejected, and why.
 | Import validation and normalization | `smartmatch_domain.ingest` | 13 |
 | Shadow-mode feedback → weight proposals | `smartmatch_domain.feedback` | 16 |
 | Factor registry (proposal; scoring fails closed) | `smartmatch_domain.factor_registry` | 17 |
-| Deny-by-default authorization policy | `smartmatch_authz.policy` | 29 |
+| Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
 | Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
+| Schema matches migration — foreign keys, nullability, types, PK/UQ/CHECK constraint names, per table (ADR-0004 amendment) | `smartmatch_persistence.schema`, `db/migrations` | 115 integration |
+| `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 27 integration |
-| Job/outbox/idempotency repositories | `smartmatch_persistence` | 8 schema-drift |
-| Transactional rate limiter | `smartmatch_persistence.rate_limit` | 14 integration |
-| Authenticated command path, end to end | `services/api` | 26 integration |
+| Transactional rate limiter | `smartmatch_persistence.rate_limit` | 18 integration + 4 unit |
+| Authenticated command path, end to end | `services/api` | 29 integration |
+| Identity lookup — `external_subject` globally unique (ADR-0008) | `smartmatch_persistence.principals` | 6 integration |
 | API health + non-mutating unsubscribe GET | `services/api` | 10 contract |
+| Standard error envelope across the API | `services/api` | 13 contract |
 | Worker command execution — claim, run to a terminal state, job events | `smartmatch_worker.execution` | 31 integration |
 | OIDC task-identity verification, ships with no signature backend | `smartmatch_worker.identity` | included above + 4 contract |
 | Re-drive and abandon commands for parked work | `services/api/.../routers/redrive.py` | 22 integration |
 | Forbidden-legacy-behavior scanner | `tools/scan_forbidden.py` | 25 self-tests |
 
-**378 tests total** (377 pass, 1 skipped by design — see
+**489 tests total** (488 pass, 1 skipped by design — see
 `test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
 second implemented scoring factor).
 

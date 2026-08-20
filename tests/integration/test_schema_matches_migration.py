@@ -63,7 +63,8 @@ _LTREE_COLUMNS = (("org_unit", "path"), ("membership", "granted_path"))
 #: here would be a third copy of the schema to maintain.
 #:
 #: Two of the four are *also* guarded behaviourally, and were before this module
-#: was widened: ``test_tenant_isolation.py:206`` and ``:229`` insert the
+#: was widened: ``test_tenant_isolation.py::test_job_event_sequence_is_unique_per_job``
+#: and ``::test_outbox_task_name_is_globally_unique`` insert the
 #: duplicate row and require ``IntegrityError``. That is a stronger guard than
 #: existence, because it proves the constraint does its job rather than that it
 #: is present. What is added here is a structural failure that names the
@@ -421,9 +422,10 @@ def test_check_constraint_names_match(inspector, table_name: str):
     **What it does not catch, stated because the gap is easy to assume away:** a
     constraint re-added under the same name with an inverted expression, or as
     ``NOT VALID``, passes. Only two of the eight have a test that attempts the
-    forbidden write — ``ck_job_status`` (``test_tenant_isolation.py:193``, and
-    ``test_job_states_match_domain.py``) and ``ck_budget_ceiling_non_negative``
-    (``test_tenant_isolation.py:265``). The other six —
+    forbidden write — ``ck_job_status``
+    (``test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state``,
+    and ``test_job_states_match_domain.py``) and ``ck_budget_ceiling_non_negative``
+    (``test_tenant_isolation.py::test_budget_ceiling_cannot_go_negative``). The other six —
     ``ck_membership_valid_window``, ``ck_resource_grant_effect``,
     ``ck_outbox_status``, ``ck_redrive_authorship_complete``,
     ``ck_budget_non_negative``, ``ck_rate_limit_count_non_negative`` — are

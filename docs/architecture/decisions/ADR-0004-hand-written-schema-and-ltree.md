@@ -211,7 +211,8 @@ v1.1 §1.11, and the rate limiter's atomic increment), not "each is important".
 Two things this does **not** mean, both of which were briefly claimed here and
 are wrong. The first is that those guarantees were previously unasserted: two of
 the four were already guarded behaviourally, and better, by
-`test_tenant_isolation.py:206` and `:229`, which insert the duplicate row and
+`test_tenant_isolation.py::test_job_event_sequence_is_unique_per_job` and
+`::test_outbox_task_name_is_globally_unique`, which insert the duplicate row and
 require `IntegrityError` — proof that the constraint *works*, where existence is
 only proof that it is present. What the absolute assertions add is a structural
 failure naming the constraint rather than the same drift surfacing as a
@@ -257,8 +258,8 @@ in, so comparing text would fail on constraints that are in fact identical.
 A name comparison catches a constraint added, dropped, or renamed on one side. It
 does not catch one re-added under the same name with an inverted expression, or
 as `NOT VALID`. Only two of the eight have a test that attempts the forbidden
-write: `ck_job_status` (`test_tenant_isolation.py:193`) and
-`ck_budget_ceiling_non_negative` (`:265`). The remaining six —
+write: `ck_job_status` (`test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state`)
+and `ck_budget_ceiling_non_negative` (`::test_budget_ceiling_cannot_go_negative`). The remaining six —
 `ck_membership_valid_window`, `ck_resource_grant_effect`, `ck_outbox_status`,
 `ck_redrive_authorship_complete`, `ck_budget_non_negative`, and
 `ck_rate_limit_count_non_negative` — are asserted by name and by nothing else.
@@ -273,7 +274,8 @@ closed.
 objection above does not cover it: there the rendering *is* the assertion, here
 the quoted literals are the payload and the syntax around them is incidental.
 That module also writes every `JobState` value to prove the constraint accepts
-them; the rejecting direction it leaves to `test_tenant_isolation.py:193` rather
+them; the rejecting direction it leaves to
+`test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state` rather
 than duplicating it. And index *sets* — `schema.py` declares no indexes on
 purpose, and mirroring them all would be a second copy of information nobody
 reads, so only the two indexes above, which back a correctness claim, are named.

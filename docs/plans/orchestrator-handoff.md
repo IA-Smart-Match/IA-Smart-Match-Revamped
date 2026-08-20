@@ -67,33 +67,57 @@ once leaving a 669-line file that did not parse.
 **reject the partial output and re-task it** rather than repairing it — that
 rule is in the plan for a reason.
 
+### Landed since this handoff
+
+Both of the items this section originally listed as "not started" are done.
+
+- **F7 — widen the schema drift test.** Landed in `f6980ef`. It now compares
+  foreign key columns/targets/delete actions, nullability, dialect-compiled
+  column types, and primary key / unique / CHECK constraint names, with unique
+  constraints also compared by columns; four load-bearing constraints are
+  additionally asserted absolutely against the database. The tenant-anchoring
+  check now enumerates tables from the database rather than from `schema.py`.
+  ADR-0004 has an amendment. See `docs/plans/remaining-foundation-r1-work.md`
+  (F7, now struck through) and `docs/plans/defect-remediation.md` §6.
+
+- **Wave C — identity model.** Landed in `a6a8ce5`. Migration `0003` makes
+  `user_account.external_subject` globally unique
+  (`uq_user_account_external_subject`), refuses to run against duplicate
+  subjects rather than deduplicating them, and names the offenders when it
+  finds any. `uq_user_account_tenant_subject` is kept as now-redundant
+  contract-phase work. `schema.py` mirrors the new constraint,
+  `principals.py`'s docstring records why the constraint is what makes
+  `.one_or_none()` sound, and `tests/integration/test_principal_identity.py` is
+  new. Integration subjects now route through `conftest.unique_subject` for a
+  per-session token, since the constraint is now global rather than
+  per-tenant. Recorded as ADR-0008 and as backlog item A1c (it had no backlog
+  number before this).
+
+  > **Correction to an earlier version of this document — now resolved.** It
+  > said the drift test would catch the new constraint if it were not mirrored
+  > in `schema.py`. **That was false when written, and relying on it would have
+  > been a silent gap** — at the time, the drift test compared column *name
+  > sets* and three specifically-named unique constraints, nothing compared
+  > unique constraints as a set, and Wave C's migration adds no column. F7
+  > landed first, exactly as this correction recommended ("do F7 before Wave
+  > C"), and closed the gap it named: the drift test now compares unique
+  > constraints as a set (and primary key and CHECK names too), so
+  > `uq_user_account_external_subject` would have failed the build in both
+  > directions had it been left unmirrored. The sequencing risk this correction
+  > flagged no longer exists.
+  **Why the defect mattered:** `PrincipalRepository.load_by_subject` filters on
+  `external_subject` alone and calls `.one_or_none()`, while the only
+  constraint before `0003` was `(tenant_id, external_subject)` — so one IdP
+  subject with accounts in two tenants raised `MultipleResultsFound` and 500s
+  every authenticated request.
+
 ### Not started
 
-- **Wave C — identity model.** Design settled with the user: a **globally unique
-  `external_subject`**. A draft migration is written and parse-checked at
-  `/tmp/claude-0/-home-user/d8ac6fc2-95fc-5574-a251-6484b6b2ac3d/scratchpad/0003_draft.py`.
-  It **must fail loudly** on duplicate subjects rather than deduplicating — that
-  is the whole point, and the draft raises with the offending subjects named
-  rather than letting PostgreSQL emit a one-key error. Still to do: mirror the
-  constraint in `schema.py`, update the `principals.py` docstring to say the
-  constraint is what makes `.one_or_none()` safe, and add tests.
-
-  > **Correction to an earlier version of this document.** It said the drift
-  > test would catch the new constraint if it were not mirrored in `schema.py`.
-  > **That is false, and relying on it would have been a silent gap.** The drift
-  > test compares column *name sets*, checks composite foreign keys are
-  > composite, and asserts three specifically-named unique constraints exist on
-  > `job_event`, `outbox_record`, and `idempotency_record`. Nothing compares
-  > unique constraints as a set, and Wave C adds **no column** — so an unmirrored
-  > constraint on `user_account` is invisible to CI in both directions.
-  > **Do F7 before Wave C**, or mirror the constraint by hand knowing nothing
-  > verifies that you did.
-  **Why:** `PrincipalRepository.load_by_subject` filters on `external_subject`
-  alone and calls `.one_or_none()`, while the constraint is only
-  `(tenant_id, external_subject)` — so one IdP subject with accounts in two
-  tenants raises `MultipleResultsFound` and 500s every authenticated request.
-- **The defect backlog** — F7, F8, F9 (29 port findings), A5. The planner agent
-  above is producing the remediation plan.
+- **The defect backlog** — F8, F9 (29 port findings), A5, and the smaller items
+  F7's own work surfaced: F10 (behavioural tests for six name-only CHECK
+  constraints), F11 (`transaction_per_migration` decision before `0004`), F12
+  (drop the now-redundant `uq_user_account_tenant_subject` at contract phase).
+  See `docs/plans/remaining-foundation-r1-work.md`.
 
 ---
 

@@ -22,7 +22,8 @@ ever defeats the parse, which is the failure mode a regex over catalog text
 invites.
 
 The opposite direction — a status that is *not* a ``JobState`` must be rejected
-— is already proved by ``test_tenant_isolation.py:193``, which inserts
+— is already proved by
+``test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state``, which inserts
 ``not_a_real_state`` and requires ``IntegrityError``. It is not repeated here.
 That test is also what would catch ``ck_job_status`` being re-added as
 ``NOT VALID`` or otherwise made inert, which neither test in this module would
