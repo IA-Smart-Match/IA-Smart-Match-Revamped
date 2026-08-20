@@ -230,6 +230,48 @@ def test_an_expired_lease_becomes_claimable_again(session_factory, jobs, outbox,
     assert reclaimed[0].dispatch_attempts == 2, "attempts accumulate across claims"
 
 
+def test_a_claimed_batch_arrives_oldest_first(session_factory, jobs, outbox, tenant_id):
+    """The FIFO order :meth:`claim_batch` documents must be real, not incidental.
+
+    The claim selects the oldest rows inside a CTE that sorts by ``created_at``,
+    but hands them back through ``UPDATE ... RETURNING``, whose output order SQL
+    does not define. PostgreSQL plans the update as a hash join whose outer side
+    is a sequential scan of ``outbox_record``, so unsorted results arrive in
+    *heap* order — and heap order stops matching ``created_at`` order the moment
+    an update rewrites an older row's tuple behind a newer one, which is the
+    ordinary life of an outbox row that has been claimed, failed and re-armed.
+
+    So the setup deliberately drives the two orders apart: every row is created,
+    then the older half is rewritten in place, moving its live tuples to the end
+    of the heap. Before the sort in :meth:`claim_batch` this returned newest
+    first (J13).
+    """
+    job_ids = [_accept_command(session_factory, jobs, outbox, tenant_id) for _ in range(8)]
+    older_half = job_ids[:4]
+
+    # Rewrite the older rows so their live tuples land physically after the
+    # newer ones. Any update does this; PostgreSQL never updates a tuple in
+    # place. ``last_error`` is not read by the claim predicate, so this changes
+    # heap layout and nothing else.
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE outbox_record SET last_error = 'heap churn' WHERE job_id = ANY(:ids)"),
+            {"ids": older_half},
+        )
+        session.commit()
+
+    with session_factory() as session:
+        heap_order = [
+            row[0]
+            for row in session.execute(text("SELECT job_id FROM outbox_record ORDER BY ctid"))
+        ]
+        claimed = outbox.claim_batch(session, limit=10)
+        session.commit()
+
+    assert heap_order != job_ids, "setup failed: heap order still matches creation order"
+    assert [record.job_id for record in claimed] == job_ids, "claims must arrive oldest first"
+
+
 def test_task_names_are_deterministic_and_distinct():
     """Determinism is what makes a retried dispatch safe."""
     job_a, job_b = uuid.uuid4(), uuid.uuid4()
@@ -611,16 +653,22 @@ def test_a_failure_while_recording_a_dispatch_does_not_abort_the_batch(
     whole batch with it. The task itself was already created, so the row is
     recovered by lease expiry and the deterministic name makes the retry a
     no-op — but only if the dispatcher survives long enough to keep going.
+
+    The failure is injected against a *named* job rather than against whichever
+    call happens to come first. Keying on the call ordinal quietly turned this
+    into an assertion about claim order, which is not what it is here to check,
+    and it failed roughly one module run in thirty whenever the batch came back
+    in the other order (J13). Naming the job keeps the test about the thing it
+    describes; the ordering guarantee is asserted on its own in
+    :func:`test_a_claimed_batch_arrives_oldest_first`.
     """
-    _accept_command(session_factory, jobs, outbox, tenant_id)
+    broken_job = _accept_command(session_factory, jobs, outbox, tenant_id)
     second_job = _accept_command(session_factory, jobs, outbox, tenant_id)
 
     real_record = dispatcher._record_dispatched
-    seen: list[uuid.UUID] = []
 
     def flaky(tenant_id_, job_id, record_id):
-        seen.append(record_id)
-        if len(seen) == 1:
+        if job_id == broken_job:
             raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
         real_record(tenant_id_, job_id, record_id)
 

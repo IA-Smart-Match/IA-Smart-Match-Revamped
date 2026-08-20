@@ -261,12 +261,37 @@ class OutboxRepository:
         Materializing the selection once in a CTE is the standard SKIP LOCKED
         queue pattern and bounds the batch as intended.
 
+        ## Why the result is re-sorted in Python
+
+        The CTE's ``ORDER BY created_at`` chooses *which* rows are claimed under
+        ``LIMIT``. It does not decide the order they come back in: the rows are
+        returned by ``UPDATE ... RETURNING``, and **SQL does not define
+        ``RETURNING``'s output order**. In practice PostgreSQL plans this as a
+        hash join whose outer side is a sequential scan of ``outbox_record``, so
+        the rows arrive in *heap* order — which diverges from ``created_at``
+        order as soon as an update rewrites an older row's tuple behind a newer
+        one, exactly what a busy outbox does. A claim of the twenty oldest rows
+        would then be handed to the dispatcher as an arbitrary permutation.
+
+        Nothing about dispatch correctness depends on the order — each row is
+        independent, and a wrong order costs latency on the oldest row, not
+        safety. But FIFO is what this method's contract says, what the lag metric
+        in :meth:`oldest_pending_age` measures against, and what ADR-0005 assumes
+        when it talks about the oldest row. Sorting here makes the documented
+        guarantee real rather than incidental, at the cost of ordering at most
+        ``limit`` records.
+
+        ``id`` breaks ``created_at`` ties so the order is total: two rows
+        committed inside the same transaction share a ``now()``, and without the
+        tiebreak their relative order would still be whatever the heap decided.
+
         Args:
             now: Injected for tests so lease expiry is exercised without waiting.
 
         Returns:
-            The claimed rows, at most ``limit`` of them. Does not commit — the
-            caller commits to make the lease visible, then dispatches.
+            The claimed rows, at most ``limit`` of them, oldest first. Does not
+            commit — the caller commits to make the lease visible, then
+            dispatches.
         """
         now = now or datetime.now(UTC)
         deadline = now + lease
@@ -295,8 +320,11 @@ class OutboxRepository:
                 schema.outbox_record.c.task_name,
                 schema.outbox_record.c.dispatch_attempts,
                 schema.outbox_record.c.lease_expires_at,
+                schema.outbox_record.c.created_at,
             )
         ).all()
+
+        ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
 
         return [
             ClaimedOutboxRecord(
@@ -307,7 +335,7 @@ class OutboxRepository:
                 dispatch_attempts=row.dispatch_attempts,
                 lease_expires_at=row.lease_expires_at,
             )
-            for row in rows
+            for row in ordered
         ]
 
     def mark_dispatched(self, session: Session, *, record_id: uuid.UUID) -> None:
