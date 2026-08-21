@@ -547,8 +547,9 @@ Everything else about it is worse:
   predicate), never counted (`pending_count` and `oldest_pending_age` share the
   predicate, deliberately, so the metric and the behaviour cannot drift — here
   they agree, and both are wrong), and never visible as `failed`. The job stays
-  `queued`, which `TRANSITIONS` routes only to `dispatched` and `cancelled` — so
-  re-drive answers 409 forever. **This is precisely the state commit `2564d33`
+  `queued`, which `TRANSITIONS` routes to `dispatched`, `cancelled` and
+  `failed_provider` — but *not* to `redrive_pending`, so re-drive answers 409
+  forever. **This is precisely the state commit `2564d33`
   added the `queued -> failed_provider` parking to eliminate**, reached by a
   route that parking cannot see. The system's own recovery command cannot touch
   it.

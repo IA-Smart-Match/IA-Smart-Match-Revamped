@@ -13,6 +13,7 @@ claiming, deterministic naming, and the failure path.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -670,7 +671,10 @@ def test_a_failure_while_recording_a_dispatch_does_not_abort_the_batch(
     def flaky(tenant_id_, job_id, record_id):
         if job_id == broken_job:
             raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
-        real_record(tenant_id_, job_id, record_id)
+        # Returned, not discarded: ``_record_dispatched`` answers whether this
+        # dispatcher still owned the row, and a stand-in that swallowed that
+        # would make every delegated call look like a lost race.
+        return real_record(tenant_id_, job_id, record_id)
 
     monkeypatch.setattr(dispatcher, "_record_dispatched", flaky)
     outcome = dispatcher.run_once()
@@ -801,7 +805,8 @@ def test_a_job_whose_dispatch_is_exhausted_becomes_redrivable(
     job was left ``queued`` — on the reasoning that it had not been dispatched
     and saying otherwise would strand it. That reasoning holds for a *retryable*
     failure and breaks at exhaustion, because ``queued`` admits only
-    ``dispatched`` and ``cancelled``.
+    ``dispatched``, ``cancelled`` and ``failed_provider`` — but not
+    ``redrive_pending``, so re-drive is refused too.
 
     So the job that most needs re-driving was the one job re-drive could not
     touch: the command answers 409 forever, and no dispatcher will look at the
@@ -827,3 +832,586 @@ def test_a_job_whose_dispatch_is_exhausted_becomes_redrivable(
 
     # And that state genuinely admits a re-drive.
     assert can_transition(JobState.FAILED_PROVIDER, JobState.REDRIVE_PENDING)
+
+
+def _outbox_row(session_factory, job_id: uuid.UUID):
+    with session_factory() as session:
+        return session.execute(
+            text(
+                "SELECT status, dispatch_attempts, lease_expires_at, last_error "
+                "FROM outbox_record WHERE job_id = :job_id"
+            ),
+            {"job_id": job_id},
+        ).one()
+
+
+def _claim_and_walk_away(session_factory, outbox, tenant_id) -> None:
+    """Claim every claimable row, commit the lease, and record no outcome.
+
+    Exactly what a dispatcher killed between the claim's commit and the outcome
+    write leaves behind — a SIGKILL, an evicted pod, an OOM, a drained node.
+    :func:`test_crash_between_commit_and_task_creation_loses_nothing` already
+    uses this technique for a single crash; the stranding tests repeat it to
+    exhaustion, because that is the attempt on which it stops being survivable.
+    """
+    _expire_all_leases(session_factory, tenant_id)
+    with session_factory() as session:
+        outbox.claim_batch(session, limit=10)
+        session.commit()
+
+
+def test_a_row_stranded_on_its_last_attempt_is_reclaimed(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """Attempts exhausted while ``leased`` is a dead end, and must not be.
+
+    **No fault injection.** The dispatcher is never made to fail; it is simply
+    never given the chance to record anything, which is what process death looks
+    like from the database's side. That matters because the swallowed
+    failure-write is the route that is easy to test and process death is the
+    route that is likely — a deployment, an autoscale event, an OOM — and a fix
+    that only closed the testable one would leave the likely one open.
+
+    On the fifth claim ``dispatch_attempts`` reaches ``MAX_DISPATCH_ATTEMPTS``,
+    and ``_claimable_predicate`` requires strictly fewer. The row is then
+    ``leased`` forever: never re-claimed, never counted by the lag metric that
+    shares that predicate, never visible as ``failed``, and its job stuck
+    ``queued`` — which ``TRANSITIONS`` routes only to ``dispatched`` and
+    ``cancelled``, so re-drive answers 409 on it forever. Invisible work whose
+    only symptom is a job that never finishes.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    # The hole, asserted before it is closed. Every one of these passes today.
+    stranded = _outbox_row(session_factory, job_id)
+    assert stranded.status == OutboxStatus.LEASED.value
+    assert stranded.dispatch_attempts == MAX_DISPATCH_ATTEMPTS
+    with session_factory() as session:
+        assert outbox.claim_batch(session, limit=10) == [], "no dispatcher will claim it again"
+        assert outbox.pending_count(session) == 0, "and the lag metric cannot see it"
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED
+
+    _expire_all_leases(session_factory, tenant_id)
+    outcome = dispatcher.run_once()
+
+    assert outcome.reclaimed == 1, "a stranded row is a real signal and must be countable"
+
+    reclaimed = _outbox_row(session_factory, job_id)
+    assert reclaimed.status == OutboxStatus.FAILED.value, (
+        "a row nothing will ever claim again must be visible as failed"
+    )
+    assert reclaimed.lease_expires_at is None, "a terminal row must not look claimable later"
+    assert "no outcome" in (reclaimed.last_error or ""), (
+        "the text must say the final attempt recorded nothing, not repeat the "
+        "previous attempt's error as though the queue had rejected it"
+    )
+
+    with session_factory() as session:
+        job = jobs.get(session, tenant_id=tenant_id, job_id=job_id)
+    assert job.status == JobState.FAILED_PROVIDER
+    assert can_transition(job.status, JobState.REDRIVE_PENDING), (
+        "reclaiming is worth nothing if the operator still cannot act on it"
+    )
+
+
+def test_a_row_whose_failure_is_never_recorded_ends_up_visible(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, monkeypatch
+):
+    """The other route in: the failure-write itself never lands.
+
+    The sibling of :func:`test_a_row_whose_dispatch_is_never_recorded_ends_up_visible`,
+    which covers the case where only ``_record_dispatched`` fails and
+    ``_record_failure`` still parks the row. Here the parking write is the one
+    that fails, on every attempt including the last — a database unreachable for
+    the whole of a queue outage — so nothing ever writes the row's outcome.
+
+    ``_record_failure_safely`` swallowing the error is correct and stays: one
+    row's failure must not cost the rest of the batch their attempt. What was
+    missing is the thing that makes swallowing safe on the final attempt.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    def always_fails(record, error, attempts):
+        raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
+
+    monkeypatch.setattr(dispatcher, "_record_failure", always_fails)
+
+    for attempt in range(MAX_DISPATCH_ATTEMPTS):
+        if attempt:
+            _expire_all_leases(session_factory, tenant_id)
+        queue.fail_next_with = TaskQueueError("queue unavailable")
+        assert dispatcher.run_once().failed == 1
+
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.LEASED.value
+
+    monkeypatch.undo()
+    _expire_all_leases(session_factory, tenant_id)
+    outcome = dispatcher.run_once()
+
+    assert outcome.reclaimed == 1
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.FAILED.value
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == (
+            JobState.FAILED_PROVIDER
+        )
+
+
+def test_a_live_lease_blocks_a_reclaim(session_factory, jobs, outbox, tenant_id, dispatcher):
+    """The reclaim must never touch a row a dispatcher is still working on.
+
+    This is the worst thing the reclaim could do: mark a row ``failed`` and park
+    its job while a live dispatcher is mid-enqueue, producing exactly the
+    "failed job beside a live row" that ``_record_failure`` shares a transaction
+    to prevent. The guard is the same one the ordinary recovery path relies on —
+    ``lease_expires_at < now`` — and it deserves its own assertion rather than
+    being inferred from the claim path's.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    # Attempts are exhausted, but the last claim's lease is still running.
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE outbox_record SET lease_expires_at = :future WHERE tenant_id = :tid"),
+            {"future": datetime.now(UTC) + timedelta(hours=1), "tid": tenant_id},
+        )
+        session.commit()
+
+    assert dispatcher.run_once().reclaimed == 0, "a live lease is not stranded work"
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.LEASED.value
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED
+
+
+def test_a_leased_row_with_no_lease_is_left_alone(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A row whose state is not understood is not something to write off.
+
+    ADR-0005's invariant says a ``leased`` row always carries a lease, so this
+    row should not exist. If one ever does, the reclaim's ``lease_expires_at <
+    now`` skips it, because NULL never satisfies a comparison. That is the right
+    conservative behaviour — do not park work whose state nothing can explain —
+    but it falls out of SQL's NULL semantics rather than from anything a reader
+    can see, so it is asserted here rather than left to be rediscovered.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE outbox_record SET lease_expires_at = NULL WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+        session.commit()
+
+    assert dispatcher.run_once().reclaimed == 0
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.LEASED.value
+
+
+def test_a_reclaimed_row_is_not_resurrected_by_a_late_dispatch(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """An expired lease is not proof the dispatcher holding it is dead.
+
+    The reclaim treats it as proof, and mostly it is. But the lease bounds how
+    long a dispatcher may *hold* a row, not how long Cloud Tasks may take to
+    answer, so with two instances and a slow batch dispatcher A can still be
+    mid-enqueue on a row that dispatcher B has just written off. A then records
+    its dispatch over the top.
+
+    Without a guard the write lands, because ``mark_dispatched`` filtered on the
+    row id alone: the row goes back to ``dispatched`` while the job stays
+    ``failed_provider``, since A's conditional ``queued -> dispatched``
+    transition no-ops against a job B has already parked. That is exactly the
+    "failed job beside a live row" that ``_record_failure`` shares a transaction
+    to prevent, produced by the very mechanism added to prevent it.
+
+    **Exactly-once is not at risk here and this test says so explicitly.** The
+    task may well exist in the queue, but a job in ``failed_provider`` cannot be
+    claimed — :meth:`JobRepository.claim` requires ``dispatched`` — so the
+    delivery is acknowledged and executes nothing. The defect is the inconsistent
+    state and the work made invisible by it, not double execution.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS - 1):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    # Dispatcher A claims the final attempt and begins a slow enqueue.
+    _expire_all_leases(session_factory, tenant_id)
+    with session_factory() as session:
+        claimed = outbox.claim_batch(session, limit=10)
+        session.commit()
+    assert len(claimed) == 1
+    record = claimed[0]
+    assert record.dispatch_attempts == MAX_DISPATCH_ATTEMPTS
+
+    # The enqueue outlives the lease. Nothing exotic: a slow provider call, a
+    # paused container, a long GC.
+    _expire_all_leases(session_factory, tenant_id)
+
+    # Dispatcher B sweeps and writes the row off.
+    other = OutboxDispatcher(session_factory, FixtureTaskQueue())
+    assert other.run_once().reclaimed == 1
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.FAILED.value
+
+    # A's enqueue returns, and A records the dispatch it genuinely performed.
+    dispatcher._record_dispatched(record.tenant_id, record.job_id, record.id)
+
+    row = _outbox_row(session_factory, job_id)
+    assert row.status == OutboxStatus.FAILED.value, (
+        "a row already written off must not be resurrected by the dispatcher "
+        "that lost the race; a dispatched row beside a parked job is the state "
+        "nothing reconciles"
+    )
+    assert row.lease_expires_at is None
+
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == (
+            JobState.FAILED_PROVIDER
+        )
+        # The half that was never in danger, asserted so it stays that way.
+        assert not jobs.claim(session, tenant_id=tenant_id, job_id=job_id), (
+            "a parked job cannot be claimed, so a still-live task executes nothing"
+        )
+
+
+def test_a_reclaimed_rows_explanation_survives_a_late_failure_write(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The other late writer must not overwrite why the row was written off.
+
+    ``mark_failed`` cannot resurrect a reclaimed row the way ``mark_dispatched``
+    could — at exhaustion it writes the *same* terminal state, ``failed`` with
+    the lease cleared, so the status converges. What it would take with it is the
+    reason: ``last_error`` would be replaced by this attempt's queue error, which
+    is precisely the misleading text the reclaim exists to replace. An operator
+    would read "queue unavailable" and investigate the queue, when what actually
+    happened is that nothing ever recorded the final attempt.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS - 1):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    _expire_all_leases(session_factory, tenant_id)
+    with session_factory() as session:
+        record = outbox.claim_batch(session, limit=10)[0]
+        session.commit()
+
+    _expire_all_leases(session_factory, tenant_id)
+    OutboxDispatcher(session_factory, FixtureTaskQueue()).run_once()
+
+    reclaimed_text = _outbox_row(session_factory, job_id).last_error
+    assert "no outcome" in reclaimed_text
+
+    dispatcher._record_failure(record, "queue unavailable", record.dispatch_attempts)
+
+    row = _outbox_row(session_factory, job_id)
+    assert row.status == OutboxStatus.FAILED.value
+    assert row.last_error == reclaimed_text, (
+        "the reclaim's explanation must survive; the late writer's error belongs "
+        "to an attempt whose outcome was already decided"
+    )
+
+
+def test_a_failing_reclaim_does_not_stop_the_pass(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, monkeypatch
+):
+    """The sweep is janitorial and must never cost a healthy row its dispatch.
+
+    ``run_once``'s contract is that only a failed *claim* aborts a pass — a batch
+    that never started has nothing to summarize. The reclaim is not the claim. It
+    runs first, it touches rows this pass has no other interest in, and it takes
+    job-row locks in an order other paths also take, so a deadlock or a lock
+    timeout there is entirely possible. Letting that abort the pass would mean a
+    problem with yesterday's wreckage stops today's work — the same reasoning
+    that makes ``_record_failure_safely`` swallow rather than raise.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    def broken_sweep(*args, **kwargs):
+        raise OperationalError("UPDATE outbox_record", {}, Exception("deadlock detected"))
+
+    monkeypatch.setattr(dispatcher, "reclaim_stranded", broken_sweep)
+
+    outcome = dispatcher.run_once()
+
+    assert outcome.dispatched == 1, "a healthy row must still be dispatched"
+    assert outcome.reclaimed == 0, "a sweep that failed must not report work it did not do"
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.DISPATCHED
+
+
+def test_a_peer_that_finalised_the_row_first_is_not_reported_as_a_failure(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, caplog
+):
+    """A lost race against a *healthy* peer is convergence, not a failure.
+
+    ``mark_dispatched``'s compare-and-set returns ``False`` for two entirely
+    different situations, and only one of them is a problem. The reclaim wrote
+    the row off — that is the dangerous one. Or a peer dispatcher claimed the row
+    after this one's lease expired and finalised it correctly, which is the
+    ordinary recovery path the deterministic task name exists to make safe.
+
+    Treating the second as the first is worse than a miscount. The row is
+    ``dispatched``, the job is ``dispatched``, and a worker is on its way to run
+    it — so telling an operator to re-drive would duplicate live work, which is
+    the single outcome ADR-0007's whole argument is built to prevent. So this
+    test asserts the counter *and* the log: no failure, and no advice to re-run
+    something that is already running.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    # This dispatcher claims the row and begins a slow enqueue.
+    with session_factory() as session:
+        record = outbox.claim_batch(session, limit=10)[0]
+        session.commit()
+
+    # The enqueue outlives the lease, and a healthy peer picks the row up and
+    # finishes it properly. The peer shares the queue, as two instances would.
+    _expire_all_leases(session_factory, tenant_id)
+    peer = OutboxDispatcher(session_factory, queue)
+    assert peer.run_once().dispatched == 1
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.DISPATCHED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.DISPATCHED
+
+    # Now the slow dispatcher's enqueue returns and it tries to record.
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"):
+        outcome = dispatcher._dispatch_row(record)
+
+    assert outcome == "already_existed", (
+        "a peer finalising the row is the expected recovery path, not a failure; "
+        "counting it failed would make a healthy convergence look like an incident"
+    )
+    assert "re-drive" not in caplog.text.lower(), (
+        "the job is dispatched and running — advising a re-drive here would "
+        "duplicate live work, which is what deterministic task names exist to prevent"
+    )
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.DISPATCHED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.DISPATCHED
+
+
+def test_a_reclaimed_row_still_tells_the_operator_to_re_drive(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, caplog
+):
+    """The other half: when the row *was* written off, say so and say what to do.
+
+    The sibling of the test above, asserted together with it so the two branches
+    cannot silently collapse into one. Here the job really is parked, no worker
+    will pick it up, and a re-drive is exactly what an operator should do — so
+    the advice that would be dangerous in the peer case is the correct advice
+    here.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    for _ in range(MAX_DISPATCH_ATTEMPTS - 1):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    _expire_all_leases(session_factory, tenant_id)
+    with session_factory() as session:
+        record = outbox.claim_batch(session, limit=10)[0]
+        session.commit()
+
+    _expire_all_leases(session_factory, tenant_id)
+    assert OutboxDispatcher(session_factory, FixtureTaskQueue()).run_once().reclaimed == 1
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"):
+        outcome = dispatcher._dispatch_row(record)
+
+    assert outcome == "failed"
+    assert "re-drive" in caplog.text.lower(), (
+        "a parked job needs a human to restart it, and the log is the only place "
+        "this dispatcher can say so"
+    )
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.FAILED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == (
+            JobState.FAILED_PROVIDER
+        )
+
+
+def test_a_peer_that_finalised_the_row_is_not_reported_as_a_failure_on_the_failure_path(
+    session_factory, jobs, outbox, tenant_id, queue, dispatcher, caplog
+):
+    """The failure path must tell the two losing cases apart too.
+
+    ``mark_failed``'s compare-and-set loses to a healthy peer's ``dispatched``
+    write exactly as readily as it loses to the sweep, so ``_record_failure``
+    faces the identical ambiguity ``_record_dispatched`` does. Reporting a peer's
+    success as "already reclaimed" would count a dispatched row as a failure and
+    tell an operator to re-drive a job that is running — the same dangerous
+    reading, reached down the other branch.
+
+    Here this dispatcher's own enqueue fails *after* a peer has already
+    dispatched the row, which is what a partial queue outage across two
+    instances looks like.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    with session_factory() as session:
+        record = outbox.claim_batch(session, limit=10)[0]
+        session.commit()
+
+    # A peer picks the row up once the lease expires and dispatches it properly.
+    _expire_all_leases(session_factory, tenant_id)
+    assert OutboxDispatcher(session_factory, queue).run_once().dispatched == 1
+
+    # This dispatcher's enqueue then fails, routing it to the failure path.
+    queue.fail_next_with = TaskQueueError("queue unavailable")
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"):
+        outcome = dispatcher._dispatch_row(record)
+
+    assert outcome == "already_existed", (
+        "a peer finalising the row is convergence, not this pass's failure"
+    )
+    assert "re-drive" not in caplog.text.lower(), (
+        "the job is dispatched and running; advising a re-drive would duplicate live work"
+    )
+
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.DISPATCHED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.DISPATCHED
+
+
+def test_a_reclaim_that_never_commits_logs_nothing(
+    session_factory, jobs, outbox, tenant_id, dispatcher, monkeypatch, caplog
+):
+    """A reclaim is only real once it commits, and the log must say only real things.
+
+    The per-row lines were emitted inside the loop, before ``session.commit()``.
+    A commit that failed — or anything raising part-way through the batch — left
+    up to ``batch_size`` WARNING lines announcing rows as reclaimed and jobs as
+    parked, while ``run_once`` correctly reported ``reclaimed = 0`` and the
+    database still held every one of those rows ``leased``. An operator
+    reconciling the log against the metric finds them contradicting each other,
+    and the log is the one that is wrong.
+    """
+    first = _accept_command(session_factory, jobs, outbox, tenant_id)
+    second = _accept_command(session_factory, jobs, outbox, tenant_id)
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+    _expire_all_leases(session_factory, tenant_id)
+
+    real_transition = dispatcher._jobs.transition
+    seen: list[uuid.UUID] = []
+
+    def fails_on_the_second_row(session, **kwargs):
+        seen.append(kwargs["job_id"])
+        if len(seen) == 2:
+            raise OperationalError("UPDATE job", {}, Exception("deadlock detected"))
+        return real_transition(session, **kwargs)
+
+    monkeypatch.setattr(dispatcher._jobs, "transition", fails_on_the_second_row)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"):
+        outcome = dispatcher.run_once()
+
+    assert outcome.reclaimed == 0, "nothing committed, so nothing was reclaimed"
+    assert "reclaimed as failed" not in caplog.text, (
+        "no row may be announced as reclaimed when the transaction that would "
+        "have reclaimed it never committed"
+    )
+
+    for job_id in (first, second):
+        assert _outbox_row(session_factory, job_id).status == OutboxStatus.LEASED.value
+        with session_factory() as session:
+            assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED
+
+
+def test_a_reclaimed_job_that_was_not_queued_is_not_logged_as_parked(
+    session_factory, jobs, outbox, tenant_id, dispatcher, caplog
+):
+    """The job transition's result decides what the line may claim.
+
+    The transition is conditional on the job still being ``queued`` and its
+    return was discarded, so every reclaimed row was announced as "its job
+    parked" whether or not any job moved. A cancelled job is the reachable case:
+    ``queued -> cancelled`` is declared, the row is still stranded and still
+    worth writing off, and the job is emphatically not parked.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    with session_factory() as session:
+        assert jobs.transition(
+            session,
+            tenant_id=tenant_id,
+            job_id=job_id,
+            to_state=JobState.CANCELLED,
+            expected_from=JobState.QUEUED,
+        )
+        session.commit()
+
+    _expire_all_leases(session_factory, tenant_id)
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"):
+        assert dispatcher.run_once().reclaimed == 1
+
+    assert "its job parked" not in caplog.text, (
+        "the job was cancelled, not parked; the line must report what happened"
+    )
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.FAILED.value
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.CANCELLED
+
+
+def test_a_committed_reclaim_survives_a_claim_that_then_fails(
+    session_factory, jobs, outbox, tenant_id, dispatcher, monkeypatch, caplog
+):
+    """A reclaim that committed is a fact, and a later failure must not erase it.
+
+    The sweep commits, then ``claim_batch`` raises and the exception leaves
+    ``run_once`` before any ``DispatchOutcome`` is built — so the ``reclaimed``
+    signal vanishes. That is exactly backwards: the conditions that make the
+    claim fail, a database under strain, are the conditions that strand rows in
+    the first place, so the signal disappears precisely when it is most
+    informative.
+
+    ``run_once`` still raises, deliberately — a batch that could not be claimed
+    must reach the caller's poll loop rather than being reported as a quiet pass.
+    What must not happen is the reclaim going unreported.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+    for _ in range(MAX_DISPATCH_ATTEMPTS):
+        _claim_and_walk_away(session_factory, outbox, tenant_id)
+    _expire_all_leases(session_factory, tenant_id)
+
+    def broken_claim(*args, **kwargs):
+        raise OperationalError("SELECT outbox_record", {}, Exception("server closed"))
+
+    monkeypatch.setattr(dispatcher._outbox, "claim_batch", broken_claim)
+
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="smartmatch_worker.dispatcher"),
+        pytest.raises(OperationalError) as raised,
+    ):
+        dispatcher.run_once()
+
+    # The reclaim really did happen and is committed.
+    assert _outbox_row(session_factory, job_id).status == OutboxStatus.FAILED.value
+
+    carried = " ".join(getattr(raised.value, "__notes__", []))
+    assert "1" in carried and "reclaim" in carried.lower(), (
+        "the committed reclaim must travel with the failure that followed it, "
+        f"not be discarded; notes were {getattr(raised.value, '__notes__', [])!r}"
+    )

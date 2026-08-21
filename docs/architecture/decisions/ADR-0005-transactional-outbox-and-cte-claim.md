@@ -1,6 +1,6 @@
 # ADR-0005 — The transactional outbox, and claiming with a CTE
 
-**Status:** Accepted
+**Status:** Accepted — amended 20 August 2026, see [Amendment](#amendment--20-august-2026-the-invariant-had-two-halves-and-only-one-was-guarded) below
 **Date:** 18 August 2026
 **Contract:** Architecture v1.1 §1.6, §4.1
 
@@ -176,3 +176,170 @@ second timer with the same meaning as the one already present.
 The problem is not delivery — Cloud Tasks delivers — it is the seam between the
 database commit and the enqueue, which a broker does not remove. It would have to
 be replaced by a broker-side transaction the application still cannot join.
+
+## Amendment — 20 August 2026: the invariant had two halves, and only one was guarded
+
+Landed with J12 (`smartmatch_persistence/outbox.py`,
+`smartmatch_worker/dispatcher.py`). The decision above is unchanged: the outbox
+is still the seam, claiming is still a CTE with `FOR UPDATE SKIP LOCKED`, the
+lease is still the only timer, and the lag metric still shares the claim
+predicate. What changes is the statement of the invariant, which was true and
+incomplete, and one sentence in Consequences, which was simply wrong.
+
+**"The invariant" above states one invariant where there are two.** It says a
+`leased` row must never carry a NULL lease, because such a row satisfies no
+`lease_expires_at < now` comparison and is therefore permanently unclaimable —
+"invisible work, silently stuck, with no symptom except a job that never
+finishes". That is correct. It is also not the only way to reach that state.
+
+`_claimable_predicate` requires **two** things of a leased row: a lease in the
+past, *and* `dispatch_attempts < MAX_DISPATCH_ATTEMPTS`. A row can fail the
+second half just as permanently as the first. `claim_batch` returns the
+post-increment attempt count, so the fifth claim leaves the row at exactly
+`MAX_DISPATCH_ATTEMPTS`, and `5 < 5` is false. If the dispatcher then stops
+before recording an outcome — a killed process, an evicted pod, an OOM, a drained
+node, or a failure-write that itself failed — the row stays `leased` with a lease
+that expires and is never looked at again. Identical symptom, different half of
+the same predicate. The honest statement is:
+
+> **A `leased` row must always be claimable in the future:** it must carry a
+> non-NULL lease **and** have attempts remaining. Whichever half fails, the row
+> is invisible work.
+
+`mark_failed` upholds both halves for every row it touches — it is the writer
+that moves a row to terminal `failed` when attempts run out. The gap was never in
+`mark_failed`; it was that nothing upheld the invariant for a row `mark_failed`
+was never reached for.
+
+**Consequences said "a command that commits is a command that will eventually be
+attempted".** Read strictly that remained true — a stranded row *had* been
+attempted, five times. Read as the guarantee anyone actually relies on, that a
+committed command eventually reaches a terminal state an operator can see and act
+on, it was false on the last attempt: the row stayed `leased` and invisible, the
+job stayed `queued`, and `TRANSITIONS[QUEUED]` — `{dispatched, cancelled,
+failed_provider}` — has no route to `redrive_pending`, so
+even the re-drive command answered 409 on it forever. The state that commit
+`2564d33` added the `queued -> failed_provider` parking to eliminate was
+reachable by a route that parking could not see.
+
+**What closes it.** `_stranded_predicate` — placed immediately beside
+`_claimable_predicate`, because the two are only correct read together, and the
+gap between them is where work went missing — and `reclaim_stranded`, which
+writes such rows off as `failed` with the lease cleared, using the same CTE and
+`SKIP LOCKED` shape and for the same reasons. `OutboxDispatcher.reclaim_stranded`
+pairs that with the job's `queued -> failed_provider` transition in one
+transaction, exactly as `_record_failure` does at exhaustion, so a parked row
+never sits beside a `queued` job. It runs at the top of every `run_once`.
+
+Two properties of the predicate are deliberate and are asserted rather than
+assumed. It requires an **expired** lease, so a live dispatcher's row is never
+written out from under it. And a `leased` row carrying *no* lease is skipped,
+because NULL satisfies no comparison — the first invariant above says such a row
+cannot exist, and if one ever does, its state is not understood, and writing off
+work nothing can explain is worse than leaving it to be found.
+
+**Where the reclaim runs, and the constraint that leaves.** It rides `run_once`
+rather than living in a scheduled sweeper, because nothing in this system runs on
+a timer yet (backlog J8) and a standalone sweeper would have been dead code the
+day it was written. The coupling this creates is real and is recorded against J8
+rather than buried here: **a dispatcher that is not running is precisely the
+condition that strands rows, and is then also the condition under which nothing
+reclaims them.** Whatever schedules the dispatcher must therefore also be what
+makes the reclaim run, and J9's sweep for jobs stuck in `running` belongs in the
+same pass — one place to look, one metric surface for work that had to be
+rescued.
+
+**An expired lease is not proof the holder is dead, and the reclaim needed a
+guard for that.** The predicate's expired-lease requirement bounds how long a
+dispatcher may *hold* a row; it says nothing about how long Cloud Tasks may take
+to answer. So with two instances and a slow batch, dispatcher A can still be
+mid-enqueue on a row dispatcher B has just written off, and A's evidence write
+would land on a terminal row — back to `dispatched` while the job stays
+`failed_provider`, because A's conditional `queued -> dispatched` transition
+no-ops against a job B has already parked. A `dispatched` row beside a parked
+job is the same "nothing would reconcile" state the reclaim shares a transaction
+to avoid, produced by the mechanism added to avoid it.
+
+The answer is compare-and-set on the late writer, not a longer lease — a longer
+lease shrinks the window without closing it, and lengthening it also lengthens
+how long genuinely dead work stays invisible. `mark_dispatched` and `mark_failed`
+now move a row **only while it is still `leased`**, the same discipline
+`JobRepository.claim` and every conditional job transition already use. A
+zero-row result is not an error: it is a dispatcher discovering its work was
+written off. It is logged at `warning`, and the row is counted `failed` for that
+pass, because that is what the database now says.
+
+**Losing the compare-and-set is two situations, not one, and they call for
+opposite responses.** The row may have been reclaimed — the job is parked, no
+worker will touch it, and a human must re-drive it. Or a peer dispatcher may have
+claimed it once this one's lease expired and finalised it correctly, which is the
+ordinary recovery path the deterministic name exists to make safe. The zero-row
+result looks identical in both. So the row's status is read before anything is
+reported: `failed` is the reclaim, `dispatched` is a peer that won. A peer's win
+is counted `already_existed` — the bucket that exists so "a healthy recovery does
+not look like an incident" — and logged at `info` with no advice to act, because
+telling an operator to re-drive a job that is already running duplicates live
+work, the one outcome ADR-0007 is built to prevent. Anything else is logged
+without a diagnosis rather than guessed at.
+
+**Both** writers make that distinction, not just the dispatch one. `mark_failed`
+loses its compare-and-set to a healthy peer as readily as to the sweep, so
+`_record_failure` reads the status too. Having the three-way split in one writer
+and not its twin would be worse than not having it, because the next reader would
+reasonably assume both paths had been considered.
+
+What each guard protects differs, and the asymmetry is worth stating. For
+`mark_dispatched` it is the **status** — without it the terminal row is
+resurrected. For `mark_failed` the status was never at risk: a late failure-write
+on a reclaimed row necessarily carries exhausted attempts, so it writes `failed`
+with a cleared lease, which is what is already there. What it protects is the
+**explanation**, since `last_error` would otherwise be replaced by that attempt's
+queue error — exactly the misleading text the reclaim exists to remove.
+
+**The guard is a liveness test, not an ownership test, and the difference is
+recorded rather than glossed.** `status = 'leased'` proves someone holds the row,
+not that the caller does. That closes the race against the reclaim, whose rows
+are `failed`. It does not close the race against a peer that re-claimed the row,
+whose own claim satisfies `leased` — a stale failure-write still lands there,
+truncating the peer's lease to an older attempt's backoff and burning an extra
+attempt. Closing that needs the row to carry who claimed it, which is a schema
+change; tracked as **J17**. The gap pre-dates these guards.
+
+**Exactly-once was never at risk in this race, and the fix does not claim
+otherwise.** The task may genuinely exist in the queue. It executes nothing: the
+job is `failed_provider`, and `JobRepository.claim` moves only a `dispatched`
+job, so the delivery is acknowledged and does no work. The defect was the
+inconsistent state and the work made invisible by it. Note also that a re-drive
+is safe here for the same reason and *not* because of the deterministic task
+name — ADR-0007 has a re-drive derive a **new** generation name precisely so it
+does not dedupe against a possibly-live original.
+
+**The sweep cannot stop dispatch.** `run_once` guards the reclaim call: the sweep
+is janitorial, it takes job-row locks other paths also take, and a deadlock or
+lock timeout in it must not cost a healthy row its dispatch. `run_once`'s
+contract is that only a failed *claim* aborts a pass, and the reclaim is not the
+claim. On failure it is logged and `reclaimed` stays zero, so a pass never
+credits itself with work it did not do.
+
+**Two rules about reporting it, both learned the hard way.** A reclaim is logged
+only *after* its transaction commits, and only about what the commit did: the
+per-row lines were being written inside the loop, so a deadlock or a failed
+commit part-way through a batch left up to `batch_size` WARNINGs announcing rows
+as reclaimed while every one of them stayed `leased` and the pass reported zero.
+The line also reports what the job transition actually returned rather than
+assuming it — a job that has moved on, cancelled or already advanced, is not
+parked by this sweep, and saying so would describe a write that did not happen.
+
+And a reclaim that has committed survives whatever follows it. If `claim_batch`
+then raises, `run_once` still propagates that — a batch that could not be claimed
+must reach the poll loop — but the committed count is logged and attached to the
+exception as a note, so it travels with the traceback. Dropping it would lose the
+signal exactly when it matters most: a database under enough strain to fail a
+claim is the same database that strands rows.
+
+**The count is reported, not silent.** `DispatchOutcome.reclaimed` sits
+deliberately outside the `claimed == dispatched + already_existed + failed`
+identity: a reclaimed row was not claimed on this pass, and it reached none of
+the three outcomes — its whole problem is that it reached none. It should
+normally be zero, and a rising count is a statement about the dispatcher's own
+health rather than about the queue's.

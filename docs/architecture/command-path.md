@@ -73,6 +73,8 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant CT as Cloud Tasks
 
+    D->>DB: reclaim_stranded: leased rows whose lease expired<br/>AND attempts are spent -> failed + job queued -> failed_provider<br/>(one transaction, before anything is claimed)
+    D->>DB: COMMIT
     D->>DB: claim_batch (FOR UPDATE SKIP LOCKED,<br/>status -> leased, lease_expires_at set)
     D->>DB: COMMIT (lease now visible to other dispatchers)
     loop each claimed row
@@ -100,12 +102,82 @@ Tasks, or two dispatcher instances could both dispatch the same row. The
 enqueue call itself is deliberately outside any transaction — holding a
 database transaction open across a network round trip would pin a connection
 for its whole duration. If the process dies between the enqueue succeeding and
-the "mark dispatched" transaction committing, the lease expires, another
-dispatcher retries the row, and **the deterministic task name is what makes
-that retry safe**: Cloud Tasks rejects the duplicate name (`TaskAlreadyExists`),
-the dispatcher treats that as convergence rather than failure, and the job
-advances exactly once. No arrow in this diagram enforces that — it is a
-property of how the name is computed (ADR-0007), not of the sequence above.
+the "mark dispatched" transaction committing, **and attempts remain**, the lease
+expires, another dispatcher retries the row, and **the deterministic task name is
+what makes that retry safe**: Cloud Tasks rejects the duplicate name
+(`TaskAlreadyExists`), the dispatcher treats that as convergence rather than
+failure, and the job advances exactly once. No arrow in this diagram enforces
+that — it is a property of how the name is computed (ADR-0007), not of the
+sequence above.
+
+**On the last attempt there is no retry, which is why the pass begins with a
+reclaim.** `claim_batch` returns the post-increment attempt count, and the claim
+predicate requires `dispatch_attempts < MAX_DISPATCH_ATTEMPTS` — strictly fewer.
+So the fifth claim leaves the row at exactly 5, and if the dispatcher stops
+before recording an outcome, nothing claims it again. The lease expiring changes
+nothing; "another dispatcher retries the row" was never true here. That row used
+to sit `leased` permanently: uncounted by the lag metric, which shares the claim
+predicate deliberately so metric and behaviour cannot drift, and invisible to any
+operations view built on `status = 'failed'`, with its job stuck `queued` and
+therefore refused by re-drive. The only symptom was a job that never finished,
+which is an absence.
+
+The route in is not exotic. Anything that ends the process between the claim's
+commit and the outcome write reaches it — a deployment, an autoscale event, an
+OOM, a drained node — and so does a failure-write that itself fails, which is
+what a database outage during a queue outage looks like.
+
+`reclaim_stranded` closes it. Rows that are `leased` with an **expired** lease
+and **spent** attempts are marked `failed`, their lease cleared, their
+`last_error` replaced with text saying the final attempt recorded no outcome —
+because the text still on the row belongs to the attempt *before* the one that
+stranded it, and an operator reading it would conclude the queue had rejected the
+dispatch. Each row's job moves `queued -> failed_provider` in the same
+transaction, for the reason every other pairing on this path shares one: a parked
+row beside a `queued` job is a state nothing would reconcile. The count surfaces
+as `DispatchOutcome.reclaimed`, outside the `claimed == dispatched +
+already_existed + failed` identity, because a reclaimed row was not claimed on
+this pass and reached none of those three outcomes. It should be zero; a rising
+count says a dispatcher is dying at the worst possible moment. ADR-0005's
+amendment records the invariant this restores.
+
+**A dispatcher that loses this race does not undo the reclaim.** An expired lease
+bounds how long a dispatcher may hold a row, not how long the queue may take to
+answer, so an instance can still be mid-enqueue on a row another has just written
+off. `mark_dispatched` and `mark_failed` are therefore compare-and-set: they move
+a row only while it is still `leased`. The late writer then reads what the row
+moved to, because losing that race is two different situations: `failed` means
+the sweep wrote it off and a human must re-drive it, while `dispatched` means a
+healthy peer finalised it and nothing is wrong. The first is counted `failed` and
+logged with that advice; the second is counted `already_existed` and logged at
+`info` with none, since advising a re-drive on a job that is already running
+would duplicate live work. Both writers do this, not just the dispatch one:
+`mark_failed` loses to a peer as readily as to the sweep. The guard proves
+liveness rather than ownership — a peer's own claim also satisfies `leased` —
+which is enough against the sweep and not against a re-claiming peer; J17 tracks
+that.
+
+Reclaims are logged only after their transaction commits and only about what it
+did, so a batch that rolls back part-way announces nothing, and a job that had
+already moved on is not described as parked. If the claim then fails, the
+committed reclaim count is logged and attached to the propagating exception as a
+note rather than discarded with it. The task
+it created may well be live, and will execute nothing, because
+`JobRepository.claim` moves only a `dispatched` job and this one is now
+`failed_provider`. Exactly-once holds through that claim, not through the task
+name; a re-drive derives a *new* generation name (ADR-0007) precisely so it does
+not dedupe against the original.
+
+**A failing sweep does not stop the pass.** The reclaim call is guarded: only a
+failed *claim* aborts a pass, and janitorial work on yesterday's wreckage must
+not cost today's rows their dispatch. A failure is logged and `reclaimed` stays
+zero.
+
+**It rides `run_once` rather than being scheduled**, because nothing here runs on
+a timer yet (backlog J8) and a standalone sweeper would be dead code. The
+coupling that leaves is real: a dispatcher that is not running is exactly the
+condition that strands rows, and is then also the condition under which nothing
+reclaims them. That is a constraint on J8's design, recorded there.
 
 **What changed in Wave B (`2564d33`):** exhausting `MAX_DISPATCH_ATTEMPTS` used
 to leave the outbox row `failed` and the job `queued` — a state nothing would
