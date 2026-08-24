@@ -1,0 +1,10 @@
+# Identity for the agent-memory ledger. See docs/agent-memory/README.md.
+#
+# repository_id is minted once and is never derived from the remote URL. This
+# repository has already moved from BrooklynD23/... to IA-Smart-Match/...;
+# remote URLs are non-authoritative aliases, and identity must survive the next
+# move as well. Deriving identity from the URL is the one design mistake that
+# would make an ownership transfer duplicate or invalidate every record.
+project_id: smartmatch
+repository_id: f943437b-6a8f-47fe-9c0d-478988b70d9a
+policy_version: 1

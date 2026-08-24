@@ -14,10 +14,12 @@ that carries security-relevant fields.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 _FENCE = "---"
@@ -219,6 +221,27 @@ def is_dirty(repo_root: Path, path: str) -> bool:
     return bool(output)
 
 
+def _blob_belonged_to(repo_root: Path, path: str, sha: str) -> bool:
+    """Whether ``sha`` was ever the blob at ``path`` in reachable history.
+
+    ``cat-file -e`` would only prove the object exists somewhere, which is not
+    provenance: any blob in the database would satisfy it, so a record could
+    cite a real object under a path it never belonged to. Walking the commits
+    that touched the path is the check that actually binds the two.
+
+    Only historical records reach this, and only for paths they cite, so the
+    walk is bounded by that path's own history.
+    """
+    commits = _git(repo_root, "rev-list", "--all", "--", path)
+    if not commits:
+        return False
+    for commit in commits.splitlines():
+        found = _git(repo_root, "rev-parse", f"{commit}:{path}")
+        if found == sha:
+            return True
+    return False
+
+
 def validate_sources(
     fields: dict[str, str | list[str]], *, path: str, repo_root: Path
 ) -> list[Finding]:
@@ -234,6 +257,18 @@ def validate_sources(
     sources = fields.get("sources")
     if not isinstance(sources, list):
         return findings
+
+    # Freshness applies only to records still claiming to be current. A
+    # superseded, revoked or already-stale record is history: the README tells a
+    # maintainer to supersede a record whose source moved, and if superseding
+    # still failed the gate that remedy would not work. Format rules below still
+    # apply to every status — "repository files only" is never suspended.
+    # Stated as an exemption list rather than an allow-list on purpose: a record
+    # with a missing or unrecognised status is still checked. Defaulting the
+    # other way would let a malformed record escape the staleness rule silently,
+    # which is the failure this gate exists to prevent.
+    status = fields.get("status")
+    check_freshness = not (isinstance(status, str) and status in {"superseded", "revoked", "stale"})
 
     for entry in sources:
         try:
@@ -256,6 +291,31 @@ def validate_sources(
                     "Records point at repository files and nothing else.",
                 )
             )
+            continue
+
+        if not _SHA.fullmatch(recorded):
+            findings.append(
+                Finding(
+                    path,
+                    "bad-source-sha",
+                    f"source {source_path!r} cites {recorded!r}, which is not a git object name",
+                )
+            )
+            continue
+
+        if not check_freshness:
+            # A historical record is exempt from comparison with HEAD, not from
+            # citing something real. Without this the ledger could carry
+            # fabricated provenance that nothing would ever check.
+            if not _blob_belonged_to(repo_root, source_path, recorded):
+                findings.append(
+                    Finding(
+                        path,
+                        "unknown-source-blob",
+                        f"source {source_path!r} cites blob {recorded[:12]}, which "
+                        "never existed at that path in this repository's history",
+                    )
+                )
             continue
 
         current = blob_sha(repo_root, source_path)
@@ -303,13 +363,30 @@ LEDGER_DIR = "docs/agent-memory/approved"
 #: shaped like an instruction is an injection vector, so the format is
 #: descriptive prose about repository files and nothing else.
 INSTRUCTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bignore (all |any )?previous\b", re.IGNORECASE),
+    re.compile(r"\bignore (all |any )?(previous|prior|earlier)\b", re.IGNORECASE),
     re.compile(r"\bdisregard (all |any )?(previous|prior|earlier)\b", re.IGNORECASE),
     re.compile(r"\byou (must|should|shall) always\b", re.IGNORECASE),
     re.compile(r"\byou (must|should|shall) never\b", re.IGNORECASE),
     re.compile(r"\balways (skip|bypass|disable|ignore)\b", re.IGNORECASE),
     re.compile(r"\bsystem prompt\b", re.IGNORECASE),
 )
+
+
+def _instruction_findings(text: str, *, path: str) -> list[Finding]:
+    """Instruction-shaped matches in any agent-consumed text."""
+    findings: list[Finding] = []
+    for pattern in INSTRUCTION_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            findings.append(
+                Finding(
+                    path,
+                    "instruction-shaped",
+                    f"contains instruction-shaped text {match.group(0)!r}. "
+                    "Records describe; they do not direct.",
+                )
+            )
+    return findings
 
 
 def validate_body(body: str, *, path: str) -> list[Finding]:
@@ -327,18 +404,302 @@ def validate_body(body: str, *, path: str) -> list[Finding]:
                 "Records are signposts, not copies.",
             )
         )
-    for pattern in INSTRUCTION_PATTERNS:
-        match = pattern.search(body)
-        if match:
+    findings.extend(_instruction_findings(body, path=path))
+    return findings
+
+
+def body_hash(body: str) -> str:
+    """The canonical content hash for a record body.
+
+    Computed over the stripped body so that trailing-whitespace churn does not
+    invalidate a record, and prefixed so the algorithm is visible in the file.
+    """
+    digest = hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def validate_content_hash(
+    fields: dict[str, str | list[str]], body: str, *, path: str
+) -> list[Finding]:
+    """The recorded hash must match the body it was approved against.
+
+    Without this the field is decoration. With it, a body edited after approval
+    is caught by the gate rather than by whoever later trusts the record.
+    """
+    recorded = fields.get("content_hash")
+    if not isinstance(recorded, str) or not recorded or recorded == "null":
+        return [
+            Finding(
+                path,
+                "missing-content-hash",
+                f"content_hash is unset; it should be {body_hash(body)}",
+            )
+        ]
+    expected = body_hash(body)
+    if recorded != expected:
+        return [
+            Finding(
+                path,
+                "content-hash-mismatch",
+                f"content_hash records {recorded[:19]}... but the body hashes to "
+                f"{expected[:19]}.... The body changed after approval; re-review "
+                "it rather than updating the hash alone.",
+            )
+        ]
+    return []
+
+
+MAX_RESEARCH_DAYS = 30
+
+#: A full git object name. Abbreviations are refused rather than accepted and
+#: then compared by equality, which would report a valid short prefix as stale.
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+CONFIG_FILE = ".agent-memory.yaml"
+
+CONFIG_KEYS = frozenset({"project_id", "repository_id", "policy_version"})
+
+#: Bump when the record schema changes incompatibly.
+SUPPORTED_POLICY_VERSIONS = frozenset({"1"})
+
+
+def validate_config(config: dict[str, str]) -> list[Finding]:
+    """The config is a three-key contract, and is held to it.
+
+    A loader that accepts anything shaped like a mapping lets a policy version
+    the validator does not implement pass as though it were supported.
+    """
+    findings: list[Finding] = []
+    for missing in sorted(CONFIG_KEYS - set(config)):
+        findings.append(Finding(CONFIG_FILE, "config-incomplete", f"{missing!r} is absent"))
+    for unknown in sorted(set(config) - CONFIG_KEYS):
+        findings.append(Finding(CONFIG_FILE, "config-unknown-key", f"unrecognised key {unknown!r}"))
+    version = config.get("policy_version")
+    if version is not None and version not in SUPPORTED_POLICY_VERSIONS:
+        findings.append(
+            Finding(
+                CONFIG_FILE,
+                "unsupported-policy-version",
+                f"policy_version {version!r} is not one of "
+                f"{sorted(SUPPORTED_POLICY_VERSIONS)}; this validator does not "
+                "implement it",
+            )
+        )
+    return findings
+
+
+def load_config(repo_root: Path) -> tuple[dict[str, str], list[Finding]]:
+    """Read ``.agent-memory.yaml``.
+
+    A three-key flat file, read by the same stdlib-only rule as the records —
+    see this module's docstring. Comments and blank lines are skipped.
+    """
+    config_path = repo_root / CONFIG_FILE
+    if not config_path.is_file():
+        return {}, []
+    return parse_config_lines(config_path.read_text(encoding="utf-8").splitlines())
+
+
+def parse_config_lines(lines: list[str]) -> tuple[dict[str, str], list[Finding]]:
+    """Parse config lines, reporting what it could not use.
+
+    Separated from file access so the parse rules can be tested directly.
+    """
+    config: dict[str, str] = {}
+    findings: list[Finding] = []
+    for number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # Reported rather than skipped. A silently discarded line is how a typo
+        # — or an unresolved merge conflict marker — leaves a config that still
+        # reduces to the expected three keys and passes validation.
+        if ":" not in stripped:
+            findings.append(
+                Finding(
+                    CONFIG_FILE,
+                    "config-malformed",
+                    f"line {number} is not 'key: value': {stripped!r}",
+                )
+            )
+            continue
+        key, _, value = stripped.partition(":")
+        key = key.strip()
+        if key in config:
+            findings.append(
+                Finding(CONFIG_FILE, "config-duplicate-key", f"line {number}: {key!r} again")
+            )
+            continue
+        config[key] = value.strip()
+    return config, findings
+
+
+def validate_identity(
+    fields: dict[str, str | list[str]], *, path: str, config: dict[str, str]
+) -> list[Finding]:
+    """Every record must belong to this repository.
+
+    Presence of the field is not enough: a record copied from elsewhere carries
+    a well-formed identity that is not this one, and the whole point of minting
+    ``repository_id`` once is that it answers "which repository" independently
+    of the remote URL.
+    """
+    findings: list[Finding] = []
+    for key in ("project_id", "repository_id"):
+        expected = config.get(key)
+        actual = fields.get(key)
+        # Every branch below reports. A missing config key or a record field
+        # that parsed as anything but a non-empty string must not silently skip
+        # the comparison — that would let precisely the copied record this check
+        # exists to catch through the gate.
+        if not expected:
             findings.append(
                 Finding(
                     path,
-                    "instruction-shaped",
-                    f"body contains instruction-shaped text {match.group(0)!r}. "
-                    "Records describe; they do not direct.",
+                    "identity-unverifiable",
+                    f"{CONFIG_FILE} declares no {key}, so record identity cannot be checked",
+                )
+            )
+            continue
+        if not isinstance(actual, str) or not actual:
+            findings.append(Finding(path, "identity-mismatch", f"{key} is absent or empty"))
+            continue
+        if actual != expected:
+            findings.append(
+                Finding(
+                    path,
+                    "identity-mismatch",
+                    f"{key} is {actual!r} but {CONFIG_FILE} declares {expected!r}",
                 )
             )
     return findings
+
+
+def validate_claim(fields: dict[str, str | list[str]], *, path: str) -> list[Finding]:
+    """The claim is agent-consumed content, and is held to the same rule as the body.
+
+    A record whose body is impeccable and whose claim carries an injection
+    phrase is the obvious way around a body-only check.
+    """
+    claim = fields.get("claim")
+    if not isinstance(claim, str) or not claim.strip():
+        return [
+            Finding(
+                path,
+                "bad-claim",
+                "claim must be a single non-empty line of text; a list-valued "
+                "claim would bypass the instruction scan",
+            )
+        ]
+    return [
+        Finding(finding.path, finding.code, f"claim: {finding.message}")
+        for finding in _instruction_findings(claim, path=path)
+    ]
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    """Parse an ISO-8601 timestamp, accepting a trailing ``Z``."""
+    if not isinstance(value, str) or not value or value == "null":
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    # A naive timestamp is rejected rather than assumed to be UTC. Comparing a
+    # naive and an aware datetime raises TypeError, which would crash the whole
+    # gate on one malformed record instead of reporting it.
+    return parsed if parsed.tzinfo is not None else None
+
+
+def validate_expiry(
+    fields: dict[str, str | list[str]], *, path: str, now: datetime | None = None
+) -> list[Finding]:
+    """External research expires after 30 days, and the window is enforced.
+
+    Checking only for a non-null value would let ``never`` or a date years out
+    satisfy a freshness rule the policy states in days.
+    """
+    authority = fields.get("authority")
+    expires_raw = fields.get("expires_at")
+
+    if authority != "external-research":
+        # observation and convention live until superseded or stale, and the
+        # schema says so with an explicit null. Accepting anything else here
+        # would let a record carry an expiry nothing ever acts on.
+        if not (expires_raw == "null" or expires_raw == [] or expires_raw is None):
+            return [
+                Finding(
+                    path,
+                    "unexpected-expiry",
+                    f"authority {authority!r} requires 'expires_at: null'; this "
+                    f"record sets {expires_raw!r}",
+                )
+            ]
+        return []
+
+    # Only the *wall-clock* check below is exempt for historical records. The
+    # static rules — parseable timestamps, correct ordering, a window within the
+    # policy — describe the record's own metadata and stay true forever.
+    status = fields.get("status")
+    is_historical = isinstance(status, str) and status in {
+        "superseded",
+        "revoked",
+        "stale",
+    }
+
+    approved = _parse_timestamp(fields.get("approved_at"))
+    expires = _parse_timestamp(fields.get("expires_at"))
+    if expires is None:
+        return [
+            Finding(
+                path,
+                "bad-expiry",
+                f"expires_at {fields.get('expires_at')!r} is not an ISO-8601 timestamp",
+            )
+        ]
+    if approved is None:
+        return [
+            Finding(
+                path,
+                "bad-expiry",
+                f"approved_at {fields.get('approved_at')!r} is not an ISO-8601 timestamp",
+            )
+        ]
+    if expires <= approved:
+        return [Finding(path, "bad-expiry", "expires_at is not after approved_at")]
+    if expires - approved > timedelta(days=MAX_RESEARCH_DAYS):
+        return [
+            Finding(
+                path,
+                "expiry-too-far",
+                f"external research expires after {MAX_RESEARCH_DAYS} days; this "
+                f"record claims {(expires - approved).days}",
+            )
+        ]
+    if is_historical:
+        return []
+
+    moment = now or datetime.now(UTC)
+    if approved > moment:
+        return [
+            Finding(
+                path,
+                "bad-expiry",
+                f"approved_at {approved.date().isoformat()} is in the future; a "
+                "future approval would slide the 30-day window forward "
+                "indefinitely",
+            )
+        ]
+    if expires < moment:
+        return [
+            Finding(
+                path,
+                "expired",
+                f"expired on {expires.date().isoformat()}; re-verify the research "
+                "and re-approve it, or remove the record",
+            )
+        ]
+    return []
 
 
 def validate_ledger(repo_root: Path) -> list[Finding]:
@@ -348,7 +709,19 @@ def validate_ledger(repo_root: Path) -> list[Finding]:
         return []
 
     records = sorted(ledger.glob("*.md"))
-    findings: list[Finding] = []
+    config, config_findings = load_config(repo_root)
+    findings: list[Finding] = list(config_findings)
+
+    if not config:
+        findings.append(
+            Finding(
+                CONFIG_FILE,
+                "missing-config",
+                f"{CONFIG_FILE} is absent; record identity cannot be checked",
+            )
+        )
+    else:
+        findings.extend(validate_config(config))
 
     if len(records) > MAX_RECORDS:
         findings.append(
@@ -371,6 +744,10 @@ def validate_ledger(repo_root: Path) -> list[Finding]:
         findings.extend(validate_fields(fields, path=relative))
         findings.extend(validate_sources(fields, path=relative, repo_root=repo_root))
         findings.extend(validate_body(body, path=relative))
+        findings.extend(validate_content_hash(fields, body, path=relative))
+        findings.extend(validate_identity(fields, path=relative, config=config))
+        findings.extend(validate_claim(fields, path=relative))
+        findings.extend(validate_expiry(fields, path=relative))
 
     return findings
 
