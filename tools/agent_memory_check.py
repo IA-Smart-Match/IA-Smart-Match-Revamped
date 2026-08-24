@@ -48,6 +48,14 @@ REQUIRED_FIELDS = frozenset(
     }
 )
 
+#: Fields whose value must be a single scalar, and fields that must be a list.
+#: Front matter turns an empty value into a list, so every field can arrive as
+#: either type. Checking this centrally is the fix for a whole class of
+#: fail-open bugs: each individual rule below guarded with `isinstance(x, str)`
+#: and, on a list, simply did not fire.
+LIST_FIELDS = frozenset({"sources", "conflicts_with"})
+SCALAR_FIELDS = REQUIRED_FIELDS - LIST_FIELDS
+
 STATUSES = frozenset({"approved", "superseded", "revoked", "stale"})
 
 #: ``decision`` is deliberately absent. Architectural decisions are ADRs; a
@@ -128,6 +136,28 @@ def validate_fields(fields: dict[str, str | list[str]], *, path: str) -> list[Fi
         findings.append(Finding(path, "missing-field", f"required field {missing!r} is absent"))
     for unknown in sorted(set(fields) - REQUIRED_FIELDS):
         findings.append(Finding(path, "unknown-field", f"unrecognised field {unknown!r}"))
+
+    for name in sorted(SCALAR_FIELDS & set(fields)):
+        if not isinstance(fields[name], str):
+            findings.append(
+                Finding(
+                    path,
+                    "bad-field-type",
+                    f"{name!r} must be a single value; it parsed as "
+                    f"{type(fields[name]).__name__}, which every rule below would "
+                    "then skip rather than reject",
+                )
+            )
+    for name in sorted(LIST_FIELDS & set(fields)):
+        if not isinstance(fields[name], list):
+            findings.append(
+                Finding(
+                    path,
+                    "bad-field-type",
+                    f"{name!r} must be a list of '- item' lines; it parsed as "
+                    f"{type(fields[name]).__name__}",
+                )
+            )
 
     status = fields.get("status")
     if isinstance(status, str) and status not in STATUSES:
@@ -363,8 +393,19 @@ LEDGER_DIR = "docs/agent-memory/approved"
 #: shaped like an instruction is an injection vector, so the format is
 #: descriptive prose about repository files and nothing else.
 INSTRUCTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bignore (all |any )?(previous|prior|earlier)\b", re.IGNORECASE),
-    re.compile(r"\bdisregard (all |any )?(previous|prior|earlier)\b", re.IGNORECASE),
+    re.compile(
+        r"\bignore (all |any |your )?(previous|prior|earlier|standing|above)\b",
+        re.IGNORECASE,
+    ),
+    # Unqualified: descriptive prose about a codebase essentially never asks the
+    # reader to disregard something, whereas an injection almost always does.
+    re.compile(r"\bdisregard\b", re.IGNORECASE),
+    re.compile(r"\bforget (everything|all|the|what|any)\b", re.IGNORECASE),
+    re.compile(
+        r"\boverride\b[^.]{0,40}\b(constraint|rule|instruction|guidance|order)s?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bstanding orders\b", re.IGNORECASE),
     re.compile(r"\byou (must|should|shall) always\b", re.IGNORECASE),
     re.compile(r"\byou (must|should|shall) never\b", re.IGNORECASE),
     re.compile(r"\balways (skip|bypass|disable|ignore)\b", re.IGNORECASE),
@@ -735,7 +776,14 @@ def validate_ledger(repo_root: Path) -> list[Finding]:
 
     for record in records:
         relative = record.relative_to(repo_root).as_posix()
-        text = record.read_text(encoding="utf-8")
+        # Reading is inside the guard: a single undecodable byte would otherwise
+        # raise UnicodeDecodeError out of the whole run, so one malformed record
+        # would suppress every finding in the ledger rather than adding one.
+        try:
+            text = record.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError) as error:
+            findings.append(Finding(relative, "unreadable", str(error)))
+            continue
         try:
             fields, body = parse_front_matter(text)
         except FrontMatterError as error:
