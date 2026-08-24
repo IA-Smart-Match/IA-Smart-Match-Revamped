@@ -14,7 +14,9 @@ that carries security-relevant fields.
 
 from __future__ import annotations
 
+import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -290,3 +292,104 @@ def validate_sources(
             )
 
     return findings
+
+
+MAX_RECORDS = 50
+MAX_BODY_CHARS = 4000
+
+LEDGER_DIR = "docs/agent-memory/approved"
+
+#: A record's body is read as context by every future agent session. Anything
+#: shaped like an instruction is an injection vector, so the format is
+#: descriptive prose about repository files and nothing else.
+INSTRUCTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bignore (all |any )?previous\b", re.IGNORECASE),
+    re.compile(r"\bdisregard (all |any )?(previous|prior|earlier)\b", re.IGNORECASE),
+    re.compile(r"\byou (must|should|shall) always\b", re.IGNORECASE),
+    re.compile(r"\byou (must|should|shall) never\b", re.IGNORECASE),
+    re.compile(r"\balways (skip|bypass|disable|ignore)\b", re.IGNORECASE),
+    re.compile(r"\bsystem prompt\b", re.IGNORECASE),
+)
+
+
+def validate_body(body: str, *, path: str) -> list[Finding]:
+    """Check the prose body for length and for instruction-shaped language."""
+    findings: list[Finding] = []
+
+    if not body.strip():
+        findings.append(Finding(path, "empty-body", "a record with no body states nothing"))
+    if len(body) > MAX_BODY_CHARS:
+        findings.append(
+            Finding(
+                path,
+                "body-too-long",
+                f"body is {len(body)} characters; the cap is {MAX_BODY_CHARS}. "
+                "Records are signposts, not copies.",
+            )
+        )
+    for pattern in INSTRUCTION_PATTERNS:
+        match = pattern.search(body)
+        if match:
+            findings.append(
+                Finding(
+                    path,
+                    "instruction-shaped",
+                    f"body contains instruction-shaped text {match.group(0)!r}. "
+                    "Records describe; they do not direct.",
+                )
+            )
+    return findings
+
+
+def validate_ledger(repo_root: Path) -> list[Finding]:
+    """Validate every record in the ledger, in path order."""
+    ledger = repo_root / LEDGER_DIR
+    if not ledger.is_dir():
+        return []
+
+    records = sorted(ledger.glob("*.md"))
+    findings: list[Finding] = []
+
+    if len(records) > MAX_RECORDS:
+        findings.append(
+            Finding(
+                LEDGER_DIR,
+                "too-many-records",
+                f"{len(records)} records; the cap is {MAX_RECORDS}. Reaching it "
+                "is the signal to supersede or delete, not to raise the cap.",
+            )
+        )
+
+    for record in records:
+        relative = record.relative_to(repo_root).as_posix()
+        text = record.read_text(encoding="utf-8")
+        try:
+            fields, body = parse_front_matter(text)
+        except FrontMatterError as error:
+            findings.append(Finding(relative, "unparseable", str(error)))
+            continue
+        findings.extend(validate_fields(fields, path=relative))
+        findings.extend(validate_sources(fields, path=relative, repo_root=repo_root))
+        findings.extend(validate_body(body, path=relative))
+
+    return findings
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
+    ledger = repo_root / LEDGER_DIR
+    findings = validate_ledger(repo_root)
+    if not findings:
+        count = len(sorted(ledger.glob("*.md"))) if ledger.is_dir() else 0
+        print(f"Agent-memory ledger clean ({count} records).")
+        return 0
+
+    print(f"Agent-memory ledger problems found ({len(findings)}):\n")
+    for finding in findings:
+        print(f"  {finding.path}  [{finding.code}]")
+        print(f"    -> {finding.message}\n")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
