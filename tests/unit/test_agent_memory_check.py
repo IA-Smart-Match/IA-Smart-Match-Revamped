@@ -154,3 +154,68 @@ def test_a_record_with_no_sources_is_refused():
         "sources:\n",
     )
     assert "no-sources" in _codes(record)
+
+
+# ---------------------------------------------------------------------------
+# Source pointers and staleness
+# ---------------------------------------------------------------------------
+
+
+def test_a_source_splits_into_path_and_sha():
+    assert amc.parse_source("docs/a.md@abc123") == ("docs/a.md", "abc123")
+
+
+def test_a_source_without_a_sha_is_rejected():
+    with pytest.raises(amc.FrontMatterError):
+        amc.parse_source("docs/a.md")
+
+
+def test_an_absolute_source_path_is_reported():
+    findings = amc.validate_sources(
+        {"sources": ["/etc/hosts@abc123"]}, path="x.md", repo_root=REPO_ROOT
+    )
+    assert "non-repo-source" in {f.code for f in findings}
+
+
+def test_a_traversing_source_path_is_reported():
+    findings = amc.validate_sources(
+        {"sources": ["../../elsewhere.txt@abc123"]}, path="x.md", repo_root=REPO_ROOT
+    )
+    assert "non-repo-source" in {f.code for f in findings}
+
+
+def test_a_url_source_is_reported():
+    findings = amc.validate_sources(
+        {"sources": ["https://example.com/x@abc123"]},
+        path="x.md",
+        repo_root=REPO_ROOT,
+    )
+    assert "non-repo-source" in {f.code for f in findings}
+
+
+def test_a_source_that_does_not_exist_is_reported():
+    findings = amc.validate_sources(
+        {"sources": ["docs/does-not-exist-anywhere.md@abc123"]},
+        path="x.md",
+        repo_root=REPO_ROOT,
+    )
+    assert "source-missing" in {f.code for f in findings}
+
+
+def test_a_source_whose_blob_moved_is_reported_as_stale():
+    """The whole reason this is a system rather than a notes file."""
+    findings = amc.validate_sources(
+        {"sources": ["README.md@0000000000000000000000000000000000000000"]},
+        path="x.md",
+        repo_root=REPO_ROOT,
+    )
+    assert "stale-source" in {f.code for f in findings}
+
+
+def test_a_source_at_its_recorded_blob_is_accepted():
+    actual = amc.blob_sha(REPO_ROOT, "README.md")
+    assert actual is not None
+    findings = amc.validate_sources(
+        {"sources": [f"README.md@{actual}"]}, path="x.md", repo_root=REPO_ROOT
+    )
+    assert {f.code for f in findings} == set()

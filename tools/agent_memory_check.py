@@ -14,7 +14,9 @@ that carries security-relevant fields.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 _FENCE = "---"
 
@@ -174,5 +176,117 @@ def validate_fields(fields: dict[str, str | list[str]], *, path: str) -> list[Fi
                 "no source cannot be checked for staleness",
             )
         )
+
+    return findings
+
+
+def parse_source(entry: str) -> tuple[str, str]:
+    """Split a ``path@blob_sha`` source entry.
+
+    Split on the last ``@`` so a path containing one is still handled.
+    """
+    path, separator, sha = entry.rpartition("@")
+    if not separator or not path.strip() or not sha.strip():
+        raise FrontMatterError(f"source {entry!r} is not in 'path@blob_sha' form")
+    return path.strip(), sha.strip()
+
+
+def _git(repo_root: Path, *args: str) -> str | None:
+    """Run a git plumbing command, returning stripped stdout or None."""
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def blob_sha(repo_root: Path, path: str) -> str | None:
+    """The blob SHA git currently records for ``path`` at HEAD, or None."""
+    output = _git(repo_root, "rev-parse", f"HEAD:{path}")
+    return output or None
+
+
+def is_dirty(repo_root: Path, path: str) -> bool:
+    """Whether ``path`` differs from HEAD in the worktree or the index."""
+    output = _git(repo_root, "status", "--porcelain", "--", path)
+    return bool(output)
+
+
+def validate_sources(
+    fields: dict[str, str | list[str]], *, path: str, repo_root: Path
+) -> list[Finding]:
+    """Check every cited source exists, is in-repo, and is unchanged.
+
+    A record whose source blob has moved is *stale*, not merely out of date: the
+    claim was verified against content that no longer exists at that path, and
+    nobody has confirmed it still holds. A record citing a path with uncommitted
+    changes is unverifiable by anyone else, which is the same problem arriving
+    earlier.
+    """
+    findings: list[Finding] = []
+    sources = fields.get("sources")
+    if not isinstance(sources, list):
+        return findings
+
+    for entry in sources:
+        try:
+            source_path, recorded = parse_source(entry)
+        except FrontMatterError as error:
+            findings.append(Finding(path, "bad-source", str(error)))
+            continue
+
+        if (
+            source_path.startswith("/")
+            or source_path.startswith("~")
+            or "://" in source_path
+            or ".." in Path(source_path).parts
+        ):
+            findings.append(
+                Finding(
+                    path,
+                    "non-repo-source",
+                    f"source {source_path!r} is not a repository-relative path. "
+                    "Records point at repository files and nothing else.",
+                )
+            )
+            continue
+
+        current = blob_sha(repo_root, source_path)
+        if current is None:
+            findings.append(
+                Finding(
+                    path,
+                    "source-missing",
+                    f"source {source_path!r} is not tracked at HEAD",
+                )
+            )
+            continue
+
+        if is_dirty(repo_root, source_path):
+            findings.append(
+                Finding(
+                    path,
+                    "dirty-source",
+                    f"source {source_path!r} has uncommitted changes; the claim "
+                    "cannot be verified by anyone else",
+                )
+            )
+            continue
+
+        if current != recorded:
+            findings.append(
+                Finding(
+                    path,
+                    "stale-source",
+                    f"source {source_path!r} is now blob {current[:12]} but the "
+                    f"record was approved against {recorded[:12]}. Re-verify the "
+                    "claim and update the record, or mark it superseded.",
+                )
+            )
 
     return findings
