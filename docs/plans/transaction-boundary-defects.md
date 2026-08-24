@@ -10,6 +10,15 @@ were left open when Wave C closed.
 | **J12** | `services/worker/smartmatch_worker/dispatcher.py`, `smartmatch_persistence/outbox.py` | The last dispatch attempt has no recovery path. A row that does not finish it is `leased`, unclaimable, uncounted, forever. |
 | **F11** | `db/migrations/env.py` | One transaction spans every pending revision, so `0003`'s `ACCESS EXCLUSIVE` lock is held for the whole run rather than for its own migration. |
 
+> **Status — all three are implemented.** J11 in `565898c`, J12 in `4e35430`,
+> and F11 in the commit that added `tests/unit/test_migration_transactions.py`
+> and ADR-0009. The analysis below is
+> preserved as written, in the present tense it was written in, because the
+> argument is the record of *why* each fix took the shape it did — but no item
+> here is outstanding. Items discovered on the way and deliberately **not** closed
+> are J14 through J17 in `remaining-foundation-r1-work.md`, and §6's flaky
+> dispatcher test.
+
 Nothing here is deployed, nothing here makes anything production-ready, and every
 severity below is argued against that fact rather than around it.
 

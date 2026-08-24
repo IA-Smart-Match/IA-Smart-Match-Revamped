@@ -74,8 +74,10 @@ that fixes it is deliberately *not* used here. That form is::
         UNIQUE USING INDEX uq_user_account_external_subject;
 
 ``CONCURRENTLY`` builds without blocking readers or writers, but it cannot run
-inside a transaction — so Alembic's per-migration transaction has to be
-disabled for it, the duplicate check below can no longer share a transaction
+inside a transaction at all — so it needs
+``with op.get_context().autocommit_block():`` around it, which
+``transaction_per_migration=True`` does **not** provide and is not a substitute
+for; the duplicate check below can no longer share a transaction
 with the ``ALTER``, and a build that fails partway leaves an ``INVALID`` index
 behind that a later attempt must find and drop by hand. Those are real
 operational obligations, and they would be accepted here in exchange for an
@@ -100,31 +102,23 @@ first closes the window. It costs no availability that the ``ALTER`` was not
 about to cost anyway, a few statements later; it only moves the instant the
 table stops changing to *before* the question is asked rather than after.
 
-**How long the lock is actually held — read this before writing ``0004``.** A
-lock lives until its transaction ends, and the transaction here is not this
-migration's. ``db/migrations/env.py`` wraps ``context.run_migrations()`` in a
-single ``context.begin_transaction()`` and does not set
-``transaction_per_migration=True``, so one transaction spans *every pending
-revision in the run*. ``ACCESS EXCLUSIVE`` on ``user_account`` is therefore held
-from the ``LOCK`` above until the whole ``alembic upgrade`` commits — not until
-this migration finishes.
+**How long the lock is actually held.** A lock lives until its transaction ends,
+and that transaction is this migration's own. ``db/migrations/env.py`` sets
+``transaction_per_migration=True`` on both its ``context.configure`` calls, so
+``ACCESS EXCLUSIVE`` on ``user_account`` is held from the ``LOCK`` above until
+this revision commits — not until the whole ``alembic upgrade`` run does.
 
-That is acceptable only for as long as ``0003`` is head, which is the situation
-at the time it was written: the lock and the run end together, and the window is
-the index build the section above budgets for. It stops being true the moment a
-``0004`` exists. Upgrading a live database from ``0002`` would then hold the
-table locked across ``0003``, ``0004``, and everything after it in the same run,
-blocking every authenticated request for the whole upgrade rather than for an
-index build — and nothing in this file would be wrong, which is why it is
-written down here rather than assumed.
+This was not always true. Until F11 one transaction spanned every pending
+revision in a run, which was harmless only for as long as ``0003`` was head: the
+lock and the run ended together. It would have stopped being harmless the moment
+a ``0004`` existed, because upgrading from ``0002`` would then have held the
+table locked across every revision in the run rather than for one index build.
+ADR-0009 records the decision, what it costs — a failed multi-step upgrade now
+leaves earlier revisions applied — and why that cost is the right one here.
+``tests/unit/test_migration_transactions.py`` holds the boundaries in place.
 
-Whoever writes ``0004`` inherits that. The available fixes are
-``transaction_per_migration=True`` in ``env.py`` — which is arguably the better
-default but changes rollback semantics for **every** migration in the
-repository, since a failed multi-step upgrade would then leave earlier revisions
-committed instead of rolling the run back as a unit — or running this revision
-on its own. Both are decisions about the migration system rather than about
-identity, so neither is made here.
+The window this migration is responsible for is therefore the one the section
+above budgets for, and nothing wider.
 
 ``uq_user_account_tenant_subject`` is kept
 ------------------------------------------
