@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import unique_subject
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
 from smartmatch_persistence.engine import create_session_factory
@@ -98,9 +99,9 @@ def client(engine, monkeypatch) -> TestClient:
 @pytest.fixture
 def coordinator(engine, tenant_id, client) -> str:
     """A coordinator with a valid token. Returns the bearer token."""
-    user_id = _make_user(engine, tenant_id, subject="sub-coordinator")
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-coordinator"))
     _grant(engine, tenant_id, user_id)
-    client.verifier.register("tok-coordinator", "sub-coordinator")
+    client.verifier.register("tok-coordinator", unique_subject("sub-coordinator"))
     return "tok-coordinator"
 
 
@@ -138,7 +139,7 @@ def test_invalid_token_is_rejected(client, unit_id):
 
 def test_valid_token_with_no_local_account_is_rejected(client, unit_id):
     """A person may authenticate with the IdP and still have no account here."""
-    client.verifier.register("tok-stranger", "sub-stranger")
+    client.verifier.register("tok-stranger", unique_subject("sub-stranger"))
     response = _post_import(client, unit_id, "tok-stranger", key="k1")
 
     assert response.status_code == 401
@@ -150,7 +151,7 @@ def test_authentication_failures_are_indistinguishable(client, unit_id):
 
     Distinguishing them tells an attacker which subjects exist.
     """
-    client.verifier.register("tok-stranger", "sub-stranger")
+    client.verifier.register("tok-stranger", unique_subject("sub-stranger"))
 
     bodies = [
         client.post(f"/v1/units/{unit_id}/imports", json=_import_body()).json(),
@@ -163,9 +164,9 @@ def test_authentication_failures_are_indistinguishable(client, unit_id):
 
 def test_suspended_account_is_denied(client, engine, tenant_id, unit_id):
     """Suspension fails local authorization, independent of IdP revocation."""
-    user_id = _make_user(engine, tenant_id, subject="sub-suspended", suspended=True)
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-suspended"), suspended=True)
     _grant(engine, tenant_id, user_id)
-    client.verifier.register("tok-suspended", "sub-suspended")
+    client.verifier.register("tok-suspended", unique_subject("sub-suspended"))
 
     response = _post_import(client, unit_id, "tok-suspended", key="k1")
 
@@ -180,18 +181,18 @@ def test_suspended_account_is_denied(client, engine, tenant_id, unit_id):
 
 def test_membership_without_the_required_role_is_denied(client, engine, tenant_id, unit_id):
     """Importing is restricted to admin and coordinator."""
-    user_id = _make_user(engine, tenant_id, subject="sub-student")
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-student"))
     _grant(engine, tenant_id, user_id, role="student")
-    client.verifier.register("tok-student", "sub-student")
+    client.verifier.register("tok-student", unique_subject("sub-student"))
 
     assert _post_import(client, unit_id, "tok-student", key="k1").status_code == 403
 
 
 def test_membership_on_a_sibling_subtree_is_denied(client, engine, tenant_id, unit_id):
     """A grant on one department does not reach another."""
-    user_id = _make_user(engine, tenant_id, subject="sub-other-dept")
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-other-dept"))
     _grant(engine, tenant_id, user_id, path="iawest.cpp.engineering.cs")
-    client.verifier.register("tok-other", "sub-other-dept")
+    client.verifier.register("tok-other", unique_subject("sub-other-dept"))
 
     assert _post_import(client, unit_id, "tok-other", key="k1").status_code == 403
 
@@ -376,14 +377,18 @@ def test_job_status_is_tenant_scoped(client, engine, unit_id, coordinator, tenan
             {"id": other_tenant, "s": f"other-{other_tenant.hex[:8]}"},
         )
         other_user = uuid.uuid4()
+        # The subject is a bind parameter rather than a literal so it can carry
+        # the run token; this account is real, in a second real tenant, which is
+        # what makes the 404 below a statement about tenancy.
+        outsider = unique_subject("sub-outsider")
         conn.execute(
             text(
                 "INSERT INTO user_account (id, tenant_id, external_subject, email) "
-                "VALUES (:id, :tid, 'sub-outsider', 'o@example.edu')"
+                "VALUES (:id, :tid, :sub, 'o@example.edu')"
             ),
-            {"id": other_user, "tid": other_tenant},
+            {"id": other_user, "tid": other_tenant, "sub": outsider},
         )
-    client.verifier.register("tok-outsider", "sub-outsider")
+    client.verifier.register("tok-outsider", outsider)
 
     try:
         response = client.get(
@@ -518,7 +523,7 @@ def test_mock_login_does_not_exist(client):
 
 def test_expired_membership_denies_access(client, engine, tenant_id, unit_id):
     """An expired membership grants nothing — checked, not assumed."""
-    user_id = _make_user(engine, tenant_id, subject="sub-expired")
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-expired"))
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -533,7 +538,7 @@ def test_expired_membership_denies_access(client, engine, tenant_id, unit_id):
                 "until": datetime.now(UTC) - timedelta(days=1),
             },
         )
-    client.verifier.register("tok-expired", "sub-expired")
+    client.verifier.register("tok-expired", unique_subject("sub-expired"))
 
     assert _post_import(client, unit_id, "tok-expired", key="k1").status_code == 403
 
@@ -553,9 +558,9 @@ def test_suspended_account_cannot_read_a_job(client, engine, tenant_id, unit_id,
     """
     job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
 
-    user_id = _make_user(engine, tenant_id, subject="sub-susp-read", suspended=True)
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-susp-read"), suspended=True)
     _grant(engine, tenant_id, user_id)
-    client.verifier.register("tok-susp-read", "sub-susp-read")
+    client.verifier.register("tok-susp-read", unique_subject("sub-susp-read"))
 
     status_response = client.get(
         f"/v1/jobs/{job_id}", headers={"Authorization": "Bearer tok-susp-read"}
@@ -585,9 +590,9 @@ def test_tenant_member_without_an_oversight_role_cannot_read_a_job(
     """
     job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
 
-    user_id = _make_user(engine, tenant_id, subject="sub-elsewhere")
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-elsewhere"))
     _grant(engine, tenant_id, user_id, path="iawest", role="student")
-    client.verifier.register("tok-elsewhere", "sub-elsewhere")
+    client.verifier.register("tok-elsewhere", unique_subject("sub-elsewhere"))
 
     response = client.get(f"/v1/jobs/{job_id}", headers={"Authorization": "Bearer tok-elsewhere"})
     assert response.status_code == 403

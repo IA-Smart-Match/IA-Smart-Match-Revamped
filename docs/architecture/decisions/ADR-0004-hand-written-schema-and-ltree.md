@@ -1,6 +1,6 @@
 # ADR-0004 — Hand-written Core schema, hand-written migrations, and a declared `ltree` type
 
-**Status:** Accepted
+**Status:** Accepted — amended 19 August 2026, see [Amendment](#amendment--19-august-2026-the-drift-test-now-covers-the-schema-not-a-list) below
 **Date:** 18 August 2026
 **Contract:** Architecture v1.1 §2.2, §4.2
 
@@ -142,3 +142,150 @@ the inspector does not recognize it.
 Rejected. It removes a duplicated type declaration and couples every past migration to
 a module that keeps moving. A migration that changes meaning after it has been
 applied is not a record of anything.
+
+## Amendment — 19 August 2026: the drift test now covers the schema, not a list
+
+Landed with F7 (`tests/integration/test_schema_matches_migration.py`,
+`python/smartmatch_persistence/smartmatch_persistence/schema.py`). The decision
+above is unchanged: tables are still hand-written Core, migrations are still
+hand-written, `target_metadata` is still `None`, and the drift test is still the
+thing that catches a mistake. What changes is how much of the schema that test
+actually reads, and therefore how much of the "Cost, stated plainly" paragraph is
+still true. **That paragraph should now be read as a description of August 18,
+not of the guard as it stands.**
+
+**The divergence was seven constraints, not one.** The paragraph above names
+`org_unit.tenant_id` as the instance where `schema.py` carried a plain
+`sa.ForeignKey("tenant.id")` against a migration specifying `ondelete`. It was
+not the only one. *Every* foreign key from a tenant-owned table to `tenant` was
+declared without an `ondelete` — `org_unit`, `user_account`, `job`,
+`idempotency_record`, `tenant_budget`, `concurrency_lease`, and
+`rate_limit_counter` — and the seventh is the one that makes the point. Six are
+`RESTRICT`, because a tenant with live data must not vanish because a row was
+removed. `rate_limit_counter` is `CASCADE`, because counters are derived data
+with no audit value and should go with the tenant. Two deliberately opposite
+intents, flattened to one default in the mirror, and nothing could tell them
+apart by reading `schema.py`.
+
+**The database was correct throughout, and no migration was touched.** `METADATA`
+never creates a database — its only consumers are query construction and this
+test — so the divergence had no runtime effect, and PostgreSQL refuses the delete
+under both `NO ACTION` and `RESTRICT` in any case. The defect was that the mirror
+is the artifact people read to learn the schema, and it was wrong about seven
+constraints while this ADR told readers a drift test was watching. The fix was to
+correct the mirror; the migrations are the record of what was applied and were
+left alone.
+
+**What the test compares now**, per table and in both directions, so a new table
+or constraint is covered the day it lands:
+
+* Foreign keys — constrained columns, referred table, referred columns, and the
+  delete action, with `None` normalized to `NO ACTION`. This is what generalizes
+  `test_tenant_scoped_children_use_composite_foreign_keys` past the five-table
+  list named in Consequences above: a composite key simplified in *either*
+  definition now fails.
+* Nullability, column types, and the *presence* of a server default.
+* Primary key and unique constraint **names and columns**, as sets. This closes
+  the failure mode with nothing else to notice it — a constraint added to a
+  migration and never mirrored adds no column, so the column-name comparison
+  stayed green — and comparing columns alongside the name is what would notice a
+  constraint keeping its name while the columns beneath it changed.
+* CHECK constraint **names** only. Reflection reports no columns for them and
+  their expressions are not comparable, so the name is all there is; see the
+  limits paragraph below, because this one is weaker than it looks.
+* `ix_org_unit_path_gist` and `ix_membership_path_gist` exist and are `gist` —
+  the two indexes this ADR's own case for `ltree` over `TEXT` depends on. If they
+  are gone, the argument three sections up is false.
+
+Those comparisons are symmetric, which is a weaker claim than the three
+hand-written tests they replaced. Symmetry catches a constraint changed on one
+side; it cannot catch one deleted from a migration and from `schema.py` in the
+same change, because the two then agree about a guarantee that no longer exists.
+So four constraints are additionally asserted **absolutely against the
+database**, name and columns both: `uq_job_event_sequence`,
+`uq_outbox_task_name`, `uq_idempotency_scope`, and `pk_rate_limit_counter`. The
+rule for that list is the one the GiST index assertion already used — each backs
+a claim made elsewhere in the system (SSE reconnect, ADR-0007's deduplication,
+v1.1 §1.11, and the rate limiter's atomic increment), not "each is important".
+
+Two things this does **not** mean, both of which were briefly claimed here and
+are wrong. The first is that those guarantees were previously unasserted: two of
+the four were already guarded behaviourally, and better, by
+`test_tenant_isolation.py::test_job_event_sequence_is_unique_per_job` and
+`::test_outbox_task_name_is_globally_unique`, which insert the duplicate row and
+require `IntegrityError` — proof that the constraint *works*, where existence is
+only proof that it is present. What the absolute assertions add is a structural
+failure naming the constraint rather than the same drift surfacing as a
+duplicate-insert error in another module. The second is that the names used in
+queries are now pinned end to end: `idempotency.py` and `rate_limit.py` hardcode
+two of them for `ON CONFLICT` independently of both definitions, so that the
+query and the constraint still mean the same thing is proved by the integration
+tests that run those statements, not here.
+
+The structural isolation check that Consequences above describes as reading five
+named tables now enumerates its own: `test_every_tenant_scoped_table_is_anchored_by_a_composite_key`
+walks every table **in the database** that has a `tenant_id` column and requires
+each to be anchored to its tenant — directly, by a single-column key to
+`tenant.id`, or through a parent, by a composite key whose `tenant_id`
+corresponds positionally to the parent's `tenant_id`. That correspondence is the
+part worth spelling out: a key on `(tenant_id, user_id)` referencing
+`user_account (id, tenant_id)` is composite and does contain `tenant_id`, and it
+enforces nothing at all — an earlier version of this test passed it. The
+first attempt derived that list from `schema.py` instead, which was a quiet
+regression against the hard-coded list it replaced: simplifying a composite key
+in the mirror removed the table from the list and so deleted the case that would
+have caught it, and the suite went green one test lighter. Deriving from the side
+being interrogated is what makes the set impossible to shrink by editing the
+other one.
+
+The cost this ADR chose is correspondingly larger: `schema.py` now carries the
+delete actions it previously omitted, and the names of its primary keys, unique
+constraints, and CHECK constraints, so a schema change is a slightly bigger edit.
+That is the same friction, priced honestly. Foreign key names are the exception
+and stay unnamed on both sides of the comparison — nothing in the codebase refers
+to one, so a name there would be a value to keep in step with no reader depending
+on it, which is the cost this ADR is trying to spend deliberately rather than by
+default.
+
+**What is still not compared, and why.** Server default *expressions* — reflection
+returns `'0'::numeric` and `'pending'::text` against a code side that writes
+`"0"` and `"pending"`, and the normalizer that reconciles them would be string
+munging that breaks on a PostgreSQL upgrade. CHECK *expressions* — PostgreSQL
+rewrites `effect IN ('allow','deny')` into `effect = ANY (ARRAY[...])` on the way
+in, so comparing text would fail on constraints that are in fact identical.
+
+**Be precise about what the CHECK names buy, because it is easy to read as more.**
+A name comparison catches a constraint added, dropped, or renamed on one side. It
+does not catch one re-added under the same name with an inverted expression, or
+as `NOT VALID`. Only two of the eight have a test that attempts the forbidden
+write: `ck_job_status` (`test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state`)
+and `ck_budget_ceiling_non_negative` (`::test_budget_ceiling_cannot_go_negative`). The remaining six —
+`ck_membership_valid_window`, `ck_resource_grant_effect`, `ck_outbox_status`,
+`ck_redrive_authorship_complete`, `ck_budget_non_negative`, and
+`ck_rate_limit_count_non_negative` — are asserted by name and by nothing else.
+Writing those six behavioural tests was deliberately left outside F7 rather than
+folded into it; this paragraph exists so the gap is chosen rather than assumed
+closed.
+
+`ck_job_status` is the one constraint whose expression is now read, by
+`tests/integration/test_job_states_match_domain.py` — the file
+`0001_foundation_baseline.py` has always claimed keeps its states in step with
+`smartmatch_domain.jobs.JobState`, and which until now did not exist. The
+objection above does not cover it: there the rendering *is* the assertion, here
+the quoted literals are the payload and the syntax around them is incidental.
+That module also writes every `JobState` value to prove the constraint accepts
+them; the rejecting direction it leaves to
+`test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state` rather
+than duplicating it. And index *sets* — `schema.py` declares no indexes on
+purpose, and mirroring them all would be a second copy of information nobody
+reads, so only the two indexes above, which back a correctness claim, are named.
+
+**The `ltree` wart is unchanged and still unfiltered.** The inspector returns
+`NullType` for `org_unit.path` and `membership.granted_path`, and `NullType`
+cannot be compiled to a type string, so those two columns are excluded from the
+type comparison by name — written out and commented, not swallowed by a
+`try`/`except` that would also hide a real failure. They get their own assertion
+instead: the code side must still be `LTree`, and the database side is read from
+`information_schema.columns.udt_name`, which knows the type even though the
+inspector does not. The two `SAWarning` lines still appear, still for the reason
+argued above, and are still not suppressed.

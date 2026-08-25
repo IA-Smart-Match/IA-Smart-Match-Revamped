@@ -20,7 +20,7 @@ rather than defaulting open.
 | Property | Mechanism | Verified by |
 |---|---|---|
 | Tenant isolation | Composite `(tenant_id, id)` keys and composite FKs | 11 integration tests against live PostgreSQL |
-| Deny-by-default authorization | Pure policy returning denial for every non-allowed path | 29 authz tests, 21 of them negative |
+| Deny-by-default authorization | Pure policy returning denial for every non-allowed path | 32 authz tests, 24 of them negative |
 | No caller-selected identity | `Principal.tenant_id` derived server-side; no endpoint accepts it | Contract test asserts `/auth/mock-login` → 404 |
 | Suspension denies reads as well as writes | Authorization on every job route, suspension checked first | 3 integration tests (added after review finding S-006) |
 | Classroom cannot reach live providers | Registry raises before credential checks; config validator rejects at boot | 16 provider-isolation tests |

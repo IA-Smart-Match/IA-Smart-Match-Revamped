@@ -117,6 +117,56 @@ autonomy tier of each proposed action. Draft artifacts open in their **normal
 editors**. Nothing executes from ambient conversation — every consequential
 action shows the same confirmation UI the conventional screens use.
 
+## 1.8 Times render in the event's own zone, with the zone named
+
+ADR-0010. An event carries a UTC instant, an IANA zone, and a precision
+(`exact` / `date_only` / `unresolved`).
+
+- Render in the **event's** zone, never the viewer's and never the server's, and
+  name the zone beside the time. A time without a named zone is a number that
+  happens to have a colon in it.
+- An event at `date_only` renders as a **date**. Collapsing it to midnight and
+  rendering that is how a list comes to show events at 3 AM — which is what the
+  19–20 August 2026 test log found (Fix #6).
+- An event at `unresolved` cannot be matched or published, so it should not
+  reach a list at all; if one does, it renders as unresolved, not as a guess.
+
+## 1.9 Unknown is not zero, enforced by the value primitive
+
+ADR-0011. A value with no evidence renders as `unknown` — never `0`, never `0%`,
+never an em-dash styled to look like a measurement.
+
+This is a **component**, not a habit. The test log found "Topic Relevance 0%" on
+an event about AI, "Match Depth 0", and "Rest recommended: 0" beside a volunteer
+the same screen had flagged as overloaded (Fix #8). Every one of those is a
+missing value wearing a measurement's clothes, and no amount of reviewer
+attention catches the next one. `smartmatch_domain.feedback.acceptance_rate`
+already returns `None` rather than `0.0` for an empty set; the primitive is what
+stops that distinction being thrown away at the last step.
+
+This is **S2**, and it is held behind D-0 with the rest of the frontend.
+
+## 1.10 Every aggregate has a drill-down
+
+ADR-0011. Clicking a number returns exactly the rows it was computed from — the
+same rows, from the same query, not a re-query with similar-looking filters. The
+count of the result equals the number clicked.
+
+The test log found a count of 15 that opened to 31 rows (Fix #12). This is the
+one rule in ADR-0011 a test can check without a human reading a definition, so
+it is the one the design must not make impossible: an aggregate rendered with no
+affordance to open it cannot be checked by anyone, reviewer or test.
+
+## 1.11 Action queue before statistics
+
+On the coordinator and administrator home, what needs doing comes before how
+things are going. Statistics are the second screenful.
+
+**When n is small, name the people.** "3 volunteers over their load ceiling" is
+a worse rendering than the three names, and an average over four data points is
+a summary of nothing. This is Fix #13, and it is a constraint on the redesign
+rather than the redesign itself.
+
 ---
 
 # Part 2 — Open, and to be decided by the redesign
@@ -132,8 +182,11 @@ has a defined scope.
 | D-4 | Information density | The control center has 13 views; a coordinator triaging exceptions and an administrator reviewing scenarios want very different densities. |
 | D-5 | Portal navigation model | One shell with role-conditional navigation, or four distinct experiences. |
 | D-6 | Empty, loading, partial, denied, stale, failed | Six states, every view. Currently undesigned. |
-| D-7 | Responsive and device targets | Students check in from phones; coordinators work on desktops. Not the same problem. |
+| D-7 | Responsive and device targets | **Partly settled.** Students check in from phones; coordinators work on desktops. Not the same problem. QR check-in (MM-F02) is the mechanism that produces attendance, and it is phone-first — so **mobile is a primary target for the student surface, not a responsive afterthought**. What remains open is the coordinator and administrator side. |
 | D-8 | Charting approach | The legacy used Recharts. Needs revisiting against §1.1 — a chart of heuristic scores must say so. |
+| D-9 | Rewards and points presentation | Depends on D6/D7 being answered at all. A progress line toward an unreachable reward is worse than no progress line — see [`docs/architecture/engagement-model.md`](../../docs/architecture/engagement-model.md) §4. |
+| D-10 | Disclosure and peer visibility on the student surface | ADR-0014 fixes the *record*; how consent is asked for, and how a limited list explains itself, are undesigned. Policy is D8. |
+| D-11 | The agenda view | `engagement-model.md` §5 rules out a month grid and specifies a time-ordered agenda. Its density, grouping, and region badges are open. |
 
 ## What "done" looks like for this document
 

@@ -51,10 +51,28 @@ class IdempotencyResult:
             request. The caller should return the existing job rather than
             starting new work.
         job_id: The job this key is bound to, when known.
+        result_generation: What :meth:`IdempotencyRepository.record_result`
+            stored for this key, and ``None`` when nothing did. Only meaningful
+            on a replay — on a fresh reservation the command has not run yet, so
+            there is no result to carry.
+
+            ``None`` on a replay is several situations at once and the caller
+            has to decide what to do about all of them: the row predates
+            migration ``0004``; the command type has no generation at all, which
+            is true of ``job.abandon``; or the caller reserved the key,
+            committed, and never recorded a result.
+
+            That last one is caller-dependent rather than universal. A caller
+            that reserves inside a savepoint it rolls back on failure — which is
+            what ``redrive.py`` does — cannot produce it, because a failed
+            command discards its own reservation and leaves no row. A caller that
+            commits the reservation separately can. Nothing here distinguishes
+            any of them, because nothing here can.
     """
 
     is_replay: bool
     job_id: uuid.UUID | None
+    result_generation: int | None = None
 
 
 def fingerprint_request(payload: dict[str, Any]) -> str:
@@ -122,6 +140,7 @@ class IdempotencyRepository:
             sa.select(
                 schema.idempotency_record.c.job_id,
                 schema.idempotency_record.c.request_fingerprint,
+                schema.idempotency_record.c.result_generation,
             ).where(
                 schema.idempotency_record.c.tenant_id == tenant_id,
                 schema.idempotency_record.c.command_type == command_type,
@@ -136,4 +155,44 @@ class IdempotencyRepository:
                 "a different request is a client error; use a new key."
             )
 
-        return IdempotencyResult(is_replay=True, job_id=existing.job_id)
+        return IdempotencyResult(
+            is_replay=True,
+            job_id=existing.job_id,
+            result_generation=existing.result_generation,
+        )
+
+    def record_result(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        command_type: str,
+        idempotency_key: str,
+        result_generation: int,
+    ) -> None:
+        """Record what this key's command produced, so a replay can repeat it.
+
+        **Separate from :meth:`reserve`, and it has to be.** The obvious design
+        stores the generation when the key is reserved, and it cannot work: the
+        generation *is* the command's result, and the command has not run when
+        the key is reserved. Reserving first and recording afterwards is the
+        only order the data allows.
+
+        Called after the command succeeds and in the same transaction, so a
+        command that is rolled back leaves no result behind claiming it
+        happened. The caller's savepoint discipline does the rest: if the
+        command is discarded, so is this.
+
+        Idempotent by construction — it writes the same value a replay would
+        compute — but not expected to run twice, because the path that calls it
+        runs once per key by definition.
+        """
+        session.execute(
+            sa.update(schema.idempotency_record)
+            .where(
+                schema.idempotency_record.c.tenant_id == tenant_id,
+                schema.idempotency_record.c.command_type == command_type,
+                schema.idempotency_record.c.idempotency_key == idempotency_key,
+            )
+            .values(result_generation=result_generation)
+        )

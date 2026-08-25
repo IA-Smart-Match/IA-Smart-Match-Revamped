@@ -43,7 +43,7 @@ lock: ## Recompile the dependency locks from requirements/*.in
 # ---------------------------------------------------------------------------
 
 .PHONY: check
-check: format-check lint typecheck imports test scan ## Run every gate CI runs
+check: format-check lint typecheck imports test scan memory ## Run every gate CI runs
 
 .PHONY: format-check
 format-check: ## Verify formatting
@@ -80,6 +80,10 @@ test-all: ## Run every test
 .PHONY: scan
 scan: ## Scan for forbidden legacy behavior
 	$(PY) tools/scan_forbidden.py
+
+.PHONY: memory
+memory: ## Validate the approved agent-memory ledger
+	$(PY) tools/agent_memory_check.py
 
 # ---------------------------------------------------------------------------
 # Database
