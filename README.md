@@ -35,7 +35,7 @@ was kept, what was rejected, and why.
 | Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
 | Schema matches migration — foreign keys, nullability, types, PK/UQ/CHECK constraint names, per table (ADR-0004 amendment) | `smartmatch_persistence.schema`, `db/migrations` | 115 integration |
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
-| Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 27 integration |
+| Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |
 | Transactional rate limiter | `smartmatch_persistence.rate_limit` | 18 integration + 4 unit |
 | Authenticated command path, end to end | `services/api` | 29 integration |
 | Identity lookup — `external_subject` globally unique (ADR-0008) | `smartmatch_persistence.principals` | 6 integration |
@@ -43,12 +43,25 @@ was kept, what was rejected, and why.
 | Standard error envelope across the API | `services/api` | 13 contract |
 | Worker command execution — claim, run to a terminal state, job events | `smartmatch_worker.execution` | 31 integration |
 | OIDC task-identity verification, ships with no signature backend | `smartmatch_worker.identity` | included above + 4 contract |
-| Re-drive and abandon commands for parked work | `services/api/.../routers/redrive.py` | 22 integration |
+| Re-drive and abandon commands for parked work | `services/api/.../routers/redrive.py` | 30 integration |
 | Forbidden-legacy-behavior scanner | `tools/scan_forbidden.py` | 25 self-tests |
+| ADR index checked against the ADR files | `docs/architecture/decisions`, `tests/unit/test_adr_index.py` | 145 |
+| Agent-memory ledger validation | `tools/agent_memory_check.py` | 80 |
+| CHECK constraints exercised behaviourally — the forbidden write *and* the permitted one | `db/migrations` | 50 integration |
+| One transaction per Alembic revision (ADR-0009) | `db/migrations/env.py` | 3 |
 
-**489 tests total** (488 pass, 1 skipped by design — see
-`test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
-second implemented scoring factor).
+**789 tests total.** The no-database lane — everything not marked
+`integration` — is **444 passing and 1 skipped by design**
+(`test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
+second implemented scoring factor). The remaining **344 require PostgreSQL**.
+
+The figure here was `489` until 25 August 2026, and the drift is worth naming
+because it was not the aggregate that went stale on its own: `489` was exactly
+the sum of the table above while two of its rows were out of date — the
+dispatcher had grown from 27 to 41, re-drive from 22 to 30 — and four
+capabilities had no row at all. Both halves are corrected above. Counts come
+from `pytest tests/ --collect-only -q`; the lane split from
+`pytest tests/ -m "not integration"`.
 
 ### Proposed, scaffolded, or deliberately absent
 
@@ -65,6 +78,8 @@ second implemented scoring factor).
 | Research agents / crawler | Not scaffolded | Gate G3, R3 |
 | `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
 | Terraform | Skeleton only; **nothing deployed** | Later |
+| Student engagement — attendance, points ledger, rewards, disclosure consent | **Designed, not built** — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
+| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Not started.** Five registered metrics with one owning query, per ADR-0011 | S12, behind the metric register (S1) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
 Nothing here has been deployed, no live provider has been called, and no live

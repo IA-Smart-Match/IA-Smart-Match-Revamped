@@ -18,9 +18,20 @@ is larger than the work itself.
 | D3 | Route-matrix provider terms and per-run call budget | Open decision 6 | Procurement + engineering | `travel_burden` factor |
 | D4 | Domain registration and DNS control | Open decision 8 | Institutional IT | All mail work (R4) |
 | D5 | Retention periods per evidence table | Open decision 5 | Privacy / legal / records | R2 evidence tables |
+| D6 | Name a rewards budget owner | Test log Fix #15 | Program owner | A shipped rewards catalog (S9) |
+| D7 | Set the points-economy calibration N — "the cheapest reward is reachable within N events" | Test log Fix #15 | Program owner | A shipped rewards catalog (S9) |
+| D8 | Disclosure-consent policy, and what the phrase "FERPA-aware" actually asserts | Test log Fix #11, Q31, Q35 | Privacy / legal / records | S10; QR data minimization |
+| D9 | Licensing and whether the repository may be open-sourced | Test log Q11 | Program owner | F13's `LICENSE`; **gated by MM-A09** |
 
 **D1 is the critical path.** Everything in "Matching" below waits on it, and
 matching is the product's reason for existing.
+
+**D9 is gated by a decision that has no owner.** Kickoff Q11 asks whether the
+repository may be open-sourced, and it cannot be answered before MM-A09's six
+legacy paths are remediated — publishing history that contains them broadens
+the exposure. That remediation is Q1 in
+`docs/plans/stakeholder-audit-integration.md` §9, it is the only severity-1 item
+in the stakeholder test log, and **it is currently unassigned.**
 
 ---
 
@@ -43,6 +54,7 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 | ~~F10~~ | ~~Add behavioural tests for the six name-only CHECK constraints~~ | F7 | **Done, and widened past behaviour.** `tests/integration/test_check_constraints.py` (50 tests) attempts the forbidden write **and** the permitted one for seven of the eight CHECK constraints — the permitted half is what catches an inverted expression, since an inverted `ck_budget_non_negative` reading `spent < 0` still refuses `spent = -1` and would pass a rejection-only test. The eighth, `ck_job_status`, is exercised more thoroughly by `test_job_states_match_domain.py` (admitted set compared to `JobState` both directions, plus one insert per legal state) than a copy here would be; `BEHAVIOURAL_COVERAGE` records where each one's writes live and a test keeps that list in step with the pinned set. Each constraint is exercised at the boundary its expression turns on: both clauses of `ck_budget_non_negative` separately, `>` versus `>=` for `ck_membership_valid_window` plus all four of its `NULL` shapes, both directions of `ck_redrive_authorship_complete`'s biconditional, every legal value of `ck_outbox_status` and `ck_resource_grant_effect`, `-0.0001` (the smallest negative `numeric(12,4)` holds) as well as `-1` for the numeric ones, and UPDATE as well as INSERT throughout. **`ck_budget_ceiling_non_negative` gained a behavioural section here**: it previously had only `test_tenant_isolation.py::test_budget_ceiling_cannot_go_negative`, a rejection test sampling `-5`, so the permitted side was unproven and a constraint relaxed to `ceiling >= -1` passed. **Two things no attempted write can reach are read from the catalogue.** `test_every_check_constraint_is_validated` reads `pg_constraint.convalidated`, because this item's premise about `NOT VALID` was wrong: verified against PostgreSQL 16.15, a `NOT VALID` CHECK rejects new inserts and updates exactly as a validated one does — it skips only the initial scan of rows already present, so the constraint has never been *checked* against existing data rather than being known false of it. This row, the docstring of `test_check_constraint_names_match`, and the docstring of `test_job_states_match_domain.py` all said a write test would catch it; all three are corrected here. `test_the_constraint_expression_is_exactly_as_declared` compares `pg_get_constraintdef` against a pinned string, which closes the class of weakening a write test cannot: a vocabulary widened to admit `'audit'` or `'cancelled'`, or a threshold moved to `>= -0.5`, passes every behavioural test in the file. Both sides of that comparison are the database, so PostgreSQL's normalisation is stable — unlike the schema-mirror comparison `test_schema_matches_migration.py` deliberately avoids. `test_this_file_covers_every_check_constraint_in_the_schema` reflects **every** CHECK in the `public` schema, not every CHECK named `ck_*`; the first version filtered on the prefix and so was blind to precisely the constraint added by someone who does not know the convention. Everything is keyed by `(table, name)` rather than name, because PostgreSQL permits one name on two tables and a name-keyed dict silently keeps the last row. **Verified by mutation, not assumed:** dropping each of the six constraints in turn fails exactly its own rejection tests, proving no NOT NULL, foreign key, or neighbouring CHECK stands in for the one under test; and widening `effect` with `'audit'`, widening `status` with `'cancelled'`, relaxing `spent` to `>= -0.5`, relaxing `ceiling` to `>= -1`, adding a duplicate `ck_outbox_status` to `job`, replacing `ck_job_status` with `status IS NOT NULL`, adding a `chk_`-prefixed ninth constraint, and adding an unnamed one each fail. **Not covered:** the expression pin is against PostgreSQL 16's rendering, so a major-version upgrade that changed normalisation fails it — reviewing that diff deliberately is the intent, not a cost. `rate_limit_counter` was added to the integration conftest's teardown tuple for completeness; it is belt-and-braces rather than a leak fixed, since that table's tenant foreign key is already `ON DELETE CASCADE`. |
 | ~~F11~~ | ~~Decide `transaction_per_migration` before a `0004` exists~~ | — | **Done.** `db/migrations/env.py` now sets `transaction_per_migration=True` on **both** `context.configure` calls — the offline path had the same defect, so a DBA applying a reviewed `alembic upgrade --sql` script by hand would otherwise have reproduced the run-wide transaction on the one route with a human watching. Each revision is applied in its own transaction, so `0003`'s `ACCESS EXCLUSIVE` lock on `user_account` is released when `0003` commits rather than when the whole run does. **The trade was made deliberately, not by default:** a failed multi-step upgrade now leaves earlier revisions applied instead of rolling the run back as a unit. That state is not inconsistent — `alembic_version` commits with its own revision, so a failure at `0004` leaves the database at `0003` and saying so, which is valid and resumable. All-or-nothing gave a different valid state, not a safer one, and it was protecting a property v1.1 §4.2's expand/migrate/contract discipline already forbids relying on. ADR-0009 records the decision, the two conditions under which the other choice would win, and the operator obligation that follows. `0003`'s docstring is rewritten — the paragraph instructing a future author to inherit the old behaviour would otherwise have left the repository asserting something untrue about itself. New `tests/unit/test_migration_transactions.py` pins one `BEGIN`/`COMMIT` pair per revision, that the `user_account` lock is held by exactly one revision, and that no revision emits `CONCURRENTLY` inside a transaction; it needs no database, so the decision stays protected on a machine with no PostgreSQL. **What it does not cover:** the online call site. While `0003` is head there is no online-observable difference to assert — the lock is taken in the last revision, so it is released at the end of the run either way — and a test racing an upgrade against a second connection to catch an intermediate `alembic_version` would be timing-dependent against migrations that finish in milliseconds. Covered by review instead. **`CREATE INDEX CONCURRENTLY` still requires `autocommit_block()`**; this setting does not enable it, and both ADR-0009 and a test say so, because the two ideas sit next to each other in `0003`'s docstring. |
 | F12 | Contract-phase: drop `uq_user_account_tenant_subject` | Release fully promoted | `uq_user_account_external_subject` (migration `0003`) makes it strictly redundant — a globally unique subject is unique per tenant too — but dropping it is contract-phase work under v1.1 §4.2's expand/migrate/contract discipline, and every migration in this repository is expand-phase only. See ADR-0008 and `0003`'s docstring. |
+| F13 | Add the governance files — `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS` | D9, for `LICENSE` only | None of the four exists at the repository root; the only `LICENSE` matches in the tree are `legacy_license:` fields in the migration manifest. Architecture diagram 22 names their absence as a legacy deficiency and the revamp reproduces it. Three of the four are unblocked and cheap; `LICENSE` waits on D9, which waits on MM-A09. |
 
 ---
 
@@ -126,6 +138,37 @@ redesign starts from them rather than rediscovering them.
 | W6 | Accessibility: WCAG 2.2 AA, plus a11y smoke tests in CI | W1 | |
 | W5 | Matching control center — 13 views | M8, W2, W4 | Also blocked on gate G1 via M8 |
 | W7 | Add web gates to CI (npm ci, tsc, vitest, bundle budget, Playwright) | W1 | Listed as deferred in `.github/workflows/verify.yml` |
+
+---
+
+## R1/R2 — from the stakeholder test log
+
+Twelve items from the audit of the 19–20 August 2026 test log
+(`docs/architecture/review/stakeholder-test-log-audit.md`). The **S** prefix
+means stakeholder-derived, so provenance is readable from the identifier — every
+other prefix in this document means a phase.
+
+These are **not** ordered ahead of the existing backlog. `Suggested next three`
+below still names J10, J8 and D1, and adding twelve rows does not change that.
+
+| # | Item | Depends on | Notes |
+|---|---|---|---|
+| S1 | Metric register + drill-down contract test | ADR-0011 | The register is a repository artifact; the drill-down equality is the one rule of ADR-0011 a test can check without a human reading a definition. **The register half is domain work and available; the render half inherits the frontend hold.** |
+| S2 | `unknown` ≠ `zero` in the value render primitive | S1, **D-0** | **ON HOLD behind D-0** with the rest of the frontend. The domain-side half — aggregates over possibly-empty sets returning optionals, as `feedback.acceptance_rate` already does — is not held. |
+| S3 | Event temporal model: instant + IANA zone + precision | ADR-0010 | R2 schema work. An event at `unresolved` precision cannot reach a matchable or publishable state. |
+| S4 | Deterministic event entity-resolution key | ADR-0012, S3 | Host org unit + normalized title + resolved date window. R3, behind gate G3. |
+| S5 | Closed role/type tag vocabulary + quarantine | ADR-0012 | Unmapped values are stored, reviewable, never rendered and never matched on. R3, behind gate G3. |
+| S6 | `attendance_record` table | MM-F02 | R2, with QR check-in. The only input to points. |
+| S7 | `point_ledger_entry` — append-only, balance folded server-side | S6, ADR-0013 | No balance column anywhere. A reversal is a compensating entry. |
+| S8 | `reward_item` — `fulfilment_cost`, `budget_owner_id`, `funded` | ADR-0013 | The schema constraint; **listing** an item needs D6. |
+| S9 | `redemption` command — requested → approved → fulfilled \| denied \| expired | S7, S8 | Shipping a catalog needs D6 **and** D7. |
+| S10 | `disclosure_consent` — subject, audience scope, purpose, granted/revoked | ADR-0014, **D8** | D8 must be written **before** this is built, not after. |
+| S11 | Performance budget, and a QR load test at 50 concurrent scans | S6 | Two test-log findings: Past Events took 5 s, and kickoff Q14 asks whether QR holds up at event scale. No answer exists today; the load test is the answer. |
+| S12 | The funnel as a contract — Matched → Contacted → Confirmed → Attended → Member Inquiry | S1, ADR-0011 | Five registered metrics with one owning query, not a chart. Five separate queries will not stay mutually consistent. |
+
+**Not yet assigned an identifier:** classroom-reset tooling. Architecture
+diagram 3 names it and nothing in this repository provides it. It needs a scope
+before it needs a number.
 
 ---
 
