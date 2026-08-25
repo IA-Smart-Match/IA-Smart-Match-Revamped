@@ -246,6 +246,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "docs/architecture/decisions/ADR-0008-globally-unique-external-subject.md",
         "mock-login",
     ): "The ADR names the archived pattern to argue why a tenant-scoped lookup revives it.",
+    (
+        "docs/architecture/review/stakeholder-test-log-audit.md",
+        "mock-login",
+    ): "The audit names the archived pattern to record Fix #7 as its one closed finding.",
 }
 
 
