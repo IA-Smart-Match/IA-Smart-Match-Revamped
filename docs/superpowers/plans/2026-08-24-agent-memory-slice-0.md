@@ -53,7 +53,7 @@
   - `def validate_fields(fields: dict[str, str | list[str]], *, path: str) -> list[Finding]`
   - Module constants `REQUIRED_FIELDS: frozenset[str]`, `STATUSES`, `AUTHORITIES`, `PRIVACY_CLASSES`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/unit/test_agent_memory_check.py`:
 
@@ -205,12 +205,12 @@ def test_a_record_with_no_sources_is_refused():
     assert "no-sources" in _codes(record)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: collection error — `tools/agent_memory_check.py` does not exist.
 
-- [ ] **Step 3: Write the parser and field validation**
+- [x] **Step 3: Write the parser and field validation**
 
 Create `tools/agent_memory_check.py`:
 
@@ -396,12 +396,12 @@ def validate_fields(fields: dict[str, str | list[str]], *, path: str) -> list[Fi
     return findings
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Format, lint, and commit**
+- [x] **Step 5: Format, lint, and commit**
 
 ```bash
 .venv/bin/ruff format tools/agent_memory_check.py tests/unit/test_agent_memory_check.py
@@ -426,7 +426,7 @@ git commit -m "feat(agent-memory): parse and validate ledger record front matter
   - `def is_dirty(repo_root: Path, path: str) -> bool`
   - `def validate_sources(fields, *, path: str, repo_root: Path) -> list[Finding]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/unit/test_agent_memory_check.py`:
 
@@ -491,12 +491,12 @@ def test_a_source_at_its_recorded_blob_is_accepted():
     assert {f.code for f in findings} == set()
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: FAIL — `module 'agent_memory_check' has no attribute 'parse_source'`.
 
-- [ ] **Step 3: Implement source and staleness checking**
+- [x] **Step 3: Implement source and staleness checking**
 
 Add to `tools/agent_memory_check.py` (imports first — add `import subprocess` and `from pathlib import Path` to the existing import block):
 
@@ -613,14 +613,14 @@ def validate_sources(
     return findings
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: all pass.
 
 Note: `test_a_source_at_its_recorded_blob_is_accepted` fails if `README.md` has uncommitted changes in your worktree. That is the `dirty-source` rule working; commit or stash first.
 
-- [ ] **Step 5: Format, lint, and commit**
+- [x] **Step 5: Format, lint, and commit**
 
 ```bash
 .venv/bin/ruff format tools/agent_memory_check.py tests/unit/test_agent_memory_check.py
@@ -646,7 +646,7 @@ git commit -m "feat(agent-memory): mark a record stale when its cited blob moves
   - `def validate_ledger(repo_root: Path) -> list[Finding]`
   - `def main() -> int` — prints findings, returns exit status.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/unit/test_agent_memory_check.py`:
 
@@ -686,12 +686,12 @@ def test_the_real_ledger_validates_clean():
     assert amc.validate_ledger(REPO_ROOT) == []
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: FAIL — `module 'agent_memory_check' has no attribute 'validate_body'`.
 
-- [ ] **Step 3: Implement body checks, the ledger walk, and the CLI**
+- [x] **Step 3: Implement body checks, the ledger walk, and the CLI**
 
 Add `import re` and `import sys` to the import block, then append:
 
@@ -800,17 +800,17 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/unit/test_agent_memory_check.py -q`
 Expected: all pass. `test_the_real_ledger_validates_clean` passes trivially while the ledger directory does not yet exist; Task 4 gives it something to check.
 
-- [ ] **Step 5: Verify the CLI runs**
+- [x] **Step 5: Verify the CLI runs**
 
 Run: `.venv/bin/python tools/agent_memory_check.py`
 Expected: `Agent-memory ledger clean (0 records).` and exit status 0.
 
-- [ ] **Step 6: Format, lint, and commit**
+- [x] **Step 6: Format, lint, and commit**
 
 ```bash
 .venv/bin/ruff format tools/agent_memory_check.py tests/unit/test_agent_memory_check.py
@@ -836,7 +836,7 @@ git commit -m "feat(agent-memory): reject instruction-shaped and oversized recor
 - Consumes: `validate_ledger`, `main` from Task 3.
 - Produces: a populated ledger that `test_the_real_ledger_validates_clean` now meaningfully exercises.
 
-- [ ] **Step 1: Create the repository identity file**
+- [x] **Step 1: Create the repository identity file**
 
 `.agent-memory.yaml` — three keys, no more. A config file describing systems that do not exist is an untrue assertion about the repository.
 
@@ -855,11 +855,11 @@ policy_version: 1
 Note: generate a fresh UUID rather than copying the one above —
 `python3 -c "import uuid; print(uuid.uuid4())"` — and use the same value in every record's `repository_id`.
 
-- [ ] **Step 2: Write the policy document**
+- [x] **Step 2: Write the policy document**
 
 Create `docs/agent-memory/README.md` covering, in prose: the record format from Task 1's `REQUIRED_FIELDS`; that `authority` may never be `decision`; that `privacy_class` must be `repo-public`; that records are pointers and never payloads; that promotion is a merged pull request and no agent may approve any candidate; that the ledger is deliberately subject to `tools/scan_forbidden.py` and must never be added to `EXCLUDED_PREFIXES`; and how to obtain a blob SHA (`git rev-parse HEAD:<path>`).
 
-- [ ] **Step 3: Write three records**
+- [x] **Step 3: Write three records**
 
 Each must validate clean. Obtain each source's real blob SHA first:
 
@@ -875,14 +875,14 @@ Use the format from Task 1's `GOOD` constant, substituting real values. Suggeste
 2. `0002` — migrations are hand-written rather than autogenerated because autogenerate does not reliably reproduce the composite tenant-safe keys. Sources: `db/migrations/env.py` and ADR-0004.
 3. `0003` — `tools/scan_forbidden.py` scans every file type, not only Python, so committed Markdown is already covered by the secret gate. Sources: `tools/scan_forbidden.py`.
 
-- [ ] **Step 4: Run the validator against the real ledger**
+- [x] **Step 4: Run the validator against the real ledger**
 
 Run: `.venv/bin/python tools/agent_memory_check.py`
 Expected: `Agent-memory ledger clean (3 records).`
 
 If a `stale-source` fires, the recorded SHA does not match; re-run `git rev-parse HEAD:<path>` and correct the record. If `dirty-source` fires, commit the source file first.
 
-- [ ] **Step 5: Wire the gate into the Makefile**
+- [x] **Step 5: Wire the gate into the Makefile**
 
 In `Makefile`, add the target and add `memory` to `check`:
 
@@ -895,7 +895,7 @@ memory: ## Validate the approved agent-memory ledger
 	$(PY) tools/agent_memory_check.py
 ```
 
-- [ ] **Step 6: Wire the gate into CI**
+- [x] **Step 6: Wire the gate into CI**
 
 `.github/workflows/verify.yml` runs each gate as its own step rather than calling `make check`, so the Makefile change alone does not reach CI. Add a step alongside the existing scan step (near line 120):
 
@@ -904,7 +904,7 @@ memory: ## Validate the approved agent-memory ledger
         run: python tools/agent_memory_check.py
 ```
 
-- [ ] **Step 7: Run the full gate set**
+- [x] **Step 7: Run the full gate set**
 
 ```bash
 .venv/bin/ruff format --check .
@@ -918,7 +918,7 @@ PYTHONPATH="python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_p
 
 Expected: all clean. The forbidden scan must report the ledger files among those it scanned; if any record trips it, rewrite the record — do not exempt the directory.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add .agent-memory.yaml docs/agent-memory/ Makefile .github/workflows/verify.yml
@@ -926,6 +926,18 @@ git commit -m "feat(agent-memory): seed the approved ledger and gate it in CI"
 ```
 
 ---
+
+## Status
+
+Tasks 1-4 are **complete** and pushed: commits `f2e2522`, `bbebca1`, `9d9d012`,
+`744ccbc`, plus `2239f9a` for defects found in review after Task 4 landed. Their
+steps are ticked below.
+
+**The measurement gate is outstanding, and it is the next action.** Nothing in
+Slices 1-5 should begin before it. Note that the validator came in at roughly
+800 lines against this plan's estimate of ~150 — seven review rounds kept finding
+real fail-open defects — so the gate now guards a larger sunk cost than when it
+was written, which is exactly when it is easiest to skip.
 
 ## The measurement gate
 
