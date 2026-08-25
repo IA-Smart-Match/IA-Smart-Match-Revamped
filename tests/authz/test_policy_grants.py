@@ -57,6 +57,13 @@ def test_explicit_resource_grant_works_without_any_membership():
 
     This is how a guest reviewer gets access to exactly one event without being
     given a role anywhere in the org tree.
+
+    Note what this covers and what it does not: the operation here names no
+    required roles, and **no route does that today** — every operation in
+    ``tests/authz/test_policy_matrix.py`` is role-gated, so this permit path is
+    reachable from the policy and not yet from the API. That is asserted there
+    (``test_every_operation_is_role_gated_today``) so the first ungated operation
+    has to confirm deliberately that a bare grant is meant to be enough for it.
     """
     principal = Principal(
         user_id="guest",
