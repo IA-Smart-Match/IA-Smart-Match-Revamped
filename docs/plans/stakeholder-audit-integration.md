@@ -244,7 +244,10 @@ because it means the legacy authors did not believe it was a balance either.
 
 The catalog's cost field is `pointsCost` (not `points`), on
 `StudentRewardItem`, across four categories: `linkedin`, `platforms`, `certs`,
-`growth`. Re-read the actual values before quoting the 5,000–45,000 range.
+`growth`. The seven costs, read from the file rather than from the source plan:
+**2,500 · 3,200 · 5,000 · 8,500 · 12,000 · 15,000 · 45,000**. The source plan's
+"5,000–45,000" misses the cheapest item, which is the one the calibration in
+§5.7 turns on.
 
 ### 2.7 The README's aggregate test count is stale
 
