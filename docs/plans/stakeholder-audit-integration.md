@@ -9,12 +9,18 @@ commits.
 
 This document is that plan, corrected against the tree it will actually be
 executed on, so the next agent writes the nine artifacts instead of
-re-discovering why the first attempt fails at commit 2.
+re-discovering why the first attempt fails at commit 2. Those nine artifacts
+are set out in twelve subsections at §5, because the five ADRs get one each.
 
-**Base:** `claude/f11-transaction-per-migration` @ `b8142fc`.
+**Base:** `claude/f11-transaction-per-migration` @ `b8142fc` — which is **four
+commits ahead of `origin/claude/f11-transaction-per-migration` (`54845d3`) and
+has not been pushed.** Anyone reproducing this needs the local branch, not the
+remote one.
 **Branch:** `claude/stakeholder-audit-integration`.
-**Scope of this document:** it plans; it writes nothing else. No ADR, no
-manifest entry, no backlog row, no scanner change, no code.
+**Scope of this document:** it plans; it writes no ADR, no manifest entry, no
+backlog row, and no code. It makes **one** change outside itself: a single
+`ALLOWLIST` entry in `tools/scan_forbidden.py`, without which this file cannot
+be committed (§3.7), plus the ledger re-point that entry forces.
 
 ---
 
@@ -240,24 +246,44 @@ The catalog's cost field is `pointsCost` (not `points`), on
 `StudentRewardItem`, across four categories: `linkedin`, `platforms`, `certs`,
 `growth`. Re-read the actual values before quoting the 5,000–45,000 range.
 
-### 2.7 The README numbers in the plan are not in the README
+### 2.7 The README's aggregate test count is stale
 
-The plan says it will edit "the current text, not the `aa568b4` text I first
-read", citing moved counts: *authz 32, schema-drift 115, rate limiter 18+4*.
-None of those strings appears in `README.md` on f11. Its only aggregate test
-claim is line 49:
+**An earlier revision of this section claimed the plan's counts were not in the
+README at all. That was wrong, and it was wrong for an instructive reason:** the
+grep used to check it required the number *before* the keyword, and the README's
+table puts the capability first and the count last. All three are present at
+`README.md:33-39` —
+
+| Capability | Count |
+|---|---|
+| Deny-by-default authorization policy | `32` |
+| Schema matches migration (ADR-0004 amendment) | `115 integration` |
+| Transactional rate limiter | `18 integration + 4 unit` |
+
+— so the plan's intent to edit the current text rather than the `aa568b4` text
+is right, and its numbers are right.
+
+What *is* wrong is the aggregate. `README.md:49` says:
 
 > **489 tests total** (488 pass, 1 skipped by design — see …)
 
+The measured lane is 739 collected (§7.3). The f11 commits added the ADR index
+suite alone — 95 tests — plus the agent-memory and F10 suites. **Correcting 489
+is a fourth README amendment**, and the per-capability rows should be checked
+against a run at the same time.
+
 The section the plan amends — `### Proposed, scaffolded, or deliberately absent`
 — is at line 53 and is a three-column table (`Capability | State | Gated on`).
-Re-read it before editing. This is precisely the failure mode the plan invokes
-against F9/MM-004, reproduced inside the plan itself.
+
+The lesson stands even though the finding inverted: a claim about a file is
+worth exactly as much as the command used to check it, and a grep whose operand
+order is wrong returns a confident zero.
 
 ### 2.8 The scanner allowlist has eleven entries, not nine
 
 `tools/scan_forbidden.py:200`, `ALLOWLIST: dict[tuple[str, str], str]`, eleven
-entries — the tenth and eleventh being `apps/web/DESIGN.md` and
+entries at `b8142fc` — **twelve as of this document**, whose own entry is
+described in §3.7 — the tenth and eleventh being `apps/web/DESIGN.md` and
 `ADR-0008-globally-unique-external-subject.md`, both for `mock-login`.
 
 The three rule codes the audit will need to name are confirmed to exist:
@@ -311,9 +337,11 @@ is read from above its first level-2 heading.
 Covered in §2.4. Additionally, for whenever the three records are written:
 
 - `sources` are `path@blob_sha`, repository-relative, at least one, no absolute
-  paths, no `..`, no URLs. The blob SHA must resolve **at HEAD**, so the records
-  must be committed *after* the files they cite — the plan's ordering of the
-  memory commit last is correct and load-bearing.
+  paths, no `..`, no URLs. The blob SHA must resolve **at HEAD**. Committing a
+  record after the files it cites is the simple way to get that, and the plan's
+  ordering of the memory commit last achieves it — but it is a convenience, not
+  a validator requirement. `git hash-object` gives a blob's SHA before it is
+  committed, so a record and its source can share one commit.
 - `content_hash` is `sha256:` over the stripped body; the validator names the
   value it expected.
 - `project_id: smartmatch` and `repository_id: f943437b-6a8f-47fe-9c0d-478988b70d9a`
@@ -370,8 +398,10 @@ tree. Repairing the first clone is separate work and is not part of this.
 
 ### 3.6 The gates cannot all be run here
 
-There is no `make`, no system PostgreSQL, and no `sudo` in this environment.
-`make check` cannot be invoked as written. §7 gives what to run instead, and
+There is no `make` and no system PostgreSQL in this environment, so `make
+check` cannot be invoked as written. (`sudo` *is* present at `/usr/bin/sudo`;
+an earlier revision of this section said otherwise, carried over from a stale
+note rather than checked.) §7 gives what to run instead, and
 what must be reported as un-run rather than assumed green.
 
 ### 3.7 Touching the scanner invalidates a ledger record — verified the hard way
@@ -418,20 +448,31 @@ This is *not* an agent approving a record. It is the documented remedy for a
 staleness report on an already-approved one. It is still a write to the approved
 ledger, so say so in the commit message rather than letting it ride along.
 
-**Add a seventh commit to §4** for exactly this, after the scanner change lands.
+**Add a commit to §4** for exactly this, immediately after the scanner change
+lands. In the corrected table it is commit 6, replacing the memory commit that
+§2.4 removed.
+
+**And it forces the scanner change earlier.** The audit document of commit 1
+names `mock-login` to record Fix #7 as closed (§5.1), so it needs its allowlist
+entry *in that same commit* — otherwise commits 1 through 3 each leave `make
+scan` red, which contradicts the per-commit gate discipline the plan inherits
+from `orchestrator-handoff.md`. **Every commit that adds a document naming a
+forbidden pattern carries its own allowlist entry**, and the ledger re-point
+closes the sequence once the scanner stops changing. This document is the worked
+example: its allowlist entry is in the same commit as the document itself.
 
 ---
 
 ## 4. The commits, corrected
 
-The plan's sequence is sound. Five changes, marked **[CHANGED]**.
+The plan's sequence is sound. Six changes, marked **[CHANGED]**.
 
 | # | Commit | Contents | Change |
 |---|---|---|---|
-| 1 | `docs: audit the stakeholder test log against the revamped architecture` | `docs/architecture/review/stakeholder-test-log-audit.md` | — |
+| 1 | `docs: audit the stakeholder test log against the revamped architecture` | `docs/architecture/review/stakeholder-test-log-audit.md` **+ its `ALLOWLIST` entry** | **[CHANGED]** |
 | 2 | `docs: record the invariants the stakeholder findings imply` | ADR-0010, 0011, 0012 + **three index rows** + **reservation moved to 0015** | **[CHANGED]** |
 | 3 | `docs: design the engagement surface the revamp had left unclassified` | ADR-0013, ADR-0014 + **two index rows**, `docs/architecture/engagement-model.md` | **[CHANGED]** |
-| 4 | `docs: track the real-identity exposure and three unclassified surfaces` | Manifest MM-A09 (**six paths**), MM-F03, MM-F04, MM-002 and MM-A08 amendments; scanner allowlist | **[CHANGED]** |
+| 4 | `docs: track the real-identity exposure and three unclassified surfaces` | Manifest MM-A09 (**six paths**), MM-F03, MM-F04, MM-002 and MM-A08 amendments; any remaining allowlist entries | **[CHANGED]** |
 | 5 | `docs: carry the stakeholder findings into the backlog and design brief` | Backlog D6–D9, F13, S1–S12; `apps/web/DESIGN.md`; `README.md` | — |
 | ~~6~~ | ~~`docs(agent-memory): propose three records`~~ | — | **[CHANGED — dropped.** See §2.4 and §9.] |
 | 6 | `docs(agent-memory): re-point record 0003 at the scanner it now describes` | Record `0003` `sources` SHA, after commit 4 | **[CHANGED — new.** Forced by §3.7; without it commits 4 onward leave the tree red.] |
@@ -581,9 +622,21 @@ The full design, since this surface is being designed in rather than archived.
   plane stays append-only.
 - **Economy calibration** — the stakeholder's ask as a testable property: *the
   cheapest reward is reachable within N events*, N a program-owner parameter
-  (proposed default 3). Show the arithmetic against the legacy numbers — 100 per
-  event against a 2,500 item is 25 events; against the real catalog's 5,000, it
-  is 50. Free-to-give items sort first by construction, not editorially.
+  (proposed default 3). Show the arithmetic against the **actual** legacy
+  numbers, which the source plan stated wrongly and this document repeated
+  before checking them:
+
+  | | Value |
+  |---|---|
+  | Per event attended | **25** points (`events_attended * 25`) |
+  | Per streak increment | 100 points (`attendance_streak * 100`) |
+  | Catalog costs | 2,500 · 3,200 · 5,000 · 8,500 · 12,000 · 15,000 · **45,000** |
+
+  So attendance alone puts the cheapest item at **100 events**, and the dearest
+  at 1,800. Even crediting the streak bonus at every event — 125 a time, the
+  most favourable reading — the cheapest is 20 events and the dearest 360. The
+  source plan's "100 per event … 25 events" understates the gap by a factor of
+  four. Free-to-give items sort first by construction, not editorially.
 - **The motivating view** — "400 pts — 2,100 more for a mentor session" is
   specified as progress-to-nearest-*reachable* reward, which is only non-vacuous
   if the calibration above holds.
@@ -671,9 +724,12 @@ file already carries an `ALLOWLIST` entry for `mock-login`.
 
 ### 5.11 `README.md` — amend
 
-Three edits. One row in the `### Proposed, scaffolded, or deliberately absent`
-table (line 53) for the engagement surface, one for the funnel, and a correction
-to the stale test count on line 49 (§7.3). The table is three columns:
+Three edits and a check. One row in the `### Proposed, scaffolded, or
+deliberately absent` table (line 53) for the engagement surface, one for the
+funnel, and a correction to the stale `489 tests total` on line 49 (§2.7, §7.3).
+While there, re-run the per-capability counts in the table at lines 33–39
+against an actual run — they are present and were correct when written, but the
+aggregate beside them has already drifted. The table is three columns:
 `Capability | State | Gated on`. The README opens by disavowing inaccuracy by
 omission, and omitting both is exactly that.
 
@@ -686,9 +742,12 @@ is a judgement call rather than part of this scope.
 
 ### 5.12 `tools/scan_forbidden.py` — allowlist entries only
 
-`ALLOWLIST` is a `(path, rule_code) → reason` map at line 200 with eleven
-entries. Add one per new document that names a forbidden pattern, with a reason
-in the established one-sentence form. **Data only. No rule and no logic change.**
+`ALLOWLIST` is a `(path, rule_code) → reason` map at line 200 — eleven entries
+at `b8142fc`, twelve including this document's own. Add one per new document
+that names a forbidden pattern, with a reason in the established one-sentence
+form, **in the same commit as the document that needs it** (§3.7). Data only; no
+rule and no logic change — but "data only" does not mean free: every edit here
+re-points ledger record `0003`, which is the whole subject of §3.7.
 
 ---
 
@@ -701,6 +760,16 @@ audit unchanged; the closing artifact column is what this plan adds.
 and #14 are not.** They are left blank deliberately rather than guessed — read
 them from the test log. A skeleton with two invented rows is worse than one with
 two visible holes.
+
+**The per-row statuses below do not add up to the headline totals in §1, and
+that is a hole, not a rounding difference.** §1 carries the audit's own count —
+1 COVERED, 6 PARTIAL, 8 ABSENT, 1 MOOT. The rows below, whose statuses are
+*inferred from the source plan's prose* rather than read from the test log, come
+out at 1 COVERED, 1 PARTIAL, 12 ABSENT, 0 MOOT, 2 blank. The audit document must
+reconcile the two **from the test log**, and the six PARTIAL rows in particular
+have to be identified there — inference from a summary cannot recover which
+items had a principle already in place. Until that is done, treat the headline
+totals as authoritative and this column as a draft.
 
 | Fix | Subject | Sev | Status | Closed by |
 |---|---|---|---|---|
@@ -718,7 +787,7 @@ two visible holes.
 | #12 | Clicking 15 returns 31 rows | — | ABSENT | ADR-0011 drill-down invariant + S1 |
 | #13 | Dashboard redesign ordering | — | ABSENT | `apps/web/DESIGN.md` Part 1 + Part 2 |
 | #14 | *(not described in the source plan — read from the test log)* | — | — | — |
-| #15 | Rewards catalog is unreachable (5,000–45,000 points) | — | ABSENT | ADR-0013 economy calibration, D6, D7, S9 |
+| #15 | Rewards catalog is unreachable (2,500–45,000 points against 25/event) | — | ABSENT | ADR-0013 economy calibration, D6, D7, S9 |
 | #16 | Student Connect surface unclassified | — | ABSENT | MM-F03, MM-F04 |
 
 From the test log only, with no fix-item number:
@@ -850,9 +919,12 @@ Assume it will happen a third time and check for it.
    commit. If the Vercel deployment was built from a different commit, the PII
    finding still holds — those files are tracked at `bdce024` — but the screen
    behaviour in the test log may not correspond.
-3. **f11 will not be rebased or force-pushed** while this work is in flight. It
-   is `b8142fc` on origin's `claude/f11-transaction-per-migration`, and the plan
-   bases on it without merging it anywhere.
+3. **f11 will not be rebased or force-pushed** while this work is in flight.
+   Note that `b8142fc` is **local only**: `origin/claude/f11-transaction-per-migration`
+   is `54845d3`, four commits behind, and the four commits this work bases on
+   (F8, F10, migration 0004, J14) have not been pushed. The plan bases on the
+   local branch without merging it anywhere. If those four are ever rewritten
+   before they are pushed, this branch needs rebasing with them.
 4. **Basing on f11 is not endorsing it.** J15, J16 and J17 remain open defects
    filed by its own authors. None of them touch this work.
 5. **No production code ships from this.** The engagement design lands as
@@ -900,8 +972,9 @@ permanently. It lives in MM-A09 and the audit document instead.
 
 - **No writes to the legacy repository.** The orchestrator contract forbids it
   without authorization, and the severity-1 remediation there is Q1 — a decision
-  with a named owner, not an engineering task. It is documented here and
-  assigned.
+  that *needs* an owner, not an engineering task. It is documented here and
+  recorded in MM-A09; **it is not yet assigned**, and §9 Q1 says so. Assigning
+  it is the first thing that should happen to this document.
 - **No production code.**
 - **No decisions reserved to a gate owner.** Where a finding needs a number, this
   plan records the decision, a recommendation, and an owner. It does not pick.
