@@ -9,7 +9,7 @@ privacy_class: repo-public
 claim: The outbox claim order is a contract obligation stated in ADR-0005, not an emergent property of the query plan.
 sources:
   - docs/architecture/decisions/ADR-0005-transactional-outbox-and-cte-claim.md@311ecd7f525d97525e1a4d855453df69bf44a207
-  - python/smartmatch_persistence/smartmatch_persistence/outbox.py@aac54ea15091b119f53f9fc523a4ccb68d08b30e
+  - python/smartmatch_persistence/smartmatch_persistence/outbox.py@8c289b265b0616a3dc83dfbd4d74f3786fa5ebf9
 produced_by_tool: claude-code
 produced_by_session: 57e35539-b0e2-4365-9a0f-3f8d01a25be9
 produced_by_commit: 4e35430
