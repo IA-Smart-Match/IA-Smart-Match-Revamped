@@ -50,10 +50,12 @@ was kept, what was rejected, and why.
 | CHECK constraints exercised behaviourally — the forbidden write *and* the permitted one | `db/migrations` | 50 integration |
 | One transaction per Alembic revision (ADR-0009) | `db/migrations/env.py` | 3 |
 
-**789 tests total.** The no-database lane — everything not marked
-`integration` — is **444 passing and 1 skipped by design**
+**789 tests total — 788 pass, 1 skipped by design**
 (`test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
-second implemented scoring factor). The remaining **344 require PostgreSQL**.
+second implemented scoring factor). The split is **444 passing plus that skip**
+in the no-database lane, and **344 requiring PostgreSQL** — measured against
+PostgreSQL 16.15, which is the version the CHECK-constraint expression pins in
+`tests/integration/test_check_constraints.py` assume.
 
 The figure here was `489` until 25 August 2026, and the drift is worth naming
 because it was not the aggregate that went stale on its own: `489` was exactly
