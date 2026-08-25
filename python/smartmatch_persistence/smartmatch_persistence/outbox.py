@@ -41,6 +41,7 @@ __all__ = [
     "ClaimedOutboxRecord",
     "OutboxRepository",
     "OutboxStatus",
+    "ReclaimedOutboxRecord",
     "backoff_for",
     "derive_task_name",
 ]
@@ -54,6 +55,29 @@ DEFAULT_LEASE: Final[timedelta] = timedelta(seconds=60)
 #: Dispatch failures are almost always systemic (bad queue configuration, denied
 #: credentials), so retrying forever floods the logs without ever succeeding.
 MAX_DISPATCH_ATTEMPTS: Final[int] = 5
+
+#: What :meth:`OutboxRepository.reclaim_stranded` writes over the row's
+#: ``last_error``.
+#:
+#: The text is load-bearing, not decoration. A stranded row still carries the
+#: error from the attempt *before* the one that stranded it, so an operator
+#: reading it would conclude the queue rejected the dispatch — when in fact
+#: nothing recorded the final attempt at all, and the queue may well have
+#: accepted it. Saying which of those happened is the difference between
+#: "investigate the queue" and "check whether a dispatcher died".
+_STRANDED_ERROR: Final[str] = (
+    "dispatch attempts exhausted; the final attempt recorded no outcome — the "
+    "dispatcher process ended, or its write failed — so the row was reclaimed "
+    "rather than retried. Any earlier error text on this row belonged to an "
+    "earlier attempt and has been replaced. The task may or may not exist in "
+    "the queue — nothing here can tell. A re-drive is safe either way, but not "
+    "because of the task name: a re-drive derives a *new* name by generation "
+    "(ADR-0007), precisely so it does not dedupe against a possibly-live task "
+    "from this attempt. What makes it safe is that this job is now "
+    "'failed_provider', and JobRepository.claim moves only a 'dispatched' job — "
+    "so if the original task is still live and delivers, it claims nothing and "
+    "executes nothing."
+)
 
 #: Ceiling on the exponential retry backoff, in seconds. Without a cap the last
 #: attempts would wait far longer than an operator would tolerate for work that
@@ -86,6 +110,26 @@ class ClaimedOutboxRecord:
     lease_expires_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class ReclaimedOutboxRecord:
+    """An outbox row that was written off because nothing ever finished it.
+
+    Deliberately **not** a :class:`ClaimedOutboxRecord`. That type means "claimed
+    by a dispatcher, with its lease running", and a reclaimed row is the exact
+    opposite: its lease has been cleared and no dispatcher will touch it again.
+    Reusing it would have put a ``None`` in a field typed ``datetime`` and given
+    two opposite states one name.
+
+    Carries only what the caller needs to finish the job side of the reclaim.
+    """
+
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    job_id: uuid.UUID
+    task_name: str
+    dispatch_attempts: int
+
+
 def _claimable_predicate(now: datetime) -> sa.ColumnElement[bool]:
     """The single definition of "this row still needs dispatching".
 
@@ -106,6 +150,44 @@ def _claimable_predicate(now: datetime) -> sa.ColumnElement[bool]:
             ),
         ),
         schema.outbox_record.c.dispatch_attempts < MAX_DISPATCH_ATTEMPTS,
+    )
+
+
+def _stranded_predicate(now: datetime) -> sa.ColumnElement[bool]:
+    """The single definition of "this row is finished with and nobody said so".
+
+    Deliberately adjacent to :func:`_claimable_predicate`, because the two are
+    only correct read together. That one says which rows a dispatcher may still
+    pick up; this one says which rows it never will. Between them they must
+    account for every ``leased`` row, or work goes missing in the gap — which is
+    exactly what happened before this existed.
+
+    A row qualifies when its lease has expired *and* its attempts are spent.
+    Both halves matter:
+
+    * **The expired lease** is what makes this safe. A row whose lease is still
+      running may have a live dispatcher mid-enqueue behind it, and parking that
+      row would produce the failed-job-beside-a-live-row state
+      ``_record_failure`` shares a transaction to prevent. It is the same guard
+      the ordinary recovery path already relies on.
+    * **The exhausted attempts** are what make it necessary rather than
+      duplicative. With attempts remaining, an expired lease is already handled:
+      :func:`_claimable_predicate` matches the row and a dispatcher retries it.
+      At ``MAX_DISPATCH_ATTEMPTS`` that stops, because the claim requires
+      strictly fewer — and nothing else was looking.
+
+    **NULL is not "expired".** A ``leased`` row carrying no lease at all fails
+    the ``<`` comparison and is skipped, so this never touches it. ADR-0005's
+    invariant says such a row cannot exist; if one ever does, its state is not
+    understood, and writing off work nothing can explain is worse than leaving it
+    to be found. That is a deliberate choice, not an accident of SQL's NULL
+    semantics, and :func:`test_a_leased_row_with_no_lease_is_left_alone` holds it
+    in place.
+    """
+    return sa.and_(
+        schema.outbox_record.c.status == OutboxStatus.LEASED.value,
+        schema.outbox_record.c.lease_expires_at < now,
+        schema.outbox_record.c.dispatch_attempts >= MAX_DISPATCH_ATTEMPTS,
     )
 
 
@@ -261,12 +343,37 @@ class OutboxRepository:
         Materializing the selection once in a CTE is the standard SKIP LOCKED
         queue pattern and bounds the batch as intended.
 
+        ## Why the result is re-sorted in Python
+
+        The CTE's ``ORDER BY created_at`` chooses *which* rows are claimed under
+        ``LIMIT``. It does not decide the order they come back in: the rows are
+        returned by ``UPDATE ... RETURNING``, and **SQL does not define
+        ``RETURNING``'s output order**. In practice PostgreSQL plans this as a
+        hash join whose outer side is a sequential scan of ``outbox_record``, so
+        the rows arrive in *heap* order — which diverges from ``created_at``
+        order as soon as an update rewrites an older row's tuple behind a newer
+        one, exactly what a busy outbox does. A claim of the twenty oldest rows
+        would then be handed to the dispatcher as an arbitrary permutation.
+
+        Nothing about dispatch correctness depends on the order — each row is
+        independent, and a wrong order costs latency on the oldest row, not
+        safety. But FIFO is what this method's contract says, what the lag metric
+        in :meth:`oldest_pending_age` measures against, and what ADR-0005 assumes
+        when it talks about the oldest row. Sorting here makes the documented
+        guarantee real rather than incidental, at the cost of ordering at most
+        ``limit`` records.
+
+        ``id`` breaks ``created_at`` ties so the order is total: two rows
+        committed inside the same transaction share a ``now()``, and without the
+        tiebreak their relative order would still be whatever the heap decided.
+
         Args:
             now: Injected for tests so lease expiry is exercised without waiting.
 
         Returns:
-            The claimed rows, at most ``limit`` of them. Does not commit — the
-            caller commits to make the lease visible, then dispatches.
+            The claimed rows, at most ``limit`` of them, oldest first. Does not
+            commit — the caller commits to make the lease visible, then
+            dispatches.
         """
         now = now or datetime.now(UTC)
         deadline = now + lease
@@ -295,8 +402,11 @@ class OutboxRepository:
                 schema.outbox_record.c.task_name,
                 schema.outbox_record.c.dispatch_attempts,
                 schema.outbox_record.c.lease_expires_at,
+                schema.outbox_record.c.created_at,
             )
         ).all()
+
+        ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
 
         return [
             ClaimedOutboxRecord(
@@ -307,25 +417,179 @@ class OutboxRepository:
                 dispatch_attempts=row.dispatch_attempts,
                 lease_expires_at=row.lease_expires_at,
             )
-            for row in rows
+            for row in ordered
         ]
 
-    def mark_dispatched(self, session: Session, *, record_id: uuid.UUID) -> None:
-        """Record that the task now exists in Cloud Tasks.
+    def reclaim_stranded(
+        self,
+        session: Session,
+        *,
+        limit: int = 20,
+        now: datetime | None = None,
+    ) -> list[ReclaimedOutboxRecord]:
+        """Write off rows that exhausted their attempts without recording one.
+
+        The recovery path for the state :func:`_stranded_predicate` describes: a
+        row left ``leased`` with its attempts spent, which
+        :meth:`claim_batch` will never pick up again and
+        :meth:`pending_count` will never count. Reached whenever a dispatcher
+        stops between the claim's commit and the outcome write on the *final*
+        attempt — a killed process, an evicted pod, a drained node, or a
+        failure-write that itself failed. Before this existed the row stayed
+        there permanently, its job stuck ``queued``, with no symptom anywhere.
+
+        Marks the row ``failed`` and clears the lease, which is precisely what
+        :meth:`mark_failed` does at exhaustion — the same terminal state, reached
+        by the row that never got there. ``last_error`` is overwritten with
+        :data:`_STRANDED_ERROR` rather than left alone; see that constant for why
+        keeping the previous attempt's text would actively mislead.
+
+        Uses the same CTE + ``FOR UPDATE SKIP LOCKED`` shape as
+        :meth:`claim_batch`, for the reason ADR-0005 gives there and which
+        applies identically here: PostgreSQL cannot hash a subplan containing
+        ``FOR UPDATE``, so an ``IN (SELECT ... LIMIT n)`` may re-execute and
+        update far more rows than asked. ``SKIP LOCKED`` also makes concurrent
+        reclaims safe by construction — two dispatchers sweeping at once take
+        disjoint sets rather than fighting over one.
+
+        Results are sorted oldest-first for the same reason
+        :meth:`claim_batch`'s are: ``UPDATE ... RETURNING`` has no defined output
+        order, and the caller writes one job transition per row.
+
+        **Does not touch the job.** The row and its job must move together, and
+        the caller owns that transaction — see
+        ``OutboxDispatcher.reclaim_stranded``.
+
+        Args:
+            now: Injected for tests so lease expiry is exercised without waiting.
+
+        Returns:
+            The rows written off, at most ``limit`` of them, oldest first. Does
+            not commit.
+        """
+        now = now or datetime.now(UTC)
+
+        stranded = (
+            sa.select(schema.outbox_record.c.id)
+            .where(_stranded_predicate(now))
+            .order_by(schema.outbox_record.c.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .cte("stranded")
+        )
+
+        rows = session.execute(
+            sa.update(schema.outbox_record)
+            .where(schema.outbox_record.c.id == stranded.c.id)
+            .values(
+                status=OutboxStatus.FAILED.value,
+                lease_expires_at=None,
+                last_error=_STRANDED_ERROR[:2000],
+            )
+            .returning(
+                schema.outbox_record.c.id,
+                schema.outbox_record.c.tenant_id,
+                schema.outbox_record.c.job_id,
+                schema.outbox_record.c.task_name,
+                schema.outbox_record.c.dispatch_attempts,
+                schema.outbox_record.c.created_at,
+            )
+        ).all()
+
+        ordered = sorted(rows, key=lambda row: (row.created_at, row.id))
+
+        return [
+            ReclaimedOutboxRecord(
+                id=row.id,
+                tenant_id=row.tenant_id,
+                job_id=row.job_id,
+                task_name=row.task_name,
+                dispatch_attempts=row.dispatch_attempts,
+            )
+            for row in ordered
+        ]
+
+    def mark_dispatched(self, session: Session, *, record_id: uuid.UUID) -> bool:
+        """Record that the task now exists in Cloud Tasks. Compare-and-set.
 
         This is the dispatch evidence v1.1 §1.6 requires. Clearing the lease
         matters as much as setting the status: a dispatched row with a live lease
         would look claimable again the moment the lease expired.
+
+        **Only a row still ``leased`` is moved, and that guard is load-bearing.**
+        An expired lease is not proof the dispatcher holding it is dead — the
+        lease bounds how long a dispatcher may *hold* a row, not how long Cloud
+        Tasks may take to answer. So a dispatcher can still be mid-enqueue on a
+        row that :meth:`reclaim_stranded` has just written off, and without this
+        guard its evidence write would land on a terminal row: back to
+        ``dispatched`` while the job stays ``failed_provider``, because the
+        caller's ``queued -> dispatched`` transition no-ops against a job that is
+        already parked. That is the "failed job beside a live row" state
+        ``OutboxDispatcher._record_failure`` shares a transaction to prevent.
+
+        This is the same compare-and-set discipline used everywhere else here —
+        :meth:`JobRepository.claim`, the conditional job transitions, the
+        ``redrive_pending -> queued`` set — rather than a new mechanism. Widening
+        the lease would not have fixed it, only made the window smaller.
+
+        Like :meth:`mark_failed`, this is a liveness test rather than an
+        ownership test — ``leased`` is satisfied by a *peer's* claim as readily
+        as by this caller's — but here that is harmless. A stale write reaching a
+        re-claimed row asserts the row is ``dispatched``, and it is: this caller
+        only reaches here having enqueued the task or found it already present,
+        so the task genuinely exists. The peer's own write then finds
+        ``dispatched`` rather than ``leased``, loses its compare-and-set, and
+        converges. J17 tracks real ownership, which this method wants for
+        tidiness rather than for correctness.
+
+        Returns:
+            Whether the row was still ``leased`` and was moved. ``False`` means
+            this caller lost the race and the row has moved on without it. It is
+            not an error, and it is **not one situation but two** — the row may
+            have been reclaimed, or finalised by a healthy peer. The caller must
+            read :meth:`status_of` before reporting anything, because those two
+            call for opposite responses; see
+            ``OutboxDispatcher._record_dispatched``.
         """
-        session.execute(
+        # ``RETURNING`` rather than ``rowcount``: it is the shape the rest of this
+        # module already uses to learn what an UPDATE touched, and it types
+        # cleanly, where ``rowcount`` lives on the cursor result and not on the
+        # ``Result`` the session is declared to return.
+        moved = session.execute(
             sa.update(schema.outbox_record)
-            .where(schema.outbox_record.c.id == record_id)
+            .where(
+                schema.outbox_record.c.id == record_id,
+                schema.outbox_record.c.status == OutboxStatus.LEASED.value,
+            )
             .values(
                 status=OutboxStatus.DISPATCHED.value,
                 lease_expires_at=None,
                 last_error=None,
             )
-        )
+            .returning(schema.outbox_record.c.id)
+        ).one_or_none()
+        return moved is not None
+
+    def status_of(self, session: Session, *, record_id: uuid.UUID) -> OutboxStatus | None:
+        """Read one row's current status, or ``None`` if it no longer exists.
+
+        Exists for one caller and one question: a dispatcher whose
+        compare-and-set found nothing to move needs to know *what* the row moved
+        to, because the answer decides whether anything is wrong. ``failed``
+        means the row was written off and the work needs a human; ``dispatched``
+        means a peer dispatcher finished it correctly and nothing is wrong at
+        all. Reporting the second as the first would have an operator re-drive a
+        job that is already running.
+
+        Deliberately not folded into :meth:`mark_dispatched`'s return.
+        ``RETURNING`` reports only rows the ``UPDATE`` touched, so the losing
+        case returns nothing by construction, and a second read is the honest
+        way to ask. It runs only on the losing path, which is rare.
+        """
+        status = session.execute(
+            sa.select(schema.outbox_record.c.status).where(schema.outbox_record.c.id == record_id)
+        ).scalar_one_or_none()
+        return None if status is None else OutboxStatus(status)
 
     def mark_failed(
         self,
@@ -335,7 +599,7 @@ class OutboxRepository:
         error: str,
         attempts: int,
         now: datetime | None = None,
-    ) -> None:
+    ) -> bool:
         """Record a dispatch failure, backing off before the next attempt.
 
         While attempts remain the row is re-armed as ``leased`` with a lease
@@ -359,24 +623,74 @@ class OutboxRepository:
         view rather than looping. Leaving a lease on a terminal row would make it
         look claimable again once the timer elapsed.
 
+        **Only a row still ``leased`` is moved**, the same compare-and-set guard
+        :meth:`mark_dispatched` carries and for the same race — a dispatcher can
+        still be working a row that :meth:`reclaim_stranded` has written off. The
+        asymmetry worth naming is what each guard protects, because it is not the
+        same thing:
+
+        * For :meth:`mark_dispatched` the guard protects the **status**. Without
+          it a terminal row is resurrected to ``dispatched`` beside a parked job.
+        * Here the status was never at risk. A late failure-write on a reclaimed
+          row necessarily carries ``attempts >= MAX_DISPATCH_ATTEMPTS`` — that is
+          what made the row reclaimable — so it takes the exhausted branch and
+          writes ``failed`` with a cleared lease: byte-for-byte the state the
+          reclaim already put there. What the guard protects is the
+          **explanation**. ``last_error`` would be replaced by this attempt's
+          queue error, which is exactly the misleading text
+          :data:`_STRANDED_ERROR` exists to replace: an operator would read
+          "queue unavailable" and go and investigate the queue, when what
+          happened is that nothing recorded the final attempt at all.
+
+        So the guard is here for a quieter reason than its twin, not for
+        symmetry's sake — but the row it refuses to touch is the same row.
+
+        **What this guard does not do, stated so it is not mistaken for more.**
+        ``status = 'leased'`` is a *liveness* test, not an *ownership* test: it
+        proves someone holds the row, not that the caller does. It closes the
+        race against :meth:`reclaim_stranded`, because a reclaimed row is
+        ``failed`` and so fails the check. It does **not** close the race against
+        a peer dispatcher that re-claimed the row after this caller's lease
+        expired — that peer's own claim satisfies ``leased``, so a stale
+        failure-write still lands on it. Measured: a peer re-claims with a fresh
+        60-second lease, a stale write carrying the *older* attempt count then
+        overwrites the lease with that count's much shorter backoff, cutting 56
+        seconds off it and replacing the peer's ``last_error``. The row becomes
+        claimable again while the peer is still working it, and the extra claim
+        burns an attempt the row should not have spent.
+
+        Closing that needs the row to carry who claimed it — a lease token or
+        claim identifier written by :meth:`claim_batch` and required by both
+        writers — which is a schema change and a migration. Tracked as **J17**.
+        The gap pre-dates this guard and is not made worse by it.
+
         Args:
             attempts: The attempt count this failure belongs to, as returned by
                 :meth:`claim_batch`. Passed in rather than recomputed in SQL so
                 the backoff schedule is plain Python and unit-testable without a
                 database.
+
+        Returns:
+            Whether the row was still ``leased`` and was moved. ``False`` means
+            the row was written off while this attempt was in flight.
         """
         moment = now or datetime.now(UTC)
         exhausted = attempts >= MAX_DISPATCH_ATTEMPTS
 
-        session.execute(
+        moved = session.execute(
             sa.update(schema.outbox_record)
-            .where(schema.outbox_record.c.id == record_id)
+            .where(
+                schema.outbox_record.c.id == record_id,
+                schema.outbox_record.c.status == OutboxStatus.LEASED.value,
+            )
             .values(
                 status=(OutboxStatus.FAILED.value if exhausted else OutboxStatus.LEASED.value),
                 lease_expires_at=(None if exhausted else moment + backoff_for(attempts)),
                 last_error=error[:2000],
             )
-        )
+            .returning(schema.outbox_record.c.id)
+        ).one_or_none()
+        return moved is not None
 
     def pending_count(self, session: Session, *, now: datetime | None = None) -> int:
         """Count rows still awaiting dispatch.

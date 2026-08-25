@@ -3,6 +3,11 @@
 Reads the database URL from ``SMARTMATCH_DATABASE_URL`` when present, so the
 same migration set runs against a developer's local PostgreSQL, CI's service
 container, and a deployed environment without editing a checked-in file.
+
+Both ``context.configure`` calls set ``transaction_per_migration=True``: every
+revision is applied in its own transaction. ADR-0009 records why, and what it
+costs. Note that this does **not** let a revision run outside a transaction —
+``CREATE INDEX CONCURRENTLY`` still requires ``op.get_context().autocommit_block()``.
 """
 
 from __future__ import annotations
@@ -30,12 +35,30 @@ target_metadata = None
 
 
 def run_migrations_offline() -> None:
-    """Emit SQL without a live connection, for review."""
+    """Emit SQL without a live connection, for review.
+
+    **Apply the generated script with ``ON_ERROR_STOP`` set.** Since every
+    revision is now its own transaction, a client that continues after an error
+    — which is ``psql``'s default when reading a file — will roll back the
+    failed revision and then run the *next* one. That revision's
+    ``UPDATE alembic_version ... WHERE version_num = '<previous>'`` matches zero
+    rows, which is not an error, so its DDL commits while the recorded version
+    stays behind: schema ahead of ``alembic_version``, with no failure reported.
+
+        psql -v ON_ERROR_STOP=1 -f upgrade.sql
+
+    Verified by reproduction. See ADR-0009, "Applying a generated script".
+    """
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        # Set here as well as online, so a reviewed script is an honest preview
+        # of what the tool does. A DBA applying this by hand would otherwise
+        # reproduce the run-wide transaction on the one route with a human
+        # watching. See ADR-0009.
+        transaction_per_migration=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -49,7 +72,16 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            # Each revision commits on its own, so a lock taken by a revision is
+            # released when that revision ends rather than when the whole run
+            # commits. A failed multi-step upgrade therefore leaves earlier
+            # revisions applied — a valid, resumable state, and the trade
+            # ADR-0009 argues.
+            transaction_per_migration=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

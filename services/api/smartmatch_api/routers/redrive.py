@@ -20,6 +20,35 @@ using one for all of them leaves the other two open:
   retrying a ``POST``. Guarded by ``Idempotency-Key``, exactly as
   :mod:`smartmatch_api.commands` guards command submission: the same key with
   the same body replays and returns the original job.
+
+  **A key names accepted work. A command refused at the state check consumes
+  quota and no key.** Say "at the state check" rather than "refused", because
+  the limiter runs after the job load, the authorization, and the header and
+  body validators — so a ``403``, ``404`` or ``400`` costs the caller nothing.
+  Those are the cheap refusals to produce in bulk, which is the same S-008
+  shape the savepoint exists to close on the ``409`` paths; it is recorded as
+  backlog **J16** rather than reordered here, because charging quota before
+  authorizing is a decision about who pays for a rejected request, not a
+  docstring fix.
+  So a retry after a ``409`` re-runs the attempt and is refused again — it does
+  not replay the refusal, and it does not replay a success that never happened.
+  That is not a nicety: the states this route refuses are not permanent. A
+  ``running`` job later fails and becomes re-drivable, and the same key must
+  then produce a real re-drive rather than a stale answer in either direction.
+  Holding the reservation past a refusal made every retry of a refused command
+  answer ``202 accepted`` — or ``200 abandoned`` — for work that was never
+  authorized and never ran, permanently, because nothing expires a reservation.
+
+  This is why both handlers wrap everything the command writes in a
+  ``SAVEPOINT`` and take the rate limit outside it. A refusal rolls the
+  savepoint back — reservation, parking, state change, audit record, outbox row,
+  all of it — and commits the outer transaction so only the quota survives. A
+  targeted delete of the reservation would read as simpler and would be wrong:
+  the parking step can insert a ``redrive_record`` before a compare-and-set
+  loses, and a delete aimed at the reservation would commit that stray record.
+  The savepoint expresses the actual rule — *the command did not happen; only
+  the quota did* — instead of enumerating the rows that must be removed, so it
+  keeps holding when someone adds a write inside the block.
 * **Two people pressing the button.** Two coordinators looking at the same
   failed job generate two *different* keys, so idempotency cannot see them as
   related. Guarded instead by the job's own state: the
@@ -52,6 +81,7 @@ an expand-phase migration, and is reported rather than papered over.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Final
@@ -63,6 +93,7 @@ from smartmatch_domain.jobs import InvalidTransitionError, JobState
 from smartmatch_persistence.idempotency import (
     IdempotencyConflictError,
     IdempotencyRepository,
+    IdempotencyResult,
     fingerprint_request,
 )
 from smartmatch_persistence.jobs import JobRecord, JobRepository
@@ -76,6 +107,8 @@ from smartmatch_api.errors import ApiError
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["redrive"])
+
+logger = logging.getLogger(__name__)
 
 _jobs = JobRepository()
 _redrive = RedriveRepository()
@@ -94,6 +127,10 @@ _REDRIVE_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 #: v1.1 §3.4 pilot defaults are hypotheses to tune with recorded evidence. Tight
 #: here on purpose: re-drive is a deliberate human decision, so a caller issuing
 #: more than a handful a minute is looping, not deciding.
+#: Both routes share this one bucket, including ``/abandon``: they are the same
+#: privileged decision at the same tightness. Worth knowing before debugging a
+#: 429 on ``/abandon`` by looking for a ``job.abandon`` counter that never
+#: existed.
 REDRIVE_RATE_LIMIT = RateLimit(
     operation="job.redrive",
     max_requests=10,
@@ -262,34 +299,39 @@ def _reserve(
     job_id: uuid.UUID,
     idempotency_key: str,
     payload: dict[str, Any],
-) -> bool:
-    """Reserve the key for this decision. Returns whether this is a replay.
+) -> IdempotencyResult:
+    """Reserve the key for this decision, and report what it already holds.
+
+    Returns the whole :class:`IdempotencyResult` rather than just
+    ``is_replay``. The replay branch needs ``result_generation`` off the same
+    row, and fetching it in a second query would be a second chance for the
+    answer to change.
 
     Bound to the *existing* job rather than to a new one — the whole point of
     re-drive is that the job keeps its identity, so a replay returns the same job
     id the first call did.
 
     A key reused with a *different* reason is a conflict, not a replay: answering
-    with the earlier decision would silently discard the new one. The transaction
-    is committed before that 409 propagates so the rate-limit consumption sticks
-    — without it, an unbounded stream of conflicting requests would be free,
-    which is precisely the traffic a limiter exists to bound. Only this one
-    exception is caught: committing on an arbitrary failure would persist half a
-    command.
+    with the earlier decision would silently discard the new one.
+
+    **Writes nothing that outlives a refusal.** This used to commit the
+    transaction itself before letting :class:`IdempotencyConflictError`
+    propagate, so that the rate-limit consumption stuck. That commit is gone: the
+    callers now run this inside a ``SAVEPOINT`` with the quota taken outside it,
+    which keeps the quota and discards the reservation without this function
+    needing to know either rule. Committing here would have been worse than
+    redundant — ``Session.commit()`` with an open savepoint commits the
+    savepoint's work too, so the reservation it was meant to be indifferent about
+    would have been made permanent.
     """
-    try:
-        reservation = _idempotency.reserve(
-            session,
-            tenant_id=principal.tenant_id,
-            command_type=command_type,
-            idempotency_key=idempotency_key,
-            request_fingerprint=fingerprint_request(payload),
-            job_id=job_id,
-        )
-    except IdempotencyConflictError:
-        session.commit()
-        raise
-    return reservation.is_replay
+    return _idempotency.reserve(
+        session,
+        tenant_id=principal.tenant_id,
+        command_type=command_type,
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint_request(payload),
+        job_id=job_id,
+    )
 
 
 def _conflict(exc: RedriveConflictError) -> ApiError:
@@ -346,36 +388,91 @@ def redrive_job(
     key = _require_idempotency_key(idempotency_key)
 
     # Quota first, so an exhausted caller cannot burn idempotency keys by
-    # hammering. Consumed inside the transaction, so a request that later fails
-    # does not count against them.
+    # hammering — and deliberately *outside* the savepoint opened below, which
+    # is the whole shape of this handler: a refused command still consumed the
+    # capacity used to refuse it (security finding S-008).
     enforce_rate_limit(session, principal, REDRIVE_RATE_LIMIT)
 
-    if _reserve(
-        session,
-        principal,
-        command_type="job.redrive",
-        job_id=job_id,
-        idempotency_key=key,
-        payload={"job_id": str(job_id), "reason": reason},
-    ):
-        # The decision was already recorded and the work already re-queued.
-        # Commit so the retry still costs quota, then answer identically.
-        #
-        # "Identically" has to include the generation. Omitting it fell back to
-        # the field default of ``0``, which the schema documents as the original
-        # submission — so a replayed re-drive reported itself as the thing it
-        # demonstrably was not, and a client reconciling generations against the
-        # event stream would read it as a different dispatch.
-        replayed_generation = _redrive.current_generation(session, principal.tenant_id, job_id)
-        session.commit()
-        return RedriveAcceptedResponse(
-            job_id=job_id,
-            generation=replayed_generation,
-            events_url=f"/v1/jobs/{job_id}/events",
-            replayed=True,
-        )
-
+    # Everything the command writes goes inside a SAVEPOINT so a refusal can
+    # discard all of it and keep the quota. See the module docstring for why
+    # this is a savepoint rather than a targeted delete of the reservation.
+    command = session.begin_nested()
     try:
+        reservation = _reserve(
+            session,
+            principal,
+            command_type="job.redrive",
+            job_id=job_id,
+            idempotency_key=key,
+            payload={"job_id": str(job_id), "reason": reason},
+        )
+        if reservation.is_replay:
+            # The decision was already recorded and the work already re-queued.
+            # A replay is an *accepted* command, so it commits normally: its
+            # reservation must stay, and the retry still costs quota.
+            #
+            # "Identically" has to include the generation, and the generation
+            # has to be *this key's* — which is why it is read off the
+            # reservation rather than recomputed.
+            #
+            # ``current_generation`` returns the job's **latest** dispatch, not
+            # the one this key created, and that is J14: K1 re-drives
+            # (generation 1); the job fails again; K2 re-drives (generation 2);
+            # a retry of K1 then answered ``{"replayed": true, "generation":
+            # 2}`` — wrong in the one field that exists to disambiguate
+            # dispatches, and wrong silently.
+            replayed_generation = reservation.result_generation
+            if replayed_generation is None:
+                # Exactly two causes: the reservation predates migration
+                # ``0004``, or an instance running pre-J14 code reserved the key
+                # and recorded no result.
+                #
+                # A third looks plausible and is not reachable — "the command
+                # reserved the key and never completed". The reservation is
+                # written inside this savepoint, so a command that fails takes
+                # its reservation down with it and leaves no row at all.
+                # Verified by making ``redrive`` raise after ``_reserve``
+                # succeeded: no ``idempotency_record`` survives.
+                #
+                # **This is a permanent condition on those keys, not a window
+                # that closes when a deploy finishes.** Nothing repairs a legacy
+                # row and nothing expires one — there is no retention job on
+                # ``idempotency_record`` — so a replay of such a key keeps
+                # answering with the job's latest dispatch for as long as the row
+                # exists. Repairing it here is not possible either: the true
+                # value is exactly what was never recorded, and
+                # ``current_generation`` is the same guess that is already wrong.
+                # The warning therefore identifies a legacy key, and a steady
+                # trickle of it long after a rollout is expected rather than
+                # alarming.
+                #
+                # The fallback is the old, wrong answer. That is deliberate:
+                # refusing would turn a deploy into 500s on the replay path,
+                # which is a worse failure than the one being fixed, and this
+                # route is the privileged one. The warning is what makes the
+                # window visible — if it is still firing after a deploy has
+                # settled, something is writing reservations without results.
+                logger.warning(
+                    "idempotency key %r for job %s has no recorded generation "
+                    "(reserved before migration 0004 or by pre-J14 code); "
+                    "falling back to the job's latest dispatch, which may not be "
+                    "the one this key created (J14). This key will answer this "
+                    "way permanently.",
+                    key,
+                    job_id,
+                )
+                replayed_generation = _redrive.current_generation(
+                    session, principal.tenant_id, job_id
+                )
+            command.commit()
+            session.commit()
+            return RedriveAcceptedResponse(
+                job_id=job_id,
+                generation=replayed_generation,
+                events_url=f"/v1/jobs/{job_id}/events",
+                replayed=True,
+            )
+
         outcome = _redrive.redrive(
             session,
             tenant_id=principal.tenant_id,
@@ -384,20 +481,33 @@ def redrive_job(
             reason=reason,
             now=utc_now(),
         )
-    except (RedriveConflictError, InvalidTransitionError) as exc:
-        # Commit before the 409 propagates. The rate-limit increment is still
-        # uncommitted at this point, and the request-scoped session rolls it
-        # back — so a caller hammering a job that cannot be re-driven would pay
-        # no quota at all. This is the same hole ``_reserve`` deliberately
-        # commits to close for idempotency conflicts (security finding S-008);
-        # a rejected command still consumed the capacity used to reject it.
+    except (IdempotencyConflictError, RedriveConflictError, InvalidTransitionError) as exc:
+        # The command did not happen; only the quota did. ROLLBACK TO SAVEPOINT
+        # discards the reservation and anything the attempt wrote — including a
+        # ``redrive_record`` backfilled by the parking step before the
+        # compare-and-set lost — and releases the row locks taken since the
+        # savepoint. The outer commit then persists the rate-limit increment and
+        # nothing else.
+        command.rollback()
         session.commit()
-        if isinstance(exc, InvalidTransitionError):
-            # Rendered by the application-wide handler, which already maps an
-            # illegal transition to 409 with the states named.
-            raise
-        raise _conflict(exc) from exc
+        if isinstance(exc, RedriveConflictError):
+            raise _conflict(exc) from exc
+        # Both remaining cases are rendered as 409 by the application-wide
+        # handlers, which already name the states or the reused key.
+        raise
 
+    # Inside the savepoint, so a command that is discarded leaves no result
+    # behind claiming it happened. This cannot move into ``_reserve``: the
+    # generation is ``redrive``'s result and does not exist until it returns.
+    _idempotency.record_result(
+        session,
+        tenant_id=principal.tenant_id,
+        command_type="job.redrive",
+        idempotency_key=key,
+        result_generation=outcome.generation,
+    )
+
+    command.commit()
     session.commit()
 
     return RedriveAcceptedResponse(
@@ -442,20 +552,30 @@ def abandon_job(
     reason = _require_reason(body.reason)
     key = _require_idempotency_key(idempotency_key)
 
+    # Outside the savepoint, for the reason ``redrive_job`` gives at length: a
+    # refused abandon still costs quota.
     enforce_rate_limit(session, principal, REDRIVE_RATE_LIMIT)
 
-    if _reserve(
-        session,
-        principal,
-        command_type="job.abandon",
-        job_id=job_id,
-        idempotency_key=key,
-        payload={"job_id": str(job_id), "reason": reason},
-    ):
-        session.commit()
-        return AbandonedResponse(job_id=job_id)
-
+    command = session.begin_nested()
     try:
+        if _reserve(
+            session,
+            principal,
+            command_type="job.abandon",
+            job_id=job_id,
+            idempotency_key=key,
+            payload={"job_id": str(job_id), "reason": reason},
+        ).is_replay:
+            # An accepted command being retried. Commits normally.
+            #
+            # No ``record_result`` on this path, and no generation read from
+            # the reservation: an abandon has no generation to report —
+            # ``AbandonedResponse`` carries only the job id and the status — so
+            # its ``result_generation`` stays ``NULL`` permanently and correctly.
+            command.commit()
+            session.commit()
+            return AbandonedResponse(job_id=job_id)
+
         _redrive.abandon(
             session,
             tenant_id=principal.tenant_id,
@@ -464,19 +584,17 @@ def abandon_job(
             reason=reason,
             now=utc_now(),
         )
-    except (RedriveConflictError, InvalidTransitionError) as exc:
-        # Commit before the 409 propagates. The rate-limit increment is still
-        # uncommitted at this point, and the request-scoped session rolls it
-        # back — so a caller hammering a job that cannot be re-driven would pay
-        # no quota at all. This is the same hole ``_reserve`` deliberately
-        # commits to close for idempotency conflicts (security finding S-008);
-        # a rejected command still consumed the capacity used to reject it.
+    except (IdempotencyConflictError, RedriveConflictError, InvalidTransitionError) as exc:
+        # Identical to ``redrive_job``: discard everything the command wrote,
+        # keep the quota. Deliberately not factored into a shared helper — the
+        # two differ in response type and in the replay branch, and the shape is
+        # short enough that a reader can check each one against the other.
+        command.rollback()
         session.commit()
-        if isinstance(exc, InvalidTransitionError):
-            # Rendered by the application-wide handler, which already maps an
-            # illegal transition to 409 with the states named.
-            raise
-        raise _conflict(exc) from exc
+        if isinstance(exc, RedriveConflictError):
+            raise _conflict(exc) from exc
+        raise
 
+    command.commit()
     session.commit()
     return AbandonedResponse(job_id=job_id)

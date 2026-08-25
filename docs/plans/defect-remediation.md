@@ -1,7 +1,8 @@
 # Defect remediation plan
 
-Covers the open defect backlog: **F9** (the 29 port-verification findings),
-**F7** (schema drift coverage), **F8** (ADR index), and **A5** (job owning unit).
+Covers the defect backlog: **F9** (the 29 port-verification findings),
+**F7** (schema drift coverage — **landed in `f6980ef`**, §6 now records what
+shipped), **F8** (ADR index), and **A5** (job owning unit).
 Written to be worked top to bottom; each item names what blocks it, who owns it,
 and — for the three rejected manifest entries — exactly what must be true before
 a re-review can reach `verified`.
@@ -546,6 +547,40 @@ cycle repeats.
 ---
 
 ## 6. F7 — widening the schema drift test
+
+**Status: landed, in `f6980ef`.** The design below was written prospectively;
+this note records what actually shipped and the two places the implementation
+deliberately went beyond or differed from the design as written. Everything
+else in §6.1–§6.4 landed close to as designed: the four comparisons in §6.2,
+the two deliberate omissions in §6.3, and the ADR-0004 amendment in §6.4.
+
+**Where it differs from the design:**
+
+1. **The tenant-anchoring check enumerates from the database, not from
+   `schema.py`.** §6.2 does not say which side `test_every_tenant_scoped_table_is_anchored_by_a_composite_key`
+   should walk, and the first implementation attempt derived the table list
+   from `schema.py` — the side already under test. That was a quiet regression
+   against the hard-coded five-table list it replaced: simplifying a composite
+   key in the mirror removed the table from the derived list, deleting the
+   very case that should have caught it, and the suite went green one test
+   lighter. The design did not anticipate that the derived list could shrink.
+   The landed version enumerates every table **in the live database** that
+   carries a `tenant_id` column, which cannot be shrunk by editing the side
+   being interrogated.
+2. **Positional correspondence of `tenant_id` is asserted, not just
+   membership in the composite key.** §6.2's item 1 talks about comparing
+   "referred table and columns", which a design reading literally would accept
+   a composite key on `(tenant_id, user_id)` referencing
+   `user_account (id, tenant_id)` — composite, and it does contain
+   `tenant_id`, and it enforces nothing at all, because the columns are
+   swapped against the referred side. The landed test requires `tenant_id` to
+   line up with the parent's `tenant_id` positionally. An earlier version of
+   the test passed against exactly the swapped-column shape above; ADR-0004's
+   amendment records that near-miss.
+
+Both differences are recorded in ADR-0004's amendment (19 August 2026) as well
+as here; this entry exists so a reader working from this plan alone, without
+opening the ADR, still finds them next to the design they diverge from.
 
 ### 6.1 What is actually wrong
 

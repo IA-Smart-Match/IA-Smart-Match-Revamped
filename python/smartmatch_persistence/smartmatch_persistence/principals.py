@@ -47,6 +47,19 @@ class PrincipalRepository:
     ) -> ResolvedPrincipal | None:
         """Load the principal for an identity-provider subject.
 
+        The query filters on ``external_subject`` and nothing else, deliberately:
+        the tenant is what this lookup *resolves*, so it cannot also be an input.
+        Returning at most one row is sound because the column is globally unique —
+        ``uq_user_account_external_subject``, added by migration ``0003`` — and
+        that constraint is the whole licence for the ``.one_or_none()`` below.
+
+        Before it existed the only uniqueness was ``(tenant_id, external_subject)``,
+        which promises one account per subject *per tenant* and says nothing about
+        two. One subject with accounts in two tenants matched two rows, this call
+        raised ``MultipleResultsFound``, and every authenticated request by that
+        person returned a 500. The query was not changed to fix that; the schema
+        was, and the same call became correct rather than merely defended.
+
         Returns:
             The resolved principal, or ``None`` when no local account matches.
             ``None`` is not an error: a person may authenticate with the identity
