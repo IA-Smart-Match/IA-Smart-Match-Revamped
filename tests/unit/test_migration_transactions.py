@@ -104,8 +104,8 @@ def test_each_revision_is_its_own_transaction():
     script = _offline_script()
 
     revisions = len(_RUNNING_UPGRADE.findall(script))
-    assert revisions >= 3, (
-        "expected at least the three revisions that exist; "
+    assert revisions >= 4, (
+        "expected at least the four revisions that exist; "
         f"found {revisions} — has the script format changed?"
     )
 

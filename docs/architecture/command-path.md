@@ -248,9 +248,9 @@ into a window that is at most one transaction wide.
 job `running` with no worker behind it. Nothing in this diagram recovers that
 job: the SSE stream shows progress that will never arrive, and there is no
 operations view listing it as stuck. Recovering it needs a lease on the job row
-(`job.lease_expires_at`) and a sweeper that reclaims an expired one — an
-expand-phase migration and a scheduled job, and neither exists yet
-(backlog item J9). This is the one gap `execution.py`'s own module docstring
+(`job.lease_expires_at`) and a sweeper that reclaims an expired one. The column
+and its index landed in migration `0004`; nothing writes or reads them yet, so
+the gap is still open (backlog item J9). This is the one gap `execution.py`'s own module docstring
 names explicitly rather than leaving implicit.
 
 **Following the result:** `GET /v1/jobs/{id}/events` streams `job_event` rows

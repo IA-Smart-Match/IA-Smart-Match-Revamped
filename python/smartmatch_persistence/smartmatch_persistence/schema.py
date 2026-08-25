@@ -194,6 +194,11 @@ job = sa.Table(
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    # J9 (migration 0004). When a worker taking `dispatched -> running` expects
+    # to be finished by. NULL means no deadline, and the sweep leaves the row
+    # alone — the fail-safe direction, since a missing deadline must not be
+    # grounds for terminating a job that may still be running.
+    sa.Column("lease_expires_at", _TS, nullable=True),
     sa.PrimaryKeyConstraint("id", name="job_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_job_tenant_id"),
     # Mirrors smartmatch_domain.jobs.JobState. The set of states lives in the
@@ -237,6 +242,12 @@ outbox_record = sa.Table(
     sa.Column("lease_expires_at", _TS, nullable=True),
     sa.Column("dispatch_attempts", sa.Integer, nullable=False, server_default="0"),
     sa.Column("last_error", sa.Text, nullable=True),
+    # J17 (migration 0004). Minted per claim, so `mark_dispatched` and
+    # `mark_failed` can prove *this* caller holds the row rather than that
+    # someone does. NULL is **not** "no dispatcher holds this": a dispatcher on
+    # pre-J17 code claims without writing a token and holds the row anyway.
+    # J17's guarantee needs every dispatcher on the new code — see 0004.
+    sa.Column("lease_token", _UUID, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="outbox_record_pkey"),
     sa.ForeignKeyConstraint(
@@ -259,6 +270,11 @@ idempotency_record = sa.Table(
     sa.Column("command_type", sa.Text, nullable=False),
     sa.Column("request_fingerprint", sa.Text, nullable=False),
     sa.Column("job_id", _UUID, nullable=True),
+    # J14 (migration 0004). The generation *this key's* command produced,
+    # written after it succeeds rather than at reserve time — the generation is
+    # the command's result, so it does not exist when the key is reserved. NULL
+    # means the reservation predates 0004, or its command never completed.
+    sa.Column("result_generation", sa.Integer, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="idempotency_record_pkey"),
     # Named because idempotency.py passes this name to ON CONFLICT.

@@ -29,9 +29,11 @@ type, or an exception nobody predicted — ends in a terminal transition.
 
 The one case that cannot be closed here is a worker that dies *after* claiming
 and before recording an outcome. Recovering that needs a lease on the job row
-(``job.lease_expires_at`` and a sweeper), which is an expand-phase migration and
-a scheduled job, neither of which exists yet. It is named here rather than left
-to be discovered: today such a job stays ``running`` until someone looks.
+and a sweeper. ``job.lease_expires_at`` **now exists** — migration ``0004``
+added it, along with ``ix_job_running_lease`` — but nothing writes it and
+nothing sweeps it yet, so the gap is still open and this paragraph still
+describes today. It is named here rather than left to be discovered: such a job
+stays ``running`` until someone looks. Backlog item J9.
 
 ## The payload is identifiers, and only identifiers
 
