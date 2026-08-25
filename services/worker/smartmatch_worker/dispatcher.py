@@ -21,8 +21,10 @@ The sweep is guarded, because it is janitorial: a deadlock or a lock timeout
 while tidying up yesterday's wreckage must not cost a healthy row today's
 dispatch. And because an expired lease does not prove the dispatcher holding it
 is dead, both evidence writes — ``mark_dispatched`` and ``mark_failed`` — are
-compare-and-set on the row still being ``leased``, so an instance that was
-mid-enqueue when the sweep ran cannot write over a row that was written off.
+compare-and-set on the row still being ``leased`` **and still carrying the token
+this pass's claim minted** (J17), so an instance that was mid-enqueue when the
+sweep ran cannot write over a row that was written off, nor over one a peer
+re-claimed once its own lease expired.
 
 It then does three things per row, and the order is load-bearing:
 
@@ -107,6 +109,9 @@ _RecordResult = Literal[
     "reclaimed",
     # The row moved on in some other way, or is gone. Not understood, so nothing
     # is asserted about it beyond "this dispatcher did not record a dispatch".
+    # Since J17 this also covers a row a peer has re-claimed and is still working
+    # — it reads `leased`, which is neither of the two above — and that is the
+    # right home for it: the row's fate belongs to the peer's pass, not this one.
     "unresolved",
 ]
 
@@ -459,7 +464,12 @@ class OutboxDispatcher:
             return self._record_failure_safely(record, f"{type(exc).__name__}: {exc}")
 
         try:
-            recorded = self._record_dispatched(record.tenant_id, record.job_id, record.id)
+            recorded = self._record_dispatched(
+                record.tenant_id,
+                record.job_id,
+                record.id,
+                lease_token=record.lease_token,
+            )
             if recorded == "superseded":
                 # A peer dispatcher claimed the row once this one's lease expired
                 # and finalised it correctly. Nothing is wrong: the row is
@@ -631,7 +641,12 @@ class OutboxDispatcher:
         return "failed"
 
     def _record_dispatched(
-        self, tenant_id: uuid.UUID, job_id: uuid.UUID, record_id: uuid.UUID
+        self,
+        tenant_id: uuid.UUID,
+        job_id: uuid.UUID,
+        record_id: uuid.UUID,
+        *,
+        lease_token: uuid.UUID,
     ) -> _RecordResult:
         """Mark the outbox row dispatched and advance the job, atomically.
 
@@ -647,8 +662,10 @@ class OutboxDispatcher:
         **The outbox write goes first, and is also conditional.** It is the one
         that decides whether this dispatcher still owns the row:
         :meth:`~OutboxRepository.mark_dispatched` moves it only while it is still
-        ``leased``, so a row :meth:`reclaim_stranded` has already written off is
-        left alone and nothing is committed. Ordering it first is what makes that
+        ``leased`` *and still carries this claim's lease token*, so a row
+        :meth:`reclaim_stranded` has already written off — or one a peer
+        re-claimed once this pass's lease expired — is left alone and nothing is
+        committed. Ordering it first is what makes that
         check meaningful — and it also puts this method's locks in the same order
         as the reclaim's and :meth:`_record_failure`'s, ``outbox_record`` then
         ``job``. It was the only one of the three taking them the other way
@@ -665,11 +682,23 @@ class OutboxDispatcher:
         Announcing the second as the first would have an operator re-drive a job
         that is already running.
 
+        **J17 added a third way to lose, and it is neither of those.** With the
+        lease token in the guard, a peer that re-claimed the row and is *still
+        working it* now beats this write, where before the stale write won — and
+        the row it loses to reads ``leased``, not ``dispatched`` or ``failed``.
+        That falls to ``unresolved``, which is the honest bucket for it: the row
+        is mid-flight in someone else's pass, this dispatcher cannot say how it
+        ends, and ``unresolved`` is the branch that asserts nothing and advises
+        nothing. It is counted ``failed`` only in the sense that this pass did
+        not complete the row — the peer completes it. Naming a fourth result for
+        it would change what this dispatcher reports and alerts on, which belongs
+        with J8's alerting work rather than here.
+
         Returns:
             One of :data:`_RecordResult`.
         """
         with self._session_factory() as session:
-            if self._outbox.mark_dispatched(session, record_id=record_id):
+            if self._outbox.mark_dispatched(session, record_id=record_id, lease_token=lease_token):
                 self._jobs.transition(
                     session,
                     tenant_id=tenant_id,
@@ -721,6 +750,15 @@ class OutboxDispatcher:
         reporting a peer's success as a reclaim would count a dispatched row as
         a failure and send an operator to re-drive live work.
 
+        Since J17 it also loses to a peer that re-claimed the row and has not
+        finished it — the case this method was previously *winning*, and wrongly:
+        the stale write overwrote the peer's fresh lease with this older attempt
+        count's shorter backoff and replaced the peer's ``last_error``, making
+        the row claimable again while the peer was still working it. It now takes
+        the ``unresolved`` branch, which says nothing about a row it does not
+        own. See :meth:`_record_dispatched` for why that branch rather than a new
+        one.
+
         Either way nothing is written and the method returns early, which also
         avoids taking a job-row lock for a transition that would no-op.
 
@@ -729,7 +767,11 @@ class OutboxDispatcher:
         """
         with self._session_factory() as session:
             if not self._outbox.mark_failed(
-                session, record_id=record.id, error=error, attempts=attempts
+                session,
+                record_id=record.id,
+                lease_token=record.lease_token,
+                error=error,
+                attempts=attempts,
             ):
                 status = self._outbox.status_of(session, record_id=record.id)
                 if status is OutboxStatus.DISPATCHED:
