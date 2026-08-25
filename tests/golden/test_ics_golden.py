@@ -136,15 +136,100 @@ def test_default_duration_is_one_hour():
 
 
 @pytest.mark.golden
-def test_unparseable_date_raises_instead_of_fabricating_a_slot():
+def test_no_start_time_is_ever_fabricated():
     """Legacy defect 1.
 
     ``generate_ics("Talk", "Every Tuesday")`` returned a confident invite for a
     date 30 days out that nobody chose. Architecture v1.1 §3.6 (N1) prohibits
-    fabricating a slot, so the type system now refuses the input outright.
+    fabricating a slot.
+
+    The property under test is *the absence of any path from an unresolved date
+    to a DTSTART*, not merely that a ``str`` is refused. Asserting the type
+    rejection alone would pass against an implementation that type-checks its
+    input and then defaults the missing start — which is precisely the legacy
+    behavior — so all three legs below are needed:
+
+    1. ``starts_at`` has no default, so there is nothing for a fallback to
+       fabricate from;
+    2. the recurrence strings the legacy actually fabricated from are refused
+       with the documented unschedulable signal, and no document is produced;
+    3. the emitted DTSTART is the caller's instant, never a derived one.
     """
-    with pytest.raises(UnschedulableEventError):
-        CalendarInvite(event_name="Talk", starts_at="Every Tuesday")  # type: ignore[arg-type]
+    # 1. No default start. A default of "now + 30 days" is exactly the legacy
+    #    defect, and it would survive a test that only checks the type rejection.
+    with pytest.raises(TypeError):
+        CalendarInvite(event_name="Talk")  # type: ignore[call-arg]
+
+    # 2. Every distinct value of the legacy events dataset's recurrence column —
+    #    the column the legacy UI actually passed as date_str — is refused.
+    for recurrence in (
+        "Every Tuesday",
+        "Annual",
+        "Ongoing",
+        "Ongoing series + pitch events",
+        "Recurring each term/year",
+        "Annual (often spring)",
+    ):
+        with pytest.raises(UnschedulableEventError, match="never infers a time slot"):
+            CalendarInvite(event_name="Talk", starts_at=recurrence)  # type: ignore[arg-type]
+
+    # 3. DTSTART is the supplied instant and nothing else. The legacy fabricated
+    #    `now + 30 days`, which for FIXED_NOW would be 16 September 2026.
+    doc = generate_ics(
+        CalendarInvite(event_name="Talk", starts_at=FIXED_START),
+        generated_at=FIXED_NOW,
+    )
+    fabricated = (FIXED_NOW + timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
+    assert "DTSTART:20260915T170000Z" in doc
+    assert f"DTSTART:{fabricated}" not in doc
+
+
+@pytest.mark.golden
+def test_no_itip_method_is_asserted_without_an_organizer_and_attendee():
+    """RFC 5546 §3.2.2 (port defect F-1).
+
+    A VCALENDAR carrying ``METHOD:REQUEST`` is an iTIP scheduling message, and
+    the VEVENT it carries must then have an ORGANIZER and at least one ATTENDEE.
+    The port emitted ``METHOD:REQUEST`` with neither — a new defect, since the
+    legacy emitted no METHOD at all. The document now asserts no scheduling
+    method it cannot back up.
+    """
+    doc = generate_ics(
+        CalendarInvite(event_name="Careers Panel", starts_at=FIXED_START),
+        generated_at=FIXED_NOW,
+    )
+    lines = _lines(doc)
+    methods = [ln for ln in lines if ln.startswith("METHOD:")]
+    has_organizer = any(ln.startswith("ORGANIZER") for ln in lines)
+    has_attendee = any(ln.startswith("ATTENDEE") for ln in lines)
+
+    # The conformance invariant, stated so it still holds if METHOD returns once
+    # there is a real organizer identity to name (open decision 8).
+    if methods:
+        assert has_organizer, f"{methods[0]} requires an ORGANIZER (RFC 5546 §3.2.2)"
+        assert has_attendee, f"{methods[0]} requires an ATTENDEE (RFC 5546 §3.2.2)"
+
+    # The fix chosen today: no METHOD, matching the legacy and leaving a plain
+    # RFC 5545 calendar object rather than an unbacked scheduling request.
+    assert methods == []
+
+
+@pytest.mark.golden
+def test_dtstamp_is_required_and_never_read_from_the_clock():
+    """MM-001 claims implicit clock reads were removed (port finding F-3).
+
+    ``generated_at`` used to default to ``datetime.now(UTC)``, so the claim was
+    false and the defaulting branch had no test. It is now required: the module
+    reads no clock, and identical inputs always produce an identical document.
+    """
+    invite = CalendarInvite(event_name="Careers Panel", starts_at=FIXED_START)
+
+    with pytest.raises(TypeError):
+        generate_ics(invite)  # type: ignore[call-arg]
+
+    doc = generate_ics(invite, generated_at=FIXED_NOW)
+    assert "DTSTAMP:20260817T120000Z" in doc
+    assert doc == generate_ics(invite, generated_at=FIXED_NOW)
 
 
 @pytest.mark.golden
