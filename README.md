@@ -97,12 +97,26 @@ Requires Python 3.11+ and PostgreSQL 16.
 make setup          # virtualenv + dependencies
 make db-up          # local PostgreSQL + dev database
 make migrate        # apply the Foundation schema
-make check          # every gate CI runs
+make check          # the seven gates that run without infrastructure
 ```
 
-`make check` runs formatting, lint, strict typing, architecture import
-boundaries, the full test suite, and the forbidden-behavior scan. It is the same
-set CI runs, so a green `make check` locally means a green CI.
+`make check` runs seven gates: formatting, lint, strict typing, architecture
+import boundaries, the no-database test lane, the forbidden-behavior scan, and
+the agent-memory ledger check.
+
+**It is a subset of CI, not the whole of it, so a green `make check` does not
+mean a green CI.** Two differences matter. `make test` is
+`pytest tests/ -m "not integration"` — the no-database lane, not the full suite;
+the integration tests need PostgreSQL and *skip themselves* when none is
+reachable, so a clean local run proves nothing about them unless you actually
+had a database. And CI additionally runs the migration from an empty database,
+the full suite including the integration lane, the OpenAPI drift check, the
+dependency-lock recompilation, `pip-audit --strict`, gitleaks over full history,
+the tracked-artifact checks, and the container image build. `make test-all` and
+`make migrate-check` close part of that gap locally; the rest needs CI.
+
+The precise list, with the local counterpart of each CI step, is in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ```bash
 make run-api        # http://localhost:8000  (fixtures only)
