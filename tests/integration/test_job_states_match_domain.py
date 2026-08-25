@@ -25,9 +25,17 @@ The opposite direction — a status that is *not* a ``JobState`` must be rejecte
 — is already proved by
 ``test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state``, which inserts
 ``not_a_real_state`` and requires ``IntegrityError``. It is not repeated here.
-That test is also what would catch ``ck_job_status`` being re-added as
-``NOT VALID`` or otherwise made inert, which neither test in this module would
+That test is also what would catch ``ck_job_status`` being made inert — dropped,
+or replaced by one that admits anything — which neither test in this module would
 notice on its own.
+
+It would **not** catch it being re-added as ``NOT VALID``, and this sentence used
+to say it would. Verified against PostgreSQL 16.15: a ``NOT VALID`` CHECK rejects
+new inserts exactly as a validated one does, because ``NOT VALID`` skips only the
+initial scan of rows already in the table. No attempted write can distinguish the
+two. ``test_check_constraints.py::test_every_check_constraint_is_validated``
+reads ``pg_constraint.convalidated``, which is the only thing that can, and
+covers ``ck_job_status`` along with the other seven.
 
 Reading expression text is a thing ``docs/plans/defect-remediation.md`` §6.3
 argues against for the schema drift test, and the objection does not apply here.

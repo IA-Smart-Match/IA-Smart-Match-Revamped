@@ -421,16 +421,20 @@ def test_check_constraint_names_match(inspector, table_name: str):
 
     **What it does not catch, stated because the gap is easy to assume away:** a
     constraint re-added under the same name with an inverted expression, or as
-    ``NOT VALID``, passes. Only two of the eight have a test that attempts the
-    forbidden write — ``ck_job_status``
-    (``test_tenant_isolation.py::test_job_status_check_rejects_an_unknown_state``,
-    and ``test_job_states_match_domain.py``) and ``ck_budget_ceiling_non_negative``
-    (``test_tenant_isolation.py::test_budget_ceiling_cannot_go_negative``). The other six —
-    ``ck_membership_valid_window``, ``ck_resource_grant_effect``,
-    ``ck_outbox_status``, ``ck_redrive_authorship_complete``,
-    ``ck_budget_non_negative``, ``ck_rate_limit_count_non_negative`` — are
-    asserted by name here and by nothing anywhere. That is a deliberate scope
-    boundary, not an oversight to be read as coverage.
+    ``NOT VALID``, passes here.
+
+    **That gap is now closed elsewhere, and this paragraph used to say it was
+    not.** ``test_check_constraints.py`` (F10) covers all eight by attempting
+    both the forbidden write and the permitted one — the second being what
+    catches inversion — and reads ``pg_constraint.convalidated`` for the
+    ``NOT VALID`` half.
+
+    The ``NOT VALID`` half deserves the correction spelled out, because this
+    docstring implied a write test would catch it and a write test cannot.
+    Verified against PostgreSQL 16: a CHECK added ``NOT VALID`` rejects new
+    inserts exactly as a validated one does. ``NOT VALID`` skips only the scan
+    of rows already present, so no attempted write distinguishes the two.
+    Reading the catalogue is the only thing that does.
     """
     defined = _named_constraints(table_name, sa.CheckConstraint)
     actual = {constraint["name"] for constraint in inspector.get_check_constraints(table_name)}

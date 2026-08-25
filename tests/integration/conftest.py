@@ -75,6 +75,11 @@ _TENANT_SCOPED_TABLES = (
     "tenant_budget",
     "concurrency_lease",
     "idempotency_record",
+    # Belt and braces rather than a leak fixed: this table's tenant foreign key
+    # is ON DELETE CASCADE, so deleting the tenant below already removed its
+    # counters. Listed anyway so the tuple is the full set of tenant-scoped
+    # tables, which is how a reader will use it.
+    "rate_limit_counter",
 )
 
 
