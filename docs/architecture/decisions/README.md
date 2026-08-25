@@ -23,6 +23,9 @@ that is worth seeing from the index.
 | [ADR-0007](ADR-0007-deterministic-task-names.md) | Deterministic Cloud Tasks names as the deduplication mechanism | Accepted | 18 August 2026 | The crash window ADR-0005 leaves open is closed by deriving the task name from the job, so a re-enqueue collides instead of duplicating. | 19 August 2026 — the re-drive collision is resolved | — | — |
 | [ADR-0008](ADR-0008-globally-unique-external-subject.md) | Globally unique `external_subject` as the identity lookup's licence | Accepted | 19 August 2026 | `external_subject` is unique across all tenants, which is what makes the identity lookup's tenant-free filter correct rather than merely convenient. | — | — | — |
 | [ADR-0009](ADR-0009-transaction-per-migration.md) | One transaction per Alembic revision | Accepted | 24 August 2026 | Each Alembic revision runs in its own transaction, so a lock a revision takes is released when that revision ends rather than at the end of the run. | — | — | — |
+| [ADR-0010](ADR-0010-event-temporal-model.md) | An event carries an instant, an IANA zone, and a precision | Accepted | 25 August 2026 | An event's time is three fields — a UTC instant, the IANA zone the event *happens in*, and a precision of `exact`, `date_only` or `unresolved`. An event at `unresolved` cannot reach a matchable or publishable state, and display renders in the event's own zone with the zone named. Generalizes the rule `generate_ics` already enforces for its own output. | — | — | — |
+| [ADR-0011](ADR-0011-accountable-numbers.md) | Every user-visible number is accountable | Accepted | 25 August 2026 | Four rules for any number a user can see: a value with no evidence is `unknown` and never `0`; every aggregate has one canonical name and a written definition in a register; each registered metric has exactly one owning query; and a drill-down returns exactly the rows the aggregate was computed from — the only one of the four a test can check unaided. | — | — | — |
+| [ADR-0012](ADR-0012-event-identity-and-tag-vocabulary.md) | Deterministic event identity, and a closed tag vocabulary | Accepted | 25 August 2026 | Extracted events resolve by a deterministic key — host org unit, normalized title, resolved date window — so re-crawling updates rather than duplicates, and an `unresolved` event has no key at all. Source provenance is a structured field, never part of the title. Role and type tags come from a closed versioned vocabulary; unmapped values are quarantined, never rendered and never matched on. | — | — | — |
 
 ## Two pointers worth having
 
@@ -51,9 +54,15 @@ hard to locate:
 
 ## Reserved numbers
 
-**ADR-0010 is reserved** for agent-memory Slice 1
+**ADR-0015 is reserved** for agent-memory Slice 1
 (`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
 beside it). It has no file yet. Do not take that number for anything else.
+
+This reservation was **ADR-0010** until 25 August 2026, when the five ADRs
+arising from the stakeholder test-log audit took 0010–0014. Slice 1 had no file,
+so nothing was displaced — and moving the reservation was not optional:
+`test_adr_numbers_are_contiguous_from_one` refuses a gap, so leaving 0010 empty
+and taking 0011–0015 would have failed the lane.
 
 ## This table is checked, not maintained by hope
 
