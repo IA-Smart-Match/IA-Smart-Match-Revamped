@@ -50,9 +50,21 @@ None of the audit's primary evidence is tracked here:
 
 | Source | Where it is | How to pin it |
 |---|---|---|
-| The test log — 37 rows, 16 fix items, 15 kickoff questions | Not in this repository | Date + author: 19–20 August 2026, Dr. Ann Wang |
+| The test log — 37 rows, 16 fix items, 15 kickoff questions | Not in this repository, **and not in the legacy one either** — see below | Date + author: 19–20 August 2026, Dr. Ann Wang |
 | The architecture diagram set (diagram 3 names classroom reset; diagram 22 names the missing governance files) | Not in this repository | Diagram number, as the audit cites them |
 | Architecture v1.1 | Not in this repository | Section number |
+
+**Checked 25 August 2026, and it is not in the legacy repository either.** The
+legacy tree at `bdce024` does carry
+`Category 3 - IA West Smart Match CRM/docs/testing/test_log.md`, which is a
+different document and is easy to mistake for this one: an unfilled Sprint-4
+template, tester "Person B", dated 2026-03-20, every result cell empty, with a
+Bugs section reading "No bugs were logged during the code-side Sprint 4
+hardening verification pass." The adjacent `bug_log.md` closes at B-010 with
+zero active bugs. Neither names this stakeholder, neither carries an August
+date, and neither contains any of the 16 fix items. **§6's hole therefore could
+not be closed during execution**, and the audit document records it as an open
+reconciliation rather than filling it by inference.
 
 **This is the house style, not a defect.** Architecture v1.1 is cited by section
 number in `README.md`, `apps/web/DESIGN.md`, every ADR, and every manifest entry
@@ -264,16 +276,29 @@ table puts the capability first and the count last. All three are present at
 | Transactional rate limiter | `18 integration + 4 unit` |
 
 — so the plan's intent to edit the current text rather than the `aa568b4` text
-is right, and its numbers are right.
+is right, and these three numbers are right.
+
+**Corrected 25 August 2026: the table as a whole was not.** Measured against
+`pytest tests/ --collect-only -q`, two of its rows were stale — the outbox
+dispatcher had grown from `27` to `41`, and re-drive from `22` to `30` — and
+four capabilities had no row at all: the ADR index, the agent-memory ledger, the
+behavioural CHECK-constraint suite, and the migration-transaction pins. So the
+instruction below to "re-run the per-capability counts" was the right
+instruction, and the reassurance beside it that they "were correct when written"
+was not.
 
 What *is* wrong is the aggregate. `README.md:49` says:
 
 > **489 tests total** (488 pass, 1 skipped by design — see …)
 
-The measured lane is 739 collected (§7.3). The f11 commits added the ADR index
-suite alone — 95 tests — plus the agent-memory and F10 suites. **Correcting 489
-is a fourth README amendment**, and the per-capability rows should be checked
-against a run at the same time.
+The measured lane is 739 collected (§7.3). **Corrected 25 August 2026:** `489`
+was not drifting on its own — it was *exactly* the sum of the capability table
+while that table carried the two stale rows and four missing ones above. Fixing
+both halves brings the table to 789 (739, plus the 50 the five new ADRs add to
+the parametrized index suite), and the table summing to the collected total is
+the check that the two halves agree. **Correcting 489 is a fourth README
+amendment**, and the per-capability rows must be re-measured at the same time
+rather than trusted.
 
 The section the plan amends — `### Proposed, scaffolded, or deliberately absent`
 — is at line 53 and is a three-column table (`Capability | State | Gated on`).
@@ -413,7 +438,12 @@ what must be reported as un-run rather than assumed green.
 it breaks the plan's commit sequence.**
 
 Agent-memory record `0003-forbidden-scan-covers-every-file-type.md` cites
-`tools/scan_forbidden.py@23e540da…`. The validator recomputes that blob SHA and
+`tools/scan_forbidden.py` at a pinned blob. **Corrected 25 August 2026: the SHA
+this section gave, `23e540da…`, was already stale when it was written.** The
+record had been re-pointed once at `2a56bee` — when this document's own
+allowlist entry landed — and cited `830fd4db…` at `b8142fc`. The lesson §2.7
+draws applies to this section too, and it is the fourth remembered-number error
+in this plan's lineage, as its own handoff predicted. The validator recomputes that blob SHA and
 reports the record when its source has uncommitted changes or has moved. So the
 moment the allowlist gains an entry:
 
@@ -478,7 +508,18 @@ The plan's sequence is sound. Six changes, marked **[CHANGED]**.
 | 4 | `docs: track the real-identity exposure and three unclassified surfaces` | Manifest MM-A09 (**six paths**), MM-F03, MM-F04, MM-002 and MM-A08 amendments; any remaining allowlist entries | **[CHANGED]** |
 | 5 | `docs: carry the stakeholder findings into the backlog and design brief` | Backlog D6–D9, F13, S1–S12; `apps/web/DESIGN.md`; `README.md` | — |
 | ~~6~~ | ~~`docs(agent-memory): propose three records`~~ | — | **[CHANGED — dropped.** See §2.4 and §9.] |
-| 6 | `docs(agent-memory): re-point record 0003 at the scanner it now describes` | Record `0003` `sources` SHA, after commit 4 | **[CHANGED — new.** Forced by §3.7; without it commits 4 onward leave the tree red.] |
+| ~~6~~ | ~~`docs(agent-memory): re-point record 0003 at the scanner it now describes`~~ | — | **[CHANGED — subsumed into commit 1 during execution.** See below.] |
+
+**Commit 6 was not needed, and the reason is worth keeping.** §3.2 already notes
+that `git hash-object` yields a blob's SHA before it is committed, so a record
+and its source *can* share one commit. Doing that put the re-point in **commit
+1**, alongside the single allowlist entry that moved the blob — and only one
+commit in the sequence turned out to touch the scanner at all, since none of the
+five ADRs, the manifest entries, or the backlog rows names a forbidden pattern.
+The result is that no commit in the sequence ever left `make memory` or
+`make test` red, which is what §3.7's separate commit was trying to recover
+after the fact. The ledger write is still stated explicitly in commit 1's
+message rather than riding along, which was §3.7's other requirement.
 
 The reservation edit belongs in **commit 2**, not a separate one: between taking
 ADR-0010 and moving the reservation, the tree states two different things about
