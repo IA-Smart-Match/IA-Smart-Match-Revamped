@@ -10,11 +10,20 @@ into each router.
 
 Everything a submission writes commits together (v1.1 §1.6):
 
-    idempotency reservation · rate-limit consumption · job row · outbox row
+    idempotency reservation · rate-limit consumption · job row (**with its
+    payload**) · outbox row
 
 If any part fails, none of it happened. That matters in both directions: a
 rolled-back command must not consume quota or burn an idempotency key, and a
 committed job must never exist without the outbox row that will dispatch it.
+
+The payload is part of that list as of J10, and it is inside the boundary by
+construction rather than by care: ``JobRepository.create`` writes it as a column
+of the job's own INSERT, so there is no separate statement anyone could later
+move out of the transaction. Until then the body was hashed into an idempotency
+fingerprint and dropped, and the worker — handed a job id, a tenant and a command
+type — failed every import it was given because nothing recorded what to import.
+An accepted command that cannot be executed is not an accepted command.
 
 Note what is deliberately **absent**: no provider call, no Cloud Tasks call, no
 work. The request path only records intent. The dispatcher moves it, and the
@@ -83,7 +92,12 @@ def submit_command(
         principal: The authenticated caller. Tenant and actor come from this,
             never from ``payload``.
         command_type: Stable command identifier, e.g. ``"match-run.create"``.
-        payload: The request body, used for the idempotency fingerprint.
+        payload: The command's parameters, as the router assembled them from the
+            validated request body plus the identifiers it resolved. Persisted on
+            the job row for the worker to execute, and hashed for the idempotency
+            fingerprint. It must contain everything the handler needs and nothing
+            the caller may not dictate: tenant and actor come from ``principal``
+            and are never read out of here.
         idempotency_key: The caller's ``Idempotency-Key`` header. Required —
             see below.
         rate_limit: The limit for this operation.
@@ -130,6 +144,22 @@ def submit_command(
             tenant_id=principal.tenant_id,
             command_type=command_type,
             idempotency_key=idempotency_key.strip(),
+            # Unchanged by J10, deliberately. The fingerprint covers exactly the
+            # dictionary that is about to be persisted as `job.payload`, so the
+            # rule it enforces — same key, same body, same job — is now a
+            # statement about the work that will actually run rather than about
+            # a body nothing kept. Persisting the payload narrows nothing and
+            # widens nothing; it makes the existing check meaningful.
+            #
+            # Two things it still does not cover, both pre-existing and both
+            # left alone here. The actor: a key is scoped to
+            # (tenant, command_type, key), so a second caller in the same tenant
+            # replaying an identical body gets the first caller's job. And the
+            # persisted form: this hashes the request dictionary in-process,
+            # never the stored jsonb, because jsonb normalizes key order and
+            # duplicate keys — a fingerprint recomputed from the column could
+            # differ from the one taken from the body and turn a legitimate
+            # retry into a 409.
             request_fingerprint=fingerprint_request(payload),
             job_id=job_id,
         )
@@ -156,6 +186,9 @@ def submit_command(
         command_type=command_type,
         actor_id=principal.user_id,
         job_id=job_id,
+        # Inside the boundary because it is a column of this INSERT, not a
+        # follow-up write that happens to sit before the commit.
+        payload=payload,
     )
     _outbox.enqueue(
         session,
@@ -164,7 +197,8 @@ def submit_command(
         command_type=command_type,
     )
 
-    # One commit for the reservation, the quota, the job, and the outbox row.
+    # One commit for the reservation, the quota, the job with its payload, and
+    # the outbox row.
     session.commit()
 
     return CommandAccepted(job_id=job_id, is_replay=False)

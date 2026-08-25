@@ -18,8 +18,14 @@ import pytest
 from conftest import unique_subject
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
+from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.engine import create_session_factory
+from smartmatch_persistence.jobs import JobRepository
 from smartmatch_providers import FixtureTokenVerifier
+from smartmatch_providers.tasks import FixtureTaskQueue
+from smartmatch_worker.dispatcher import OutboxDispatcher
+from smartmatch_worker.execution import TaskExecutor
+from smartmatch_worker.handlers import default_registry
 from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
@@ -247,6 +253,90 @@ def test_submission_creates_job_and_outbox_row_together(client, engine, unit_id,
     assert outbox.status == "pending"
 
 
+def test_the_submitted_parameters_are_persisted_with_the_job(client, engine, unit_id, coordinator):
+    """The command records *what* to do, not only that something should be done.
+
+    Until migration ``0005`` the body was hashed into an idempotency fingerprint
+    — a one-way hash — and dropped, so an accepted import named no dataset and no
+    source. The four keys are asserted exactly, as a dictionary rather than field
+    by field: an extra key here is a parameter the worker was handed and nobody
+    decided to send, and a missing one is a parameter it will refuse the job for.
+    """
+    body = {
+        "source_reference": "gs://bucket/roster.csv",
+        "dataset": "professionals",
+        "dry_run": True,
+    }
+    job_id = _post_import(client, unit_id, coordinator, key="k1", body=body).json()["job_id"]
+
+    with engine.connect() as conn:
+        payload = conn.execute(
+            text("SELECT payload FROM job WHERE id = :id"), {"id": job_id}
+        ).scalar_one()
+
+    assert payload == {
+        "unit_id": str(unit_id),
+        "source_reference": "gs://bucket/roster.csv",
+        "dataset": "professionals",
+        "dry_run": True,
+    }
+
+
+def test_the_payload_commits_with_the_job_and_the_outbox_row_or_not_at_all(
+    client, engine, unit_id, coordinator, monkeypatch
+):
+    """v1.1 §1.6 and ADR-0005, extended to the parameters.
+
+    Two halves, and both are needed. A committed submission has a payload *and*
+    an outbox row — a payload that never landed would leave the worker exactly
+    as unable to execute as before. And a submission that fails after the job
+    row is built leaves nothing at all: no job, so no payload, and no
+    reservation. The failure is injected at the ``outbox.enqueue`` call, which
+    is the statement immediately after the job insert, so the payload has been
+    written to the session and has not been committed — precisely the window
+    where a write that had wandered outside the boundary would survive.
+
+    The payload cannot drift out of that boundary by accident, because it is a
+    column of the job's own INSERT rather than a second statement. This asserts
+    the property rather than the implementation, so it still holds if the
+    implementation changes.
+    """
+    accepted_id = _post_import(client, unit_id, coordinator, key="committed").json()["job_id"]
+
+    with engine.connect() as conn:
+        committed = conn.execute(
+            text(
+                "SELECT j.payload IS NOT NULL AS has_payload, count(o.id) AS outbox_rows "
+                "FROM job j LEFT JOIN outbox_record o ON o.job_id = j.id "
+                "WHERE j.id = :id GROUP BY j.payload"
+            ),
+            {"id": accepted_id},
+        ).one()
+    assert committed.has_payload
+    assert committed.outbox_rows == 1
+
+    class _FailingOutbox:
+        def enqueue(self, *args, **kwargs):
+            raise RuntimeError("the outbox insert failed")
+
+    monkeypatch.setattr("smartmatch_api.commands._outbox", _FailingOutbox())
+
+    with pytest.raises(RuntimeError):
+        _post_import(client, unit_id, coordinator, key="rolled-back")
+
+    with engine.connect() as conn:
+        jobs_now = conn.execute(
+            text("SELECT count(*) FROM job WHERE command_type = 'import.create'")
+        ).scalar_one()
+        reservations = conn.execute(
+            text("SELECT count(*) FROM idempotency_record WHERE idempotency_key = :key"),
+            {"key": "rolled-back"},
+        ).scalar_one()
+
+    assert jobs_now == 1, "the rolled-back command left a job — and therefore a payload — behind"
+    assert reservations == 0
+
+
 def test_no_provider_call_happens_in_the_request_path(client, unit_id, coordinator):
     """The request records intent only.
 
@@ -261,6 +351,72 @@ def test_no_provider_call_happens_in_the_request_path(client, unit_id, coordinat
         headers={"Authorization": f"Bearer {coordinator}"},
     ).json()
     assert status_body["status"] == "queued"
+
+
+# ---------------------------------------------------------------------------
+# The command actually runs
+# ---------------------------------------------------------------------------
+
+
+def test_a_submitted_import_executes_against_the_parameters_it_was_submitted_with(
+    client, session_factory, unit_id, coordinator, tenant_id
+):
+    """The blocker, closed, over the whole path: HTTP in, executed command out.
+
+    Accept through the real API, dispatch with the real dispatcher, execute with
+    the real executor and the registry that ships. Every earlier version of this
+    system got as far as the executor and then failed the job as
+    ``command_not_executable``, because ``submit_command`` hashed the body for
+    idempotency and kept nothing else.
+
+    **This asserts success, not merely that nothing raised.** Before ``0005``
+    every import reached a terminal state too — a failed one — so "the job is
+    terminal" is a property the broken system also had. What it did not have,
+    and what is asserted here, is ``succeeded`` *with the submitted dataset and
+    source reference in the terminal event*: the values are read back out of the
+    job's own event stream, which is what a client following the command sees.
+
+    The success is a narrow one and the last two assertions pin the boundary of
+    it: this ran a **dry run**, which validates the command and reports. It did
+    not read the content at ``source_reference`` — that needs an object-storage
+    adapter the worker does not have — and the summary says so rather than
+    letting a coordinator read "succeeded" as "my data is fine". A live import
+    (``dry_run=false``) is refused; see
+    ``test_worker_execution.py::test_a_live_import_is_refused_rather_than_reported_as_done``.
+    """
+    body = {
+        "source_reference": "gs://bucket/spring-roster.csv",
+        "dataset": "professionals",
+        "dry_run": True,
+    }
+    job_id = uuid.UUID(
+        _post_import(client, unit_id, coordinator, key="end-to-end", body=body).json()["job_id"]
+    )
+
+    OutboxDispatcher(session_factory, FixtureTaskQueue()).run_once()
+    outcome = TaskExecutor(session_factory, default_registry()).execute(
+        tenant_id=tenant_id, job_id=job_id
+    )
+
+    assert outcome.status == "executed"
+    assert outcome.state is JobState.SUCCEEDED
+
+    jobs = JobRepository()
+    with session_factory() as session:
+        events = [
+            event.payload
+            for event in jobs.events_since(session, tenant_id=tenant_id, job_id=job_id)
+        ]
+
+    completed = events[-1]
+    assert completed["type"] == "job.completed"
+    assert completed["state"] == JobState.SUCCEEDED.value
+    assert completed["summary"]["dataset"] == "professionals"
+    assert completed["summary"]["source_reference"] == "gs://bucket/spring-roster.csv"
+    assert completed["summary"]["unit_id"] == str(unit_id)
+
+    assert completed["summary"]["content_validated"] is False
+    assert completed["summary"]["rows_examined"] == 0
 
 
 # ---------------------------------------------------------------------------

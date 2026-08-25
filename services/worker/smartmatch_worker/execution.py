@@ -35,12 +35,21 @@ nothing sweeps it yet, so the gap is still open and this paragraph still
 describes today. It is named here rather than left to be discovered: such a job
 stays ``running`` until someone looks. Backlog item J9.
 
-## The payload is identifiers, and only identifiers
+## The delivery is identifiers, and only identifiers
 
 The delivery names a tenant and a job. Everything else is re-read from
 PostgreSQL, because a task can sit in the queue for minutes while consent,
-budget, or approval change — and because a payload the worker trusts is a
-payload an attacker who reaches the queue can dictate.
+budget, or approval change — and because a delivery the worker trusts is one an
+attacker who reaches the queue can dictate.
+
+That includes the command's own parameters, which is worth saying plainly now
+that there are some: ``job.payload`` (migration ``0005``) is read off the job row
+by the same ``_read_job`` that reads the status, and reaches the handler on
+:class:`~smartmatch_worker.handlers.CommandContext`. Nothing here copies a
+parameter out of the request body. The two are different senses of the word
+"payload" and only one of them is authoritative — the delivery still carries a
+tenant id and a job id and nothing else, and widening it would hand the queue
+the ability to say what a job is for.
 """
 
 from __future__ import annotations

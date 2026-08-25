@@ -135,6 +135,13 @@ def create_import(
             message="source_reference must not be blank.",
         )
 
+    # This dictionary is the command's durable contract, not a scratch value for
+    # the idempotency hash: `submit_command` writes it to `job.payload` in the
+    # same INSERT as the job row, and `smartmatch_worker.handlers` reads these
+    # four keys back and refuses the job if any is missing or unusable. Renaming
+    # a key here changes what the worker is given, so the two ends move together.
+    # `unit_id` comes from the authorized path parameter rather than the body —
+    # the caller may not name the unit their import lands in (MM-A01).
     accepted = submit_command(
         session,
         principal,

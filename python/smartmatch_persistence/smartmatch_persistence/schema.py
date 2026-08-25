@@ -199,6 +199,14 @@ job = sa.Table(
     # alone — the fail-safe direction, since a missing deadline must not be
     # grounds for terminating a job that may still be running.
     sa.Column("lease_expires_at", _TS, nullable=True),
+    # J10 (migration 0005). The command's parameters, written in the same INSERT
+    # as the job row so they commit with the intent to dispatch and can never
+    # lag behind it. NULL means the row was written by code that did not persist
+    # a payload, and the parameters are unrecoverable — the fingerprint on
+    # `idempotency_record` is a one-way hash. That is a different fact from
+    # `{}`, which is a command that genuinely carried nothing, and 0005
+    # deliberately declines a `DEFAULT '{}'::jsonb` that would merge the two.
+    sa.Column("payload", postgresql.JSONB, nullable=True),
     sa.PrimaryKeyConstraint("id", name="job_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_job_tenant_id"),
     # Mirrors smartmatch_domain.jobs.JobState. The set of states lives in the

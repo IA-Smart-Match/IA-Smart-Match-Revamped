@@ -9,6 +9,12 @@ against a real database:
   conditional UPDATE, so a duplicate Cloud Tasks delivery finds zero rows
   matching and does not double-execute. Cloud Tasks guarantees at-least-once
   delivery, which makes this the load-bearing check, not a nicety.
+* **A job carries what it is for.** ``create`` writes the command's parameters
+  into ``job.payload`` as part of the job's own INSERT (migration ``0005``), so
+  the parameters commit with the intent to dispatch and with the outbox row that
+  will dispatch it. Before that column existed the request body was hashed for
+  idempotency and then discarded, and every import reaching the worker failed
+  because nothing could say what to import (J10).
 """
 
 from __future__ import annotations
@@ -29,7 +35,19 @@ __all__ = ["JobEventRecord", "JobRecord", "JobRepository"]
 
 @dataclass(frozen=True, slots=True)
 class JobRecord:
-    """A durable job."""
+    """A durable job.
+
+    Attributes:
+        payload: The command's parameters as they were submitted, or ``None``
+            when the row carries none. The two are different facts and a reader
+            must treat them as such: ``{}`` is a command that genuinely carried
+            no parameters, while ``None`` is a row written before ``job.payload``
+            existed (migration ``0005``) or by a release that did not write it.
+            Nothing can recover the parameters of such a row — the idempotency
+            fingerprint is a one-way hash — so a handler that finds ``None``
+            must fail the job rather than guess, and must not treat it as an
+            empty command.
+    """
 
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -38,6 +56,7 @@ class JobRecord:
     actor_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    payload: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,11 +87,25 @@ class JobRepository:
         actor_id: uuid.UUID | None = None,
         deadline: datetime | None = None,
         job_id: uuid.UUID | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> JobRecord:
         """Insert a job in ``queued``.
 
         Does not commit. The caller commits once, with the outbox row, so a
         crash can never leave a job with no outbox entry to dispatch it.
+
+        Args:
+            payload: The command's parameters. Written as a column of **this
+                INSERT**, which is the strongest available form of "in the same
+                transaction": there is no second statement that could be moved,
+                reordered, or committed separately, and no arrangement of the
+                caller's code in which a job exists carrying work nobody can
+                describe. That property is what backlog J10 is about — see
+                migration ``0005``.
+
+                Omit it only for a command that genuinely has no parameters. The
+                resulting ``NULL`` is indistinguishable from a row written before
+                ``0005``, and a worker reading one is entitled to fail the job.
         """
         job_id = job_id or uuid.uuid4()
         now = datetime.now(UTC)
@@ -85,6 +118,7 @@ class JobRepository:
                 status=JobState.QUEUED.value,
                 actor_id=actor_id,
                 deadline=deadline,
+                payload=payload,
                 created_at=now,
                 updated_at=now,
                 version=1,
@@ -99,6 +133,7 @@ class JobRepository:
             actor_id=actor_id,
             created_at=now,
             updated_at=now,
+            payload=payload,
         )
 
     def get(self, session: Session, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> JobRecord | None:
@@ -284,6 +319,12 @@ class JobRepository:
 
 
 def _to_job_record(row: sa.Row[Any]) -> JobRecord:
+    # `payload` is read back as the dict PostgreSQL parsed, not as the text that
+    # was sent: jsonb does not preserve key order, insertion whitespace, or
+    # duplicate keys. Nothing may recompute an idempotency fingerprint from this
+    # value for exactly that reason — the fingerprint is taken from the request
+    # body in the API process, before the row is written. See migration 0005.
+    payload: dict[str, Any] | None = row.payload
     return JobRecord(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -292,4 +333,5 @@ def _to_job_record(row: sa.Row[Any]) -> JobRecord:
         actor_id=row.actor_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        payload=payload,
     )
