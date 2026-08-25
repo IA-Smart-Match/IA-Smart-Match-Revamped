@@ -87,10 +87,10 @@ identifier that will.
 
 | Fix | Subject | Sev | Status | Closed by |
 |---|---|---|---|---|
-| #1 | Real identities tracked in the legacy git history | 1 | ABSENT | MM-A09 (six paths) + D9; remediation is Q1 and **unassigned** |
+| #1 | Real identities tracked in the legacy git history | 1 | ABSENT | MM-A09 (six paths) + D9; remediation is **open question Q1** (not kickoff Q1) and **unassigned** |
 | #2 | *(not recoverable — read from the test log)* | — | — | — |
 | #3 | The funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | — | ABSENT | S12 + ADR-0011 (one owning query) |
-| #4 | Event data quality: no resolved dates, duplicates, open-ended tags | — | ABSENT | ADR-0010, ADR-0012, S3, S4, S5; MM-A08 amended |
+| #4 | Event data quality: no resolved dates, duplicates, source-page names in titles, open-ended tags | — | ABSENT | ADR-0010, ADR-0012, S3, S4, S5; MM-A08 amended |
 | #5 | Two pages showing "opportunities" do not agree | — | ABSENT | ADR-0011 + S1 |
 | #6 | Times display as 3 AM / 7 AM | — | PARTIAL | ADR-0010 |
 | #7 | Caller-selected identity at `POST /auth/mock-login` | — | **COVERED** | Archived as MM-A01; `tests/contract/test_api_health.py:52` and `tests/integration/test_command_path.py:520` each assert 404 |
@@ -123,16 +123,19 @@ gone rather than merely unused:
 ADR-0008 also names the pattern, to argue why a tenant-scoped identity lookup
 would revive it.
 
-### Where a principle exists but the failure would recur
+### How close the existing code comes, and why that is not the same as coverage
 
-Three of the findings land near something the repository already does correctly,
-which is why they are PARTIAL rather than ABSENT, and why the ADRs below
-generalize existing behavior rather than inventing it:
+Three findings are worth putting beside the behavior the repository already has,
+because it explains why the ADRs generalize existing rules rather than inventing
+them. **Only #6 is PARTIAL.** #8 and #15 are ABSENT, and the difference between
+the three rows is exactly what the two statuses mean: #6 has a rule that is
+real but scoped to one exporter; #8 has a correct habit in one module and no
+rule at all; #15 has nothing.
 
 | Finding | The behavior that already exists | Why it does not close the finding |
 |---|---|---|
 | #6 — times display in the wrong zone | `smartmatch_domain.ics.generate_ics` requires a resolved, timezone-aware datetime and raises `UnschedulableEventError` otherwise (`ics.py:60`, `:110`, `:115`); MM-001 records the legacy's "30 days from now" fabrication as a v1.1 §3.6 N1 violation | The rule lives in one exporter. Nothing carries a zone or a precision on the event itself, so any other render path can reproduce 3 AM |
-| #8 — "unknown" and "zero" are one value | `FeedbackWindow.acceptance_rate` returns `None`, not `0.0`, for an empty set (`feedback.py:132`) | One module, one metric. It is a local habit, not a platform rule, and there is no render primitive to enforce it |
+| #8 — "unknown" and "zero" are one value | `FeedbackAggregate.acceptance_rate` returns `None`, not `0.0`, for an empty set (`feedback.py:132`) | One module, one metric. It is a local habit, not a platform rule, and there is no render primitive to enforce it |
 | #15 — an unreachable rewards catalog | — | Nothing in the tree models points, rewards, or attendance at all |
 
 ---
@@ -175,16 +178,21 @@ the rest are not transcribed here rather than being guessed at.
 | No `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, or `CODEOWNERS` (diagram 22, Q11) | F13 |
 
 The last of these was verified directly: none of the four files exists at the
-repository root at `b8142fc`. The only `LICENSE` matches in the tree are
-`legacy_license:` fields in the migration manifest.
+repository root at `b8142fc`, and a case-sensitive search for `LICENSE` across
+the tree at that commit returns **zero** matches of any kind.
 
 ---
 
 ## Kickoff questions
 
-Fifteen were asked. Five are answerable from the architecture as it stands or as
-this audit extends it; the rest need the student team or a named owner, and are
-not enumerated here because the list is not recoverable without the log.
+Fifteen were asked. Five are recoverable from the upstream analysis and listed
+below; the rest are not enumerated, because the list cannot be reconstructed
+without the log.
+
+Of the five, **three are answered** by the architecture as it stands or as this
+audit extends it — Q1, Q4 and Q13. The other two are listed because the audit
+has something definite to say about them, which is not the same as answering
+them: Q11 is *blocked*, and Q14 has no answer today at all.
 
 | # | Question | Answered by |
 |---|---|---|
@@ -200,11 +208,14 @@ not enumerated here because the list is not recoverable without the log.
 
 - **It does not re-derive the classification from the log.** The log is not in
   either repository. What was verified here is that the four f11 commits since
-  `aa568b4` touch none of the sixteen fix items, and that the term search still
+  `54845d3` — the pushed tip of that branch — touch none of the sixteen fix
+  items, and that the term search still
   returns zero.
 - **It does not write to the legacy repository.** The orchestrator contract
   forbids it without authorization. The severity-1 remediation is a decision
-  that needs an owner, recorded as MM-A09 and as Q1.
+  that needs an owner, recorded as MM-A09 and as **open question Q1** in
+  `docs/plans/stakeholder-audit-integration.md` §9 — which is a different Q1
+  from the kickoff question numbered Q1 in the table above.
 - **It does not pick any number reserved to a gate owner** — the points-economy
   calibration, the rewards budget, and the disclosure-consent policy each carry a
   recommendation and an owner, and no decision.

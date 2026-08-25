@@ -322,7 +322,11 @@ tree and vulnerability surface would exist for two releases before anything used
 them" — and is a substantial part of why Graphify and claude-mem are deferred
 rather than adopted.
 
-ADR numbering: this work takes **ADR-0010**. **ADR-0009** is the migration
+ADR numbering: this work takes **ADR-0015**. (It was ADR-0010 until 25 August
+2026, when the five ADRs from the stakeholder test-log audit took 0010-0014;
+`docs/architecture/decisions/README.md` moved the reservation, and
+`test_adr_numbers_are_contiguous_from_one` would have refused the gap that
+leaving 0010 empty creates. Slice 1 had no file, so nothing was displaced.) **ADR-0009** is the migration
 transaction-boundary decision (F11), which landed in `ba5f9df`.
 
 ## 9. Open questions

@@ -8,7 +8,8 @@
 
 ## Context
 
-Fix #4 has three halves. The temporal half is ADR-0010. The other two are here:
+Fix #4 has four parts. The temporal one — no resolved dates — is ADR-0010.
+The other three are here:
 
 - **Duplicates.** The same event appeared more than once, because two pages
   described it and each description became a row.

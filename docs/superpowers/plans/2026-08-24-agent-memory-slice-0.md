@@ -952,4 +952,4 @@ was written, which is exactly when it is easiest to skip.
 
 ## Out of scope
 
-Slices 1 through 5 from the spec — the local stdio MCP server, candidate proposals, Graphify, the remote gateway, and automatic capture — are deliberately not planned here. Each is gated on evidence this slice produces, and planning them now would be planning against unknowns. ADR-0010 is written when Slice 1 begins, because until then there is no architectural decision to record beyond what this plan's spec already states.
+Slices 1 through 5 from the spec — the local stdio MCP server, candidate proposals, Graphify, the remote gateway, and automatic capture — are deliberately not planned here. Each is gated on evidence this slice produces, and planning them now would be planning against unknowns. ADR-0015 is written when Slice 1 begins (the reservation moved from ADR-0010 on 25 August 2026 — see `docs/architecture/decisions/README.md`), because until then there is no architectural decision to record beyond what this plan's spec already states.
