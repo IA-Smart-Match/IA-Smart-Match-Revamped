@@ -81,6 +81,7 @@ an expand-phase migration, and is reported rather than papered over.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Final
@@ -92,6 +93,7 @@ from smartmatch_domain.jobs import InvalidTransitionError, JobState
 from smartmatch_persistence.idempotency import (
     IdempotencyConflictError,
     IdempotencyRepository,
+    IdempotencyResult,
     fingerprint_request,
 )
 from smartmatch_persistence.jobs import JobRecord, JobRepository
@@ -105,6 +107,8 @@ from smartmatch_api.errors import ApiError
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["redrive"])
+
+logger = logging.getLogger(__name__)
 
 _jobs = JobRepository()
 _redrive = RedriveRepository()
@@ -295,8 +299,13 @@ def _reserve(
     job_id: uuid.UUID,
     idempotency_key: str,
     payload: dict[str, Any],
-) -> bool:
-    """Reserve the key for this decision. Returns whether this is a replay.
+) -> IdempotencyResult:
+    """Reserve the key for this decision, and report what it already holds.
+
+    Returns the whole :class:`IdempotencyResult` rather than just
+    ``is_replay``. The replay branch needs ``result_generation`` off the same
+    row, and fetching it in a second query would be a second chance for the
+    answer to change.
 
     Bound to the *existing* job rather than to a new one — the whole point of
     re-drive is that the job keeps its identity, so a replay returns the same job
@@ -322,7 +331,7 @@ def _reserve(
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint_request(payload),
         job_id=job_id,
-    ).is_replay
+    )
 
 
 def _conflict(exc: RedriveConflictError) -> ApiError:
@@ -389,25 +398,72 @@ def redrive_job(
     # this is a savepoint rather than a targeted delete of the reservation.
     command = session.begin_nested()
     try:
-        if _reserve(
+        reservation = _reserve(
             session,
             principal,
             command_type="job.redrive",
             job_id=job_id,
             idempotency_key=key,
             payload={"job_id": str(job_id), "reason": reason},
-        ):
+        )
+        if reservation.is_replay:
             # The decision was already recorded and the work already re-queued.
             # A replay is an *accepted* command, so it commits normally: its
             # reservation must stay, and the retry still costs quota.
             #
-            # "Identically" has to include the generation. Omitting it fell back
-            # to the field default of ``0``, which the schema documents as the
-            # original submission — so a replayed re-drive reported itself as
-            # the thing it demonstrably was not, and a client reconciling
-            # generations against the event stream would read it as a different
-            # dispatch.
-            replayed_generation = _redrive.current_generation(session, principal.tenant_id, job_id)
+            # "Identically" has to include the generation, and the generation
+            # has to be *this key's* — which is why it is read off the
+            # reservation rather than recomputed.
+            #
+            # ``current_generation`` returns the job's **latest** dispatch, not
+            # the one this key created, and that is J14: K1 re-drives
+            # (generation 1); the job fails again; K2 re-drives (generation 2);
+            # a retry of K1 then answered ``{"replayed": true, "generation":
+            # 2}`` — wrong in the one field that exists to disambiguate
+            # dispatches, and wrong silently.
+            replayed_generation = reservation.result_generation
+            if replayed_generation is None:
+                # Exactly two causes: the reservation predates migration
+                # ``0004``, or an instance running pre-J14 code reserved the key
+                # and recorded no result.
+                #
+                # A third looks plausible and is not reachable — "the command
+                # reserved the key and never completed". The reservation is
+                # written inside this savepoint, so a command that fails takes
+                # its reservation down with it and leaves no row at all.
+                # Verified by making ``redrive`` raise after ``_reserve``
+                # succeeded: no ``idempotency_record`` survives.
+                #
+                # **This is a permanent condition on those keys, not a window
+                # that closes when a deploy finishes.** Nothing repairs a legacy
+                # row and nothing expires one — there is no retention job on
+                # ``idempotency_record`` — so a replay of such a key keeps
+                # answering with the job's latest dispatch for as long as the row
+                # exists. Repairing it here is not possible either: the true
+                # value is exactly what was never recorded, and
+                # ``current_generation`` is the same guess that is already wrong.
+                # The warning therefore identifies a legacy key, and a steady
+                # trickle of it long after a rollout is expected rather than
+                # alarming.
+                #
+                # The fallback is the old, wrong answer. That is deliberate:
+                # refusing would turn a deploy into 500s on the replay path,
+                # which is a worse failure than the one being fixed, and this
+                # route is the privileged one. The warning is what makes the
+                # window visible — if it is still firing after a deploy has
+                # settled, something is writing reservations without results.
+                logger.warning(
+                    "idempotency key %r for job %s has no recorded generation "
+                    "(reserved before migration 0004 or by pre-J14 code); "
+                    "falling back to the job's latest dispatch, which may not be "
+                    "the one this key created (J14). This key will answer this "
+                    "way permanently.",
+                    key,
+                    job_id,
+                )
+                replayed_generation = _redrive.current_generation(
+                    session, principal.tenant_id, job_id
+                )
             command.commit()
             session.commit()
             return RedriveAcceptedResponse(
@@ -439,6 +495,17 @@ def redrive_job(
         # Both remaining cases are rendered as 409 by the application-wide
         # handlers, which already name the states or the reused key.
         raise
+
+    # Inside the savepoint, so a command that is discarded leaves no result
+    # behind claiming it happened. This cannot move into ``_reserve``: the
+    # generation is ``redrive``'s result and does not exist until it returns.
+    _idempotency.record_result(
+        session,
+        tenant_id=principal.tenant_id,
+        command_type="job.redrive",
+        idempotency_key=key,
+        result_generation=outcome.generation,
+    )
 
     command.commit()
     session.commit()
@@ -498,8 +565,13 @@ def abandon_job(
             job_id=job_id,
             idempotency_key=key,
             payload={"job_id": str(job_id), "reason": reason},
-        ):
+        ).is_replay:
             # An accepted command being retried. Commits normally.
+            #
+            # No ``record_result`` on this path, and no generation read from
+            # the reservation: an abandon has no generation to report —
+            # ``AbandonedResponse`` carries only the job id and the status — so
+            # its ``result_generation`` stays ``NULL`` permanently and correctly.
             command.commit()
             session.commit()
             return AbandonedResponse(job_id=job_id)

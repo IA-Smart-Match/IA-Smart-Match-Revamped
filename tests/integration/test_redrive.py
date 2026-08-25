@@ -29,6 +29,7 @@ the queue.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -1099,3 +1100,202 @@ def test_a_redrive_that_loses_the_parking_race_leaves_no_stray_audit_record(
         "rolling back only the reservation would have left it committed"
     )
     assert "race" not in _idempotency_keys(session_factory, tenant_id, "job.redrive")
+
+
+# ---------------------------------------------------------------------------
+# J14 — a replay reports the generation *its own key* created
+# ---------------------------------------------------------------------------
+
+
+def test_a_replayed_redrive_reports_its_own_generation_not_the_latest(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The J14 sequence, verbatim from the backlog.
+
+    K1 re-drives and gets generation 1. The job fails again. K2 re-drives and
+    gets generation 2. A retry of **K1** must still answer 1 — it is a replay of
+    the command that created generation 1, and saying 2 tells the caller their
+    re-drive was a dispatch it demonstrably was not.
+
+    Before the fix the replay branch called ``current_generation``, which
+    returns the job's *latest* dispatch rather than the one the replayed key
+    created, so the retry answered ``{"replayed": true, "generation": 2}``. The
+    sequence is ordinary rather than adversarial: two re-drives of one job under
+    different keys, and a client library retrying the first.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    first = _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+    assert first.status_code == 202
+    assert first.json()["generation"] == 1
+    dispatcher.run_once()
+    _fail_terminally(session_factory, jobs, tenant_id, job_id)
+
+    second = _post_redrive(client, job_id, coordinator, key="K2", reason="Second try.")
+    assert second.status_code == 202
+    assert second.json()["generation"] == 2
+    dispatcher.run_once()
+
+    replayed = _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+    assert replayed.status_code == 202
+    body = replayed.json()
+    assert body["replayed"] is True, "K1 has been used; this is a replay"
+    assert body["generation"] == 1, (
+        "a replay of K1 must report the generation K1 created, not the job's "
+        f"latest dispatch. Got {body['generation']}."
+    )
+    assert body["job_id"] == str(job_id), "a replay returns the same job"
+
+
+def test_a_replayed_redrive_is_answered_identically_every_time(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """Idempotency means the *same* answer, not merely a successful one.
+
+    Two retries of one key, either side of another key's re-drive, must be byte
+    for byte the same response. This is the property J14 broke: the answer moved
+    depending on what had happened to the job in between.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+    before = _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+
+    dispatcher.run_once()
+    _fail_terminally(session_factory, jobs, tenant_id, job_id)
+    _post_redrive(client, job_id, coordinator, key="K2", reason="Second try.")
+    dispatcher.run_once()
+
+    after = _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+    # Raw bytes, not parsed JSON. Comparing `.json()` compares decoded objects,
+    # so two different serialisations of the same object would pass a test whose
+    # docstring promises byte equality. Say what is meant, then assert it.
+    assert before.content == after.content, (
+        "a replay's answer must not depend on what happened to the job after it"
+    )
+    assert before.json() == after.json(), "and the decoded bodies agree too"
+
+
+def test_the_generation_is_recorded_on_the_reservation_that_produced_it(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The column is written, and written per key rather than per job.
+
+    Reading the rows directly, because the route's answer alone cannot show
+    *where* the generation came from — and the whole defect was that it came
+    from the wrong place.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    _post_redrive(client, job_id, coordinator, key="K1", reason="First try.")
+    dispatcher.run_once()
+    _fail_terminally(session_factory, jobs, tenant_id, job_id)
+    _post_redrive(client, job_id, coordinator, key="K2", reason="Second try.")
+
+    with session_factory() as session:
+        rows = session.execute(
+            text(
+                "SELECT idempotency_key, result_generation FROM idempotency_record "
+                "WHERE tenant_id = :tid AND command_type = 'job.redrive' "
+                "ORDER BY idempotency_key"
+            ),
+            {"tid": tenant_id},
+        ).all()
+
+    assert [(row.idempotency_key, row.result_generation) for row in rows] == [
+        ("K1", 1),
+        ("K2", 2),
+    ], "each key records the generation its own command produced"
+
+
+def test_a_reservation_with_no_recorded_generation_falls_back_and_is_wrong(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher, caplog
+):
+    """The legacy-key fallback, and the exact cost of the trade it makes.
+
+    A reservation written before migration ``0004``, or by an instance running
+    pre-J14 code, has ``result_generation`` NULL — simulated here by clearing
+    it. Refusing would turn those replays into 500s on the privileged route, so
+    the replay falls back to ``current_generation`` and warns.
+
+    This is **permanent for those keys**, not a window that closes: nothing
+    repairs a legacy row and nothing expires one, so such a key answers this way
+    for as long as it exists.
+
+    This asserts the fallback returns the **wrong** answer, not the right one.
+    That is the point: a test that set up a single re-drive would assert
+    ``generation == 1``, which is what the fallback computes anyway, and would
+    pass whether or not the fallback existed. Here two re-drives make the
+    fallback observably diverge from the truth — K1 created generation 1, the
+    fallback reports 2 — so the test measures the window's cost rather than
+    asserting around it.
+
+    If the fallback is ever removed in favour of refusing, this test should
+    change to expect the refusal. It is pinning a deliberate compromise, not a
+    desirable behaviour.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    assert _post_redrive(client, job_id, coordinator, key="K1", reason="First.").status_code == 202
+    dispatcher.run_once()
+    _fail_terminally(session_factory, jobs, tenant_id, job_id)
+    assert _post_redrive(client, job_id, coordinator, key="K2", reason="Second.").status_code == 202
+    dispatcher.run_once()
+
+    with session_factory() as session:
+        session.execute(
+            text(
+                "UPDATE idempotency_record SET result_generation = NULL "
+                "WHERE tenant_id = :tid AND idempotency_key = 'K1'"
+            ),
+            {"tid": tenant_id},
+        )
+        session.commit()
+
+    with caplog.at_level(logging.WARNING, logger="smartmatch_api.routers.redrive"):
+        replayed = _post_redrive(client, job_id, coordinator, key="K1", reason="First.")
+
+    assert replayed.status_code == 202, "the fallback must not turn a replay into a 500"
+    body = replayed.json()
+    assert body["replayed"] is True
+    assert body["generation"] == 2, (
+        "with no recorded generation the replay falls back to the job's latest "
+        "dispatch — which is J14's wrong answer. This asserts the known cost of "
+        "the fallback, not correct behaviour."
+    )
+
+    # The warning is the only thing that makes a silently-wrong answer visible,
+    # so it is part of the behaviour rather than decoration. Without this the
+    # test passed just as happily with the logging removed.
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings, "a fallback answer that nobody is told about is the defect again"
+    assert any("no recorded generation" in r.getMessage() for r in warnings), (
+        "expected a warning naming the missing generation, got: "
+        f"{[r.getMessage() for r in warnings]}"
+    )
+
+
+def test_an_abandon_records_no_generation(
+    client, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """`job.abandon` has no generation, and its reservation must not invent one.
+
+    ``AbandonedResponse`` carries the job id and the status and nothing else, so
+    a NULL here is correct and permanent rather than a gap waiting to be filled.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    assert (
+        _post_abandon(client, job_id, coordinator, key="A1", reason="Hopeless.").status_code == 200
+    )
+
+    with session_factory() as session:
+        rows = session.execute(
+            text(
+                "SELECT result_generation FROM idempotency_record "
+                "WHERE tenant_id = :tid AND command_type = 'job.abandon'"
+            ),
+            {"tid": tenant_id},
+        ).all()
+
+    assert [row.result_generation for row in rows] == [None]
