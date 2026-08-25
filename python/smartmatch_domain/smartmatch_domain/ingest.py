@@ -20,7 +20,7 @@ import produces review items, not verified records.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -105,6 +105,7 @@ def validate_columns(
     *,
     required: Iterable[str],
     optional: Iterable[str] = (),
+    blank_sentinels: Iterable[str] = (),
 ) -> DatasetQuality:
     """Validate that imported rows carry the expected columns.
 
@@ -118,12 +119,28 @@ def validate_columns(
             ``required | optional`` is reported as an unexpected column —
             a warning, not an error, since extra source columns are common and
             harmless once ignored.
+        blank_sentinels: Source-specific tokens that stand for "no value" in
+            this import, e.g. ``("nan", "NULL")`` for an export that writes them
+            for empty fields. Empty by default: only ``None`` and whitespace are
+            blank on their own, because ``"Null"`` and ``"None"`` are real
+            surnames and place names, and this module cannot tell a marker from
+            a value. The adapter that parsed the rows can, and declares it here.
+            Compared case-insensitively against the stripped cell text.
 
     Returns:
         A :class:`DatasetQuality` describing every problem found. Findings
         accumulate; validation never stops at the first error, so a coordinator
         fixing an import sees the whole list at once.
+
+    Raises:
+        ValueError: If ``required`` and ``optional`` together declare the same
+            column twice after normalization. That is a caller contract error,
+            not a data problem: the duplicate would silently collapse and the
+            column would be validated under whichever spelling won.
     """
+    required_normalized, optional_normalized = _normalize_declared(required, optional)
+    sentinels = {token.strip().lower() for token in blank_sentinels}
+
     findings: list[QualityFinding] = []
 
     if not rows:
@@ -136,9 +153,13 @@ def validate_columns(
         )
         return DatasetQuality(dataset=dataset, row_count=0, findings=tuple(findings))
 
-    present = {normalize_header(key) for key in rows[0]}
-    required_normalized = {normalize_header(name): name for name in required}
-    optional_normalized = {normalize_header(name): name for name in optional}
+    normalized_rows, source_headers, collisions = _index_rows(rows)
+
+    # The column set is the union across every row, not row 0's keys. Ragged
+    # rows are ordinary in real exports (a JSON-lines dump that omits null keys,
+    # a sheet with trailing empty cells dropped); reading the first row alone
+    # made the verdict depend on the order the rows happened to arrive in.
+    present = set(source_headers)
 
     missing = sorted(
         original for norm, original in required_normalized.items() if norm not in present
@@ -154,7 +175,7 @@ def validate_columns(
         )
 
     known = set(required_normalized) | set(optional_normalized)
-    unexpected = sorted(name for name in present if name not in known)
+    unexpected = sorted(source_headers[norm] for norm in present if norm not in known)
     if unexpected:
         findings.append(
             QualityFinding(
@@ -168,12 +189,15 @@ def validate_columns(
             )
         )
 
+    findings.extend(_collision_findings(dataset, collisions, required_normalized))
+    findings.extend(_ragged_findings(dataset, normalized_rows, source_headers, required_normalized))
+
     # A required column that exists but is blank in every row is as unusable as
     # a missing one; the legacy loader reported it as present and healthy.
     for norm, original in required_normalized.items():
         if norm not in present:
             continue
-        if all(_is_blank(_get_normalized(row, norm)) for row in rows):
+        if all(_is_blank(row.get(norm), sentinels) for row in normalized_rows):
             findings.append(
                 QualityFinding(
                     severity=Severity.ERROR,
@@ -186,23 +210,135 @@ def validate_columns(
     return DatasetQuality(dataset=dataset, row_count=len(rows), findings=tuple(findings))
 
 
-def _get_normalized(row: Mapping[str, object], normalized_key: str) -> object:
-    """Fetch a value from ``row`` by its normalized column name."""
-    for key, value in row.items():
-        if normalize_header(key) == normalized_key:
-            return value
-    return None
+def _normalize_declared(
+    required: Iterable[str], optional: Iterable[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Map declared column names to their normalized form, rejecting duplicates."""
+    required_normalized: dict[str, str] = {}
+    optional_normalized: dict[str, str] = {}
+    seen: dict[str, str] = {}
+    for group, names in (("required", required), ("optional", optional)):
+        target = required_normalized if group == "required" else optional_normalized
+        for name in names:
+            norm = normalize_header(name)
+            if norm in seen:
+                raise ValueError(
+                    f"column {name!r} duplicates {seen[norm]!r} after normalization; "
+                    "declare each column exactly once across required and optional"
+                )
+            seen[norm] = name
+            target[norm] = name
+    return required_normalized, optional_normalized
 
 
-def _is_blank(value: object) -> bool:
+def _index_rows(
+    rows: Sequence[Mapping[str, object]],
+) -> tuple[list[dict[str, object]], dict[str, str], dict[str, tuple[str, ...]]]:
+    """Index rows by normalized column name.
+
+    Returns the per-row normalized values, the first source header seen for each
+    normalized column (so findings quote the coordinator's own header rather
+    than the normalized name they will not find in their file), and any headers
+    within one row that collapsed onto a column already taken. The first
+    occurrence in a row wins, so the value used is at least deterministic — but
+    it is reported, because the other value is silently dropped.
+    """
+    normalized_rows: list[dict[str, object]] = []
+    source_headers: dict[str, str] = {}
+    collisions: dict[str, list[str]] = {}
+    for row in rows:
+        values: dict[str, object] = {}
+        row_sources: dict[str, str] = {}
+        for key, value in row.items():
+            norm = normalize_header(key)
+            if norm in values:
+                shadowed = collisions.setdefault(norm, [row_sources[norm]])
+                if key not in shadowed:
+                    shadowed.append(key)
+                continue
+            values[norm] = value
+            row_sources[norm] = key
+            source_headers.setdefault(norm, key)
+        normalized_rows.append(values)
+    return normalized_rows, source_headers, {k: tuple(v) for k, v in collisions.items()}
+
+
+def _collision_findings(
+    dataset: str,
+    collisions: Mapping[str, tuple[str, ...]],
+    required_normalized: Mapping[str, str],
+) -> list[QualityFinding]:
+    """Report headers that collapsed onto the same column within a row."""
+    findings: list[QualityFinding] = []
+    for norm in sorted(collisions):
+        headers = collisions[norm]
+        is_required = norm in required_normalized
+        findings.append(
+            QualityFinding(
+                severity=Severity.ERROR if is_required else Severity.WARNING,
+                code="colliding_headers",
+                message=(
+                    f"{dataset}: headers {', '.join(repr(h) for h in headers)} are the same "
+                    f"column after normalization; the first was used and the rest were "
+                    f"dropped"
+                ),
+                columns=headers,
+            )
+        )
+    return findings
+
+
+def _ragged_findings(
+    dataset: str,
+    normalized_rows: Sequence[Mapping[str, object]],
+    source_headers: Mapping[str, str],
+    required_normalized: Mapping[str, str],
+) -> list[QualityFinding]:
+    """Report columns that some rows carry and others omit entirely.
+
+    Split by severity on the same rule as everything else here: a *required*
+    column absent from any row is an error, because the import contract says
+    every row has it; anything else is a quality warning.
+    """
+    absent_counts = {
+        norm: sum(1 for row in normalized_rows if norm not in row) for norm in source_headers
+    }
+    ragged = {norm: count for norm, count in absent_counts.items() if count}
+    if not ragged:
+        return []
+
+    findings: list[QualityFinding] = []
+    for severity, is_required in ((Severity.ERROR, True), (Severity.WARNING, False)):
+        group = sorted(
+            (source_headers[norm], count)
+            for norm, count in ragged.items()
+            if (norm in required_normalized) is is_required
+        )
+        if not group:
+            continue
+        detail = ", ".join(f"{header} (absent from {count} row(s))" for header, count in group)
+        subject = "required columns" if is_required else "columns"
+        findings.append(
+            QualityFinding(
+                severity=severity,
+                code="ragged_rows",
+                message=f"{dataset}: {subject} are missing from some rows: {detail}",
+                columns=tuple(header for header, _ in group),
+            )
+        )
+    return findings
+
+
+def _is_blank(value: object, sentinels: Set[str]) -> bool:
     """Whether a cell counts as empty.
 
-    The literal strings ``"nan"``, ``"none"``, and ``"null"`` are treated as
-    blank: they are what a CSV export of a null field produces, and the legacy
-    code scattered ad-hoc ``str(x).lower() == "nan"`` checks to cope. Centralizing
-    it means the rule is stated once and tested once.
+    ``None`` and whitespace-only text are blank on their own. Source-specific
+    null markers are blank only when the caller declared them (see
+    ``blank_sentinels``): the domain is handed already-parsed rows and knows
+    nothing about where they came from, so it cannot decide that the text
+    ``"Null"`` is an absent value rather than a coordinator's surname.
     """
     if value is None:
         return True
     text = str(value).strip().lower()
-    return text in {"", "nan", "none", "null"}
+    return text == "" or text in sentinels

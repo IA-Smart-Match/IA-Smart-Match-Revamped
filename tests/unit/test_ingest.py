@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from smartmatch_domain.ingest import (
     Severity,
     normalize_header,
@@ -104,15 +105,32 @@ def test_partially_blank_required_column_is_acceptable():
     assert quality.is_usable
 
 
-def test_csv_null_sentinels_count_as_blank():
-    """``nan``/``none``/``null`` are what a CSV export of a null field produces."""
+def test_declared_null_sentinels_count_as_blank():
+    """An adapter that knows its export writes ``nan`` for nulls says so."""
     quality = validate_columns(
         "professionals",
         [{"full_name": "A", "metro_region": "nan"}, {"full_name": "B", "metro_region": "NULL"}],
         required=REQUIRED,
+        blank_sentinels=("nan", "null"),
     )
     assert not quality.is_usable
     assert quality.errors[0].code == "required_column_entirely_blank"
+
+
+def test_null_and_none_are_values_unless_the_caller_declares_otherwise():
+    """``Null`` and ``None`` are real surnames.
+
+    The domain is handed already-parsed rows and cannot tell a source's null
+    marker from a coordinator's data, so it does not guess: it rejects the
+    import only for what is blank on its own face.
+    """
+    quality = validate_columns(
+        "professionals",
+        [{"full_name": "Null", "metro_region": "None"}],
+        required=REQUIRED,
+    )
+    assert quality.is_usable
+    assert quality.findings == ()
 
 
 def test_findings_accumulate_across_categories():
@@ -132,3 +150,109 @@ def test_normalize_header_examples():
     assert normalize_header("  Metro-Region ") == "metro_region"
     assert normalize_header("Full Name") == "full_name"
     assert normalize_header("IA Event Date") == "ia_event_date"
+
+
+# ---------------------------------------------------------------------------
+# Ragged rows (F-15)
+# ---------------------------------------------------------------------------
+
+
+def test_verdict_does_not_depend_on_row_order():
+    """The same rows in either order must produce the same verdict.
+
+    The column set was read from ``rows[0]`` alone, so a ragged import was
+    rejected or accepted according to which row the exporter happened to emit
+    first — a fail-closed control failing open on row order.
+    """
+    complete = {"full_name": "A. Rivera", "metro_region": "Inland Empire"}
+    ragged = {"full_name": "B. Chen"}
+
+    complete_first = validate_columns("professionals", [complete, ragged], required=REQUIRED)
+    ragged_first = validate_columns("professionals", [ragged, complete], required=REQUIRED)
+
+    assert complete_first.is_usable == ragged_first.is_usable
+    assert {f.code for f in complete_first.findings} == {f.code for f in ragged_first.findings}
+
+
+def test_required_column_absent_from_some_rows_fails_closed():
+    """Present in row 0 is not present in the dataset."""
+    quality = validate_columns(
+        "professionals",
+        [
+            {"full_name": "A. Rivera", "metro_region": "Inland Empire"},
+            {"full_name": "B. Chen"},
+        ],
+        required=REQUIRED,
+    )
+    assert not quality.is_usable
+    finding = quality.errors[0]
+    assert finding.code == "ragged_rows"
+    assert finding.columns == ("metro_region",)
+    assert "1 row(s)" in finding.message
+
+
+def test_ragged_optional_column_warns_but_does_not_block():
+    """Raggedness outside the required set is a quality signal, not a stop."""
+    quality = validate_columns(
+        "professionals",
+        [
+            {"full_name": "A. Rivera", "metro_region": "IE", "pronouns": "they/them"},
+            {"full_name": "B. Chen", "metro_region": "IE"},
+        ],
+        required=REQUIRED,
+        optional=("pronouns",),
+    )
+    assert quality.is_usable
+    assert quality.warnings[0].code == "ragged_rows"
+    assert quality.warnings[0].columns == ("pronouns",)
+
+
+# ---------------------------------------------------------------------------
+# Header reporting (F-17)
+# ---------------------------------------------------------------------------
+
+
+def test_findings_quote_the_coordinators_own_header():
+    """A finding must name a string the coordinator can find in their file."""
+    quality = validate_columns(
+        "professionals",
+        [{"full_name": "A", "metro_region": "IE", "Internal Note!": "x"}],
+        required=REQUIRED,
+    )
+    finding = quality.warnings[0]
+    assert finding.columns == ("Internal Note!",)
+    assert "Internal Note!" in finding.message
+
+
+def test_headers_colliding_on_a_required_column_fail_closed():
+    """Two spellings of one required column: the second value is dropped."""
+    quality = validate_columns(
+        "professionals",
+        [{"Full Name": "A. Rivera", "full_name": "B. Chen", "metro_region": "IE"}],
+        required=REQUIRED,
+    )
+    assert not quality.is_usable
+    finding = quality.errors[0]
+    assert finding.code == "colliding_headers"
+    assert finding.columns == ("Full Name", "full_name")
+
+
+def test_headers_colliding_outside_the_required_set_warn():
+    quality = validate_columns(
+        "professionals",
+        [{"full_name": "A", "metro_region": "IE", "Pronouns": "they", "pronouns": "she"}],
+        required=REQUIRED,
+        optional=("pronouns",),
+    )
+    assert quality.is_usable
+    assert quality.warnings[0].code == "colliding_headers"
+
+
+def test_duplicate_declared_columns_are_a_caller_error():
+    """A column declared twice would collapse silently and validate one spelling."""
+    with pytest.raises(ValueError, match="after normalization"):
+        validate_columns(
+            "professionals",
+            [{"full_name": "A", "metro_region": "IE"}],
+            required=("full_name", "Full Name", "metro_region"),
+        )
