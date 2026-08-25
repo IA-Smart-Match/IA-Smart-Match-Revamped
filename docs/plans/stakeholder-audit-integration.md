@@ -671,8 +671,9 @@ file already carries an `ALLOWLIST` entry for `mock-login`.
 
 ### 5.11 `README.md` — amend
 
-One row in the `### Proposed, scaffolded, or deliberately absent` table (line 53)
-for the engagement surface, one for the funnel. The table is three columns:
+Three edits. One row in the `### Proposed, scaffolded, or deliberately absent`
+table (line 53) for the engagement surface, one for the funnel, and a correction
+to the stale test count on line 49 (§7.3). The table is three columns:
 `Capability | State | Gated on`. The README opens by disavowing inaccuracy by
 omission, and omitting both is exactly that.
 
@@ -769,8 +770,16 @@ means two opportunities to leave the tree red.
 .venv/bin/pytest tests/ -m "not integration"
 ```
 
-Baseline is **489 tests, 488 passing, 1 skipped by design** (`README.md:49`). If
-the number moves, say why.
+Measured baseline on `b8142fc`, immediately before this document was committed:
+
+```
+394 passed, 1 skipped, 344 deselected, 8 warnings in 22.20s
+```
+
+That is 739 collected. **`README.md:49` says "489 tests total (488 pass, 1
+skipped by design)", which is stale** — add it to the README amendments in
+§5.11, and use the measured numbers above rather than the README's. If the
+count moves, say why.
 
 ### 7.4 The scanner, verified negatively
 
