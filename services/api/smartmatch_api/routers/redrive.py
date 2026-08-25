@@ -58,6 +58,28 @@ using one for all of them leaves the other two open:
   one, one still running. Guarded by the domain state machine — re-driving
   something that already succeeded would re-run effects nobody asked to repeat.
 
+## What a 500 costs, and the wider hole that stays open
+
+The savepoint also carries a broad ``except`` that rolls it back, commits the
+outer transaction, and re-raises — so an *unexpected* error costs quota too. The
+caller still gets their 500; the capacity they spent provoking it still counts
+against them. Before that (backlog **J15**) any exception outside the three
+refusal types left the savepoint open and skipped the commit, and
+``get_session``'s unconditional ``finally: session.rollback()`` discarded the
+rate-limit increment along with the half-written command — measured at quota
+``0`` before and ``0`` after. A caller who could reliably provoke a 500 paid
+nothing for it, on the most tightly rate-limited route in the API.
+
+**That guarantee is exactly this wide and no wider.** ``enforce_rate_limit`` is
+shared by every command route and only these two wrap their command in a
+savepoint, so a 500 raised after the quota check in
+:mod:`smartmatch_api.commands` still refunds the quota it charged. Closing that
+means taking quota consumption out of the command transaction entirely, which
+changes the transaction shape of the whole command path to fix a defect in one
+router; it is recorded as the right long-term shape in
+``docs/plans/transaction-boundary-defects.md`` §2.3(c) and §9 question 1, and is
+named here rather than quietly half-closed.
+
 ## The authorization, and the one thing it cannot do
 
 Authorization runs **after** the job is loaded, and the load is tenant-scoped in
@@ -495,6 +517,43 @@ def redrive_job(
         # Both remaining cases are rendered as 409 by the application-wide
         # handlers, which already name the states or the reused key.
         raise
+    except Exception:
+        # J15: a 500 must not refund the quota that produced it.
+        #
+        # Any exception outside the tuple above used to leave this savepoint
+        # open and skip every commit below, so ``get_session``'s unconditional
+        # ``finally: session.rollback()`` discarded the rate-limit increment
+        # together with the half-written command. Measured by making
+        # ``_redrive.redrive`` raise ``RuntimeError``: quota 0 before, 0 after.
+        # A caller who can provoke a 500 reliably therefore paid nothing for it,
+        # on the most tightly rate-limited route in the API — which is precisely
+        # the traffic the limiter exists to bound (S-008).
+        #
+        # The two statements are the refusal path's, in the same order and for
+        # the same reason: the command did not happen; only the quota did. They
+        # carry more weight here, because the failure may have come from
+        # PostgreSQL rather than from Python — an error inside the savepoint
+        # aborts the whole transaction, and ROLLBACK TO SAVEPOINT is what leaves
+        # the outer one committable.
+        #
+        # ``is_active`` because the replay branch commits inside this ``try``:
+        # if its own ``session.commit()`` is what failed, there is no savepoint
+        # left to roll back and nothing a second commit could rescue.
+        #
+        # The boundary is exact, and slightly narrower than it looks: the
+        # ``record_result`` call and the two commits below sit *after* this
+        # block, so a failure in one of them still takes the quota with it. They
+        # are left there rather than pulled inside, because by that point the
+        # only failures left are the database refusing to write or to commit —
+        # and a session that cannot commit cannot be made to persist the quota
+        # by being asked a second time.
+        if command.is_active:
+            command.rollback()
+        session.commit()
+        # Re-raised unchanged, deliberately. This fixes what persists, not what
+        # the caller is told: the 500 is still a 500, still unhandled, and still
+        # a defect to be fixed on its own terms.
+        raise
 
     # Inside the savepoint, so a command that is discarded leaves no result
     # behind claiming it happened. This cannot move into ``_reserve``: the
@@ -593,6 +652,18 @@ def abandon_job(
         session.commit()
         if isinstance(exc, RedriveConflictError):
             raise _conflict(exc) from exc
+        raise
+    except Exception:
+        # J15, identical in shape to ``redrive_job`` and identical in reasoning:
+        # an unexpected error is a 500, and a 500 keeps the quota it spent
+        # rather than refunding it. Measured the same way, by making
+        # ``_redrive.abandon`` raise ``RuntimeError``: quota 0 before, 0 after.
+        # Not factored into a shared helper, for the reason the refusal path
+        # above gives — these two handlers are meant to be read against each
+        # other.
+        if command.is_active:
+            command.rollback()
+        session.commit()
         raise
 
     command.commit()

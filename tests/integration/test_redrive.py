@@ -42,6 +42,7 @@ from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import OutboxRepository, OutboxStatus, derive_task_name
+from smartmatch_persistence.redrive import RedriveRepository
 from smartmatch_providers import FixtureTokenVerifier
 from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
@@ -1299,3 +1300,172 @@ def test_an_abandon_records_no_generation(
         ).all()
 
     assert [row.result_generation for row in rows] == [None]
+
+
+# ---------------------------------------------------------------------------
+# J15 — a 500 must not refund the quota that produced it
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def failing_client(client) -> TestClient:
+    """The same wiring, but rendering an unhandled exception as the caller's 500.
+
+    ``TestClient`` re-raises server exceptions by default, which is right for
+    every other test in this module and exactly wrong for these three. J15 is a
+    statement about what survives in the database *after* the route 500s, so the
+    request has to finish the way it finishes in production — through the error
+    middleware, with the dependency teardown running and ``get_session``'s
+    unconditional rollback firing — rather than being unwound by the harness
+    before any of that happens.
+
+    Depends on ``client`` rather than rebuilding the wiring: the app is a module
+    singleton, so this shares that fixture's session factory and its registered
+    tokens, and taking it as an argument makes the ordering explicit instead of
+    accidental.
+    """
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _explode(*args, **kwargs):
+    """Stand in for a repository call failing in a way the handler never named.
+
+    ``RuntimeError`` on purpose: it is outside the three-exception tuple the
+    handlers catch, which is the whole condition J15 describes. Any unhandled
+    type would do — a driver error, a bug in a repository, an ``AttributeError``
+    after a refactor — and the point is that the set of them cannot be
+    enumerated in advance, which is why the fix is a broad ``except`` rather
+    than a fourth entry in the tuple.
+    """
+    raise RuntimeError("the command failed in a way nobody anticipated")
+
+
+def test_an_unhandled_error_in_a_redrive_still_costs_quota(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """A 500 is not a refund.
+
+    Reproduced the way the backlog row reproduced it: make ``_redrive.redrive``
+    raise ``RuntimeError``. The savepoint then stayed open, ``session.commit()``
+    never ran, and ``get_session``'s unconditional ``finally:
+    session.rollback()`` discarded the rate-limit increment along with
+    everything the command had written — measured at quota ``0`` before and
+    ``0`` after.
+
+    That reopens S-008 through a repeatable 500: a caller who can reliably
+    provoke an unhandled error pays no quota for it, on the route rate-limited
+    most tightly *because* it is a privileged decision. The 500 itself is a
+    defect to be fixed on its own terms; what is asserted here is that it costs
+    the caller what it charged them.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+    monkeypatch.setattr(RedriveRepository, "redrive", _explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_redrive(failing_client, job_id, coordinator, key="boom")
+
+    assert response.status_code == 500, (
+        f"the error must still reach the caller as a 500, not be swallowed: {response.text}"
+    )
+    assert _quota_consumed(engine, tenant_id) == before + 1, (
+        "an unhandled error must not refund the quota the request already spent"
+    )
+
+
+def test_an_unhandled_error_in_an_abandon_still_costs_quota(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """``abandon_job`` had the identical shape, so it gets the identical test.
+
+    Both routes share the ``job.redrive`` bucket, so this measures the same
+    counter — and a fix applied to only one handler would leave the other
+    refunding, which is the failure this test exists to catch.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+    monkeypatch.setattr(RedriveRepository, "abandon", _explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_abandon(failing_client, job_id, coordinator, key="boom-abandon")
+
+    assert response.status_code == 500, response.text
+    assert _quota_consumed(engine, tenant_id) == before + 1, (
+        "an unhandled error in abandon must not refund the quota either"
+    )
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.FAILED_PROVIDER
+
+
+def test_an_unhandled_error_keeps_the_quota_and_none_of_the_commands_writes(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """The other half, and the reason the fix is a savepoint rollback and a commit.
+
+    The two tests above fail before the command writes anything, so on their own
+    they would pass against a fix that simply committed on the way out — and
+    that fix would persist a half-performed re-drive, which is worse than the
+    refund it cured. So here the *real* ``redrive`` runs to completion first —
+    parking the job, moving it ``failed_provider -> redrive_pending -> queued``,
+    writing the ``redrive_record``, enqueuing a fresh outbox row — and only then
+    raises. Everything it wrote is inside the savepoint; the quota is outside
+    it. Exactly one of those may survive.
+
+    The reservation is the sharpest of the assertions: ``_reserve`` genuinely
+    wrote that row earlier in the same request, so its absence is evidence the
+    savepoint rolled back rather than evidence nothing was ever attempted.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    real_redrive = RedriveRepository.redrive
+
+    def _write_everything_then_explode(self, session, **kwargs):
+        real_redrive(self, session, **kwargs)
+        raise RuntimeError("the command failed after writing every row it writes")
+
+    monkeypatch.setattr(RedriveRepository, "redrive", _write_everything_then_explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_redrive(failing_client, job_id, coordinator, key="half-written")
+
+    assert response.status_code == 500, response.text
+    assert _quota_consumed(engine, tenant_id) == before + 1, "the quota is outside the savepoint"
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.FAILED_PROVIDER, (
+        "a discarded command must not leave the job queued for work that will never run"
+    )
+    assert _redrive_rows(session_factory, job_id) == [], (
+        "an audit record for a re-drive that did not happen is worse than none"
+    )
+    assert len(_outbox_rows(session_factory, job_id)) == 1, (
+        "the failed attempt's row and nothing else; a committed outbox row here "
+        "would dispatch work no audit trail authorized"
+    )
+    assert "half-written" not in _idempotency_keys(session_factory, tenant_id, "job.redrive"), (
+        "the reservation was written and must go with the command, or the key "
+        "would replay a 500 as a success forever"
+    )
