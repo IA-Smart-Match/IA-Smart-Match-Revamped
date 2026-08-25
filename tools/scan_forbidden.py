@@ -239,6 +239,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "mock-login",
     ): "The design brief names the archived pattern to state that no frontend may reintroduce it.",
     (
+        "docs/plans/stakeholder-audit-integration.md",
+        "mock-login",
+    ): "The plan records Fix #7 as the one already-closed item; naming it is the point.",
+    (
         "docs/architecture/decisions/ADR-0008-globally-unique-external-subject.md",
         "mock-login",
     ): "The ADR names the archived pattern to argue why a tenant-scoped lookup revives it.",
