@@ -1469,3 +1469,178 @@ def test_an_unhandled_error_keeps_the_quota_and_none_of_the_commands_writes(
         "the reservation was written and must go with the command, or the key "
         "would replay a 500 as a success forever"
     )
+
+
+# ---------------------------------------------------------------------------
+# J16 / ADR-0015 — the cheap refusals are charged for
+# ---------------------------------------------------------------------------
+#
+# The measurement in the backlog row is the model for these: 25 consecutive
+# refusals of each kind, counting what the caller was charged. Against the old
+# ordering — load, authorize, validate, *then* ``enforce_rate_limit`` — the
+# answer was zero for all three kinds, and 25 was as cheap as one.
+#
+# Two assertions carry each test, and they are different statements.
+#
+# 1. **Every refusal that reached the handler was charged exactly once**, spelled
+#    as ``statuses.count(<refusal>) == spent`` rather than as a fixed number. A
+#    fixed number would be wrong, because the second assertion is that the
+#    caller runs out.
+# 2. **The run is bounded**: somewhere in 25 attempts the limiter itself answers
+#    ``429``. That is the whole point of charging for refusals — an abusive
+#    stream now stops — and it is what a run of 403s could never produce before.
+#
+# Neither test asserts *where* in the run the 429 falls. ``job.redrive`` is
+# 10/min in a fixed window anchored to the epoch (ADR-0006), so a run that
+# straddles a minute boundary legitimately gets a second window's worth of
+# refusals through. Pinning "the eleventh" would be pinning the clock.
+
+
+#: How many refusals each of these tests sends, from the J16 row's measurement.
+_REFUSAL_RUN = 25
+
+
+def test_a_run_of_forbidden_redrives_is_charged_and_then_limited(
+    client, engine, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A 403 costs quota. It is the cheapest refusal here to produce in bulk.
+
+    A viewer is authenticated, in the tenant, and denied — so nothing about
+    these requests is expensive to make, and before ADR-0015 nothing about them
+    was expensive to make *repeatedly*: authorization ran before the limiter and
+    a denial left through ``get_session``'s rollback, taking any increment with
+    it. Twenty-five denials moved ``rate_limit_counter`` by zero.
+
+    The job is checked at the end for the obvious reason: charging for a refusal
+    must not turn it into a command.
+    """
+    viewer = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-viewer-j16"), role="viewer"
+    )
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    before = _quota_consumed(engine, tenant_id)
+    statuses = [
+        _post_redrive(client, job_id, viewer, key=f"forbidden-{index}").status_code
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    assert set(statuses) <= {403, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert statuses[0] == 403, "the first request is a denial, not a limit"
+    assert statuses.count(403) == spent, (
+        "every denial that reached the handler must have cost the caller one unit "
+        f"of quota; {statuses.count(403)} denials moved the counter by {spent}"
+    )
+    assert 429 in statuses, (
+        "a caller producing nothing but denials must eventually be limited — "
+        "that is what charging for them buys"
+    )
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_PROVIDER
+    assert len(_outbox_rows(session_factory, job_id)) == 1
+
+
+def test_a_run_of_redrives_against_ids_that_do_not_exist_is_charged_and_then_limited(
+    client, engine, coordinator, tenant_id
+):
+    """A 404 costs quota, and this is the half that is hardest to like.
+
+    The caller here is a legitimate coordinator who is allowed to re-drive; they
+    are simply naming jobs that do not exist. ADR-0015 charges them anyway,
+    because the alternative — free 404s — is an unmetered probe of the job id
+    space that costs the API a tenant-scoped lookup every time. No job is
+    created by any of this, so the whole run is refusals.
+    """
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        _post_redrive(client, uuid.uuid4(), coordinator, key=f"missing-{index}")
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "job_not_found", responses[0].text
+    assert statuses.count(404) == spent, (
+        f"{statuses.count(404)} lookups of ids that do not exist moved the counter by {spent}"
+    )
+    assert 429 in statuses, "probing for job ids must run out of quota like anything else"
+
+
+def test_a_run_of_redrives_with_no_idempotency_key_is_charged_and_then_limited(
+    client, engine, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A 400 costs quota: the validators run after the charge, not before it.
+
+    Both of this route's 400s — the missing or oversized ``Idempotency-Key`` and
+    the blank ``reason`` — leave through the same door, because the charge now
+    precedes both validators rather than sitting between them and the command.
+    The missing header is the one used here because it is the cheapest of all of
+    them to send: no body worth building, no job that has to exist, no role that
+    has to be held.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        client.post(
+            f"/v1/jobs/{job_id}/redrive",
+            json={"reason": "Provider outage resolved."},
+            headers={"Authorization": f"Bearer {coordinator}"},
+        )
+        for _ in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {400, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "idempotency_key_required", responses[0].text
+    assert statuses.count(400) == spent, (
+        f"{statuses.count(400)} malformed requests moved the counter by {spent}"
+    )
+    assert 429 in statuses, "a client looping on a malformed request must be stopped"
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_PROVIDER
+    assert _idempotency_keys(session_factory, tenant_id, "job.redrive") == [], (
+        "a request refused before the reservation must leave no key behind"
+    )
+
+
+def test_the_abandon_route_charges_for_its_refusals_too(client, engine, coordinator, tenant_id):
+    """The same ordering on the other handler, and they share one bucket.
+
+    ``/abandon`` is a separate handler with its own copy of the charge, so it
+    needs its own measurement — a fix applied to ``redrive_job`` alone would
+    leave this route free, and the two are meant to be read against each other.
+
+    Sharing the ``job.redrive`` bucket is what makes that worth insisting on:
+    quota spent on refused abandons is quota unavailable for a real re-drive, so
+    a hole in either handler is a hole in the limit on both.
+    """
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        _post_abandon(client, uuid.uuid4(), coordinator, key=f"abandon-missing-{index}")
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert statuses.count(404) == spent, (
+        f"{statuses.count(404)} refused abandons moved the counter by {spent}"
+    )
+    assert 429 in statuses
+
+    with engine.begin() as conn:
+        operations = {
+            row.operation
+            for row in conn.execute(
+                text("SELECT DISTINCT operation FROM rate_limit_counter WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        }
+    assert operations == {"job.redrive"}, (
+        "abandon spends from the re-drive bucket; a separate counter here would "
+        "mean the two routes no longer bound each other"
+    )

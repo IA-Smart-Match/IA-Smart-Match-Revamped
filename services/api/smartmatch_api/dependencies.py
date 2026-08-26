@@ -10,11 +10,31 @@ every anonymous caller (trivially exhausted by one bad actor, denying everyone)
 or require a separate IP-keyed scheme. Endpoints that genuinely precede
 authentication — login, QR scan — get the IP-keyed limiter explicitly, and edge
 throttling (Cloud Armor, layer 1) covers the rest.
+
+## Where the limit sits *after* authentication (ADR-0015)
+
+Authenticate, then charge, then do the work. A command route calls
+:func:`charge_quota` as its **first** statement — before it loads the resource,
+before it authorizes, before it validates a header or a body — and that call
+commits the increment in a transaction of its own, so the quota is durable
+whatever the request does next.
+
+Both halves are load-bearing and neither works alone. Charging late made a
+``403``, ``404`` or ``400`` free, which is backwards for a limiter whose purpose
+is to bound abusive traffic: those are the refusals cheapest to produce in bulk.
+Charging early without committing early would have left the increment in the
+request's own transaction, where ``get_session``'s unconditional
+``finally: session.rollback()`` discards it on exactly those paths.
+
+The cost is charged deliberately and is stated in ADR-0015: an authenticated
+caller pays for requests they were never allowed to make, and for ids that do
+not exist.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -29,6 +49,8 @@ from smartmatch_api.errors import ApiError
 __all__ = [
     "CurrentPrincipal",
     "DbSession",
+    "QuotaCharge",
+    "charge_quota",
     "enforce_rate_limit",
     "get_current_principal",
     "get_session",
@@ -115,11 +137,20 @@ def enforce_rate_limit(
     *,
     now: datetime | None = None,
 ) -> None:
-    """Consume one unit of quota, or raise 429.
+    """Consume one unit of quota, or raise 429. **Does not commit.**
 
     Called from route handlers rather than declared as a dependency, because the
-    limit differs per operation and the consumption must join the handler's
-    transaction — quota spent by a request that then rolls back should not count.
+    limit differs per operation and because where the increment commits is a
+    decision each route has to make rather than inherit.
+
+    Command routes do not call this directly — they call :func:`charge_quota`,
+    which wraps it in a commit (ADR-0015). This one is the raw consumption, kept
+    separate because the two rules genuinely differ: a *command* is charged
+    before anything else and keeps the charge however the request ends, while a
+    limited **read** may still want its increment to share the request's
+    transaction, since a read that fails has produced nothing for the caller to
+    have gained by. No read is limited today; when one is, it gets this function
+    and its own paragraph, not the command rule by default.
 
     Fails closed by construction: any database error propagates rather than being
     swallowed into an allow. v1.1 §3.6 (N4) prohibits skipping rate checks under
@@ -150,6 +181,75 @@ def enforce_rate_limit(
             "X-RateLimit-Remaining": "0",
         },
     )
+
+
+@dataclass(frozen=True, slots=True)
+class QuotaCharge:
+    """Proof that a caller was charged for this request before it did anything.
+
+    Returned by :func:`charge_quota` and required by
+    :func:`smartmatch_api.commands.submit_command`, so a command cannot be
+    accepted by a route that never charged for it. That is the half of ADR-0015
+    a type checker can enforce; the other half — that the charge is the route's
+    *first* statement, ahead of the load, the authorization and the validators —
+    is the router's own discipline, checked by tests that count the counter after
+    a run of refusals rather than by a signature.
+
+    Attributes:
+        operation: The limited operation the charge was made against, matching
+            :attr:`~smartmatch_persistence.rate_limit.RateLimit.operation`. Carried
+            so a receipt names the bucket it came out of; two routes sharing one
+            bucket (re-drive and abandon) are meant to be visible as such.
+    """
+
+    operation: str
+
+
+def charge_quota(
+    session: Session,
+    resolved: ResolvedPrincipal,
+    limit: RateLimit,
+    *,
+    now: datetime | None = None,
+) -> QuotaCharge:
+    """Charge one unit of quota **durably**, before the route does anything else.
+
+    The first statement of every command route, ahead of loading the resource,
+    authorizing it, and validating the header and the body. ADR-0015 records the
+    decision and what it costs: an authenticated caller pays for requests they
+    were never allowed to make, and for ids that do not exist.
+
+    The commit is not an implementation detail of "charge first" — it is the
+    other half of it. An increment left in the request's own transaction is
+    discarded by ``get_session``'s unconditional ``finally: session.rollback()``
+    on every path that raises, which is precisely the ``403``/``404``/``400``
+    set this ordering exists to charge for. So the increment gets a transaction
+    of its own, which is the shape ``docs/plans/transaction-boundary-defects.md``
+    §2.3(c) records as the right long-term one: a rate-limit counter is not part
+    of a command's atomic unit, and a command that never happens must not take
+    the caller's charge back down with it.
+
+    A denial writes nothing — ``RateLimiter.check``'s guarded ``ON CONFLICT``
+    matches no row once the window is spent — so the 429 path has nothing to
+    commit and correctly commits nothing.
+
+    Args:
+        session: The request session. Committed here, and only here, before the
+            handler's own work begins.
+        resolved: The authenticated caller. Quota is keyed by their tenant and
+            user id, never by anything the request supplied.
+        limit: The limit for this operation.
+        now: Injected for tests so window rollover is exercised directly.
+
+    Returns:
+        A :class:`QuotaCharge` receipt to hand to ``submit_command``.
+
+    Raises:
+        ApiError: 429 with ``Retry-After`` and the standard rate headers.
+    """
+    enforce_rate_limit(session, resolved, limit, now=now)
+    session.commit()
+    return QuotaCharge(operation=limit.operation)
 
 
 # Resource-level authorization is deliberately *not* a dependency. It is applied

@@ -761,3 +761,117 @@ def test_the_job_actor_can_read_their_own_job(client, unit_id, coordinator):
 
     response = client.get(f"/v1/jobs/{job_id}", headers={"Authorization": f"Bearer {coordinator}"})
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# J16 / ADR-0015 — a refused import costs quota
+# ---------------------------------------------------------------------------
+#
+# The same measurement as ``tests/integration/test_redrive.py``, on the other
+# command route, because the decision is a standing rule for every command route
+# rather than a fix to one router. ``/imports`` had the same ordering and one
+# extra step of it: the charge lived inside ``submit_command``, past the unit
+# load, past ``assert_allowed``, and past the router's own body check — so all
+# three refusals below moved ``rate_limit_counter`` by zero however many times
+# they were repeated.
+#
+# Each test asserts that every refusal reaching the handler was charged exactly
+# once, and that a run of them is eventually stopped by the limiter. See the
+# corresponding block in ``test_redrive.py`` for why the position of the 429 in
+# the run is deliberately not pinned.
+
+#: How many refusals each of these tests sends, from the J16 row's measurement.
+_REFUSAL_RUN = 25
+
+
+def _quota_consumed(engine, tenant_id) -> int:
+    """Total rate-limit units this tenant has spent, across every operation."""
+    with engine.begin() as conn:
+        return (
+            conn.execute(
+                text(
+                    "SELECT coalesce(sum(count), 0) FROM rate_limit_counter WHERE tenant_id = :tid"
+                ),
+                {"tid": tenant_id},
+            ).scalar_one()
+            or 0
+        )
+
+
+def test_a_run_of_forbidden_imports_is_charged_and_then_limited(client, engine, tenant_id, unit_id):
+    """Authorization runs after the charge, so a denial is not free."""
+    user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-student-j16"))
+    _grant(engine, tenant_id, user_id, role="student")
+    client.verifier.register("tok-student-j16", unique_subject("sub-student-j16"))
+
+    before = _quota_consumed(engine, tenant_id)
+    statuses = [
+        _post_import(client, unit_id, "tok-student-j16", key=f"denied-{index}").status_code
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    assert set(statuses) <= {403, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert statuses[0] == 403
+    assert statuses.count(403) == spent, (
+        f"{statuses.count(403)} denials moved the counter by {spent}"
+    )
+    assert 429 in statuses
+
+    with engine.connect() as conn:
+        jobs = conn.execute(text("SELECT count(*) FROM job")).scalar_one()
+    assert jobs == 0, "charging for a denial must not accept the command"
+
+
+def test_a_run_of_imports_into_a_unit_that_does_not_exist_is_charged_and_then_limited(
+    client, engine, tenant_id, coordinator
+):
+    """A 404 costs quota, on the route where the missing thing is the unit."""
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        _post_import(client, uuid.uuid4(), coordinator, key=f"no-unit-{index}")
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "unit_not_found", responses[0].text
+    assert statuses.count(404) == spent, (
+        f"{statuses.count(404)} lookups of units that do not exist moved the counter by {spent}"
+    )
+    assert 429 in statuses
+
+
+def test_a_run_of_imports_with_no_idempotency_key_is_charged_and_then_limited(
+    client, engine, tenant_id, unit_id, coordinator
+):
+    """The 400 that used to be raised one statement *before* the charge.
+
+    ``submit_command`` validates the ``Idempotency-Key`` and then charges, so a
+    caller who simply omitted the header got an unlimited stream of 400s. The
+    ordering is now the router's, ahead of the whole function, which is what
+    makes this the same test as the other two rather than a special case.
+    """
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        client.post(
+            f"/v1/units/{unit_id}/imports",
+            json=_import_body(),
+            headers={"Authorization": f"Bearer {coordinator}"},
+        )
+        for _ in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {400, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "idempotency_key_required", responses[0].text
+    assert statuses.count(400) == spent, (
+        f"{statuses.count(400)} requests with no key moved the counter by {spent}"
+    )
+    assert 429 in statuses
+
+    with engine.connect() as conn:
+        reservations = conn.execute(text("SELECT count(*) FROM idempotency_record")).scalar_one()
+    assert reservations == 0, "a request refused before the reservation leaves no key behind"

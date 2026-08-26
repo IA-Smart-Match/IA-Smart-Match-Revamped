@@ -28,6 +28,7 @@ that is worth seeing from the index.
 | [ADR-0012](ADR-0012-event-identity-and-tag-vocabulary.md) | Deterministic event identity, and a closed tag vocabulary | Accepted | 25 August 2026 | Extracted events resolve by a deterministic key — host org unit, normalized title, resolved date window — so re-crawling updates rather than duplicates, and an `unresolved` event has no key at all. Source provenance is a structured field, never part of the title. Role and type tags come from a closed versioned vocabulary; unmapped values are quarantined, never rendered and never matched on. | — | — | — |
 | [ADR-0013](ADR-0013-attendance-derived-engagement.md) | Attendance-derived engagement: a server-side ledger, and rewards with an owner | Accepted | 25 August 2026 | Points are a fold over an append-only `point_ledger_entry` derived from recorded attendance and nothing else — never a stored counter and never a browser formula, and a reversal is a compensating entry rather than a delete. Redemption is a command with an approval step. A catalog item with a real fulfilment cost cannot be listed without a named budget owner and a funded balance, and the economy is calibrated against a stated, tested property. | — | — | — |
 | [ADR-0014](ADR-0014-disclosure-consent.md) | Disclosure consent is a separate record from contact consent | Accepted | 25 August 2026 | Permission for a *peer* to see that someone attended is its own record — subject, audience scope, purpose, granted/revoked — and **not** `smartmatch_domain.consent` widened, which models an organization's licence to contact a discovered person and has no audience dimension at all. Also records that in-app chat is cut rather than deferred. | — | — | — |
+| [ADR-0015](ADR-0015-charge-quota-before-refusal.md) | Charge quota before the route can refuse the request | Accepted | 25 August 2026 | Every command route charges quota as its **first** statement — ahead of the resource load, the authorization, and the header and body validators — and the charge commits in a transaction of its own, so a `403`, `404` or `400` costs the caller what they spent producing it. Decides that an authenticated caller pays for requests they were never allowed to make, and for ids that do not exist. Refines ADR-0006's *timing*, not its counting. | — | — | — |
 
 ## Two pointers worth having
 
@@ -56,15 +57,21 @@ hard to locate:
 
 ## Reserved numbers
 
-**ADR-0015 is reserved** for agent-memory Slice 1
+**ADR-0016 is reserved** for agent-memory Slice 1
 (`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
 beside it). It has no file yet. Do not take that number for anything else.
 
-This reservation was **ADR-0010** until 25 August 2026, when the five ADRs
-arising from the stakeholder test-log audit took 0010–0014. Slice 1 had no file,
-so nothing was displaced — and moving the reservation was not optional:
-`test_adr_numbers_are_contiguous_from_one` refuses a gap, so leaving 0010 empty
-and taking 0011–0015 would have failed the lane.
+This reservation has now moved twice, for the same reason both times, and the
+reason is worth stating once rather than re-deriving: **a reservation with no
+file cannot hold its number**, because `test_adr_numbers_are_contiguous_from_one`
+refuses a gap. An ADR written while the reservation is unfilled therefore takes
+the next free number and the reservation moves up; the alternative is a failing
+lane, not a preserved number.
+
+It was **ADR-0010** until 25 August 2026, when the five ADRs arising from the
+stakeholder test-log audit took 0010–0014. It was **ADR-0015** until 25 August
+2026, when the J16 rate-limit decision took that number. Slice 1 had no file on
+either occasion, so nothing was displaced.
 
 ## This table is checked, not maintained by hope
 

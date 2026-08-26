@@ -25,7 +25,7 @@ from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_persistence.rate_limit import RateLimit
 
 from smartmatch_api.commands import submit_command
-from smartmatch_api.dependencies import CurrentPrincipal, DbSession
+from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.units import load_unit_or_404
 from smartmatch_api.utils import utc_now
@@ -113,7 +113,16 @@ def create_import(
     Authorization runs against the *owning unit*, after loading it — which is
     why it happens here rather than in a dependency. A dependency cannot
     authorize a resource it has not fetched.
+
+    Quota is charged before any of that (ADR-0015), so a caller producing 404s
+    against unit ids they invented, or 403s against a unit they may not import
+    into, is spending exactly what a caller submitting real imports spends. It
+    used to be charged inside ``submit_command``, which is past all three
+    refusals — those requests were free, and they are the cheapest of all the
+    refusals to produce in bulk.
     """
+    charge = charge_quota(session, principal, IMPORT_RATE_LIMIT)
+
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
 
     assert_allowed(
@@ -153,7 +162,7 @@ def create_import(
             "dry_run": body.dry_run,
         },
         idempotency_key=idempotency_key,
-        rate_limit=IMPORT_RATE_LIMIT,
+        charge=charge,
     )
 
     return CommandAcceptedResponse(
