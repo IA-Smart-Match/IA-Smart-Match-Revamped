@@ -7,7 +7,16 @@ coordinator-facing labels like "Rest Recommended". Migration manifest MM-003
 records the behavior retained and rejected.
 
 Retained from the legacy: the *shape* of the computation — recent assignment
-pressure, travel burden, and event cadence combined into a bounded score.
+pressure and travel burden combined into a bounded score.
+
+This sentence previously also named "event cadence". It was not true, and the
+port review recorded it as finding F-4: **there is no event-cadence input.** ELI
+is computed from a professional's own workload facts and is never given the
+event under consideration, so it has no way to express that event's cadence.
+The modifiers that read as cadence-flavoured are caller-supplied booleans, not a
+computed cadence. Corrected here as well as in the manifest, because a docstring
+claiming an input the module does not have is the same defect wherever it is
+written.
 
 Rejected: the health framing and its labels; the implicit inference from a
 pipeline "stage_order" column to "days since last assignment", which invented a
