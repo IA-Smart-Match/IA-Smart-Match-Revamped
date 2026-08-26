@@ -247,17 +247,36 @@ jobs:
   secrets:
     name: security — secret scan
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          # Full history: a secret that was committed and later removed is still
+          # disclosed, so scanning only the diff would miss the case that matters.
           fetch-depth: 0
 
+      - name: Install gitleaks
+        # gitleaks-action refuses to start on an organisation-owned repository
+        # without a paid GITLEAKS_LICENSE, so it scanned nothing here. The tool
+        # itself is Apache-2.0 and has no such restriction.
+        #
+        # Installed from the Go module proxy rather than a release tarball: the
+        # version is pinned, and the module is verified against the public
+        # checksum transparency log (sum.golang.org) automatically. That is a
+        # stronger supply-chain guarantee than a tarball SHA in this file, and it
+        # keeps the "pin to something immutable" rule this workflow follows.
+        #
+        # The module path is the canonical one declared in gitleaks' own go.mod;
+        # the repository moved to gitleaks/gitleaks but the module did not.
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --redact so a true positive is not reprinted in the build log.
+        # Configuration, including the one allowlisted synthetic literal, is in
+        # .gitleaks.toml at the repository root.
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" git --redact --exit-code 1 .
 
 # ---------------------------------------------------------------------------
 # Gates deferred, with the release that introduces each (v1.1 §4.1 staging).
