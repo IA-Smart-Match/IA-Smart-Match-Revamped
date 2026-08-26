@@ -1489,9 +1489,11 @@ def test_a_stale_failure_write_cannot_overwrite_a_peers_lease(
     # longer owns.
     recorded = dispatcher._record_failure(stale, "queue unavailable", stale.dispatch_attempts)
 
-    assert recorded == "unresolved", (
+    assert recorded == "contended", (
         "a row a peer is still working is neither a reclaim nor a completed "
-        "dispatch; the dispatcher must say nothing about it rather than guess"
+        "dispatch; the dispatcher must say nothing about it rather than guess. "
+        "J17 landed this as 'unresolved'; J8 gave it a name of its own so the "
+        "benign race stops looking like an incident — see DispatchOutcome"
     )
 
     row = _outbox_row(session_factory, job_id)
@@ -1555,9 +1557,11 @@ def test_a_stale_dispatch_write_cannot_overwrite_a_peers_lease(
         stale.tenant_id, stale.job_id, stale.id, lease_token=stale.lease_token
     )
 
-    assert recorded == "unresolved", (
+    assert recorded == "contended", (
         "the row is neither reclaimed nor finalised — it is held by a peer "
-        "mid-pass, and this dispatcher cannot say how that pass ends"
+        "mid-pass, and this dispatcher cannot say how that pass ends. Named "
+        "apart from 'unresolved' by J8: this dispatcher knows exactly what "
+        "happened, it simply is not the one finishing the row"
     )
 
     row = _outbox_row(session_factory, job_id)

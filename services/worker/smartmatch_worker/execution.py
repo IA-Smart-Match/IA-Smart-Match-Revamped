@@ -27,13 +27,38 @@ attention, and the only evidence anything went wrong is an absence. So every
 path out of a claimed job — handler success, declared failure, unknown command
 type, or an exception nobody predicted — ends in a terminal transition.
 
-The one case that cannot be closed here is a worker that dies *after* claiming
-and before recording an outcome. Recovering that needs a lease on the job row
-and a sweeper. ``job.lease_expires_at`` **now exists** — migration ``0004``
-added it, along with ``ix_job_running_lease`` — but nothing writes it and
-nothing sweeps it yet, so the gap is still open and this paragraph still
-describes today. It is named here rather than left to be discovered: such a job
-stays ``running`` until someone looks. Backlog item J9.
+The one case that could not be closed by any of those paths is a worker that
+dies *after* claiming and before recording an outcome — a killed process, an
+evicted pod, an OOM, a drained node, or the ``500`` ``main`` returns when
+PostgreSQL itself refuses the write. No code in this module runs at that moment,
+so no amount of care inside it could have helped: the job simply stayed
+``running`` until a human noticed.
+
+**J9 closes it, and the mechanism is a deadline rather than liveness
+detection.** Nothing tries to discover whether a worker is alive; there is only
+a promise with an expiry on it, exactly as the outbox already recovers a crashed
+dispatcher. Four writes, all of them in
+:class:`~smartmatch_persistence.jobs.JobRepository`:
+
+1. :meth:`~smartmatch_persistence.jobs.JobRepository.claim` sets
+   ``job.lease_expires_at`` in the same conditional UPDATE that takes
+   ``dispatched -> running``, so there is no window in which a job is claimed
+   and undated.
+2. :meth:`_emit` renews it with every progress event, so a job that is still
+   saying something is never swept.
+3. Every terminal transition clears it — :meth:`_finish` goes through
+   ``transition``, which writes ``NULL`` unless a lease is given.
+4. :class:`StalledJobSweeper` takes ``running -> timed_out`` for whatever is
+   left, from the dispatcher's scheduled pass (J8).
+
+What that does **not** close is a handler that hangs while its process stays
+healthy for longer than the lease with nothing to report. It is swept, its work
+may still be running, and its eventual outcome is discarded by :meth:`_finish`'s
+``expected_from='running'`` guard — recorded as ``job.outcome_discarded`` rather
+than lost. That is the deliberate trade: the lease bounds *silence*, and a
+handler that intends to work for longer than one must emit progress. See
+``smartmatch_persistence.jobs`` for the argument against renewing on a timer
+instead.
 
 ## The delivery is identifiers, and only identifiers
 
@@ -57,10 +82,16 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Final, Literal
 
 from smartmatch_domain.jobs import JobState
-from smartmatch_persistence.jobs import JobRecord, JobRepository
+from smartmatch_persistence.jobs import (
+    DEFAULT_JOB_LEASE,
+    JobRecord,
+    JobRepository,
+    TimedOutJobRecord,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 from smartmatch_worker.handlers import (
@@ -73,7 +104,7 @@ from smartmatch_worker.handlers import (
     ProviderFailure,
 )
 
-__all__ = ["ExecutionOutcome", "TaskExecutor"]
+__all__ = ["ExecutionOutcome", "StalledJobSweeper", "TaskExecutor"]
 
 logger = logging.getLogger(__name__)
 
@@ -133,11 +164,22 @@ class TaskExecutor:
             the event that describes it so a job can never be terminal with no
             record of why.
         registry: The command types this worker can execute.
+        lease: How long this worker's claim on a job stays good without the
+            handler saying anything. It bounds silence, not duration — see the
+            module docstring, and :class:`StalledJobSweeper` for what happens
+            when it runs out.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session], registry: CommandRegistry) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        registry: CommandRegistry,
+        *,
+        lease: timedelta = DEFAULT_JOB_LEASE,
+    ) -> None:
         self._session_factory = session_factory
         self._registry = registry
+        self._lease = lease
         self._jobs = JobRepository()
 
     def execute(self, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> ExecutionOutcome:
@@ -329,18 +371,47 @@ class TaskExecutor:
         )
 
     def _emit(self, job: JobRecord, payload: dict[str, Any]) -> int:
-        """Append one job event and commit it immediately.
+        """Append one job event, renew the lease, and commit both immediately.
 
         Its own transaction, so a client following the SSE stream sees progress
         while the work is still running. Batching these until the end would make
         the stream a summary delivered after the fact, which is not what a
         stream is for.
+
+        **The renewal rides the event, and that is the whole of J9's step 2.**
+        An emitted event is the only evidence this process has that the *work*
+        is progressing rather than merely that the process is up, so it is what
+        the lease is extended on. The two writes share the transaction because a
+        renewal without its event would extend a deadline on the strength of
+        nothing, and an event without its renewal would let a job the client can
+        watch making progress be swept out from under it.
+
+        A renewal that finds the job no longer ``running`` is reported rather
+        than ignored. It means the handler is working a job that has already
+        been cancelled or already been swept, and the second is the visible
+        symptom of a lease configured shorter than the work — the one thing an
+        operator can act on. The event is still appended: the job's stream
+        should show what the handler was doing when it lost the job, and
+        ``job_event`` has no state precondition to violate.
         """
         with self._session_factory() as session:
             record = self._jobs.append_event(
                 session, tenant_id=job.tenant_id, job_id=job.id, payload=payload
             )
+            renewed = self._jobs.renew_lease(
+                session, tenant_id=job.tenant_id, job_id=job.id, lease=self._lease
+            )
             session.commit()
+
+        if not renewed:
+            logger.warning(
+                "job %s: progress was recorded but its lease could not be renewed; "
+                "the job is no longer 'running'. It was cancelled, or its lease "
+                "expired and the sweep timed it out while this handler was still "
+                "working — in which case this worker's outcome will be discarded",
+                job.id,
+            )
+
         return record.sequence
 
     def _claim(self, tenant_id: uuid.UUID, job_id: uuid.UUID) -> bool:
@@ -350,9 +421,17 @@ class TaskExecutor:
         claim has to be visible to a racing delivery *before* the work starts,
         or both deliveries can be inside their own transactions believing they
         won.
+
+        The lease goes on in the same statement, not afterwards. A follow-up
+        write would leave a window — narrow, and exactly the width of the defect
+        J9 exists to close — in which the job is ``running`` with no deadline on
+        it, and a worker that died inside that window would leave behind the one
+        row shape the sweep is required to skip.
         """
         with self._session_factory() as session:
-            claimed = self._jobs.claim(session, tenant_id=tenant_id, job_id=job_id)
+            claimed = self._jobs.claim(
+                session, tenant_id=tenant_id, job_id=job_id, lease=self._lease
+            )
             session.commit()
         return claimed
 
@@ -365,6 +444,113 @@ class TaskExecutor:
         """
         with self._session_factory() as session:
             return self._jobs.get(session, tenant_id=tenant_id, job_id=job_id)
+
+
+class StalledJobSweeper:
+    """Times out jobs whose worker never came back (J9).
+
+    The counterpart to ``OutboxDispatcher.reclaim_stranded``, one table over,
+    and deliberately **not** the same code. ``transaction-boundary-defects.md``
+    §3.3 argued that case and the argument holds: the predicates differ, the
+    recovery writes differ, and the two tables have no relationship a shared
+    "expired lease reaper" could exploit. What they share is a place — the
+    dispatcher's scheduled pass — and a purpose, which is to be the one surface
+    an operator reads for *work that had to be rescued*.
+
+    Args:
+        session_factory: Produces sessions. The sweep owns its transaction,
+            because each job's state change and the event explaining it commit
+            together for the reason :meth:`TaskExecutor._finish` gives.
+        limit: Most jobs to time out in one pass. A bound rather than a
+            throttle: a sweep that found ten thousand expired leases has found
+            an incident, and taking them a hundred at a time keeps one pass's
+            transaction short instead of holding row locks across the whole
+            table while the dispatcher waits behind it.
+
+    ## Every sweep writes an event, and the event is the point
+
+    A job that goes terminal with nothing saying why is the failure this whole
+    module is organised against. It is worse here than anywhere else: the client
+    watching the SSE stream saw ``job.started`` and then silence, and without an
+    event the state change is silence too — the job simply *is* ``timed_out``
+    one day, with no record of when the deadline was, how long it had passed, or
+    that a sweep rather than a worker decided it. So the transition and its
+    ``job.timed_out`` event share a transaction, exactly as
+    :meth:`TaskExecutor._finish` does, and the event carries the missed deadline
+    because the row stops carrying it the instant the sweep commits.
+
+    ## Logged after the commit, and only about what committed
+
+    The same rule ``OutboxDispatcher.reclaim_stranded`` learned. A batch that
+    raises part-way through would otherwise have announced jobs as timed out
+    while the transaction rolled every one of them back, leaving an operator
+    reconciling a log against a metric that disagreed with it — with the log the
+    one that was wrong.
+    """
+
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        limit: int = 100,
+    ) -> None:
+        self._session_factory = session_factory
+        self._limit = limit
+        self._jobs = JobRepository()
+
+    def sweep(self) -> int:
+        """Time out every job whose lease has expired.
+
+        Returns:
+            How many jobs were moved ``running -> timed_out``. Normally zero. A
+            non-zero count is not a queue-depth reading to be smoothed over
+            time: it says a worker died holding work, or a handler went silent
+            for longer than its lease, and either deserves an operator's
+            attention on its own.
+
+        Raises:
+            Exception: whatever the database raised. The caller guards this —
+            the sweep is janitorial, and the rule ``run_once`` established is
+            that tidying up yesterday's wreckage must never cost today's
+            dispatch. It is not swallowed *here* because a sweeper that reported
+            zero when it had failed would be indistinguishable from a healthy
+            one, and the count is the metric.
+        """
+        with self._session_factory() as session:
+            swept: list[TimedOutJobRecord] = self._jobs.sweep_expired_leases(
+                session, limit=self._limit
+            )
+            for record in swept:
+                self._jobs.append_event(
+                    session,
+                    tenant_id=record.tenant_id,
+                    job_id=record.id,
+                    payload={
+                        "type": "job.timed_out",
+                        "reason": "lease_expired",
+                        "detail": (
+                            "no worker reported on this job before its lease expired at "
+                            f"{record.lease_expired_at.isoformat()}; it was timed out by "
+                            "the scheduled sweep"
+                        ),
+                    },
+                )
+            session.commit()
+
+        for record in swept:
+            # WARNING, never INFO. Reaching here means a delivery claimed this
+            # job and no code ever came back to say how it ended — the failure
+            # this module's whole design is arranged to make impossible from the
+            # inside, arrived at from the outside.
+            logger.warning(
+                "job %s (%s) held a lease that expired at %s with no outcome recorded; "
+                "timed out by the sweep. Re-drive it to re-run the work",
+                record.id,
+                record.command_type,
+                record.lease_expired_at.isoformat(),
+            )
+
+        return len(swept)
 
 
 def _state_for(failure: HandlerFailure) -> JobState:

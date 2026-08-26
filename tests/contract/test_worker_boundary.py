@@ -61,9 +61,17 @@ def test_worker_exposes_no_command_routes_beyond_the_task_target():
     Handlers were added in J7, and none of them brought a route with it: the
     worker is reachable only by Cloud Tasks, and a per-command HTTP route would
     be a second way in that nothing verifies.
+
+    ``/operations/dispatch`` was added by J8 and is listed here deliberately
+    rather than excluded by prefix. It is not a command route — it carries no
+    body, names no job, and executes nothing; it runs one dispatcher pass for
+    Cloud Scheduler. It is a second door, though, and it is verified by its own
+    OIDC identity against its own allowlist, which is what this file exists to
+    keep true. Its fail-closed behaviour is asserted in
+    ``tests/integration/test_scheduled_dispatch.py``.
     """
     paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
     business_paths = {
         p for p in paths if not p.startswith(("/health", "/openapi", "/docs", "/redoc"))
     }
-    assert business_paths == {"/tasks/execute"}
+    assert business_paths == {"/tasks/execute", "/operations/dispatch"}
