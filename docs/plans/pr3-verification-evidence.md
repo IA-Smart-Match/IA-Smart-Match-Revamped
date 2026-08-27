@@ -95,6 +95,28 @@ All run at `7e27268`.
 
 Total: **1,094 passed, 1 skipped, 0 failed.**
 
+### Re-verified at `5f02423` (HEAD) on 2026-08-27
+
+§4 above ran at `7e27268`. `5f02423` landed afterwards, so the gates were
+re-run at HEAD against a **PostgreSQL cluster rebuilt from scratch** for this
+purpose (`initdb` into `~/pg16/data`, `ltree` and `uuid-ossp` installed,
+`alembic upgrade head` from empty — `0001` → `0007` clean).
+
+| Gate at HEAD | Command | Result |
+|---|---|---|
+| Unit / authz / contract / golden | `pytest -m "not integration"` | **714 passed, 1 skipped** |
+| Integration | `pytest -m integration` | **380 passed** in 269.36s |
+
+Same totals as at `7e27268`: **1,094 passed, 1 skipped, 0 failed.**
+
+This was worth doing but was never a real coverage gap: `5f02423` changed
+exactly two files — this document and `tests/authz/test_job_authz.py`. It
+touched **no production code and no integration test**, so the `7e27268`
+integration result already described HEAD's production behaviour.
+
+The foreign key and the `user_account` constraint set in §2 and §3 were read
+off this rebuilt database, independently of the run that first recorded them.
+
 ### One failure worth recording, because the cause is not obvious
 
 Three tests in `test_agent_memory_check.py` failed while `README.md` had
@@ -228,13 +250,17 @@ in Part 2, which remains open pending the UI team.
 
 State these to whoever reviews the PR; none is a code defect.
 
-- **`gh` CLI returns `HTTP 401: Bad credentials`.** PR #3 could not be read and
-  **the PR summary was not updated**. The content intended for it is this file.
-- **`git fetch` and `git push` fail authentication.** `origin/main` was merged
-  from the local remote-tracking ref `cc7cfe4`, which carries both PR #2 fixes,
-  but **could not be confirmed to be the newest `origin/main`**. Nothing has
-  been pushed; the work is local commits on
-  `claude/pr1-blockers-todos-er5heu`.
+- ~~**`gh` CLI returns `HTTP 401: Bad credentials`.**~~ **Resolved
+  2026-08-27.** Re-authenticated as `BrooklynD23` with scopes `repo` and
+  `workflow` — `workflow` is required, because this branch edits
+  `.github/workflows/verify.yml`. PR #3 reads as **OPEN** and `MERGEABLE`
+  against base `main`. This file is the PR summary.
+- ~~**`git fetch` and `git push` fail authentication.**~~ **Resolved
+  2026-08-27.** `gh auth login` installed a URL-scoped credential helper
+  (`credential.https://github.com.helper`). A real `git fetch origin` then
+  confirmed what could previously only be assumed: `origin/main` is still
+  `cc7cfe4`, the exact commit `afd80c8` merged in, and it is an ancestor of
+  `HEAD`. The branch is 18 ahead, 0 behind; **no re-merge is required.**
 - **The environment had no PostgreSQL, no Terraform, no Docker daemon and no
   root.** PostgreSQL 16.2 was built from source into `~/pg16` with contrib
   `ltree` and `uuid-ossp`; Terraform was installed as a static binary. The test
