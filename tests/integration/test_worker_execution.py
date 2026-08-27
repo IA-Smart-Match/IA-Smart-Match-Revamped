@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from conftest import ensure_owning_unit
 from fastapi.testclient import TestClient
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRepository
@@ -283,7 +284,13 @@ def accept_command(
     ``test_an_import_with_no_persisted_payload_fails_rather_than_inventing_one``.
     """
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=command_type, payload=payload)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=command_type,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            payload=payload,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=command_type)
         session.commit()
     return job.id

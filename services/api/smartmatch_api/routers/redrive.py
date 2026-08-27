@@ -93,37 +93,38 @@ ordering questions, and it is left open deliberately: a ``422`` is answered
 before the request touches the database at all, which is the one refusal here
 that is genuinely cheap to *serve* as well as cheap to produce.
 
-## The authorization, and the one thing it cannot do
+## The authorization
 
 Authorization runs **after** the job is loaded, and the load is tenant-scoped in
 the query, so a job in another tenant is a 404 rather than a 403 — a denial that
 distinguished them would be an existence oracle for other tenants' work.
 
-It does not call :func:`smartmatch_authz.assert_allowed`, and that is a
-deliberate limitation rather than a shortcut. ``assert_allowed`` matches an
-inherited grant against the resource's ``owning_unit_path``, and the ``job``
-table has no owning org unit — the same gap
-:mod:`smartmatch_api.routers.jobs` documents for job reads. Supplying a made-up
-path to satisfy the signature would be fabricating authorization data rather
-than enforcing it. So :func:`_authorize_redrive` applies the policy's rules in
-the policy's own order, over the policy's own types, and raises the policy's own
-:class:`~smartmatch_authz.AuthorizationError` — so denials carry the same stable
-reason codes and render through the same handler as everywhere else. The
-consequence, stated plainly: a coordinator in one department may re-drive
-another department's job. Closing that needs a ``job.owning_unit_id`` column and
-an expand-phase migration, and is reported rather than papered over.
+Both routes call :func:`smartmatch_api.job_authz.authorize_job_command`, which is
+the same module the status and event routes go to. This file used to carry its
+own ``_authorize_redrive``, restating the policy's four rules in Python because
+``job`` had no owning org unit for an inherited grant to match against and
+supplying a made-up path would have been fabricating authorization data. That
+column exists as of migration ``0006``, so the restatement is gone and the policy
+is called. The consequence the old docstring reported plainly — *a coordinator in
+one department may re-drive another department's job* — is closed: authorization
+is now scoped to the unit the job was submitted into.
+
+What has not changed, and is the reason these two routes take the *command*
+entry point rather than the read one: **there is no actor exception here.**
+Having submitted a job is not authority to re-run it or to close it permanently.
+Re-drive and abandon are oversight, not ownership, and the person who pressed the
+button the first time is precisely the person most likely to press it again.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Annotated, Any, Final
+from datetime import timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Path, status
 from pydantic import BaseModel, Field
-from smartmatch_authz import AccessDecision, AuthorizationError, Effect
 from smartmatch_domain.jobs import InvalidTransitionError, JobState
 from smartmatch_persistence.idempotency import (
     IdempotencyConflictError,
@@ -139,6 +140,7 @@ from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
+from smartmatch_api.job_authz import authorize_job_command
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["redrive"])
@@ -148,16 +150,6 @@ logger = logging.getLogger(__name__)
 _jobs = JobRepository()
 _redrive = RedriveRepository()
 _idempotency = IdempotencyRepository()
-
-#: The resource type explicit grants use for a job, matching what an
-#: administrator writes into ``resource_grant.resource_type``.
-_JOB_RESOURCE: Final[str] = "job"
-
-#: Roles that may re-drive or abandon parked work. An explicit set, not "any
-#: active membership": re-running failed work can repeat side effects that
-#: already reached people outside the system, and closing it permanently removes
-#: it from everyone else's view.
-_REDRIVE_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
 #: v1.1 §3.4 pilot defaults are hypotheses to tune with recorded evidence. Tight
 #: here on purpose: re-drive is a deliberate human decision, so a caller issuing
@@ -225,62 +217,6 @@ def _load_job_or_404(session: Session, tenant_id: uuid.UUID, job_id: uuid.UUID) 
             message="No such job.",
         )
     return job
-
-
-def _authorize_redrive(principal: ResolvedPrincipal, job_id: uuid.UUID, *, at: datetime) -> None:
-    """Authorize a re-drive or an abandonment, in the policy's own order.
-
-    The four rules are :mod:`smartmatch_authz.policy`'s, applied to a resource
-    that has no org path for the inherited-grant path to match (see the module
-    docstring):
-
-    1. **Suspension is checked first and unconditionally.** An administrator who
-       suspends an account must not have to wait for the identity provider to
-       revoke a token before the account stops being able to re-run work.
-    2. **Tenant mismatch is structural.** Already impossible here, because the
-       job was loaded scoped to the caller's tenant — asserted anyway, since the
-       cost is a comparison and the failure mode is cross-tenant execution.
-    3. **An explicit deny on the job beats the role.** This is how an
-       administrator carves one job out of a broad grant, and it must win.
-    4. **A role is required, and a bare resource grant cannot supply it.** A
-       grant conveys access to a resource, not authority to re-run it; the
-       policy makes the same call for the same reason, with the same distinct
-       reason code so the open policy-matrix gap stays visible in the audit
-       trail instead of being silently allowed or silently denied.
-
-    Raises:
-        AuthorizationError: on any denial. Rendered as 403 with the decision's
-            stable reason code by the application's existing handler.
-    """
-    actor = principal.principal
-
-    if actor.suspended:
-        raise AuthorizationError(AccessDecision(allowed=False, reason="principal_suspended"))
-
-    if actor.tenant_id != str(principal.tenant_id):
-        raise AuthorizationError(AccessDecision(allowed=False, reason="tenant_mismatch"))
-
-    grants = [
-        grant
-        for grant in actor.resource_grants
-        if grant.resource_type == _JOB_RESOURCE and grant.resource_id == str(job_id)
-    ]
-    if any(grant.effect is Effect.DENY for grant in grants):
-        raise AuthorizationError(AccessDecision(allowed=False, reason="explicit_resource_deny"))
-
-    holds_role = any(
-        membership.is_active_at(at) and membership.role in _REDRIVE_ROLES
-        for membership in actor.memberships
-    )
-    if holds_role:
-        return
-
-    if any(grant.effect is Effect.ALLOW for grant in grants):
-        raise AuthorizationError(
-            AccessDecision(allowed=False, reason="resource_grant_lacks_required_role")
-        )
-
-    raise AuthorizationError(AccessDecision(allowed=False, reason="no_grant"))
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -436,7 +372,7 @@ def redrive_job(
     charge_quota(session, principal, REDRIVE_RATE_LIMIT)
 
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_redrive(principal, job.id, at=utc_now())
+    authorize_job_command(principal, job, at=utc_now())
 
     reason = _require_reason(body.reason)
     key = _require_idempotency_key(idempotency_key)
@@ -640,7 +576,7 @@ def abandon_job(
     charge_quota(session, principal, REDRIVE_RATE_LIMIT)
 
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_redrive(principal, job.id, at=utc_now())
+    authorize_job_command(principal, job, at=utc_now())
 
     reason = _require_reason(body.reason)
     key = _require_idempotency_key(idempotency_key)

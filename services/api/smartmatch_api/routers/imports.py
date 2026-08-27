@@ -155,6 +155,15 @@ def create_import(
         session,
         principal,
         command_type="import.create",
+        # `unit.id`, not `unit_id` from the path and not anything from the body.
+        # All three are the same value here — `load_unit_or_404` looked the row
+        # up by that id, scoped to the caller's tenant — and taking it off the
+        # loaded row is what keeps them the same value: this is the unit
+        # `assert_allowed` was just given, so the job is filed under the subtree
+        # the request was actually permitted for. Persisting a caller-named unit
+        # would let a submitter choose who may later read, re-drive or abandon
+        # their own job (A5, migration 0006).
+        owning_unit_id=unit.id,
         payload={
             "unit_id": str(unit_id),
             "source_reference": body.source_reference,

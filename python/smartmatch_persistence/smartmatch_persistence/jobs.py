@@ -96,6 +96,23 @@ class JobRecord:
             job was claimed by a release that predates J9 — such a row is never
             swept, which is the fail-safe direction: a missing deadline is not
             grounds for terminating work that may still be in flight.
+        owning_unit_id: The organizational unit this job belongs to (A5,
+            migration ``0006``). ``NOT NULL`` in the database, and referenced
+            through the composite ``(tenant_id, owning_unit_id)`` so it can never
+            name a unit in another tenant.
+        owning_unit_path: That unit's ``ltree`` path as text, which is the form
+            :mod:`smartmatch_api.job_authz` needs — the policy matches an
+            inherited grant against a path, not against an id.
+
+            ``None`` means **this record was not read from the database**:
+            :meth:`JobRepository.create` returns a write receipt and does not
+            re-read the row to resolve a path for the id it was just handed.
+            Every read path populates it. The two are deliberately
+            distinguishable rather than papered over by having ``create`` accept
+            the path as an argument: a path supplied alongside an id is a second
+            source of truth for one fact, and the authorizer must never be handed
+            one — it treats ``None`` as a denial, which a *wrong* path would not
+            be.
     """
 
     id: uuid.UUID
@@ -105,8 +122,10 @@ class JobRecord:
     actor_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    owning_unit_id: uuid.UUID
     payload: dict[str, Any] | None = None
     lease_expires_at: datetime | None = None
+    owning_unit_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +173,7 @@ class JobRepository:
         *,
         tenant_id: uuid.UUID,
         command_type: str,
+        owning_unit_id: uuid.UUID,
         actor_id: uuid.UUID | None = None,
         deadline: datetime | None = None,
         job_id: uuid.UUID | None = None,
@@ -165,6 +185,24 @@ class JobRepository:
         crash can never leave a job with no outbox entry to dispatch it.
 
         Args:
+            owning_unit_id: The organizational unit this job belongs to, and the
+                thing every later authorization decision about it is scoped
+                against (A5, migration ``0006``).
+
+                **Required, and positioned among the required arguments rather
+                than given a default**, which is the same choice ``claim`` makes
+                about its lease and for the same reason: a default here would be
+                a value invented by this module for a fact only the caller knows,
+                and every job that took it would be authorized against the wrong
+                subtree. There is no safe default — the tenant's root unit would
+                grant every coordinator in the tenant access to work they should
+                not reach, which is the hole ``0006`` closes.
+
+                It must be a unit the caller has already **authorized against**,
+                never one read out of ``payload``. ``routers/imports.py``
+                resolves it with ``load_unit_or_404`` from the path parameter and
+                passes ``assert_allowed`` the same unit, so the id stored here is
+                by construction the one the request was permitted for.
             payload: The command's parameters. Written as a column of **this
                 INSERT**, which is the strongest available form of "in the same
                 transaction": there is no second statement that could be moved,
@@ -176,6 +214,12 @@ class JobRepository:
                 Omit it only for a command that genuinely has no parameters. The
                 resulting ``NULL`` is indistinguishable from a row written before
                 ``0005``, and a worker reading one is entitled to fail the job.
+
+        Returns:
+            A write receipt. Its ``owning_unit_path`` is ``None``: this method
+            writes an id and does not read the unit back to resolve a path for
+            it. Anything that needs the path — which in practice means anything
+            authorizing — must go through :meth:`get`.
         """
         job_id = job_id or uuid.uuid4()
         now = datetime.now(UTC)
@@ -189,6 +233,7 @@ class JobRepository:
                 actor_id=actor_id,
                 deadline=deadline,
                 payload=payload,
+                owning_unit_id=owning_unit_id,
                 created_at=now,
                 updated_at=now,
                 version=1,
@@ -203,19 +248,54 @@ class JobRepository:
             actor_id=actor_id,
             created_at=now,
             updated_at=now,
+            owning_unit_id=owning_unit_id,
             payload=payload,
         )
 
     def get(self, session: Session, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> JobRecord | None:
-        """Fetch one job, scoped to its tenant.
+        """Fetch one job and the path of the unit that owns it, scoped to its tenant.
 
         ``tenant_id`` is part of the lookup, not a filter applied afterwards, so
         a caller cannot accidentally read another tenant's job by id.
+
+        ## The join is on both columns, and that is not belt and braces
+
+        ``org_unit`` is joined on ``tenant_id`` **and** ``id``, matching the
+        composite foreign key ``0006`` added. The key already makes a
+        cross-tenant pairing unstorable, so a join on ``id`` alone would return
+        the same rows today — and would be the half of the pair that silently
+        stopped being safe if the constraint were ever simplified. The read that
+        feeds an authorization decision should not depend on a constraint
+        elsewhere being intact; it should state the same rule itself.
+
+        An **inner** join, deliberately. ``owning_unit_id`` is ``NOT NULL`` and
+        the foreign key guarantees the unit exists, so a job that fails to match
+        is a job whose owning unit vanished — which cannot happen through
+        ``RESTRICT``. Returning ``None`` for such a row means the four job routes
+        answer ``404`` rather than authorizing against a path they could not
+        resolve, which is the fail-closed direction. An outer join would produce
+        a record carrying ``owning_unit_path=None``, and while
+        :mod:`smartmatch_api.job_authz` denies on that too, one refusal is better
+        than two ways to reach it.
+
+        The path is cast to ``Text`` because ``ltree`` has no SQLAlchemy type
+        (see ``schema.LTree``) and the policy parses a string —
+        ``units.py::load_unit_or_404`` casts the same column the same way for the
+        same reason.
         """
         row = session.execute(
-            sa.select(schema.job).where(
-                schema.job.c.tenant_id == tenant_id, schema.job.c.id == job_id
+            sa.select(
+                schema.job,
+                sa.cast(schema.org_unit.c.path, sa.Text).label("owning_unit_path"),
             )
+            .join(
+                schema.org_unit,
+                sa.and_(
+                    schema.org_unit.c.tenant_id == schema.job.c.tenant_id,
+                    schema.org_unit.c.id == schema.job.c.owning_unit_id,
+                ),
+            )
+            .where(schema.job.c.tenant_id == tenant_id, schema.job.c.id == job_id)
         ).one_or_none()
 
         if row is None:
@@ -622,6 +702,11 @@ def _to_job_record(row: sa.Row[Any]) -> JobRecord:
         actor_id=row.actor_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        owning_unit_id=row.owning_unit_id,
         payload=payload,
         lease_expires_at=row.lease_expires_at,
+        # Present because `get` joins it in. This is the only place a record
+        # acquires a path, which is what makes "read from the database" and "has
+        # an owning unit path" the same condition for the authorizer.
+        owning_unit_path=row.owning_unit_path,
     )

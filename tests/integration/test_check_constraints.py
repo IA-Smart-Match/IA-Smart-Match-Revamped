@@ -43,7 +43,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import unique_subject
+from conftest import ensure_owning_unit, unique_subject
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
@@ -149,10 +149,14 @@ def _make_job(conn, tenant_id: uuid.UUID) -> uuid.UUID:
     job_id = uuid.uuid4()
     conn.execute(
         text(
-            "INSERT INTO job (id, tenant_id, command_type, status) "
-            "VALUES (:id, :tenant_id, 'noop', 'queued')"
+            "INSERT INTO job (id, tenant_id, command_type, status, owning_unit_id) "
+            "VALUES (:id, :tenant_id, 'noop', 'queued', :unit_id)"
         ),
-        {"id": job_id, "tenant_id": tenant_id},
+        {
+            "id": job_id,
+            "tenant_id": tenant_id,
+            "unit_id": ensure_owning_unit(conn, tenant_id),
+        },
     )
     return job_id
 

@@ -89,6 +89,7 @@ def submit_command(
     principal: ResolvedPrincipal,
     *,
     command_type: str,
+    owning_unit_id: uuid.UUID,
     payload: dict[str, Any],
     idempotency_key: str | None,
     charge: QuotaCharge,
@@ -100,6 +101,24 @@ def submit_command(
         principal: The authenticated caller. Tenant and actor come from this,
             never from ``payload``.
         command_type: Stable command identifier, e.g. ``"match-run.create"``.
+        owning_unit_id: The organizational unit the job belongs to, and the one
+            every later authorization decision about it is scoped against (A5,
+            migration ``0006``).
+
+            **This must be the unit the router already authorized against**, not
+            one read back out of ``payload``. The distinction is the whole point
+            and it is the same one the ``tenant`` and ``actor`` rules make: a
+            unit taken from the body would be a caller naming the subtree their
+            own work is filed under, and therefore naming who may later see it,
+            re-drive it, or abandon it. ``routers/imports.py`` resolves it from
+            the *path* parameter with ``load_unit_or_404`` and hands the same
+            ``unit_id`` to ``assert_allowed``, so what is stored is by
+            construction what the request was permitted for.
+
+            It is a separate argument rather than a key this function digs out of
+            ``payload`` for exactly that reason: ``payload`` is caller-shaped
+            data, and an authorization input must not be read from it even when
+            the router happens to have put a trustworthy value there.
         payload: The command's parameters, as the router assembled them from the
             validated request body plus the identifiers it resolved. Persisted on
             the job row for the worker to execute, and hashed for the idempotency
@@ -204,6 +223,13 @@ def submit_command(
         command_type=command_type,
         actor_id=principal.user_id,
         job_id=job_id,
+        # A column of this INSERT for the same reason `payload` is: the unit a
+        # job is filed under decides who may later read, re-drive or abandon it,
+        # so it must be exactly as durable as the intent to dispatch. A
+        # follow-up UPDATE would open a window in which a committed job is
+        # authorizable by nobody — or, worse, by everybody, depending on how the
+        # gap were papered over.
+        owning_unit_id=owning_unit_id,
         # Inside the boundary because it is a column of this INSERT, not a
         # follow-up write that happens to sit before the commit.
         payload=payload,

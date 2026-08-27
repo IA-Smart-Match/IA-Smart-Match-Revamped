@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import ensure_owning_unit
 from smartmatch_domain.jobs import JobState, can_transition
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import (
@@ -65,7 +66,12 @@ def dispatcher(session_factory, queue) -> OutboxDispatcher:
 def _accept_command(session_factory, jobs, outbox, tenant_id) -> uuid.UUID:
     """Accept a command the way the API will: job and outbox in one transaction."""
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=COMMAND)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=COMMAND)
         session.commit()
     return job.id
@@ -189,7 +195,13 @@ def test_job_and_outbox_row_commit_together(session_factory, jobs, outbox, tenan
     """A rolled-back command leaves neither a job nor an outbox row."""
     job_id = uuid.uuid4()
     with session_factory() as session:
-        jobs.create(session, tenant_id=tenant_id, command_type=COMMAND, job_id=job_id)
+        jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            job_id=job_id,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job_id, command_type=COMMAND)
         session.rollback()
 

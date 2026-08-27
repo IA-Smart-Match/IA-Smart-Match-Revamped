@@ -100,20 +100,39 @@ that document.
 
 None of these can be closed from a checkout, and several block work that can.
 
+**Interim positions on all of them are now recorded in
+[`../decisions/pilot-decisions.md`](../decisions/pilot-decisions.md).** Those
+positions are **tentative, interim-owned, and not organizationally ratified** —
+they exist so development has something written down to build against. They do
+not close any of the items below, which still need IA West.
+
 - **D1** — approve the factor registry and golden case set (gate G1). **The
   longest pole.** All matching work waits on it, and matching is the product's
-  reason for existing.
+  reason for existing. *Tentative position recorded; no registry is approved.*
 - **D2** — ELI formula parameters. Now blocking one decided question: whether
   committed future engagements should count toward load (F-9 made the current
   behaviour explicit and refuses them rather than silently dropping them).
+  *Tentative position recorded; that sub-question stays open.*
 - **D3–D8** — route-matrix terms, DNS, retention periods, rewards budget owner,
-  points calibration, disclosure-consent policy.
+  points calibration, disclosure-consent policy. *Tentative positions recorded.
+  D7 (100 points per verified attendance; 300/600/1,000 bands; N = 3) and D8
+  (minimum disclosure, and explicitly **no** FERPA-compliance claim) are decided
+  in full there; D3–D5 are deferred; D6 names an operational administrator, not
+  a budget holder.*
 - **D9** — licensing. Blocks `LICENSE`, which is why F13 shipped the other three
-  governance files and deliberately not that one.
+  governance files and deliberately not that one. *Tentative position recorded:
+  private pilot, no open-source license, and deliberately still no `LICENSE`
+  file. `README.md` now carries that notice.*
 - **Q1** — remediation owner for the six legacy paths carrying named real
-  people. **Still unassigned. It is the only severity-1 item and it gates D9.**
-  The files are in git history, so deleting them at HEAD does not close it.
+  people. **A *handling* decision is now recorded as CLOSED: the archived legacy
+  repository stays read-only reference material — not modified, not deleted,
+  history not rewritten.** That is a decision about handling and **not an
+  erasure**. The six paths remain in that archive's history, so the exposure
+  behind MM-A09 is unchanged and still gates D9.
 - **D-0** — a `DESIGN.md` owner, which blocks the entire W-series frontend.
+  *Deferred, not decided. `apps/web/DESIGN.md` stays unresolved pending the UI
+  team. See also [`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md),
+  which is non-authoritative and closes nothing.*
 
 ### 3.4 Deliberately not started
 

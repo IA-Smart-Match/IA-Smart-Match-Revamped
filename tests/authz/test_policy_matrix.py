@@ -31,23 +31,25 @@ files:
 2. **The row describes the code.** The authorizer the row names is the one the
    route actually calls, and the role set the row states is the constant the
    authorizer actually reads — compared against the live object, so widening
-   ``_REDRIVE_ROLES`` to admit a student breaks this file.
+   ``JOB_OVERSIGHT_ROLES`` to admit a student breaks this file.
 3. **Every cell is executed.** Each cell is run through the *real* authorizer,
-   not through a re-implementation of it. Three of the five operations do not
-   call :func:`smartmatch_authz.evaluate` at all — ``job`` has no owning unit,
-   so ``routers/jobs.py`` and ``routers/redrive.py`` apply the policy's rules in
-   the policy's order over the policy's types instead. A matrix that asserted
-   about ``evaluate`` would therefore have been documentation for three fifths
-   of the surface. It asserts about the call sites.
+   not through a re-implementation of it. That distinction mattered more before
+   A5 than it does now: three of the five operations did not call
+   :func:`smartmatch_authz.evaluate` at all, because ``job`` had no owning unit
+   and the two job routers restated the policy's rules in Python instead. All
+   five reach ``evaluate`` today — the job ones through
+   :mod:`smartmatch_api.job_authz` — and the cells are still run through the
+   call sites rather than through the policy, because what a route *does* is the
+   thing that can drift.
 
 ## Known holes, recorded rather than left blank
 
-A blank cell is indistinguishable from an untested one, so the holes are cells
-with a ``gap`` marker naming the item that closes them (:data:`GAPS`). The
-largest is **A5**: the ``job`` table has no owning unit, so a coordinator in one
-department can read, re-drive, and abandon another department's job. That is not
-fixed here — A5 is an expand-phase migration — and the matrix says so per cell
-instead of omitting the case.
+A blank cell is indistinguishable from an untested one, so a hole is a cell with
+a ``gap`` marker naming the item that closes it (:data:`GAPS`). There are none
+at present. There were three — A5, and two consequences of the job-read path
+consulting no ``resource_grant`` — and :data:`GAPS` records what closing each of
+them changed rather than being deleted along with them, because the practice is
+the part worth keeping.
 
 ## S-007 — which roles a bare ``resource_grant`` conveys
 
@@ -78,9 +80,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from smartmatch_api import job_authz
 from smartmatch_api.errors import ApiError
-from smartmatch_api.routers import jobs as jobs_router
-from smartmatch_api.routers import redrive as redrive_router
 from smartmatch_authz import (
     AuthorizationError,
     Effect,
@@ -107,7 +108,9 @@ JOB_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
 
 #: The unit that owns the resource under test, and its sibling department. The
 #: sibling is what makes unit scoping observable: a grant on one department must
-#: not reach the other, and where it does, that is the A5 hole.
+#: not reach the other. Every job operation permitted it until A5 landed, which
+#: is why the sibling shape has a row of its own rather than being folded into
+#: "some other member".
 OWNING_UNIT = "iawest.cpp.engineering.ie"
 SIBLING_UNIT = "iawest.cpp.engineering.cs"
 ORG_ROOT = "iawest"
@@ -120,10 +123,19 @@ ORG_ROOT = "iawest"
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
 
 #: Calls that constitute authorizing a request. ``assert_allowed`` and
-#: ``evaluate`` are the policy's own entry points; ``_authorize*`` is the naming
-#: convention the two job routers use for a handler-local application of the
-#: same rules over a resource with no org path.
+#: ``evaluate`` are the policy's own entry points; ``authorize_*`` is the naming
+#: convention for a shared authorizer that wraps them for one resource type, as
+#: :mod:`smartmatch_api.job_authz` does for the four job operations.
+#:
+#: ``_authorize*`` is still recognised, and nothing uses it now — the two
+#: handler-local job authorizers it named were replaced by that shared module. It
+#: stays because the convention it encodes is "a private authorizer inside a
+#: router", which is a perfectly reasonable thing for the next command resource
+#: to write; dropping it would make such a route silently look *unauthorized* to
+#: :func:`test_the_route_calls_the_authorizer_the_matrix_names`, which is the
+#: failure this file exists to catch and not one to introduce into it.
 _POLICY_ENTRY_POINTS = frozenset({"assert_allowed", "evaluate"})
+_AUTHORIZER_PREFIXES = ("authorize_", "_authorize")
 
 #: The annotation that marks a handler parameter as the authenticated caller.
 #: Its *absence* is what makes a route public, so this string is the discriminant
@@ -228,7 +240,7 @@ def _authorizer_calls(node: ast.AST) -> set[str]:
         if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)):
             continue
         name = child.func.id
-        if name in _POLICY_ENTRY_POINTS or name.startswith("_authorize"):
+        if name in _POLICY_ENTRY_POINTS or name.startswith(_AUTHORIZER_PREFIXES):
             found.add(name)
     return found
 
@@ -304,6 +316,14 @@ class Operation:
     authorizer: str
     #: The module-level constant the authorizer reads its role set from.
     roles_constant: str
+    #: Where :data:`authorizer` and :data:`roles_constant` are *defined*, when
+    #: that is not the module the route lives in. The four job operations are
+    #: authorized by :mod:`smartmatch_api.job_authz` rather than by a helper in
+    #: their own router, and this field is what lets the two checks below look
+    #: for the function and the constant where they actually are — without
+    #: loosening them into "somewhere in the package", which would stop them
+    #: noticing a route that authorizes against a different set entirely.
+    authorizer_module: str | None
     #: What that constant contains. Checked against the live object, so widening
     #: the role set in the code without updating the matrix fails.
     required_roles: frozenset[str]
@@ -311,12 +331,21 @@ class Operation:
     #: target would carry.
     resource_type: str
     #: Whether authorization can be scoped to the resource's owning org unit.
-    #: ``False`` for every ``job`` operation until A5 lands.
+    #: ``False`` for every ``job`` operation until A5 landed; ``True`` for all
+    #: five now. Kept as a field rather than deleted as always-true: it is the
+    #: thing a new operation has to state about itself, and
+    #: :func:`test_no_operation_is_reachable_from_a_sibling_department` requires
+    #: it to be true, so a route that cannot scope has to say so and fail.
     unit_scoped: bool
 
     @property
     def resource_id(self) -> str:
         return str(UNIT_ID if self.resource_type == "org_unit" else JOB_ID)
+
+    @property
+    def authz_module(self) -> str:
+        """Where the authorizer and its role constant live."""
+        return self.authorizer_module or self.module
 
 
 OPERATIONS: tuple[Operation, ...] = (
@@ -327,6 +356,7 @@ OPERATIONS: tuple[Operation, ...] = (
         module="smartmatch_api.routers.imports",
         authorizer="assert_allowed",
         roles_constant="_IMPORT_ROLES",
+        authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
@@ -336,44 +366,48 @@ OPERATIONS: tuple[Operation, ...] = (
         method="GET",
         path="/v1/jobs/{job_id}",
         module="smartmatch_api.routers.jobs",
-        authorizer="_authorize_job_read",
-        roles_constant="_JOB_OVERSIGHT_ROLES",
+        authorizer="authorize_job_read",
+        roles_constant="JOB_OVERSIGHT_ROLES",
+        authorizer_module="smartmatch_api.job_authz",
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="job",
-        unit_scoped=False,
+        unit_scoped=True,
     ),
     Operation(
         key="job.events.read",
         method="GET",
         path="/v1/jobs/{job_id}/events",
         module="smartmatch_api.routers.jobs",
-        authorizer="_authorize_job_read",
-        roles_constant="_JOB_OVERSIGHT_ROLES",
+        authorizer="authorize_job_read",
+        roles_constant="JOB_OVERSIGHT_ROLES",
+        authorizer_module="smartmatch_api.job_authz",
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="job",
-        unit_scoped=False,
+        unit_scoped=True,
     ),
     Operation(
         key="job.redrive",
         method="POST",
         path="/v1/jobs/{job_id}/redrive",
         module="smartmatch_api.routers.redrive",
-        authorizer="_authorize_redrive",
-        roles_constant="_REDRIVE_ROLES",
+        authorizer="authorize_job_command",
+        roles_constant="JOB_OVERSIGHT_ROLES",
+        authorizer_module="smartmatch_api.job_authz",
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="job",
-        unit_scoped=False,
+        unit_scoped=True,
     ),
     Operation(
         key="job.abandon",
         method="POST",
         path="/v1/jobs/{job_id}/abandon",
         module="smartmatch_api.routers.redrive",
-        authorizer="_authorize_redrive",
-        roles_constant="_REDRIVE_ROLES",
+        authorizer="authorize_job_command",
+        roles_constant="JOB_OVERSIGHT_ROLES",
+        authorizer_module="smartmatch_api.job_authz",
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="job",
-        unit_scoped=False,
+        unit_scoped=True,
     ),
 )
 
@@ -472,6 +506,12 @@ SHAPES: tuple[Shape, ...] = (
         description="the person who submitted the job, holding no role anywhere",
         is_job_actor=True,
     ),
+    Shape(
+        name="job_actor_with_explicit_deny",
+        description="the person who submitted the job, explicitly denied on it",
+        grant=Effect.DENY,
+        is_job_actor=True,
+    ),
 )
 
 SHAPES_BY_NAME = {shape.name: shape for shape in SHAPES}
@@ -509,39 +549,26 @@ def deny(reason: str, *, gap: str | None = None, why: str = "") -> Cell:
 #: these keys is asserting *current* behaviour that is known to be wrong or
 #: incomplete, so closing the item is expected to break that cell — which is the
 #: point: the test names what has to change.
-GAPS: dict[str, str] = {
-    "A5": (
-        "The `job` table has no owning org unit, so no job operation can be "
-        "scoped to a subtree the way `/imports` scopes its unit. Backlog A5 adds "
-        "`job.owning_unit_id` as an expand-phase migration. Until it lands, a "
-        "coordinator in one department can read, re-drive, and abandon another "
-        "department's job. Inventing a unit path to feed the policy would be "
-        "fabricating authorization data, so the routers do not, and this matrix "
-        "records the consequence instead of omitting the case."
-    ),
-    "JOB-READ-IGNORES-GRANTS": (
-        "`routers/jobs.py::_authorize_job_read` consults no `resource_grant` at "
-        "all — it checks suspension, then actor identity, then an oversight "
-        "role. So rule 3 of the policy, `an explicit deny beats inheritance`, is "
-        "not applied on the job-read path: an administrator who carves one job "
-        "out of a broad grant is obeyed by `/redrive` and `/abandon` and ignored "
-        "by `GET /v1/jobs/{job_id}`. The same omission costs a reason code in "
-        "the other direction — a grant-only principal is refused as `no_grant` "
-        "rather than `resource_grant_lacks_required_role`, so the audit trail "
-        "cannot tell a caller who held a grant that conveyed nothing from one "
-        "who held nothing. Found by A4; the fix is in `services/`, which this "
-        "item does not own."
-    ),
-    "JOB-READ-NO-TENANT-ASSERT": (
-        "`_authorize_job_read` does not restate the tenant assertion that "
-        "`_authorize_redrive` makes as defence in depth. Not reachable today — "
-        "`PrincipalRepository.load_by_subject` builds `Principal.tenant_id` and "
-        "`ResolvedPrincipal.tenant_id` from the same row, and the job load is "
-        "tenant-scoped in its query — so the only exposure is that the cheapest "
-        "possible check against a future divergence is present on two of the "
-        "four job routes and absent on the other two."
-    ),
-}
+#:
+#: **Empty, and kept.** It held three entries, and closing them is what this
+#: revision of the matrix records:
+#:
+#: * ``A5`` — the ``job`` table had no owning org unit, so no job operation could
+#:   be scoped to a subtree. Migration ``0006`` adds ``job.owning_unit_id``,
+#:   ``JobRepository.get`` joins the path in, and the four
+#:   ``coordinator_at_sibling_unit`` cells that used to permit now deny.
+#: * ``JOB-READ-IGNORES-GRANTS`` — the job-read path consulted no
+#:   ``resource_grant``, so an explicit deny stopped ``/redrive`` and not the read
+#:   of the same job. Both read routes now go through the policy, so the deny is
+#:   obeyed everywhere and a grant-only principal gets the distinct reason code.
+#: * ``JOB-READ-NO-TENANT-ASSERT`` — the tenant comparison was made on two of the
+#:   four job routes. All four share one authorizer now, so it is made on all of
+#:   them or on none.
+#:
+#: The machinery stays because the *practice* is the valuable part: the next
+#: known-wrong cell should be recorded here rather than written as a green
+#: assertion of behaviour nobody defends.
+GAPS: dict[str, str] = {}
 
 
 #: operation × principal shape → permit/deny.
@@ -562,8 +589,8 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "no_grant",
             why=(
                 "unit scoping works here, because an import names the unit it "
-                "imports into. This is the cell the job operations cannot have "
-                "until A5."
+                "imports into. This was the cell the job operations could not "
+                "have until A5 gave a job a unit of its own; they have it now."
             ),
         ),
         "student_at_owning_unit": deny(
@@ -596,15 +623,27 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "not authority to submit more."
             ),
         ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason above; "
+                "what is left is a deny on the unit, which beats inheritance."
+            ),
+        ),
     },
     "job.read": {
-        "admin_at_org_root": permit(why="admin is an oversight role"),
-        "coordinator_at_owning_unit": permit(why="coordinator is an oversight role"),
-        "coordinator_at_sibling_unit": permit(
-            gap="A5",
+        "admin_at_org_root": permit(why="an admin grant at the root covers every unit beneath it"),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
             why=(
-                "the hole, stated: the role is checked, the unit is not, because "
-                "there is no unit on a job to check against."
+                "A5, closed. This cell used to permit and to carry a gap marker: "
+                "the role was checked and the unit was not, because there was no "
+                "unit on a job to check against. `job.owning_unit_id` (migration "
+                "0006) is that unit, and the policy's inherited-grant path now "
+                "does the scoping the router used to skip."
             ),
         ),
         "student_at_owning_unit": deny(
@@ -613,26 +652,25 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
-            "no_grant",
-            gap="JOB-READ-IGNORES-GRANTS",
+            "resource_grant_lacks_required_role",
             why=(
-                "denied, which is the safe direction — but as `no_grant`, not as "
-                "`resource_grant_lacks_required_role`, because this path never "
-                "looks at grants at all. The refusal is right and the audit "
-                "trail is poorer than `/redrive`'s for the same principal."
+                "S-007. Denied before and denied now — what changed is the reason "
+                "code: the old read path consulted no grants at all and answered "
+                "`no_grant`, so the audit trail could not tell a caller who held a "
+                "grant that conveyed nothing from one who held nothing."
             ),
         ),
-        "admin_with_explicit_deny": permit(
-            gap="JOB-READ-IGNORES-GRANTS",
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
             why=(
-                "the serious half of that omission: an explicit deny on this job "
-                "does not stop the read. The same principal is refused by "
-                "`/redrive` and `/abandon`."
+                "the serious half of that omission, closed: an explicit deny on "
+                "this job used to stop `/redrive` and *not* stop the read of the "
+                "same job. v1.1 §2.1 rule 3 now applies on all four routes."
             ),
         ),
         "expired_coordinator_at_owning_unit": deny(
             "no_grant",
-            why="`is_active_at` is applied to the oversight-role search, not assumed",
+            why="`is_active_at` is applied by the policy, not assumed",
         ),
         "suspended_admin": deny(
             "principal_suspended",
@@ -642,12 +680,11 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "never invoked."
             ),
         ),
-        "cross_tenant_coordinator": permit(
-            gap="JOB-READ-NO-TENANT-ASSERT",
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
             why=(
-                "the job load is tenant-scoped in its query, so this is not "
-                "reachable — but the assertion `_authorize_redrive` makes anyway "
-                "is absent here."
+                "still not reachable — the job load is tenant-scoped in its query "
+                "— and now asserted on all four job routes rather than on two."
             ),
         ),
         "job_actor_without_role": permit(
@@ -657,31 +694,44 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "being given oversight of everyone else's."
             ),
         ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the ordering that makes the actor path safe. The exception is "
+                "ranked *below* the deny, so an administrator carving one job out "
+                "of a grant is obeyed even against the person who submitted it — "
+                "which is the one principal who would otherwise walk straight "
+                "through the hole the deny exists to make."
+            ),
+        ),
     },
     "job.events.read": {
         "admin_at_org_root": permit(),
         "coordinator_at_owning_unit": permit(),
-        "coordinator_at_sibling_unit": permit(gap="A5"),
+        "coordinator_at_sibling_unit": deny("no_grant"),
         "student_at_owning_unit": deny("no_grant"),
         "member_with_no_memberships": deny("no_grant"),
-        "resource_grant_only": deny("no_grant", gap="JOB-READ-IGNORES-GRANTS"),
-        "admin_with_explicit_deny": permit(gap="JOB-READ-IGNORES-GRANTS"),
+        "resource_grant_only": deny("resource_grant_lacks_required_role"),
+        "admin_with_explicit_deny": deny("explicit_resource_deny"),
         "expired_coordinator_at_owning_unit": deny("no_grant"),
         "suspended_admin": deny("principal_suspended"),
-        "cross_tenant_coordinator": permit(gap="JOB-READ-NO-TENANT-ASSERT"),
+        "cross_tenant_coordinator": deny("tenant_mismatch"),
         "job_actor_without_role": permit(
             why=(
                 "the stream and the polling view answer to the same authorizer, "
-                "which is what stops one being a way around the other."
+                "which is what stops one being a way around the other. Since A5 "
+                "that is literally the same function object, not two functions "
+                "that agree."
             ),
         ),
+        "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
     },
     "job.redrive": {
         "admin_at_org_root": permit(),
         "coordinator_at_owning_unit": permit(),
-        "coordinator_at_sibling_unit": permit(
-            gap="A5",
-            why="re-driving another department's failed work, for want of a unit on the job",
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="another department's failed work is no longer re-drivable from outside it",
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -705,14 +755,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the negative that matters most on this route: submitting a job "
                 "does not entitle you to re-run it. Re-drive is oversight, not "
                 "ownership — the actor path that opens `job.read` is deliberately "
-                "absent here."
+                "absent here, which is the whole difference between "
+                "`authorize_job_read` and `authorize_job_command`."
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "denied twice over, and the reason code says which one fired "
+                "first — the deny outranks the absent actor path, so this reads "
+                "the same here as on `job.read` even though the two routes treat "
+                "the actor differently."
             ),
         ),
     },
     "job.abandon": {
         "admin_at_org_root": permit(),
         "coordinator_at_owning_unit": permit(),
-        "coordinator_at_sibling_unit": permit(gap="A5"),
+        "coordinator_at_sibling_unit": deny("no_grant"),
         "student_at_owning_unit": deny(
             "no_grant",
             why="closing work permanently removes it from everyone else's view",
@@ -725,8 +785,9 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "cross_tenant_coordinator": deny("tenant_mismatch"),
         "job_actor_without_role": deny(
             "no_grant",
-            why="abandon shares `_authorize_redrive` with re-drive, at the same tightness",
+            why="abandon shares `authorize_job_command` with re-drive, at the same tightness",
         ),
+        "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
     },
 }
 
@@ -740,9 +801,19 @@ CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SH
 
 @dataclass(frozen=True, slots=True)
 class _JobStub:
-    """The one field ``_authorize_job_read`` reads off a job."""
+    """The four fields the job authorizers read off a job row.
+
+    A stub rather than a real ``JobRecord`` because the matrix is about
+    principals, not about rows: every cell uses the same job, owned by
+    :data:`OWNING_UNIT`, and varies only who is asking. The one row-shaped
+    variation that matters — an absent ``owning_unit_path`` — is exercised in
+    ``tests/authz/test_job_authz.py``, where it belongs.
+    """
 
     actor_id: uuid.UUID | None
+    id: uuid.UUID = JOB_ID
+    tenant_id: uuid.UUID = TENANT_ID
+    owning_unit_path: str = OWNING_UNIT
 
 
 def _resolved(operation: Operation, shape: Shape) -> ResolvedPrincipal:
@@ -790,13 +861,16 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         )
         return
 
-    if operation.authorizer == "_authorize_job_read":
+    # Both job entry points take the same arguments and differ only in whether
+    # the actor exception applies, so the stub is built once and the dispatch is
+    # a lookup rather than two near-identical branches.
+    job_authorizers = {
+        "authorize_job_read": job_authz.authorize_job_read,
+        "authorize_job_command": job_authz.authorize_job_command,
+    }
+    if operation.authorizer in job_authorizers:
         actor_id = USER_ID if shape.is_job_actor else SOMEONE_ELSE_ID
-        jobs_router._authorize_job_read(resolved, _JobStub(actor_id=actor_id), at=NOW)
-        return
-
-    if operation.authorizer == "_authorize_redrive":
-        redrive_router._authorize_redrive(resolved, JOB_ID, at=NOW)
+        job_authorizers[operation.authorizer](resolved, _JobStub(actor_id=actor_id), at=NOW)
         return
 
     raise AssertionError(
@@ -910,17 +984,17 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
     """Widening a role set in the code without saying so here must fail.
 
     The comparison is against the live object, so this is not a text match on a
-    docstring: adding ``"student"`` to ``_REDRIVE_ROLES`` breaks it.
+    docstring: adding ``"student"`` to ``JOB_OVERSIGHT_ROLES`` breaks it.
     """
-    module = importlib.import_module(operation.module)
+    module = importlib.import_module(operation.authz_module)
     declared = getattr(module, operation.roles_constant, None)
     assert declared is not None, (
-        f"{operation.module} has no {operation.roles_constant}; MATRIX names it as "
-        f"where {operation.key} reads its role set from"
+        f"{operation.authz_module} has no {operation.roles_constant}; MATRIX names it "
+        f"as where {operation.key} reads its role set from"
     )
     assert declared == operation.required_roles, (
         f"{operation.key}: MATRIX states {sorted(operation.required_roles)} but "
-        f"{operation.module}.{operation.roles_constant} is {sorted(declared)}"
+        f"{operation.authz_module}.{operation.roles_constant} is {sorted(declared)}"
     )
 
 
@@ -928,26 +1002,32 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
 def test_the_authorizer_reads_the_role_constant_the_matrix_names(operation: Operation) -> None:
     """The constant must be the one this operation's decision actually reads.
 
-    Without this, ``_REDRIVE_ROLES`` could keep its value while the authorizer
+    Without this, ``JOB_OVERSIGHT_ROLES`` could keep its value while the authorizer
     started reading a different, wider set, and the check above would still pass
     against a constant nothing uses.
     """
     route = _declared_routes()[(operation.method, operation.path)]
+    # When the operation names a dedicated authorizer, that function is where the
+    # role set has to be read; when it calls the policy directly, the handler is.
+    # ``authz_module`` is where to look for the former, which for the four job
+    # operations is the shared module rather than their own router.
     target = (
-        operation.authorizer if operation.authorizer.startswith("_authorize") else route.handler
+        operation.authorizer
+        if operation.authorizer.startswith(_AUTHORIZER_PREFIXES)
+        else route.handler
     )
-    source_path = REPO_ROOT / "services" / "api" / f"{operation.module.replace('.', '/')}.py"
-    assert source_path.is_file(), f"cannot find the source of {operation.module}"
+    source_path = REPO_ROOT / "services" / "api" / f"{operation.authz_module.replace('.', '/')}.py"
+    assert source_path.is_file(), f"cannot find the source of {operation.authz_module}"
     tree = ast.parse(source_path.read_text(encoding="utf-8"))
     functions = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == target
     ]
-    assert len(functions) == 1, f"expected exactly one {target} in {operation.module}"
+    assert len(functions) == 1, f"expected exactly one {target} in {operation.authz_module}"
     names = {node.id for node in ast.walk(functions[0]) if isinstance(node, ast.Name)}
     assert operation.roles_constant in names, (
-        f"{operation.module}.{target} does not reference {operation.roles_constant}, "
+        f"{operation.authz_module}.{target} does not reference {operation.roles_constant}, "
         f"which MATRIX says is where {operation.key} gets its role set"
     )
 
@@ -1137,67 +1217,119 @@ def test_the_distinct_denial_reason_survives() -> None:
     ``no_grant``: it says the principal held a grant that conveyed nothing,
     which is the population that would be affected the day the rule changes.
     Collapsing it into ``no_grant`` would make that population unmeasurable.
+
+    Every operation, not the three that used to manage it. ``job.read`` and
+    ``job.events.read`` answered ``no_grant`` here because the old read path
+    consulted no grants at all — a refusal in the right direction that recorded
+    the wrong thing, so a grant-holder and a stranger were indistinguishable in
+    the audit trail. Listing all five is what stops the exception coming back.
     """
-    for key in ("import.create", "job.redrive", "job.abandon"):
-        cell = MATRIX[key]["resource_grant_only"]
+    for operation in OPERATIONS:
+        cell = MATRIX[operation.key]["resource_grant_only"]
         assert cell.reason == "resource_grant_lacks_required_role", (
-            f"{key} no longer distinguishes a conveying-nothing grant from no grant"
+            f"{operation.key} no longer distinguishes a conveying-nothing grant "
+            f"from no grant; it answers {cell.reason!r}"
         )
 
 
 # ---------------------------------------------------------------------------
-# The A5 hole, measured rather than described
+# A5, closed — measured rather than described
 # ---------------------------------------------------------------------------
 
 
-def test_the_a5_hole_is_exactly_the_job_operations() -> None:
-    """Every job operation admits a sibling department's coordinator; imports do not.
+def test_no_operation_is_reachable_from_a_sibling_department() -> None:
+    """Every operation, job ones included, is scoped to the resource's own unit.
 
-    Stating the hole as an equality rather than as four separate permits means
-    the day ``job.owning_unit_id`` lands and the routers start scoping, this
-    fails and points at the matrix — instead of four green cells continuing to
-    assert the old behaviour.
+    This test is the inverse of the one it replaces. That one asserted the hole
+    as an equality — "exactly the four job operations admit a sibling
+    department's coordinator" — so that the day ``job.owning_unit_id`` landed it
+    would fail and point at the matrix rather than let four green cells go on
+    asserting the old behaviour. It did, and this is the other side of it.
+
+    Kept as a property over :data:`OPERATIONS` rather than as five cell lookups,
+    because the thing worth pinning is *no exceptions*: a sixth operation added
+    without unit scoping fails here, and does so with a message naming it.
     """
     leaking = {
         operation.key
         for operation in OPERATIONS
         if MATRIX[operation.key]["coordinator_at_sibling_unit"].permit
     }
-    assert leaking == {"job.read", "job.events.read", "job.redrive", "job.abandon"}, (
-        f"the set of operations reachable across departments changed: {sorted(leaking)}"
-    )
-    for key in leaking:
-        assert MATRIX[key]["coordinator_at_sibling_unit"].gap == "A5", (
-            f"{key} leaks across departments without recording A5 as the reason"
-        )
-    assert OPERATIONS_BY_KEY["import.create"].unit_scoped, (
-        "import.create is the control case: it authorizes against a unit path, "
-        "so its sibling-department cell is a denial rather than a gap"
+    assert not leaking, (
+        f"these operations admit a coordinator from a different department: "
+        f"{sorted(leaking)}. Unit scoping is the control A5 exists to provide; if "
+        f"an operation is genuinely tenant-wide, say so here deliberately."
     )
 
+    unscoped = [operation.key for operation in OPERATIONS if not operation.unit_scoped]
+    assert not unscoped, (
+        f"these operations are marked as not unit-scoped: {unscoped}. Every "
+        f"resource the API authorizes now carries an owning unit — org_unit is its "
+        f"own, and job has one as of migration 0006."
+    )
 
-def test_the_policy_would_have_closed_the_a5_hole_given_a_unit() -> None:
-    """The hole is missing data, not a missing rule — measured, not asserted.
 
-    The same sibling-department coordinator, evaluated by the policy against a
-    resource that *does* carry an owning unit, is refused. So A5 is a column,
-    and the routers stop reimplementing the role check the moment it exists.
+def test_the_owning_unit_is_what_decides_a_job_operation() -> None:
+    """The same principal, the same job, a different owning unit — opposite answers.
+
+    The denial above could be produced by a coordinator role that had simply
+    stopped working, which would pass the test and fail the users. So the control
+    is run in both directions against the real authorizer: the sibling-department
+    coordinator is refused a job owned by :data:`OWNING_UNIT` and *allowed* the
+    same job owned by :data:`SIBLING_UNIT`. What separates the two is the column
+    A5 added and nothing else.
     """
     shape = SHAPES_BY_NAME["coordinator_at_sibling_unit"]
     resolved = _resolved(OPERATIONS_BY_KEY["job.redrive"], shape)
+
     with pytest.raises(AuthorizationError) as excinfo:
-        assert_allowed(
-            resolved.principal,
-            Resource(
-                resource_type="job",
-                resource_id=str(JOB_ID),
-                tenant_id=str(TENANT_ID),
-                owning_unit_path=OrgPath.parse(OWNING_UNIT),
-            ),
-            at=NOW,
-            required_roles=OPERATIONS_BY_KEY["job.redrive"].required_roles,
+        job_authz.authorize_job_command(
+            resolved, _JobStub(actor_id=SOMEONE_ELSE_ID, owning_unit_path=OWNING_UNIT), at=NOW
         )
     assert excinfo.value.decision.reason == "no_grant"
+
+    allowed = job_authz.authorize_job_command(
+        resolved, _JobStub(actor_id=SOMEONE_ELSE_ID, owning_unit_path=SIBLING_UNIT), at=NOW
+    )
+    assert allowed.allowed, (
+        "the sibling-department coordinator cannot act on a job in their *own* "
+        "department either, so the denial above is a broken role check rather "
+        "than unit scoping"
+    )
+
+
+def test_the_four_job_operations_share_one_authorizer() -> None:
+    """Two entry points over one decision, not four implementations that agree.
+
+    The defect A5 sat next to was not only the missing column: the read routes
+    and the command routes applied *different subsets* of the policy to the same
+    resource, so an explicit deny stopped a re-drive and not a read. Asserting
+    that the four operations name two functions from one module is what stops
+    that arrangement growing back one route at a time.
+    """
+    modules = {
+        operation.authz_module for operation in OPERATIONS if operation.resource_type == "job"
+    }
+    assert modules == {"smartmatch_api.job_authz"}, (
+        f"job operations are authorized from {sorted(modules)}; a job decision made "
+        f"in more than one module is the arrangement that let a deny be obeyed on "
+        f"two routes and ignored on the other two"
+    )
+
+    authorizers = {
+        operation.key: operation.authorizer
+        for operation in OPERATIONS
+        if operation.resource_type == "job"
+    }
+    assert authorizers == {
+        "job.read": "authorize_job_read",
+        "job.events.read": "authorize_job_read",
+        "job.redrive": "authorize_job_command",
+        "job.abandon": "authorize_job_command",
+    }, (
+        f"the read/command split changed: {authorizers}. The split is the actor "
+        f"exception and nothing else — reads have it, commands do not."
+    )
 
 
 def test_a_job_with_no_recorded_actor_is_not_readable_by_a_role_less_member() -> None:
@@ -1210,10 +1342,9 @@ def test_a_job_with_no_recorded_actor_is_not_readable_by_a_role_less_member() ->
     """
     operation = OPERATIONS_BY_KEY["job.read"]
     resolved = _resolved(operation, SHAPES_BY_NAME["member_with_no_memberships"])
-    with pytest.raises(ApiError) as excinfo:
-        jobs_router._authorize_job_read(resolved, _JobStub(actor_id=None), at=NOW)
-    assert excinfo.value.status_code == 403
-    assert (excinfo.value.details or {}).get("reason") == "no_grant"
+    with pytest.raises(AuthorizationError) as excinfo:
+        job_authz.authorize_job_read(resolved, _JobStub(actor_id=None), at=NOW)
+    assert excinfo.value.decision.reason == "no_grant"
 
 
 # ---------------------------------------------------------------------------

@@ -448,7 +448,7 @@
     },
     "/v1/jobs/{job_id}": {
       "get": {
-        "description": "Return one job's current state.\n\nTenant-scoped by the caller's own tenant, which is derived server-side from\ntheir token and never read from the request.",
+        "description": "Return one job's current state.\n\nTenant-scoped by the caller's own tenant, which is derived server-side from\ntheir token and never read from the request, and then scoped again to the\norg unit the job belongs to \u2014 so a coordinator in one department no longer\nreads another department's work (A5).",
         "operationId": "get_job_v1_jobs__job_id__get",
         "parameters": [
           {
@@ -716,7 +716,7 @@
     },
     "/v1/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
+        "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nEvery reconnect re-authorizes. The response is bounded at\n``_MAX_EVENTS_PER_RESPONSE`` and then closes, and the request the client\nmakes to resume runs the same load and the same authorization the first one\ndid \u2014 so this route cannot become a long-lived hole through which a\nmembership revoked ten minutes ago keeps delivering events.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
         "operationId": "stream_job_events_v1_jobs__job_id__events_get",
         "parameters": [
           {

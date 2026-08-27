@@ -210,7 +210,7 @@ Contract-Refs: v1.1 §N.N
 | [Security review](docs/security/scaffold-security-review.md) | Scaffold security posture and residual risk |
 | [Verification record](docs/testing/scaffold-verification.md) | Every check run, with its exact result |
 | [Remaining work](docs/plans/remaining-foundation-r1-work.md) | Foundation and R1 backlog in dependency order |
-| [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eight decisions the redesign must make |
+| [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eleven decisions the redesign must make |
 
 ---
 
@@ -235,3 +235,24 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
 
 Gate owners sit outside engineering and are never inferred from technical
 readiness.
+
+---
+
+## Notice — private pilot, not open-source licensed
+
+> **This repository is a private pilot for IA West SmartMatch. It is not
+> open-source licensed, and it carries no `LICENSE` file deliberately.**
+>
+> The absence of a `LICENSE` is a decision, not an oversight. No license is
+> granted to anyone by this repository being visible.
+>
+> This is a plain statement of intent, not legal language, and nobody qualified
+> to write licensing terms has reviewed it.
+
+The decision behind it is **D9**, recorded as a **tentative, not organizationally
+ratified** position in
+[`docs/decisions/pilot-decisions.md`](docs/decisions/pilot-decisions.md). It
+stays gated on the unremediated finding **MM-A09**: the archived legacy
+repository's git history still contains paths naming real people, and publishing
+that history would broaden the exposure. `CONTRIBUTING.md` carries the same
+position from the engineering side.

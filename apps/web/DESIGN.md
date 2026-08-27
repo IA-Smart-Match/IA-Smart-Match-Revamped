@@ -25,7 +25,7 @@ no shared decisions behind them. Rebuilding without a standard reproduces that.
 **2. The generated client does not exist yet.** Architecture v1.1 §5.1 requires
 the frontend consume a **generated** TypeScript client, never a hand-maintained
 one. The client is generated from `contracts/openapi/smartmatch.json`, which
-currently describes five endpoints. Building screens now means hand-writing API
+currently describes seven endpoints. Building screens now means hand-writing API
 calls and rewriting them later — recreating exactly the coupling the contract
 forbids.
 

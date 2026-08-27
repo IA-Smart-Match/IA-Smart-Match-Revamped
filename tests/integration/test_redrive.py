@@ -35,7 +35,7 @@ import time
 import uuid
 
 import pytest
-from conftest import unique_subject
+from conftest import ensure_owning_unit, unique_subject
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
 from smartmatch_domain.jobs import JobState
@@ -156,7 +156,13 @@ def coordinator(client, engine, tenant_id) -> str:
 def _accept_command(session_factory, jobs, outbox, tenant_id, *, actor_id=None) -> uuid.UUID:
     """Accept a command the way the API does: job and outbox in one transaction."""
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=COMMAND, actor_id=actor_id)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            actor_id=actor_id,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=COMMAND)
         session.commit()
     return job.id
@@ -600,7 +606,10 @@ def test_another_tenants_job_is_not_found(
         assert _job_status(session_factory, jobs, other_tenant, job_id) is JobState.FAILED_PROVIDER
     finally:
         with engine.begin() as conn:
-            for table in ("job_event", "outbox_record", "redrive_record", "job"):
+            # `org_unit` last, and after `job`: the job it owns references it
+            # ON DELETE RESTRICT, and the tenant delete below cannot proceed
+            # while any org_unit still points at the tenant.
+            for table in ("job_event", "outbox_record", "redrive_record", "job", "org_unit"):
                 conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": other_tenant})
             conn.execute(text("DELETE FROM tenant WHERE id = :t"), {"t": other_tenant})
 
