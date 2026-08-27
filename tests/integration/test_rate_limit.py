@@ -3,6 +3,11 @@
 Architecture v1.1 §3.4 layer 2. The property that matters is that counters are
 *shared*, not per-process: on Cloud Run an in-process counter lets every instance
 permit the full quota independently.
+
+The last section is about *when* a request is charged rather than about how the
+counting works, and it runs through the HTTP surface for that reason: ADR-0015's
+decision is an ordering inside a route handler, and a test that called
+``RateLimiter.check`` directly could not see it.
 """
 
 from __future__ import annotations
@@ -11,7 +16,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import unique_subject
+from fastapi.testclient import TestClient
+from smartmatch_api.main import app
+from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.rate_limit import RateLimit, RateLimiter
+from smartmatch_providers import FixtureTokenVerifier
 from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
@@ -364,3 +374,133 @@ def _operations_with_counters(session_factory) -> set[str]:
             row.operation
             for row in session.execute(text("SELECT operation FROM rate_limit_counter")).all()
         }
+
+
+# ---------------------------------------------------------------------------
+# Where the charge sits in a request (ADR-0015)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def client(engine) -> TestClient:
+    """A client wired to the test database and a fixture token verifier."""
+    verifier = FixtureTokenVerifier()
+
+    test_client = TestClient(app)
+    test_client.app.state.session_factory = create_session_factory(
+        engine.url.render_as_string(hide_password=False)
+    )
+    test_client.app.state.token_verifier = verifier
+    test_client.verifier = verifier  # type: ignore[attr-defined]
+    return test_client
+
+
+@pytest.fixture
+def coordinator(client, engine, tenant_id) -> tuple[str, uuid.UUID]:
+    """A coordinator who may re-drive. Returns their bearer token and user id."""
+    subject = unique_subject("sub-coordinator-adr15")
+    user_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :sub, :email)"
+            ),
+            {"id": user_id, "tid": tenant_id, "sub": subject, "email": f"{subject}@example.edu"},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
+        )
+    client.verifier.register(f"tok-{subject}", subject)
+    return f"tok-{subject}", user_id
+
+
+def _redrive_a_job_that_does_not_exist(client, token: str, *, key: str):
+    """The cheapest refusal the API can be made to produce.
+
+    Authenticated, well-formed, and answered ``404`` by a tenant-scoped lookup —
+    no job, no unit, and no role required to reach it.
+    """
+    return client.post(
+        f"/v1/jobs/{uuid.uuid4()}/redrive",
+        json={"reason": "Nothing here."},
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": key},
+    )
+
+
+def _counter_rows(engine, tenant_id) -> list:
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "SELECT subject, operation, count FROM rate_limit_counter "
+                "WHERE tenant_id = :tid ORDER BY operation, subject"
+            ),
+            {"tid": tenant_id},
+        ).all()
+
+
+def test_a_refusal_the_request_rolled_back_still_leaves_its_counter(
+    client, engine, tenant_id, coordinator
+):
+    """The charge is committed by itself, ahead of everything the route does.
+
+    A ``404`` leaves the handler through ``ApiError``, and ``get_session``'s
+    ``finally: session.rollback()`` discards whatever the request session was
+    holding. So this counter row existing at all is the evidence that the
+    increment did not ride in that transaction — which is the half of ADR-0015
+    that reordering alone would not have delivered. Before it, this query
+    returned nothing.
+
+    The row is read in full rather than summed, because *who* was charged is
+    part of the decision: the caller, by user id, not the tenant they happen to
+    belong to.
+    """
+    token, user_id = coordinator
+
+    response = _redrive_a_job_that_does_not_exist(client, token, key="single-404")
+
+    assert response.status_code == 404, response.text
+    assert _counter_rows(engine, tenant_id) == [(str(user_id), "job.redrive", 1)], (
+        "a refusal must leave exactly one unit charged to the caller who made it"
+    )
+
+
+def test_refusals_alone_exhaust_a_callers_window(client, engine, tenant_id, coordinator):
+    """A caller can spend a whole window without performing a single command.
+
+    This is the consequence of ADR-0015 that ADR-0006 did not have to consider,
+    and it is asserted rather than left as an inference: charge for refusals and
+    a window can be emptied entirely by requests that changed nothing. It is
+    accepted deliberately — the alternative, exempting refusals, is exactly the
+    hole J16 measured — and it is bounded by the fixed window itself, which
+    hands the caller their quota back at the next boundary without anyone
+    intervening. The recorded reasoning is in ADR-0015.
+
+    ``25`` refusals rather than ``11``: a run that straddles a minute boundary
+    gets a second window's worth through, so the loop asserts that the limiter
+    stops the caller *within* the run, not on a particular attempt.
+    """
+    token, _ = coordinator
+
+    statuses = [
+        _redrive_a_job_that_does_not_exist(client, token, key=f"exhaust-{index}").status_code
+        for index in range(25)
+    ]
+
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert 429 in statuses, (
+        "refusals must count against the window like anything else, or a caller "
+        "who never issues a valid command is never limited at all"
+    )
+    assert statuses.count(404) == sum(row.count for row in _counter_rows(engine, tenant_id)), (
+        "every refusal that reached the handler is charged exactly once"
+    )
+
+    # And the quota is genuinely gone, not merely reported as gone: a *valid*
+    # request from the same caller in the same window is refused too, without
+    # the route ever looking for the job.
+    assert _redrive_a_job_that_does_not_exist(client, token, key="after").status_code == 429

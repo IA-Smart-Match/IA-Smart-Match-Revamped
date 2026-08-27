@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -143,3 +144,61 @@ def tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
                 {"tid": tid},
             )
         conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tid})
+
+
+#: Path of the unit :func:`ensure_owning_unit` creates. Fixed rather than
+#: generated, which is what makes that function idempotent: every tenant gets one
+#: unit at this path and `uq_org_unit_tenant_path` is scoped per tenant, so two
+#: tests in the same tenant converge on the same row instead of colliding.
+JOB_OWNING_UNIT_PATH = "iawest.jobs"
+
+
+def ensure_owning_unit(executor: Any, tenant_id: uuid.UUID) -> uuid.UUID:
+    """Return the test tenant's job-owning unit, creating it once if absent.
+
+    Migration ``0006`` made ``job.owning_unit_id`` ``NOT NULL``, so a job now
+    needs a unit the way it has always needed a tenant. Most integration tests
+    are not *about* the unit — they are about dispatch, re-drive, or worker
+    execution — and threading one through their signatures would have changed a
+    hundred call sites to say the same uninteresting thing. So the helpers that
+    build a job call this instead, and the tests are left alone.
+
+    Takes any object with SQLAlchemy's ``.execute(text, params)`` — a ``Session``
+    or a ``Connection`` — because the callers have one or the other and neither
+    should have to care.
+
+    Tests that are genuinely *about* unit scoping (``test_job_owning_unit.py``,
+    the authorization matrix) create their own units at their own paths, since
+    the point there is that two units differ.
+
+    No cleanup: ``org_unit`` is in :data:`_TENANT_SCOPED_TABLES`, and ``job`` is
+    deleted before it in that order, so ``fk_job_owning_unit``'s ``ON DELETE
+    RESTRICT`` never blocks teardown.
+    """
+    existing = executor.execute(
+        text("SELECT id FROM org_unit WHERE tenant_id = :tid AND path = CAST(:path AS ltree)"),
+        {"tid": tenant_id, "path": JOB_OWNING_UNIT_PATH},
+    ).scalar_one_or_none()
+    if existing is not None:
+        return uuid.UUID(str(existing))
+
+    unit_id = uuid.uuid4()
+    executor.execute(
+        text(
+            "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+            "VALUES (:id, :tid, CAST(:path AS ltree), 'department', 'Test Jobs Unit')"
+        ),
+        {"id": unit_id, "tid": tenant_id, "path": JOB_OWNING_UNIT_PATH},
+    )
+    return unit_id
+
+
+@pytest.fixture
+def owning_unit_id(engine: Engine, tenant_id: uuid.UUID) -> uuid.UUID:
+    """The test tenant's job-owning unit, as a fixture.
+
+    The fixture form for tests that want to name the unit; the function form for
+    helpers that just need a job to exist.
+    """
+    with engine.begin() as conn:
+        return ensure_owning_unit(conn, tenant_id)

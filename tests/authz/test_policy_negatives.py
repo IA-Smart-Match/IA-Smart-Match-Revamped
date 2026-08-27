@@ -297,8 +297,17 @@ def test_explicit_resource_grant_does_not_satisfy_a_role_gated_operation():
     the explicit-allow path returned before any role was consulted.
 
     ``ResourceGrant`` carries no role, so the fail-closed reading is that a bare
-    grant cannot satisfy a role-gated operation. Which roles a grant *should*
-    convey is open policy-matrix work (v1.1 §2.1, item A4).
+    grant cannot satisfy a role-gated operation.
+
+    **A4 settled this rather than leaving it open (S-007): the behaviour stays.**
+    The type has a resource type, a resource id, and an effect, and nothing that
+    could name a role — so there is no mapping to derive, only one to invent, and
+    inventing one is the only change on this surface that turns a denial into a
+    permit. Conveying a role means the *grant* carrying one, which is a
+    ``resource_grant`` schema change and a product decision about what a guest
+    reviewer may do. ``tests/authz/test_policy_matrix.py`` pins the rule on every
+    operation and fails the day ``ResourceGrant`` grows a field that could answer
+    the question.
     """
     principal = Principal(
         user_id="guest",

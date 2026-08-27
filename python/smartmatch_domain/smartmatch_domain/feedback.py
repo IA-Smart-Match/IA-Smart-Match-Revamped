@@ -28,9 +28,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final
+from typing import Final, final
 
 __all__ = [
+    "MAX_FACTOR_DELTA",
+    "MIN_DECLINES_PER_FACTOR",
+    "PER_REASON_BUMP",
     "REASON_TO_FACTOR",
     "Decision",
     "DeclineReason",
@@ -50,9 +53,15 @@ MAX_FACTOR_DELTA: Final[float] = 0.08
 #: from the legacy ``OPTIMIZER_REASON_WEIGHT_BUMP`` default (0.03).
 PER_REASON_BUMP: Final[float] = 0.03
 
-#: Below this many decisions a proposal is not produced at all. The legacy had
-#: no floor and would happily "learn" from a single click.
-MIN_DECISIONS_FOR_PROPOSAL: Final[int] = 5
+#: Below this many declines *implicating one factor*, that factor's weight is
+#: not proposed to move at all. The legacy had no floor and would happily
+#: "learn" from a single click. The floor counts declines rather than decisions
+#: because declines are the only evidence a proposal is derived from: counting
+#: every decision let unrelated accepts unlock a movement driven by one decline,
+#: which is the failure the floor exists to prevent, and it counts them per
+#: factor because a floor met in aggregate still moves an individual weight off
+#: a single decline.
+MIN_DECLINES_PER_FACTOR: Final[int] = 5
 
 
 class Decision(StrEnum):
@@ -113,6 +122,8 @@ class FeedbackEntry:
     reason: DeclineReason | None = None
 
     def __post_init__(self) -> None:
+        if not self.match_run_id.strip():
+            raise ValueError("feedback must be attributed to a match run")
         if self.decision is Decision.DECLINED and self.reason is None:
             raise ValueError("a declined proposal must carry a decline reason")
         if self.decision is Decision.ACCEPTED and self.reason is not None:
@@ -141,6 +152,7 @@ class FeedbackAggregate:
         return round(self.accepted / self.total, 4)
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class WeightProposal:
     """A shadow-mode proposal to adjust factor weights.
@@ -159,6 +171,17 @@ class WeightProposal:
     deltas: Mapping[str, float]
     based_on: FeedbackAggregate
     rationale: tuple[str, ...]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse subclassing.
+
+        ``@final`` closes the override route for anything type-checked, but a
+        subclass overriding :attr:`requires_approval` still satisfies
+        ``isinstance(x, WeightProposal)`` at runtime, and a consumer typed on
+        this class would accept it. The control is structural everywhere else —
+        frozen, slotted, not a constructor field — so it is structural here too.
+        """
+        raise TypeError("WeightProposal is final: human approval is not an overridable property")
 
     @property
     def requires_approval(self) -> bool:
@@ -190,27 +213,37 @@ def propose_weight_adjustments(entries: Sequence[FeedbackEntry]) -> WeightPropos
     that the model under-weighted something coordinators clearly care about. The
     nudge is ``PER_REASON_BUMP`` per decline, clamped to ``MAX_FACTOR_DELTA``.
 
+    **The proposal is un-normalized, and its application semantics are not
+    specified.** Each delta is bounded; their sum is not, so a round that
+    implicates every factor proposes +0.48 against weights that total 1.0.
+    Whether that is corrected by normalizing on apply, by bounding the sum
+    here at proposal time, or by both is a decision that belongs with the
+    consumer applying it — weight sets arrive in M1/M8 behind gate G1, and
+    until one exists there is nothing to normalize against and no way to tell
+    which number a human is actually approving. This is a recorded deferral
+    (review finding F-25, ``docs/plans/defect-remediation.md`` §4.5), not an
+    oversight, and ``test_aggregate_movement_is_deliberately_unbounded`` pins
+    the present behavior so the deferral cannot be mistaken for a bound.
+
     Args:
         entries: Recorded decisions, typically scoped to one tenant and a recent
             window by the caller.
 
     Returns:
         A proposal, or ``None`` when there is too little feedback to justify one
-        (fewer than :data:`MIN_DECISIONS_FOR_PROPOSAL` decisions, or no
-        categorized declines). ``None`` means "no opinion" and must be rendered
-        as such — never as a proposal of zero deltas, which would read as a
-        positive finding that the current weights are correct.
+        (no factor reaching :data:`MIN_DECLINES_PER_FACTOR` declines of its own,
+        or no categorized declines at all). ``None`` means "no opinion" and must
+        be rendered as such — never as a proposal of zero deltas, which would
+        read as a positive finding that the current weights are correct.
     """
     counts = aggregate(entries)
-    if counts.total < MIN_DECISIONS_FOR_PROPOSAL:
-        return None
 
     deltas: dict[str, float] = {}
     rationale: list[str] = []
 
     for reason, count in sorted(counts.reason_counts.items(), key=lambda kv: kv[0].value):
         factor = REASON_TO_FACTOR[reason]
-        if factor is None or count == 0:
+        if factor is None or count < MIN_DECLINES_PER_FACTOR:
             continue
         delta = min(MAX_FACTOR_DELTA, PER_REASON_BUMP * count)
         deltas[factor] = round(delta, 4)

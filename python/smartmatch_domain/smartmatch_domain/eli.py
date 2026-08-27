@@ -7,7 +7,16 @@ coordinator-facing labels like "Rest Recommended". Migration manifest MM-003
 records the behavior retained and rejected.
 
 Retained from the legacy: the *shape* of the computation — recent assignment
-pressure, travel burden, and event cadence combined into a bounded score.
+pressure and travel burden combined into a bounded score.
+
+This sentence previously also named "event cadence". It was not true, and the
+port review recorded it as finding F-4: **there is no event-cadence input.** ELI
+is computed from a professional's own workload facts and is never given the
+event under consideration, so it has no way to express that event's cadence.
+The modifiers that read as cadence-flavoured are caller-supplied booleans, not a
+computed cadence. Corrected here as well as in the manifest, because a docstring
+claiming an input the module does not have is the same defect wherever it is
+written.
 
 Rejected: the health framing and its labels; the implicit inference from a
 pipeline "stage_order" column to "days since last assignment", which invented a
@@ -77,12 +86,30 @@ class LoadModifier(StrEnum):
     MANUAL_BLACKOUT = "manual_blackout"
 
 
+#: Modifiers that are scheduling instructions rather than measured workload.
+#: They stay visible in the snapshot and keep their own Stage A handling; they
+#: do not add load points. This is a classification of the existing modifiers,
+#: not a change to the points-per-modifier or cap values, which are open
+#: decision 2's to set.
+_NON_LOAD_MODIFIERS: Final[frozenset[LoadModifier]] = frozenset({LoadModifier.MANUAL_BLACKOUT})
+
+
 @dataclass(frozen=True, slots=True)
 class EngagementRecord:
-    """One completed or committed engagement.
+    """One completed engagement.
+
+    Not "completed *or* committed": an engagement dated after
+    :attr:`LoadInputs.as_of` is rejected by :class:`LoadInputs` rather than
+    counted or silently discarded. Counting a future commitment would make ELI a
+    forward-looking capacity measure, which needs a forward horizon and a
+    forward weighting rule — the recency curve only decays backwards — and both
+    are formula parameters assigned to the program owner (architecture v1.1
+    Appendix C, open decision 2). Until that decision lands, the honest state is
+    that this module measures load that has happened and says so.
 
     Attributes:
-        occurred_on: Date of the engagement.
+        occurred_on: Date of the engagement. Must not be after the snapshot's
+            ``as_of`` date.
         event_hours: Hours spent at the event itself. Must be non-negative.
         travel_hours: Hours spent travelling. Must be non-negative. Sourced from
             the route matrix; when travel time is unavailable this is 0.0 and
@@ -116,8 +143,12 @@ class LoadInputs:
 
     Attributes:
         as_of: The date the snapshot is computed for.
-        engagements: Engagements within the rolling window. Entries outside the
-            window are ignored rather than rejected.
+        engagements: Engagements within the rolling window. Entries *older*
+            than the window are ignored rather than rejected — dropping load
+            that has already decayed away changes nothing. Entries dated after
+            ``as_of`` are rejected, because dropping those silently would
+            discard a commitment the caller believes was counted (see
+            :class:`EngagementRecord`).
         declared_capacity_hours: The professional's own declared rolling
             capacity. Must be positive — an undeclared capacity is not zero
             capacity, and the caller must not substitute one.
@@ -135,6 +166,15 @@ class LoadInputs:
                 "declared_capacity_hours must be positive; an undeclared capacity is "
                 "not the same as zero capacity and must be resolved by the caller"
             )
+        future = [r.occurred_on for r in self.engagements if r.occurred_on > self.as_of]
+        if future:
+            raise ValueError(
+                f"engagements must not be dated after as_of={self.as_of.isoformat()}; "
+                f"got {min(future).isoformat()}. ELI measures load that has occurred. "
+                "Forward-looking load needs a horizon and a forward weighting rule "
+                "(open decision 2), so a future-dated engagement is refused rather "
+                "than counted at an invented weight or dropped without telling anyone."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +189,9 @@ class EliSnapshot:
         modifiers: Modifiers that were in effect.
         utilization: ``decayed_hours / declared_capacity_hours``, uncapped, so
             the explanation can show how far over capacity a professional is.
+            Stored **unrounded**: :func:`evaluate_cap` decides the Stage A hard
+            constraint on this value, and a precision chosen for readability
+            must not decide an eligibility boundary. Round it at render time.
     """
 
     score: float
@@ -199,7 +242,7 @@ def compute_eli(inputs: LoadInputs) -> EliSnapshot:
     raw_hours = 0.0
     decayed_hours = 0.0
     for record in inputs.engagements:
-        if record.occurred_on < window_start or record.occurred_on > inputs.as_of:
+        if record.occurred_on < window_start:
             continue
         days_ago = (inputs.as_of - record.occurred_on).days
         raw_hours += record.total_hours
@@ -208,9 +251,23 @@ def compute_eli(inputs: LoadInputs) -> EliSnapshot:
     utilization = decayed_hours / inputs.declared_capacity_hours
     base_score = min(100.0, utilization * 100.0)
 
+    # Normalize once and score the normalized set, so the number the explanation
+    # names and the number the score counts cannot disagree. `modifiers` is
+    # annotated `frozenset`, but the annotation is not a runtime check: a list
+    # with six copies of one modifier used to score 20 beside an explanation
+    # naming a single modifier.
+    active_modifiers = frozenset(inputs.modifiers)
+
     # Each modifier adds 4 points, capped at 20 total, so modifiers can never
     # by themselves push an otherwise-idle professional to a high load score.
-    modifier_points = min(20.0, 4.0 * len(inputs.modifiers))
+    # MANUAL_BLACKOUT is excluded: it is an instruction from the professional or
+    # coordinator, not measured workload. It already has its own Stage A branch
+    # in `evaluate_cap`, and counting it here also wrote 4 points of work nobody
+    # did into a persisted, professional-visible snapshot (v1.1 §5.1 gives the
+    # professional the right to correct their workload data — and there would be
+    # nothing there to correct).
+    scoring_modifiers = active_modifiers - _NON_LOAD_MODIFIERS
+    modifier_points = min(20.0, 4.0 * len(scoring_modifiers))
     score = min(100.0, base_score + modifier_points)
 
     return EliSnapshot(
@@ -218,8 +275,12 @@ def compute_eli(inputs: LoadInputs) -> EliSnapshot:
         decayed_hours=round(decayed_hours, 2),
         raw_hours=round(raw_hours, 2),
         formula_version=ELI_FORMULA_VERSION,
-        modifiers=frozenset(inputs.modifiers),
-        utilization=round(utilization, 4),
+        modifiers=active_modifiers,
+        # Unrounded on purpose — see EliSnapshot.utilization. Rounding here to
+        # 4 dp put 100.000–100.005 % of declared capacity on the wrong side of
+        # the Stage A hard cap, and re-rounding to 2 dp for a tidier explanation
+        # would have widened that to 0.5 % without failing a single test.
+        utilization=utilization,
     )
 
 

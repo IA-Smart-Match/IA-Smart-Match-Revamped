@@ -25,7 +25,7 @@ from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_persistence.rate_limit import RateLimit
 
 from smartmatch_api.commands import submit_command
-from smartmatch_api.dependencies import CurrentPrincipal, DbSession
+from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.units import load_unit_or_404
 from smartmatch_api.utils import utc_now
@@ -113,7 +113,16 @@ def create_import(
     Authorization runs against the *owning unit*, after loading it — which is
     why it happens here rather than in a dependency. A dependency cannot
     authorize a resource it has not fetched.
+
+    Quota is charged before any of that (ADR-0015), so a caller producing 404s
+    against unit ids they invented, or 403s against a unit they may not import
+    into, is spending exactly what a caller submitting real imports spends. It
+    used to be charged inside ``submit_command``, which is past all three
+    refusals — those requests were free, and they are the cheapest of all the
+    refusals to produce in bulk.
     """
+    charge = charge_quota(session, principal, IMPORT_RATE_LIMIT)
+
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
 
     assert_allowed(
@@ -135,10 +144,26 @@ def create_import(
             message="source_reference must not be blank.",
         )
 
+    # This dictionary is the command's durable contract, not a scratch value for
+    # the idempotency hash: `submit_command` writes it to `job.payload` in the
+    # same INSERT as the job row, and `smartmatch_worker.handlers` reads these
+    # four keys back and refuses the job if any is missing or unusable. Renaming
+    # a key here changes what the worker is given, so the two ends move together.
+    # `unit_id` comes from the authorized path parameter rather than the body —
+    # the caller may not name the unit their import lands in (MM-A01).
     accepted = submit_command(
         session,
         principal,
         command_type="import.create",
+        # `unit.id`, not `unit_id` from the path and not anything from the body.
+        # All three are the same value here — `load_unit_or_404` looked the row
+        # up by that id, scoped to the caller's tenant — and taking it off the
+        # loaded row is what keeps them the same value: this is the unit
+        # `assert_allowed` was just given, so the job is filed under the subtree
+        # the request was actually permitted for. Persisting a caller-named unit
+        # would let a submitter choose who may later read, re-drive or abandon
+        # their own job (A5, migration 0006).
+        owning_unit_id=unit.id,
         payload={
             "unit_id": str(unit_id),
             "source_reference": body.source_reference,
@@ -146,7 +171,7 @@ def create_import(
             "dry_run": body.dry_run,
         },
         idempotency_key=idempotency_key,
-        rate_limit=IMPORT_RATE_LIMIT,
+        charge=charge,
     )
 
     return CommandAcceptedResponse(

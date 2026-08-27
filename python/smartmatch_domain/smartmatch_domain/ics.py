@@ -187,14 +187,19 @@ def _derive_uid(event_name: str, starts_at: datetime) -> str:
 def generate_ics(
     invite: CalendarInvite,
     *,
-    generated_at: datetime | None = None,
+    generated_at: datetime,
 ) -> str:
     """Render a ``CalendarInvite`` as an RFC 5545 VCALENDAR document.
 
     Args:
         invite: The event to render.
-        generated_at: DTSTAMP instant. Injected rather than read from the clock
-            so output is deterministic under test; defaults to now in UTC.
+        generated_at: DTSTAMP instant. Required and injected: this module reads
+            no clock at all, so the same inputs always produce the same
+            document. The parameter was previously optional and defaulted to
+            ``datetime.now(UTC)``, which left one implicit clock read in a
+            package whose purity is otherwise enforced by import contracts, and
+            left the defaulting branch untestable without freezing time — which
+            would need a dependency the domain package may not have.
 
     Returns:
         The .ics document, CRLF-terminated, folded to 75 octets per line.
@@ -202,10 +207,7 @@ def generate_ics(
     Raises:
         UnschedulableEventError: if ``generated_at`` is naive.
     """
-    if generated_at is None:
-        generated_at = datetime.now(UTC)
-    else:
-        _require_aware(generated_at, "generated_at")
+    _require_aware(generated_at, "generated_at")
 
     ends_at = invite.ends_at or (invite.starts_at + timedelta(hours=1))
     uid = invite.uid or _derive_uid(invite.event_name, invite.starts_at)
@@ -215,7 +217,19 @@ def generate_ics(
         "VERSION:2.0",
         "PRODID:-//IA West SmartMatch//Event Invite//EN",
         "CALSCALE:GREGORIAN",
-        "METHOD:REQUEST",
+        # No METHOD. A VCALENDAR carrying METHOD:REQUEST is an iTIP scheduling
+        # message, and RFC 5546 §3.2.2 makes ORGANIZER and at least one ATTENDEE
+        # mandatory on the VEVENT it carries. SmartMatch has neither: there is no
+        # organizer identity to name (mail-domain registration is open decision
+        # 8, which is also why the UID namespace is a .invalid TLD) and no
+        # attendee model. The two conformant options were to drop METHOD or to
+        # require an organizer and attendees before emitting it; the second
+        # cannot be satisfied without inventing an address, and inventing a value
+        # the data does not support is the defect class this port exists to end
+        # (see the fabricated dates above). Dropping METHOD also restores the
+        # legacy behavior — it emitted none — and leaves a plain RFC 5545
+        # calendar object, which is what an .ics download actually is. Re-add
+        # METHOD in the release that has a real organizer to put in it.
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{_format_utc(generated_at)}",

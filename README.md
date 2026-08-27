@@ -97,12 +97,26 @@ Requires Python 3.11+ and PostgreSQL 16.
 make setup          # virtualenv + dependencies
 make db-up          # local PostgreSQL + dev database
 make migrate        # apply the Foundation schema
-make check          # every gate CI runs
+make check          # the seven gates that run without infrastructure
 ```
 
-`make check` runs formatting, lint, strict typing, architecture import
-boundaries, the full test suite, and the forbidden-behavior scan. It is the same
-set CI runs, so a green `make check` locally means a green CI.
+`make check` runs seven gates: formatting, lint, strict typing, architecture
+import boundaries, the no-database test lane, the forbidden-behavior scan, and
+the agent-memory ledger check.
+
+**It is a subset of CI, not the whole of it, so a green `make check` does not
+mean a green CI.** Two differences matter. `make test` is
+`pytest tests/ -m "not integration"` — the no-database lane, not the full suite;
+the integration tests need PostgreSQL and *skip themselves* when none is
+reachable, so a clean local run proves nothing about them unless you actually
+had a database. And CI additionally runs the migration from an empty database,
+the full suite including the integration lane, the OpenAPI drift check, the
+dependency-lock recompilation, `pip-audit --strict`, gitleaks over full history,
+the tracked-artifact checks, and the container image build. `make test-all` and
+`make migrate-check` close part of that gap locally; the rest needs CI.
+
+The precise list, with the local counterpart of each CI step, is in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ```bash
 make run-api        # http://localhost:8000  (fixtures only)
@@ -196,7 +210,7 @@ Contract-Refs: v1.1 §N.N
 | [Security review](docs/security/scaffold-security-review.md) | Scaffold security posture and residual risk |
 | [Verification record](docs/testing/scaffold-verification.md) | Every check run, with its exact result |
 | [Remaining work](docs/plans/remaining-foundation-r1-work.md) | Foundation and R1 backlog in dependency order |
-| [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eight decisions the redesign must make |
+| [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eleven decisions the redesign must make |
 
 ---
 
@@ -221,3 +235,24 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
 
 Gate owners sit outside engineering and are never inferred from technical
 readiness.
+
+---
+
+## Notice — private pilot, not open-source licensed
+
+> **This repository is a private pilot for IA West SmartMatch. It is not
+> open-source licensed, and it carries no `LICENSE` file deliberately.**
+>
+> The absence of a `LICENSE` is a decision, not an oversight. No license is
+> granted to anyone by this repository being visible.
+>
+> This is a plain statement of intent, not legal language, and nobody qualified
+> to write licensing terms has reviewed it.
+
+The decision behind it is **D9**, recorded as a **tentative, not organizationally
+ratified** position in
+[`docs/decisions/pilot-decisions.md`](docs/decisions/pilot-decisions.md). It
+stays gated on the unremediated finding **MM-A09**: the archived legacy
+repository's git history still contains paths naming real people, and publishing
+that history would broaden the exposure. `CONTRIBUTING.md` carries the same
+position from the engineering side.

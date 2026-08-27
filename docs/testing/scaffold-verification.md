@@ -8,6 +8,26 @@ Every row below was executed and its exact result recorded. Rows that were not
 run say so and say why — per §18 of the orchestrator contract, `VERIFIED` is
 never reported for a check that was skipped, unavailable, or inferred.
 
+> **Amended 26 August 2026 — two different kinds of change, kept apart.**
+>
+> **One row was false when it was written** and is corrected in place: the
+> Migration section's characterization-test row claimed `PASS` for MM-004 and
+> MM-005 on the strength of characterization tests that do not exist. That is
+> finding F-13 of `docs/migration/port-verification.md`, and correcting it here
+> is not an update — it is the removal of an untrue `PASS`.
+>
+> **The rest of this record is dated evidence and has been left as it was
+> measured on 17 August 2026**, with superseded numbers annotated rather than
+> rewritten. The counts in the Backend section (196 passed / 1 skipped; 207
+> passed) were true of the tree that was measured; the tree has moved a long way
+> since. Rewriting them would make this document assert that those commands
+> produced today's numbers on that date, which is a different and worse defect
+> than being out of date. Current figures where they are useful:
+> `pytest tests/ -m "not integration"` reports **565 passed, 1 skipped, 359
+> deselected** at `6a2f0ec` on 26 Aug 2026. The integration lane was not run for
+> this amendment and no `SMARTMATCH_DATABASE_URL` was set, so nothing is claimed
+> about it.
+
 ---
 
 ## Repository
@@ -71,7 +91,7 @@ deliberate marker, not an unrun check.
 |---|---|
 | Every ported component has a manifest entry | **PASS** — MM-001, MM-003, MM-004, MM-005 |
 | Every manifest entry has provenance and contract references | **PASS** |
-| Every reused behavior has characterization and target tests | **PASS** for MM-001 (7 preserved + 8 corrected), MM-004, MM-005. MM-003 is a `REPLACE`, so characterization against legacy outputs does not apply and the manifest says so. |
+| Every reused behavior has characterization and target tests | **PASS for MM-001 only.** MM-001 has genuine preserved-behavior cases — 7 preserved + 8 corrected when this was measured, 7 + 10 = 17 at `6a2f0ec`. MM-003 is a `REPLACE`, so characterization against legacy outputs does not apply and the manifest says so. **CORRECTED 26 Aug 2026 — this row previously read `PASS` for MM-004 and MM-005 as well, and that was untrue when written** (`docs/migration/port-verification.md` finding F-13, High). Neither `tests/unit/test_ingest.py` nor `tests/unit/test_feedback.py` contains a characterization case: nothing in either file references the legacy, compares against a legacy output, or pins a legacy behavior. Both manifest entries now set `characterization_tests: n/a` with the reason. For MM-004 that is provisional — real parity cases *are* writable, and the review already published the legacy transcript they would encode (F-12). For MM-005 parity is inexpressible, per F-18/F-19. **This row should not read `PASS` again for either entry until cases exist.** |
 | Every rejected component has a recorded reason | **PASS** — 8 archived entries, each with a contract reference |
 | Every completion claim links to a commit | **PASS** — `7b5ab9f`, `7d38856` |
 
@@ -100,7 +120,21 @@ artifacts yet), and all frontend checks (no frontend yet).
 
 - The four `ported_unverified` manifest entries await a reviewer other than the
   author. §6 of the orchestrator contract forbids an agent approving its own
-  port, so none is marked `verified`.
+  port, so none is marked `verified`. *(26 Aug 2026: superseded in part. The
+  independent review of 18 Aug 2026 promoted MM-001 to `verified` and left
+  MM-003, MM-004 and MM-005 at `ported_unverified` after rejecting them. Those
+  three have since had their description errors corrected and most of their code
+  findings fixed, and they are still `ported_unverified` — the correcting party
+  is not permitted to promote them. See `docs/migration/port-verification.md`
+  §Amendment for what a re-reviewer must now check.)*
+- **This document's own characterization claim was one of the review's
+  findings.** A verification record that reports `PASS` for evidence it did not
+  look at is the failure mode this file exists to prevent, and it exhibited it.
+  The check that would have caught it — asserting that every path named in the
+  manifest's `characterization_tests` and `target_tests` exists, and that stated
+  counts match `pytest --collect-only` — still does not exist. It is recommended
+  in `docs/migration/migration-manifest.yaml` under `schema_note` and in
+  `docs/plans/defect-remediation.md` §3.3.
 - CI has not yet executed. The workflow is syntactically valid (parsed with
   PyYAML) and every step was run locally by equivalent command, but the hosted
   run is unobserved.

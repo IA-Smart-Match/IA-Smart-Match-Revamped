@@ -43,7 +43,7 @@ lock: ## Recompile the dependency locks from requirements/*.in
 # ---------------------------------------------------------------------------
 
 .PHONY: check
-check: format-check lint typecheck imports test scan memory ## Run every gate CI runs
+check: format-check lint typecheck imports test scan memory licenses infra-check ## Run every gate CI runs
 
 .PHONY: format-check
 format-check: ## Verify formatting
@@ -84,6 +84,18 @@ scan: ## Scan for forbidden legacy behavior
 .PHONY: memory
 memory: ## Validate the approved agent-memory ledger
 	$(PY) tools/agent_memory_check.py
+
+.PHONY: licenses
+licenses: ## Fail on a dependency license outside the policy
+	$(PY) tools/supply_chain.py licenses
+
+.PHONY: sbom
+sbom: ## Generate the CycloneDX 1.5 SBOM for the runtime lock (dist/ is gitignored)
+	$(PY) tools/supply_chain.py sbom --output dist/sbom.cyclonedx.json
+
+.PHONY: infra-check
+infra-check: ## Assert Terraform environments share no identifiers and apply nothing
+	$(PY) tools/env_isolation_check.py
 
 # ---------------------------------------------------------------------------
 # Database

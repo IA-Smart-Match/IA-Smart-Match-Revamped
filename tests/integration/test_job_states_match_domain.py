@@ -52,6 +52,7 @@ import re
 import uuid
 
 import pytest
+from conftest import ensure_owning_unit
 from smartmatch_domain.jobs import JobState
 from sqlalchemy import Engine, inspect, text
 
@@ -113,13 +114,14 @@ def test_every_domain_state_can_be_written(engine: Engine, tenant_id: uuid.UUID,
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO job (id, tenant_id, command_type, status) "
-                "VALUES (:id, :tenant_id, :command_type, :status)"
+                "INSERT INTO job (id, tenant_id, command_type, status, owning_unit_id) "
+                "VALUES (:id, :tenant_id, :command_type, :status, :unit_id)"
             ),
             {
                 "id": uuid.uuid4(),
                 "tenant_id": tenant_id,
                 "command_type": "match.run",
                 "status": state.value,
+                "unit_id": ensure_owning_unit(connection, tenant_id),
             },
         )

@@ -18,12 +18,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import ensure_owning_unit
 from smartmatch_domain.jobs import JobState, can_transition
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import (
     MAX_DISPATCH_ATTEMPTS,
     OutboxRepository,
     OutboxStatus,
+    backoff_for,
     derive_task_name,
 )
 from smartmatch_providers.tasks import (
@@ -64,7 +66,12 @@ def dispatcher(session_factory, queue) -> OutboxDispatcher:
 def _accept_command(session_factory, jobs, outbox, tenant_id) -> uuid.UUID:
     """Accept a command the way the API will: job and outbox in one transaction."""
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=COMMAND)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=COMMAND)
         session.commit()
     return job.id
@@ -188,7 +195,13 @@ def test_job_and_outbox_row_commit_together(session_factory, jobs, outbox, tenan
     """A rolled-back command leaves neither a job nor an outbox row."""
     job_id = uuid.uuid4()
     with session_factory() as session:
-        jobs.create(session, tenant_id=tenant_id, command_type=COMMAND, job_id=job_id)
+        jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            job_id=job_id,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job_id, command_type=COMMAND)
         session.rollback()
 
@@ -668,13 +681,15 @@ def test_a_failure_while_recording_a_dispatch_does_not_abort_the_batch(
 
     real_record = dispatcher._record_dispatched
 
-    def flaky(tenant_id_, job_id, record_id):
+    def flaky(tenant_id_, job_id, record_id, *, lease_token):
         if job_id == broken_job:
             raise OperationalError("UPDATE outbox_record", {}, Exception("server closed"))
         # Returned, not discarded: ``_record_dispatched`` answers whether this
         # dispatcher still owned the row, and a stand-in that swallowed that
-        # would make every delegated call look like a lost race.
-        return real_record(tenant_id_, job_id, record_id)
+        # would make every delegated call look like a lost race. The lease token
+        # is forwarded for the same reason — dropping it would make the real
+        # call lose its own compare-and-set (J17).
+        return real_record(tenant_id_, job_id, record_id, lease_token=lease_token)
 
     monkeypatch.setattr(dispatcher, "_record_dispatched", flaky)
     outcome = dispatcher.run_once()
@@ -838,8 +853,8 @@ def _outbox_row(session_factory, job_id: uuid.UUID):
     with session_factory() as session:
         return session.execute(
             text(
-                "SELECT status, dispatch_attempts, lease_expires_at, last_error "
-                "FROM outbox_record WHERE job_id = :job_id"
+                "SELECT status, dispatch_attempts, lease_expires_at, lease_token, "
+                "last_error FROM outbox_record WHERE job_id = :job_id"
             ),
             {"job_id": job_id},
         ).one()
@@ -1064,7 +1079,9 @@ def test_a_reclaimed_row_is_not_resurrected_by_a_late_dispatch(
     assert _outbox_row(session_factory, job_id).status == OutboxStatus.FAILED.value
 
     # A's enqueue returns, and A records the dispatch it genuinely performed.
-    dispatcher._record_dispatched(record.tenant_id, record.job_id, record.id)
+    dispatcher._record_dispatched(
+        record.tenant_id, record.job_id, record.id, lease_token=record.lease_token
+    )
 
     row = _outbox_row(session_factory, job_id)
     assert row.status == OutboxStatus.FAILED.value, (
@@ -1415,3 +1432,234 @@ def test_a_committed_reclaim_survives_a_claim_that_then_fails(
         "the committed reclaim must travel with the failure that followed it, "
         f"not be discarded; notes were {getattr(raised.value, '__notes__', [])!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# J17 — a row must record *which* dispatcher claimed it
+# ---------------------------------------------------------------------------
+
+
+def _claim_one(session_factory, outbox, *, lease: timedelta = timedelta(seconds=60)):
+    """Claim exactly one row and commit the lease, as a dispatcher pass would."""
+    with session_factory() as session:
+        claimed = outbox.claim_batch(session, limit=10, lease=lease)
+        session.commit()
+    assert len(claimed) == 1
+    return claimed[0]
+
+
+def test_a_stale_failure_write_cannot_overwrite_a_peers_lease(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The measured J17 scenario: ``leased`` proves liveness, not ownership.
+
+    Two dispatchers and one slow dispatch. A claims the row; A's enqueue outlives
+    its own lease — nothing exotic, a slow provider call or a long GC — and peer
+    B legitimately re-claims it with a fresh 60-second lease. A's enqueue then
+    fails, and A records the failure it believes belongs to it.
+
+    With the guard on ``status = 'leased'`` alone, A wins: B's own claim
+    satisfies ``leased``. Measured before the fix, and the numbers this test
+    pins are those numbers. A carries the *older* attempt count, so its backoff
+    is ``backoff_for(2)`` — four seconds — and it writes that over B's
+    sixty-second lease, cutting **56 seconds** off it. It replaces B's
+    ``last_error`` with an error from an attempt B never made. And the row
+    becomes claimable again while B is still working it, so a third pass claims
+    it and burns an attempt the row should not have spent — repeat that near the
+    limit and the row is parked as exhausted having had fewer real attempts than
+    ``MAX_DISPATCH_ATTEMPTS`` promises.
+
+    Nothing is lost or double-executed here and the test does not claim
+    otherwise: ``JobRepository.claim`` still admits only a ``dispatched`` job.
+    What is wrong is that the row's attempt budget, its lease, and its
+    explanation all come to describe an attempt that is not the one in progress.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    # One earlier attempt, so A's claim is attempt 2 and its backoff is the
+    # four seconds the measurement used.
+    _claim_and_walk_away(session_factory, outbox, tenant_id)
+
+    # Dispatcher A claims and begins a slow enqueue.
+    _expire_all_leases(session_factory, tenant_id)
+    stale = _claim_one(session_factory, outbox)
+    assert stale.dispatch_attempts == 2
+
+    # The enqueue outlives A's lease, and peer B re-claims the row.
+    _expire_all_leases(session_factory, tenant_id)
+    peer = _claim_one(session_factory, outbox)
+    assert peer.id == stale.id, "the two dispatchers are working the same row"
+    assert peer.lease_token != stale.lease_token, (
+        "a re-claim is a new claim and must mint a new token, or ownership is "
+        "indistinguishable from liveness"
+    )
+    assert peer.dispatch_attempts == 3
+
+    held_by_peer = _outbox_row(session_factory, job_id)
+
+    # A's enqueue finally fails, and A records the failure against a row it no
+    # longer owns.
+    recorded = dispatcher._record_failure(stale, "queue unavailable", stale.dispatch_attempts)
+
+    assert recorded == "contended", (
+        "a row a peer is still working is neither a reclaim nor a completed "
+        "dispatch; the dispatcher must say nothing about it rather than guess. "
+        "J17 landed this as 'unresolved'; J8 gave it a name of its own so the "
+        "benign race stops looking like an incident — see DispatchOutcome"
+    )
+
+    row = _outbox_row(session_factory, job_id)
+    assert row.lease_token == peer.lease_token, "the peer must still own the row"
+    assert row.status == OutboxStatus.LEASED.value
+    assert row.lease_expires_at == held_by_peer.lease_expires_at, (
+        "the peer's 60-second lease must survive; the stale writer's backoff is "
+        f"{backoff_for(stale.dispatch_attempts).total_seconds():.0f}s, which "
+        "would have cut 56 seconds off it and handed the row to a third pass "
+        "while the peer was still enqueuing"
+    )
+    assert row.last_error is None, (
+        "the error belongs to an attempt that is not the one in progress; "
+        "writing it over the peer's row describes the wrong attempt"
+    )
+    assert row.dispatch_attempts == 3
+
+    # The consequence that costs the row its attempt budget, asserted directly:
+    # halfway through the peer's lease nothing may claim this row.
+    midway = datetime.now(UTC) + timedelta(seconds=30)
+    with session_factory() as session:
+        assert outbox.claim_batch(session, limit=10, now=midway) == [], (
+            "a row whose peer holds a live lease must not become claimable "
+            "because a stale writer shortened it"
+        )
+        session.rollback()
+
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED
+
+
+def test_a_stale_dispatch_write_cannot_overwrite_a_peers_lease(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """The same race down the other writer, closed for consistency's sake.
+
+    ``mark_dispatched`` was affected in form rather than in substance: a stale
+    write there asserts the row is ``dispatched``, and it is, because that path
+    is only reached having enqueued the task or found it already present. So the
+    old behaviour converged on a true statement — by writing over a row a peer
+    was holding, and finishing a claim that was not its own.
+
+    It is closed anyway. A rule about who may finish a row that one of its two
+    writers is exempt from is a rule nothing can rely on, and the exemption's
+    safety rests on a chain of reasoning about the enqueue that a later change
+    could quietly break. Here the peer keeps its lease and its token, the job
+    stays ``queued`` until whoever *does* own the row says otherwise, and the
+    stale dispatcher reports a row it could not complete rather than one it did.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    stale = _claim_one(session_factory, outbox)
+
+    _expire_all_leases(session_factory, tenant_id)
+    peer = _claim_one(session_factory, outbox)
+    assert peer.lease_token != stale.lease_token
+
+    held_by_peer = _outbox_row(session_factory, job_id)
+
+    recorded = dispatcher._record_dispatched(
+        stale.tenant_id, stale.job_id, stale.id, lease_token=stale.lease_token
+    )
+
+    assert recorded == "contended", (
+        "the row is neither reclaimed nor finalised — it is held by a peer "
+        "mid-pass, and this dispatcher cannot say how that pass ends. Named "
+        "apart from 'unresolved' by J8: this dispatcher knows exactly what "
+        "happened, it simply is not the one finishing the row"
+    )
+
+    row = _outbox_row(session_factory, job_id)
+    assert row.status == OutboxStatus.LEASED.value, (
+        "a row a peer holds must not be finalised by the dispatcher that lost it"
+    )
+    assert row.lease_token == peer.lease_token
+    assert row.lease_expires_at == held_by_peer.lease_expires_at
+
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED, (
+            "the job advances when its row's owner records the dispatch, not "
+            "when a dispatcher that lost the row does"
+        )
+
+    # And the owner finishes it, which is the point: nothing is stuck, the work
+    # is simply completed by the pass that holds the claim.
+    assert (
+        dispatcher._record_dispatched(
+            peer.tenant_id, peer.job_id, peer.id, lease_token=peer.lease_token
+        )
+        == "recorded"
+    )
+    with session_factory() as session:
+        assert _outbox_status(session, job_id) == OutboxStatus.DISPATCHED
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.DISPATCHED
+
+
+def test_a_lease_with_no_token_is_not_treated_as_unheld(
+    session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A ``NULL`` token is a rollout constraint, not a free row.
+
+    ``outbox_record.lease_token`` is expand-phase and nullable (migration
+    ``0004``), so during a rolling deploy a dispatcher still running pre-J17 code
+    claims rows against this schema **without writing a token** — and holds them.
+    Reading ``lease_token IS NULL`` as "nobody holds this row" would therefore
+    hand a live claim to whichever writer arrived, which is the defect J17 exists
+    to close, reached through the fix for it.
+
+    So both writers fail closed: ``lease_token = :token`` is never true against a
+    ``NULL`` column, so a tokenless row matches nothing and the caller takes the
+    ordinary lost-the-race path. That costs this code nothing, because a caller
+    on this code always has a token — ``claim_batch`` mints one in the same
+    UPDATE that takes the lease.
+
+    What it does **not** buy is symmetry, and this test cannot assert what it
+    does not buy: the old dispatcher's own writers still guard on ``status =
+    'leased'`` alone, so it can overwrite a new dispatcher's tokenized lease
+    exactly as J17 describes. J17's guarantee holds only once every dispatcher
+    runs this code. Draining the old ones is what makes it true; see ``0004``.
+    """
+    job_id = _accept_command(session_factory, jobs, outbox, tenant_id)
+
+    record = _claim_one(session_factory, outbox)
+
+    # What a pre-J17 dispatcher's claim leaves on the row: a live lease, an
+    # incremented attempt count, and no token at all.
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE outbox_record SET lease_token = NULL WHERE id = :id"),
+            {"id": record.id},
+        )
+        session.commit()
+
+    with session_factory() as session:
+        assert not outbox.mark_failed(
+            session,
+            record_id=record.id,
+            lease_token=record.lease_token,
+            error="queue unavailable",
+            attempts=record.dispatch_attempts,
+        ), "a tokenless lease is held by a dispatcher this code cannot identify"
+        assert not outbox.mark_dispatched(
+            session, record_id=record.id, lease_token=record.lease_token
+        ), "and the dispatch writer must refuse it for the same reason"
+        session.commit()
+
+    row = _outbox_row(session_factory, job_id)
+    assert row.status == OutboxStatus.LEASED.value
+    assert row.lease_token is None, "nothing may adopt a row it cannot prove it holds"
+    assert row.last_error is None
+    assert row.lease_expires_at is not None, (
+        "the old dispatcher's lease must survive; clearing it would make the "
+        "row claimable while that dispatcher is still working it"
+    )
+
+    with session_factory() as session:
+        assert jobs.get(session, tenant_id=tenant_id, job_id=job_id).status == JobState.QUEUED

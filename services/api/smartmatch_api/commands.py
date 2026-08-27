@@ -10,11 +10,29 @@ into each router.
 
 Everything a submission writes commits together (v1.1 §1.6):
 
-    idempotency reservation · rate-limit consumption · job row · outbox row
+    idempotency reservation · job row (**with its payload**) · outbox row
 
-If any part fails, none of it happened. That matters in both directions: a
-rolled-back command must not consume quota or burn an idempotency key, and a
-committed job must never exist without the outbox row that will dispatch it.
+If any part fails, none of it happened: a rolled-back command must not burn an
+idempotency key, and a committed job must never exist without the outbox row
+that will dispatch it.
+
+**Quota is deliberately not in that list, as of ADR-0015.** It used to be — the
+increment shared this transaction, so a submission that was refused or that
+failed gave the caller their capacity back. The charge now happens in the router,
+before the resource is loaded and before it is authorized, and commits in a
+transaction of its own; :func:`submit_command` takes the resulting
+:class:`~smartmatch_api.dependencies.QuotaCharge` as evidence rather than
+charging for itself. The two are separate on purpose and in one direction only:
+a command that does not happen still costs the caller, and quota already spent
+is never handed back by a later failure.
+
+The payload is part of that list as of J10, and it is inside the boundary by
+construction rather than by care: ``JobRepository.create`` writes it as a column
+of the job's own INSERT, so there is no separate statement anyone could later
+move out of the transaction. Until then the body was hashed into an idempotency
+fingerprint and dropped, and the worker — handed a job id, a tenant and a command
+type — failed every import it was given because nothing recorded what to import.
+An accepted command that cannot be executed is not an accepted command.
 
 Note what is deliberately **absent**: no provider call, no Cloud Tasks call, no
 work. The request path only records intent. The dispatcher moves it, and the
@@ -37,10 +55,9 @@ from smartmatch_persistence.idempotency import (
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import OutboxRepository
 from smartmatch_persistence.principals import ResolvedPrincipal
-from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
-from smartmatch_api.dependencies import enforce_rate_limit
+from smartmatch_api.dependencies import QuotaCharge
 from smartmatch_api.errors import ApiError
 
 __all__ = ["CommandAccepted", "submit_command"]
@@ -72,9 +89,10 @@ def submit_command(
     principal: ResolvedPrincipal,
     *,
     command_type: str,
+    owning_unit_id: uuid.UUID,
     payload: dict[str, Any],
     idempotency_key: str | None,
-    rate_limit: RateLimit,
+    charge: QuotaCharge,
 ) -> CommandAccepted:
     """Accept a command: validate, reserve, record, and commit.
 
@@ -83,20 +101,52 @@ def submit_command(
         principal: The authenticated caller. Tenant and actor come from this,
             never from ``payload``.
         command_type: Stable command identifier, e.g. ``"match-run.create"``.
-        payload: The request body, used for the idempotency fingerprint.
+        owning_unit_id: The organizational unit the job belongs to, and the one
+            every later authorization decision about it is scoped against (A5,
+            migration ``0006``).
+
+            **This must be the unit the router already authorized against**, not
+            one read back out of ``payload``. The distinction is the whole point
+            and it is the same one the ``tenant`` and ``actor`` rules make: a
+            unit taken from the body would be a caller naming the subtree their
+            own work is filed under, and therefore naming who may later see it,
+            re-drive it, or abandon it. ``routers/imports.py`` resolves it from
+            the *path* parameter with ``load_unit_or_404`` and hands the same
+            ``unit_id`` to ``assert_allowed``, so what is stored is by
+            construction what the request was permitted for.
+
+            It is a separate argument rather than a key this function digs out of
+            ``payload`` for exactly that reason: ``payload`` is caller-shaped
+            data, and an authorization input must not be read from it even when
+            the router happens to have put a trustworthy value there.
+        payload: The command's parameters, as the router assembled them from the
+            validated request body plus the identifiers it resolved. Persisted on
+            the job row for the worker to execute, and hashed for the idempotency
+            fingerprint. It must contain everything the handler needs and nothing
+            the caller may not dictate: tenant and actor come from ``principal``
+            and are never read out of here.
         idempotency_key: The caller's ``Idempotency-Key`` header. Required —
             see below.
-        rate_limit: The limit for this operation.
+        charge: The receipt from
+            :func:`~smartmatch_api.dependencies.charge_quota`, which the router
+            called as its first statement. Required rather than a
+            ``RateLimit`` this function would apply itself: charging here would
+            put the quota back behind the router's load, authorization and
+            validation, which is the ordering ADR-0015 exists to reverse. Asking
+            for the receipt instead means a route cannot submit a command it
+            never charged for, and a type checker says so.
 
     Returns:
         A :class:`CommandAccepted`. Callers respond ``202`` with the job id.
 
     Raises:
-        ApiError: 400 when the idempotency key is missing or unusable,
-            429 when the rate limit is exhausted.
+        ApiError: 400 when the idempotency key is missing or unusable.
         IdempotencyConflictError: 409 when the key was reused with a different
             body.
     """
+    # ``charge`` is deliberately never read. It is a precondition made
+    # structural: the guarantee is that the caller already spent quota on this
+    # request, and a value this function could only re-check would not add one.
     if not idempotency_key or not idempotency_key.strip():
         # Required rather than optional. A command that creates durable,
         # possibly paid work must be safely retryable, and a caller cannot retry
@@ -118,11 +168,6 @@ def submit_command(
             message="Idempotency-Key must be at most 255 characters.",
         )
 
-    # Quota first, so an exhausted caller cannot burn idempotency keys or job
-    # ids by hammering. Consumed inside the transaction, so a request that later
-    # fails does not count against them.
-    enforce_rate_limit(session, principal, rate_limit)
-
     job_id = uuid.uuid4()
     try:
         reservation = _idempotency.reserve(
@@ -130,22 +175,44 @@ def submit_command(
             tenant_id=principal.tenant_id,
             command_type=command_type,
             idempotency_key=idempotency_key.strip(),
+            # Unchanged by J10, deliberately. The fingerprint covers exactly the
+            # dictionary that is about to be persisted as `job.payload`, so the
+            # rule it enforces — same key, same body, same job — is now a
+            # statement about the work that will actually run rather than about
+            # a body nothing kept. Persisting the payload narrows nothing and
+            # widens nothing; it makes the existing check meaningful.
+            #
+            # Two things it still does not cover, both pre-existing and both
+            # left alone here. The actor: a key is scoped to
+            # (tenant, command_type, key), so a second caller in the same tenant
+            # replaying an identical body gets the first caller's job. And the
+            # persisted form: this hashes the request dictionary in-process,
+            # never the stored jsonb, because jsonb normalizes key order and
+            # duplicate keys — a fingerprint recomputed from the column could
+            # differ from the one taken from the body and turn a legitimate
+            # retry into a 409.
             request_fingerprint=fingerprint_request(payload),
             job_id=job_id,
         )
     except IdempotencyConflictError:
-        # Commit the quota consumption before the 409 propagates. Without this,
-        # the request-scoped session is rolled back on the way out and the
-        # increment goes with it — making an unbounded stream of conflicting
-        # requests free, which is precisely the traffic a limiter exists to
-        # bound. A rejected request still costs the caller quota.
-        session.commit()
+        # No commit here any more, and its absence is the point. This used to
+        # commit before letting the 409 propagate, purely so the rate-limit
+        # increment survived the request-scoped rollback — the one place
+        # ADR-0006 records as inverting its own "the caller commits, alongside
+        # the request's own work" rule. ADR-0015 makes that inversion the
+        # general rule and moves it to the front of the request, so the quota
+        # is already durable by the time this key was even looked at. A
+        # conflicting ``reserve`` is ``ON CONFLICT DO NOTHING`` followed by a
+        # read, so there is nothing else on this path to keep.
         raise
 
     if reservation.is_replay:
-        # The work already exists. Commit so the rate-limit consumption sticks —
-        # a retry still costs quota, or a client could poll a command endpoint
-        # for free — then return the original job.
+        # The work already exists, and a replay writes no rows, so this commit
+        # has nothing of its own to persist — the retry's quota was charged and
+        # committed before this function was called. It stays as the explicit
+        # end of the transaction this path opened, matching the success path
+        # below rather than leaving the session for the dependency teardown to
+        # roll back.
         session.commit()
         assert reservation.job_id is not None
         return CommandAccepted(job_id=reservation.job_id, is_replay=True)
@@ -156,6 +223,16 @@ def submit_command(
         command_type=command_type,
         actor_id=principal.user_id,
         job_id=job_id,
+        # A column of this INSERT for the same reason `payload` is: the unit a
+        # job is filed under decides who may later read, re-drive or abandon it,
+        # so it must be exactly as durable as the intent to dispatch. A
+        # follow-up UPDATE would open a window in which a committed job is
+        # authorizable by nobody — or, worse, by everybody, depending on how the
+        # gap were papered over.
+        owning_unit_id=owning_unit_id,
+        # Inside the boundary because it is a column of this INSERT, not a
+        # follow-up write that happens to sit before the commit.
+        payload=payload,
     )
     _outbox.enqueue(
         session,
@@ -164,7 +241,9 @@ def submit_command(
         command_type=command_type,
     )
 
-    # One commit for the reservation, the quota, the job, and the outbox row.
+    # One commit for the reservation, the job with its payload, and the outbox
+    # row. Not for the quota: that is already committed, in front of this whole
+    # function, and is not part of what a failure here should undo (ADR-0015).
     session.commit()
 
     return CommandAccepted(job_id=job_id, is_replay=False)

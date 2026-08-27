@@ -4,7 +4,7 @@
 
 Nothing is built here until a standardized design system exists and has an owner.
 `DESIGN.md` is a brief, not a design: Part 1 records the constraints already
-settled by architecture v1.1, and Part 2 lists the eight decisions the redesign
+settled by architecture v1.1, and Part 2 lists the eleven decisions the redesign
 must make.
 
 Read `DESIGN.md` before writing any code in this directory.
@@ -24,3 +24,31 @@ Read `DESIGN.md` before writing any code in this directory.
 The API it will consume is real and growing —
 `contracts/openapi/smartmatch.json` currently describes health, unsubscribe, job
 status, job event streaming, and the import command.
+
+---
+
+## Notice — development-only preview, synthetic data only
+
+> **Any frontend present here is a development-only preview running on
+> synthetic data only. It is not the product, it is not deployed, and it must
+> never receive live student data.**
+>
+> **[`DESIGN.md`](DESIGN.md) is unresolved** and stays that way pending the UI
+> team. Part 2's open decisions (D-1..D-11) are still open, and D-0 — assigning
+> an owner — is still unassigned.
+>
+> **A preview here must not constrain backend contracts.** Where it disagrees
+> with `contracts/openapi/smartmatch.json`, the contract is right and the
+> preview is wrong. Nothing in this directory is evidence that an endpoint
+> exists.
+
+Screens carried over from the legacy repository are reference material, not a
+design. They have not been through the provenance-labelling, truthful-state, or
+accessibility constraints in Part 1 of `DESIGN.md`, and they do not close any of
+the decisions in Part 2.
+
+Related: [`../../docs/decisions/pilot-decisions.md`](../../docs/decisions/pilot-decisions.md)
+(tentative pilot decisions, D-0 section) and
+[`../../docs/ui/pilot-prototype-prompts.md`](../../docs/ui/pilot-prototype-prompts.md)
+(a non-authoritative prompt pack for an **external** clickable prototype — no
+generated UI code is merged here).

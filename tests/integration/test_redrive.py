@@ -35,13 +35,14 @@ import time
 import uuid
 
 import pytest
-from conftest import unique_subject
+from conftest import ensure_owning_unit, unique_subject
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import OutboxRepository, OutboxStatus, derive_task_name
+from smartmatch_persistence.redrive import RedriveRepository
 from smartmatch_providers import FixtureTokenVerifier
 from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
@@ -155,7 +156,13 @@ def coordinator(client, engine, tenant_id) -> str:
 def _accept_command(session_factory, jobs, outbox, tenant_id, *, actor_id=None) -> uuid.UUID:
     """Accept a command the way the API does: job and outbox in one transaction."""
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=COMMAND, actor_id=actor_id)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=COMMAND,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            actor_id=actor_id,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=COMMAND)
         session.commit()
     return job.id
@@ -599,7 +606,10 @@ def test_another_tenants_job_is_not_found(
         assert _job_status(session_factory, jobs, other_tenant, job_id) is JobState.FAILED_PROVIDER
     finally:
         with engine.begin() as conn:
-            for table in ("job_event", "outbox_record", "redrive_record", "job"):
+            # `org_unit` last, and after `job`: the job it owns references it
+            # ON DELETE RESTRICT, and the tenant delete below cannot proceed
+            # while any org_unit still points at the tenant.
+            for table in ("job_event", "outbox_record", "redrive_record", "job", "org_unit"):
                 conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": other_tenant})
             conn.execute(text("DELETE FROM tenant WHERE id = :t"), {"t": other_tenant})
 
@@ -1299,3 +1309,347 @@ def test_an_abandon_records_no_generation(
         ).all()
 
     assert [row.result_generation for row in rows] == [None]
+
+
+# ---------------------------------------------------------------------------
+# J15 — a 500 must not refund the quota that produced it
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def failing_client(client) -> TestClient:
+    """The same wiring, but rendering an unhandled exception as the caller's 500.
+
+    ``TestClient`` re-raises server exceptions by default, which is right for
+    every other test in this module and exactly wrong for these three. J15 is a
+    statement about what survives in the database *after* the route 500s, so the
+    request has to finish the way it finishes in production — through the error
+    middleware, with the dependency teardown running and ``get_session``'s
+    unconditional rollback firing — rather than being unwound by the harness
+    before any of that happens.
+
+    Depends on ``client`` rather than rebuilding the wiring: the app is a module
+    singleton, so this shares that fixture's session factory and its registered
+    tokens, and taking it as an argument makes the ordering explicit instead of
+    accidental.
+    """
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _explode(*args, **kwargs):
+    """Stand in for a repository call failing in a way the handler never named.
+
+    ``RuntimeError`` on purpose: it is outside the three-exception tuple the
+    handlers catch, which is the whole condition J15 describes. Any unhandled
+    type would do — a driver error, a bug in a repository, an ``AttributeError``
+    after a refactor — and the point is that the set of them cannot be
+    enumerated in advance, which is why the fix is a broad ``except`` rather
+    than a fourth entry in the tuple.
+    """
+    raise RuntimeError("the command failed in a way nobody anticipated")
+
+
+def test_an_unhandled_error_in_a_redrive_still_costs_quota(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """A 500 is not a refund.
+
+    Reproduced the way the backlog row reproduced it: make ``_redrive.redrive``
+    raise ``RuntimeError``. The savepoint then stayed open, ``session.commit()``
+    never ran, and ``get_session``'s unconditional ``finally:
+    session.rollback()`` discarded the rate-limit increment along with
+    everything the command had written — measured at quota ``0`` before and
+    ``0`` after.
+
+    That reopens S-008 through a repeatable 500: a caller who can reliably
+    provoke an unhandled error pays no quota for it, on the route rate-limited
+    most tightly *because* it is a privileged decision. The 500 itself is a
+    defect to be fixed on its own terms; what is asserted here is that it costs
+    the caller what it charged them.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+    monkeypatch.setattr(RedriveRepository, "redrive", _explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_redrive(failing_client, job_id, coordinator, key="boom")
+
+    assert response.status_code == 500, (
+        f"the error must still reach the caller as a 500, not be swallowed: {response.text}"
+    )
+    assert _quota_consumed(engine, tenant_id) == before + 1, (
+        "an unhandled error must not refund the quota the request already spent"
+    )
+
+
+def test_an_unhandled_error_in_an_abandon_still_costs_quota(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """``abandon_job`` had the identical shape, so it gets the identical test.
+
+    Both routes share the ``job.redrive`` bucket, so this measures the same
+    counter — and a fix applied to only one handler would leave the other
+    refunding, which is the failure this test exists to catch.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+    monkeypatch.setattr(RedriveRepository, "abandon", _explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_abandon(failing_client, job_id, coordinator, key="boom-abandon")
+
+    assert response.status_code == 500, response.text
+    assert _quota_consumed(engine, tenant_id) == before + 1, (
+        "an unhandled error in abandon must not refund the quota either"
+    )
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.FAILED_PROVIDER
+
+
+def test_an_unhandled_error_keeps_the_quota_and_none_of_the_commands_writes(
+    failing_client,
+    coordinator,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    dispatcher,
+    engine,
+    monkeypatch,
+):
+    """The other half, and the reason the fix is a savepoint rollback and a commit.
+
+    The two tests above fail before the command writes anything, so on their own
+    they would pass against a fix that simply committed on the way out — and
+    that fix would persist a half-performed re-drive, which is worse than the
+    refund it cured. So here the *real* ``redrive`` runs to completion first —
+    parking the job, moving it ``failed_provider -> redrive_pending -> queued``,
+    writing the ``redrive_record``, enqueuing a fresh outbox row — and only then
+    raises. Everything it wrote is inside the savepoint; the quota is outside
+    it. Exactly one of those may survive.
+
+    The reservation is the sharpest of the assertions: ``_reserve`` genuinely
+    wrote that row earlier in the same request, so its absence is evidence the
+    savepoint rolled back rather than evidence nothing was ever attempted.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    real_redrive = RedriveRepository.redrive
+
+    def _write_everything_then_explode(self, session, **kwargs):
+        real_redrive(self, session, **kwargs)
+        raise RuntimeError("the command failed after writing every row it writes")
+
+    monkeypatch.setattr(RedriveRepository, "redrive", _write_everything_then_explode)
+
+    before = _quota_consumed(engine, tenant_id)
+
+    response = _post_redrive(failing_client, job_id, coordinator, key="half-written")
+
+    assert response.status_code == 500, response.text
+    assert _quota_consumed(engine, tenant_id) == before + 1, "the quota is outside the savepoint"
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) == JobState.FAILED_PROVIDER, (
+        "a discarded command must not leave the job queued for work that will never run"
+    )
+    assert _redrive_rows(session_factory, job_id) == [], (
+        "an audit record for a re-drive that did not happen is worse than none"
+    )
+    assert len(_outbox_rows(session_factory, job_id)) == 1, (
+        "the failed attempt's row and nothing else; a committed outbox row here "
+        "would dispatch work no audit trail authorized"
+    )
+    assert "half-written" not in _idempotency_keys(session_factory, tenant_id, "job.redrive"), (
+        "the reservation was written and must go with the command, or the key "
+        "would replay a 500 as a success forever"
+    )
+
+
+# ---------------------------------------------------------------------------
+# J16 / ADR-0015 — the cheap refusals are charged for
+# ---------------------------------------------------------------------------
+#
+# The measurement in the backlog row is the model for these: 25 consecutive
+# refusals of each kind, counting what the caller was charged. Against the old
+# ordering — load, authorize, validate, *then* ``enforce_rate_limit`` — the
+# answer was zero for all three kinds, and 25 was as cheap as one.
+#
+# Two assertions carry each test, and they are different statements.
+#
+# 1. **Every refusal that reached the handler was charged exactly once**, spelled
+#    as ``statuses.count(<refusal>) == spent`` rather than as a fixed number. A
+#    fixed number would be wrong, because the second assertion is that the
+#    caller runs out.
+# 2. **The run is bounded**: somewhere in 25 attempts the limiter itself answers
+#    ``429``. That is the whole point of charging for refusals — an abusive
+#    stream now stops — and it is what a run of 403s could never produce before.
+#
+# Neither test asserts *where* in the run the 429 falls. ``job.redrive`` is
+# 10/min in a fixed window anchored to the epoch (ADR-0006), so a run that
+# straddles a minute boundary legitimately gets a second window's worth of
+# refusals through. Pinning "the eleventh" would be pinning the clock.
+
+
+#: How many refusals each of these tests sends, from the J16 row's measurement.
+_REFUSAL_RUN = 25
+
+
+def test_a_run_of_forbidden_redrives_is_charged_and_then_limited(
+    client, engine, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A 403 costs quota. It is the cheapest refusal here to produce in bulk.
+
+    A viewer is authenticated, in the tenant, and denied — so nothing about
+    these requests is expensive to make, and before ADR-0015 nothing about them
+    was expensive to make *repeatedly*: authorization ran before the limiter and
+    a denial left through ``get_session``'s rollback, taking any increment with
+    it. Twenty-five denials moved ``rate_limit_counter`` by zero.
+
+    The job is checked at the end for the obvious reason: charging for a refusal
+    must not turn it into a command.
+    """
+    viewer = _register(
+        client, engine, tenant_id, subject=unique_subject("sub-viewer-j16"), role="viewer"
+    )
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    before = _quota_consumed(engine, tenant_id)
+    statuses = [
+        _post_redrive(client, job_id, viewer, key=f"forbidden-{index}").status_code
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    assert set(statuses) <= {403, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert statuses[0] == 403, "the first request is a denial, not a limit"
+    assert statuses.count(403) == spent, (
+        "every denial that reached the handler must have cost the caller one unit "
+        f"of quota; {statuses.count(403)} denials moved the counter by {spent}"
+    )
+    assert 429 in statuses, (
+        "a caller producing nothing but denials must eventually be limited — "
+        "that is what charging for them buys"
+    )
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_PROVIDER
+    assert len(_outbox_rows(session_factory, job_id)) == 1
+
+
+def test_a_run_of_redrives_against_ids_that_do_not_exist_is_charged_and_then_limited(
+    client, engine, coordinator, tenant_id
+):
+    """A 404 costs quota, and this is the half that is hardest to like.
+
+    The caller here is a legitimate coordinator who is allowed to re-drive; they
+    are simply naming jobs that do not exist. ADR-0015 charges them anyway,
+    because the alternative — free 404s — is an unmetered probe of the job id
+    space that costs the API a tenant-scoped lookup every time. No job is
+    created by any of this, so the whole run is refusals.
+    """
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        _post_redrive(client, uuid.uuid4(), coordinator, key=f"missing-{index}")
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "job_not_found", responses[0].text
+    assert statuses.count(404) == spent, (
+        f"{statuses.count(404)} lookups of ids that do not exist moved the counter by {spent}"
+    )
+    assert 429 in statuses, "probing for job ids must run out of quota like anything else"
+
+
+def test_a_run_of_redrives_with_no_idempotency_key_is_charged_and_then_limited(
+    client, engine, coordinator, session_factory, jobs, outbox, tenant_id, dispatcher
+):
+    """A 400 costs quota: the validators run after the charge, not before it.
+
+    Both of this route's 400s — the missing or oversized ``Idempotency-Key`` and
+    the blank ``reason`` — leave through the same door, because the charge now
+    precedes both validators rather than sitting between them and the command.
+    The missing header is the one used here because it is the cheapest of all of
+    them to send: no body worth building, no job that has to exist, no role that
+    has to be held.
+    """
+    job_id = _a_failed_job(session_factory, jobs, outbox, tenant_id, dispatcher)
+
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        client.post(
+            f"/v1/jobs/{job_id}/redrive",
+            json={"reason": "Provider outage resolved."},
+            headers={"Authorization": f"Bearer {coordinator}"},
+        )
+        for _ in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {400, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert responses[0].json()["error"]["code"] == "idempotency_key_required", responses[0].text
+    assert statuses.count(400) == spent, (
+        f"{statuses.count(400)} malformed requests moved the counter by {spent}"
+    )
+    assert 429 in statuses, "a client looping on a malformed request must be stopped"
+
+    assert _job_status(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_PROVIDER
+    assert _idempotency_keys(session_factory, tenant_id, "job.redrive") == [], (
+        "a request refused before the reservation must leave no key behind"
+    )
+
+
+def test_the_abandon_route_charges_for_its_refusals_too(client, engine, coordinator, tenant_id):
+    """The same ordering on the other handler, and they share one bucket.
+
+    ``/abandon`` is a separate handler with its own copy of the charge, so it
+    needs its own measurement — a fix applied to ``redrive_job`` alone would
+    leave this route free, and the two are meant to be read against each other.
+
+    Sharing the ``job.redrive`` bucket is what makes that worth insisting on:
+    quota spent on refused abandons is quota unavailable for a real re-drive, so
+    a hole in either handler is a hole in the limit on both.
+    """
+    before = _quota_consumed(engine, tenant_id)
+    responses = [
+        _post_abandon(client, uuid.uuid4(), coordinator, key=f"abandon-missing-{index}")
+        for index in range(_REFUSAL_RUN)
+    ]
+    spent = _quota_consumed(engine, tenant_id) - before
+
+    statuses = [response.status_code for response in responses]
+    assert set(statuses) <= {404, 429}, f"unexpected outcomes in the run: {sorted(set(statuses))}"
+    assert statuses.count(404) == spent, (
+        f"{statuses.count(404)} refused abandons moved the counter by {spent}"
+    )
+    assert 429 in statuses
+
+    with engine.begin() as conn:
+        operations = {
+            row.operation
+            for row in conn.execute(
+                text("SELECT DISTINCT operation FROM rate_limit_counter WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        }
+    assert operations == {"job.redrive"}, (
+        "abandon spends from the re-drive bucket; a separate counter here would "
+        "mean the two routes no longer bound each other"
+    )

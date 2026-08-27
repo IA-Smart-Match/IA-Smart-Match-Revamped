@@ -132,6 +132,17 @@ jobs:
       - name: Agent-memory ledger
         run: python tools/agent_memory_check.py
 
+      - name: Terraform environments share no identifiers
+        # The control behind architecture v1.1 §3.2 and the classroom boundary in
+        # §3.3. A shared project, database, queue, bucket, service account, or
+        # secret is invisible in a diagram and is how a classroom workload
+        # reaches production data, so it is asserted rather than reviewed for.
+        # Also fails on anything applyable (a provider, backend, resource,
+        # module, or data block) and on any identifier that is not visibly a
+        # placeholder. Stdlib only — no Terraform, no plugins, no network.
+        # Self-tested in tests/unit/test_env_isolation_check.py.
+        run: python tools/env_isolation_check.py
+
       - name: No committed environment files
         run: |
           if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example'; then
@@ -201,6 +212,54 @@ jobs:
           python -m pip install --upgrade pip pip-audit
           pip-audit --requirement requirements/runtime.txt --strict
 
+  supply-chain:
+    name: security — dependency licenses and SBOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pinned dependencies
+        # This job installs the locks and NOTHING ELSE, deliberately. The license
+        # gate compares each installed version against the version the lock pins
+        # and fails on a mismatch; installing an unpinned tool alongside them
+        # could upgrade a shared transitive dependency and turn that real check
+        # into noise. It is also why this is a separate job from `audit`, which
+        # installs pip-audit.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements/dev.txt
+
+      - name: Dependency license policy
+        # Fails on a license outside the allowlist in tools/supply_chain.py, and
+        # on a license that cannot be determined — an undeterminable license is a
+        # finding, not a pass. Recorded exceptions print on every run, green or
+        # not, so an exception nobody re-reads cannot hide behind a green check.
+        # Self-tested in tests/unit/test_supply_chain.py.
+        run: python tools/supply_chain.py licenses
+
+      - name: Generate the CycloneDX 1.5 SBOM
+        # Built from the lock files, carrying the --hash=sha256 digests they
+        # already pin, which is what makes it more than a package list. Written
+        # with the standard library because adding a dependency (cyclonedx-py,
+        # syft) was out of scope for the branch that introduced it; the module
+        # docstring states the trade and what this therefore does not do.
+        #
+        # Not yet uploaded or retained as a release artifact: that needs an
+        # actions/upload-artifact pin, and this repository pins actions to
+        # immutable commit SHAs, not tags. Generating it here proves it builds
+        # against the real locks on every pull request.
+        run: |
+          python tools/supply_chain.py sbom --output sbom.cyclonedx.json
+          python -c "import json; d=json.load(open('sbom.cyclonedx.json')); \
+            print(d['bomFormat'], d['specVersion'], len(d['components']), 'components')"
+
   secrets:
     name: security — secret scan
     runs-on: ubuntu-24.04
@@ -243,13 +302,20 @@ jobs:
 #     - web: npm ci, tsc, vitest, a11y smoke, bundle budget   (needs apps/web)
 #     - generated TypeScript client drift check               (needs clients/)
 #     - Playwright critical-flow E2E                          (needs real flows)
-#     - CodeQL, Trivy, SBOM
+#     - CodeQL, Trivy
 #
 #   Implemented since this list was written, and no longer deferred:
 #     - outbox dispatcher integration (crash between commit and task creation;
 #       duplicate delivery) — tests/integration/test_outbox_dispatcher.py
 #     - dependency vulnerability audit — the `audit` job below, unblocked once
 #       the locks landed
+#     - SBOM generation and the dependency license policy — the `supply-chain`
+#       job below. Publishing the SBOM as a retained artifact is still deferred;
+#       generating and checking it is not.
+#     - Terraform environment isolation — the `isolation` job asserts that no two
+#       environments share an identifier. This is configuration validation, not
+#       the IaC *scan* still listed under before-scale; that one needs real
+#       Terraform resources to scan, and there are none.
 #
 #   before-scale (R3+):
 #     - IaC scan (needs real Terraform beyond the skeleton)

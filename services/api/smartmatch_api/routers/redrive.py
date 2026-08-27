@@ -21,15 +21,17 @@ using one for all of them leaves the other two open:
   :mod:`smartmatch_api.commands` guards command submission: the same key with
   the same body replays and returns the original job.
 
-  **A key names accepted work. A command refused at the state check consumes
-  quota and no key.** Say "at the state check" rather than "refused", because
-  the limiter runs after the job load, the authorization, and the header and
-  body validators — so a ``403``, ``404`` or ``400`` costs the caller nothing.
-  Those are the cheap refusals to produce in bulk, which is the same S-008
-  shape the savepoint exists to close on the ``409`` paths; it is recorded as
-  backlog **J16** rather than reordered here, because charging quota before
-  authorizing is a decision about who pays for a rejected request, not a
-  docstring fix.
+  **A key names accepted work. A refused command consumes quota and no key.**
+  That now holds for every refusal this route can produce, which it did not
+  before ADR-0015: the limiter ran *after* the job load, the authorization and
+  the header and body validators, so a ``403``, ``404`` or ``400`` cost the
+  caller nothing — measured at 25 consecutive refusals of each kind moving the
+  counter by zero (backlog **J16**). Those are the refusals cheapest to produce
+  in bulk, which made the free ones exactly the traffic a limiter exists to
+  bound. The charge is now the first statement of each handler and commits in
+  its own transaction, and what that decides — an authenticated caller pays for
+  requests they were never allowed to make, and for ids that do not exist — is
+  ADR-0015's, recorded there rather than settled in a comment.
   So a retry after a ``409`` re-runs the attempt and is refused again — it does
   not replay the refusal, and it does not replay a success that never happened.
   That is not a nicety: the states this route refuses are not permanent. A
@@ -40,12 +42,13 @@ using one for all of them leaves the other two open:
   authorized and never ran, permanently, because nothing expires a reservation.
 
   This is why both handlers wrap everything the command writes in a
-  ``SAVEPOINT`` and take the rate limit outside it. A refusal rolls the
-  savepoint back — reservation, parking, state change, audit record, outbox row,
-  all of it — and commits the outer transaction so only the quota survives. A
-  targeted delete of the reservation would read as simpler and would be wrong:
-  the parking step can insert a ``redrive_record`` before a compare-and-set
-  loses, and a delete aimed at the reservation would commit that stray record.
+  ``SAVEPOINT``, opened after the quota has been charged and committed. A
+  refusal rolls the savepoint back — reservation, parking, state change, audit
+  record, outbox row, all of it — and commits the outer transaction, so the
+  command leaves nothing and the quota, already durable, stays. A targeted
+  delete of the reservation would read as simpler and would be wrong: the
+  parking step can insert a ``redrive_record`` before a compare-and-set loses,
+  and a delete aimed at the reservation would commit that stray record.
   The savepoint expresses the actual rule — *the command did not happen; only
   the quota did* — instead of enumerating the rows that must be removed, so it
   keeps holding when someone adds a write inside the block.
@@ -58,37 +61,70 @@ using one for all of them leaves the other two open:
   one, one still running. Guarded by the domain state machine — re-driving
   something that already succeeded would re-run effects nobody asked to repeat.
 
-## The authorization, and the one thing it cannot do
+## What a 500 costs, and what is still free
+
+The savepoint also carries a broad ``except`` that rolls it back, commits the
+outer transaction, and re-raises — so an *unexpected* error costs quota too. The
+caller still gets their 500; the capacity they spent provoking it still counts
+against them. Before that (backlog **J15**) any exception outside the three
+refusal types left the savepoint open and skipped the commit, and
+``get_session``'s unconditional ``finally: session.rollback()`` discarded the
+rate-limit increment along with the half-written command — measured at quota
+``0`` before and ``0`` after. A caller who could reliably provoke a 500 paid
+nothing for it, on the most tightly rate-limited route in the API.
+
+**Those blocks are no longer what keeps the quota, and they are kept anyway.**
+ADR-0015 moved the charge to the front of the handler and gave it its own
+transaction, so by the time a savepoint is opened the increment is already
+committed and no later failure — handled, unhandled, or a process dying — can
+take it back. What the ``except`` blocks still do is state the other half: the
+command did not happen. Removing them would make the quota's survival depend on
+reading ``charge_quota`` rather than on reading this file, and would leave the
+outer transaction to the dependency teardown on paths that deliberately commit.
+The J15 hole in :mod:`smartmatch_api.commands`, which no savepoint covered,
+closes by the same move rather than by copying these blocks into it.
+
+**What is still free, named rather than implied.** A request rejected by
+FastAPI's own validation — a body that is not an object, a ``job_id`` that is
+not a UUID — never enters these handlers, so nothing charges it and the ``422``
+costs the caller nothing. Charging it would mean making the quota a route
+*dependency* rather than a statement, which is a different shape with its own
+ordering questions, and it is left open deliberately: a ``422`` is answered
+before the request touches the database at all, which is the one refusal here
+that is genuinely cheap to *serve* as well as cheap to produce.
+
+## The authorization
 
 Authorization runs **after** the job is loaded, and the load is tenant-scoped in
 the query, so a job in another tenant is a 404 rather than a 403 — a denial that
 distinguished them would be an existence oracle for other tenants' work.
 
-It does not call :func:`smartmatch_authz.assert_allowed`, and that is a
-deliberate limitation rather than a shortcut. ``assert_allowed`` matches an
-inherited grant against the resource's ``owning_unit_path``, and the ``job``
-table has no owning org unit — the same gap
-:mod:`smartmatch_api.routers.jobs` documents for job reads. Supplying a made-up
-path to satisfy the signature would be fabricating authorization data rather
-than enforcing it. So :func:`_authorize_redrive` applies the policy's rules in
-the policy's own order, over the policy's own types, and raises the policy's own
-:class:`~smartmatch_authz.AuthorizationError` — so denials carry the same stable
-reason codes and render through the same handler as everywhere else. The
-consequence, stated plainly: a coordinator in one department may re-drive
-another department's job. Closing that needs a ``job.owning_unit_id`` column and
-an expand-phase migration, and is reported rather than papered over.
+Both routes call :func:`smartmatch_api.job_authz.authorize_job_command`, which is
+the same module the status and event routes go to. This file used to carry its
+own ``_authorize_redrive``, restating the policy's four rules in Python because
+``job`` had no owning org unit for an inherited grant to match against and
+supplying a made-up path would have been fabricating authorization data. That
+column exists as of migration ``0006``, so the restatement is gone and the policy
+is called. The consequence the old docstring reported plainly — *a coordinator in
+one department may re-drive another department's job* — is closed: authorization
+is now scoped to the unit the job was submitted into.
+
+What has not changed, and is the reason these two routes take the *command*
+entry point rather than the read one: **there is no actor exception here.**
+Having submitted a job is not authority to re-run it or to close it permanently.
+Re-drive and abandon are oversight, not ownership, and the person who pressed the
+button the first time is precisely the person most likely to press it again.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Annotated, Any, Final
+from datetime import timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Path, status
 from pydantic import BaseModel, Field
-from smartmatch_authz import AccessDecision, AuthorizationError, Effect
 from smartmatch_domain.jobs import InvalidTransitionError, JobState
 from smartmatch_persistence.idempotency import (
     IdempotencyConflictError,
@@ -102,8 +138,9 @@ from smartmatch_persistence.rate_limit import RateLimit
 from smartmatch_persistence.redrive import RedriveConflictError, RedriveRepository
 from sqlalchemy.orm import Session
 
-from smartmatch_api.dependencies import CurrentPrincipal, DbSession, enforce_rate_limit
+from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
+from smartmatch_api.job_authz import authorize_job_command
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["redrive"])
@@ -113,16 +150,6 @@ logger = logging.getLogger(__name__)
 _jobs = JobRepository()
 _redrive = RedriveRepository()
 _idempotency = IdempotencyRepository()
-
-#: The resource type explicit grants use for a job, matching what an
-#: administrator writes into ``resource_grant.resource_type``.
-_JOB_RESOURCE: Final[str] = "job"
-
-#: Roles that may re-drive or abandon parked work. An explicit set, not "any
-#: active membership": re-running failed work can repeat side effects that
-#: already reached people outside the system, and closing it permanently removes
-#: it from everyone else's view.
-_REDRIVE_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
 #: v1.1 §3.4 pilot defaults are hypotheses to tune with recorded evidence. Tight
 #: here on purpose: re-drive is a deliberate human decision, so a caller issuing
@@ -190,62 +217,6 @@ def _load_job_or_404(session: Session, tenant_id: uuid.UUID, job_id: uuid.UUID) 
             message="No such job.",
         )
     return job
-
-
-def _authorize_redrive(principal: ResolvedPrincipal, job_id: uuid.UUID, *, at: datetime) -> None:
-    """Authorize a re-drive or an abandonment, in the policy's own order.
-
-    The four rules are :mod:`smartmatch_authz.policy`'s, applied to a resource
-    that has no org path for the inherited-grant path to match (see the module
-    docstring):
-
-    1. **Suspension is checked first and unconditionally.** An administrator who
-       suspends an account must not have to wait for the identity provider to
-       revoke a token before the account stops being able to re-run work.
-    2. **Tenant mismatch is structural.** Already impossible here, because the
-       job was loaded scoped to the caller's tenant — asserted anyway, since the
-       cost is a comparison and the failure mode is cross-tenant execution.
-    3. **An explicit deny on the job beats the role.** This is how an
-       administrator carves one job out of a broad grant, and it must win.
-    4. **A role is required, and a bare resource grant cannot supply it.** A
-       grant conveys access to a resource, not authority to re-run it; the
-       policy makes the same call for the same reason, with the same distinct
-       reason code so the open policy-matrix gap stays visible in the audit
-       trail instead of being silently allowed or silently denied.
-
-    Raises:
-        AuthorizationError: on any denial. Rendered as 403 with the decision's
-            stable reason code by the application's existing handler.
-    """
-    actor = principal.principal
-
-    if actor.suspended:
-        raise AuthorizationError(AccessDecision(allowed=False, reason="principal_suspended"))
-
-    if actor.tenant_id != str(principal.tenant_id):
-        raise AuthorizationError(AccessDecision(allowed=False, reason="tenant_mismatch"))
-
-    grants = [
-        grant
-        for grant in actor.resource_grants
-        if grant.resource_type == _JOB_RESOURCE and grant.resource_id == str(job_id)
-    ]
-    if any(grant.effect is Effect.DENY for grant in grants):
-        raise AuthorizationError(AccessDecision(allowed=False, reason="explicit_resource_deny"))
-
-    holds_role = any(
-        membership.is_active_at(at) and membership.role in _REDRIVE_ROLES
-        for membership in actor.memberships
-    )
-    if holds_role:
-        return
-
-    if any(grant.effect is Effect.ALLOW for grant in grants):
-        raise AuthorizationError(
-            AccessDecision(allowed=False, reason="resource_grant_lacks_required_role")
-        )
-
-    raise AuthorizationError(AccessDecision(allowed=False, reason="no_grant"))
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -375,23 +346,36 @@ def redrive_job(
     of this call rather than requiring a separate step. Both moves are declared
     transitions; a job in any other state is refused with ``409``.
 
-    Everything commits at once — the idempotency reservation, the quota, the
-    parking, the state change, the audit stamp, and the new outbox row. A
-    re-drive recorded without its outbox row would be an audit trail describing
-    work that never ran; an outbox row without the audit record would be work
-    nobody authorized.
+    Everything the *command* writes commits at once — the idempotency
+    reservation, the parking, the state change, the audit stamp, and the new
+    outbox row. A re-drive recorded without its outbox row would be an audit
+    trail describing work that never ran; an outbox row without the audit record
+    would be work nobody authorized. The quota is not in that set and commits
+    ahead of all of it (ADR-0015): it is what the request cost, not part of what
+    the command did.
     """
+    # Quota first, and first means first: ahead of the job load, the
+    # authorization, and both validators. Charging after them made a 403, 404 or
+    # 400 free — 25 consecutive refusals of each kind moved the counter by zero
+    # (J16) — which is the same S-008 shape the savepoint closes on the 409
+    # paths, reached by the three refusals cheapest to produce in bulk.
+    #
+    # ``charge_quota`` commits, so the increment is durable before anything
+    # below can raise. That is not an optimization of the ordering; without it
+    # the reordering alone would fix nothing, because every one of those
+    # refusals leaves through ``get_session``'s unconditional
+    # ``finally: session.rollback()``.
+    #
+    # What it decides is in ADR-0015 and is not a detail: an authenticated
+    # caller now pays for requests they were never allowed to make, and for job
+    # ids that do not exist.
+    charge_quota(session, principal, REDRIVE_RATE_LIMIT)
+
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_redrive(principal, job.id, at=utc_now())
+    authorize_job_command(principal, job, at=utc_now())
 
     reason = _require_reason(body.reason)
     key = _require_idempotency_key(idempotency_key)
-
-    # Quota first, so an exhausted caller cannot burn idempotency keys by
-    # hammering — and deliberately *outside* the savepoint opened below, which
-    # is the whole shape of this handler: a refused command still consumed the
-    # capacity used to refuse it (security finding S-008).
-    enforce_rate_limit(session, principal, REDRIVE_RATE_LIMIT)
 
     # Everything the command writes goes inside a SAVEPOINT so a refusal can
     # discard all of it and keep the quota. See the module docstring for why
@@ -486,14 +470,52 @@ def redrive_job(
         # discards the reservation and anything the attempt wrote — including a
         # ``redrive_record`` backfilled by the parking step before the
         # compare-and-set lost — and releases the row locks taken since the
-        # savepoint. The outer commit then persists the rate-limit increment and
-        # nothing else.
+        # savepoint. The outer commit closes the transaction on a session that
+        # has nothing left to persist: since ADR-0015 the increment is committed
+        # before this handler loads anything, so it is no longer riding out on
+        # this commit.
         command.rollback()
         session.commit()
         if isinstance(exc, RedriveConflictError):
             raise _conflict(exc) from exc
         # Both remaining cases are rendered as 409 by the application-wide
         # handlers, which already name the states or the reused key.
+        raise
+    except Exception:
+        # J15: a 500 must not refund the quota that produced it.
+        #
+        # Any exception outside the tuple above used to leave this savepoint
+        # open and skip every commit below, so ``get_session``'s unconditional
+        # ``finally: session.rollback()`` discarded the rate-limit increment
+        # together with the half-written command. Measured by making
+        # ``_redrive.redrive`` raise ``RuntimeError``: quota 0 before, 0 after.
+        # A caller who can provoke a 500 reliably therefore paid nothing for it,
+        # on the most tightly rate-limited route in the API — which is precisely
+        # the traffic the limiter exists to bound (S-008).
+        #
+        # The two statements are the refusal path's, in the same order and for
+        # the same reason: the command did not happen; only the quota did. They
+        # carry more weight here, because the failure may have come from
+        # PostgreSQL rather than from Python — an error inside the savepoint
+        # aborts the whole transaction, and ROLLBACK TO SAVEPOINT is what leaves
+        # the outer one committable.
+        #
+        # ``is_active`` because the replay branch commits inside this ``try``:
+        # if its own ``session.commit()`` is what failed, there is no savepoint
+        # left to roll back and nothing a second commit could rescue.
+        #
+        # The boundary used to be exact and slightly narrower than it looked:
+        # the ``record_result`` call and the two commits below sit *after* this
+        # block, so a failure in one of them took the quota with it. ADR-0015
+        # closes that residue by construction rather than by widening the block
+        # — the increment is committed before the handler starts, so there is no
+        # longer any point in the request at which a failure can refund it.
+        if command.is_active:
+            command.rollback()
+        session.commit()
+        # Re-raised unchanged, deliberately. This fixes what persists, not what
+        # the caller is told: the 500 is still a 500, still unhandled, and still
+        # a defect to be fixed on its own terms.
         raise
 
     # Inside the savepoint, so a command that is discarded leaves no result
@@ -546,15 +568,18 @@ def abandon_job(
     The reason is required here too. "Why did nobody re-run this?" is a question
     asked months later, usually by someone who was not in the room.
     """
+    # First statement, committed on the spot, for the reason ``redrive_job``
+    # gives at length: every refusal this route can produce costs quota, and
+    # both routes spend from the same ``job.redrive`` bucket — so a caller
+    # hammering ``/abandon`` with ids that do not exist exhausts the quota they
+    # would need to re-drive a real one.
+    charge_quota(session, principal, REDRIVE_RATE_LIMIT)
+
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_redrive(principal, job.id, at=utc_now())
+    authorize_job_command(principal, job, at=utc_now())
 
     reason = _require_reason(body.reason)
     key = _require_idempotency_key(idempotency_key)
-
-    # Outside the savepoint, for the reason ``redrive_job`` gives at length: a
-    # refused abandon still costs quota.
-    enforce_rate_limit(session, principal, REDRIVE_RATE_LIMIT)
 
     command = session.begin_nested()
     try:
@@ -593,6 +618,18 @@ def abandon_job(
         session.commit()
         if isinstance(exc, RedriveConflictError):
             raise _conflict(exc) from exc
+        raise
+    except Exception:
+        # J15, identical in shape to ``redrive_job`` and identical in reasoning:
+        # an unexpected error is a 500, and a 500 keeps the quota it spent
+        # rather than refunding it. Measured the same way, by making
+        # ``_redrive.abandon`` raise ``RuntimeError``: quota 0 before, 0 after.
+        # Not factored into a shared helper, for the reason the refusal path
+        # above gives — these two handlers are meant to be read against each
+        # other.
+        if command.is_active:
+            command.rollback()
+        session.commit()
         raise
 
     command.commit()

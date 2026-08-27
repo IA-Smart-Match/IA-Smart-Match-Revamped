@@ -119,13 +119,18 @@ user_account = sa.Table(
     sa.Column("version", sa.Integer, nullable=False, server_default="1"),
     sa.PrimaryKeyConstraint("id", name="user_account_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_user_account_tenant_id"),
-    sa.UniqueConstraint("tenant_id", "external_subject", name="uq_user_account_tenant_subject"),
     # Globally unique, not merely unique per tenant. ``principals.py`` looks an
     # account up by subject alone — the token proves who you are, the database
     # decides which tenant you are in — so a subject held by accounts in two
     # tenants returned two rows and 500'd every request for that person. See
-    # migration 0003. This constraint implies the one above, which is kept
-    # because dropping it is a contract-phase action (v1.1 §4.2).
+    # migration 0003.
+    #
+    # This is now the *only* subject constraint. `uq_user_account_tenant_subject`
+    # on `(tenant_id, external_subject)` stood beside it until migration 0007
+    # (F12) and was strictly implied by it: a subject appearing at most once in
+    # the table appears at most once per tenant. 0003 kept it because dropping a
+    # constraint is contract-phase work (v1.1 §4.2); 0007 is that phase. The
+    # within-tenant rule it used to state is unchanged and is now enforced here.
     sa.UniqueConstraint("external_subject", name="uq_user_account_external_subject"),
 )
 
@@ -199,8 +204,35 @@ job = sa.Table(
     # alone — the fail-safe direction, since a missing deadline must not be
     # grounds for terminating a job that may still be running.
     sa.Column("lease_expires_at", _TS, nullable=True),
+    # J10 (migration 0005). The command's parameters, written in the same INSERT
+    # as the job row so they commit with the intent to dispatch and can never
+    # lag behind it. NULL means the row was written by code that did not persist
+    # a payload, and the parameters are unrecoverable — the fingerprint on
+    # `idempotency_record` is a one-way hash. That is a different fact from
+    # `{}`, which is a command that genuinely carried nothing, and 0005
+    # deliberately declines a `DEFAULT '{}'::jsonb` that would merge the two.
+    sa.Column("payload", postgresql.JSONB, nullable=True),
+    # A5 (migration 0006). The organizational unit this job belongs to, and the
+    # thing every authorization decision about the job is scoped against. Before
+    # it existed no job operation could be scoped to a subtree, so a coordinator
+    # in one department could read, re-drive and abandon another department's
+    # work. NOT NULL from the moment the column existed: a nullable
+    # authorization input is a fail-open shape waiting to be written, and 0006
+    # backfills rather than defaults precisely so this can be required.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
     sa.PrimaryKeyConstraint("id", name="job_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_job_tenant_id"),
+    # Composite, and that is the guarantee rather than a detail: a single-column
+    # key to `org_unit.id` would accept a job in one tenant naming a unit in
+    # another, after which the job would be authorized against a path in a tree
+    # its tenant has no relationship to. RESTRICT because reorganizing a unit
+    # must not silently delete the audit trail of every command submitted into
+    # it — `job_event` and `redrive_record` cascade from `job`.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
     # Mirrors smartmatch_domain.jobs.JobState. The set of states lives in the
     # migration; this name is what the drift test holds to account.
     sa.CheckConstraint(

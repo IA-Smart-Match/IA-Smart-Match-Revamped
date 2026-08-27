@@ -21,7 +21,7 @@ import uuid
 import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
-from conftest import unique_subject  # noqa: E402
+from conftest import ensure_owning_unit, unique_subject  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
@@ -110,10 +110,14 @@ def _make_job(conn, tenant_id: uuid.UUID) -> uuid.UUID:
     job_id = uuid.uuid4()
     conn.execute(
         text(
-            "INSERT INTO job (id, tenant_id, command_type, status) "
-            "VALUES (:id, :tenant_id, 'noop', 'queued')"
+            "INSERT INTO job (id, tenant_id, command_type, status, owning_unit_id) "
+            "VALUES (:id, :tenant_id, 'noop', 'queued', :unit_id)"
         ),
-        {"id": job_id, "tenant_id": tenant_id},
+        {
+            "id": job_id,
+            "tenant_id": tenant_id,
+            "unit_id": ensure_owning_unit(conn, tenant_id),
+        },
     )
     return job_id
 
@@ -200,10 +204,14 @@ def test_job_status_check_rejects_an_unknown_state(engine, tenants):
     with pytest.raises(IntegrityError), engine.begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO job (id, tenant_id, command_type, status) "
-                "VALUES (:id, :tenant_id, 'noop', 'not_a_real_state')"
+                "INSERT INTO job (id, tenant_id, command_type, status, owning_unit_id) "
+                "VALUES (:id, :tenant_id, 'noop', 'not_a_real_state', :unit_id)"
             ),
-            {"id": uuid.uuid4(), "tenant_id": tenant_a},
+            {
+                "id": uuid.uuid4(),
+                "tenant_id": tenant_a,
+                "unit_id": ensure_owning_unit(conn, tenant_a),
+            },
         )
 
 

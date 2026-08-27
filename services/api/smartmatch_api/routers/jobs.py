@@ -11,6 +11,21 @@ API instance can serve a reconnect for a stream another instance started.
 Polling reads the same rows through the same repository, so the two views cannot
 disagree — a client that falls back to polling after an SSE failure sees exactly
 what the stream would have shown.
+
+Both routes authorize through :func:`smartmatch_api.job_authz.authorize_job_read`,
+which is also where ``/redrive`` and ``/abandon`` go. That is not tidiness: this
+module used to carry its own ``_authorize_job_read`` applying a *different subset*
+of the policy from the one the command routes applied to the same resource — it
+consulted no ``resource_grant`` at all, so an administrator's explicit deny on a
+job stopped the re-drive and not the read. One function serves all four
+operations now, and the difference between a read and a command is a single
+argument rather than a second implementation.
+
+Because the reconnect is an ordinary request, authorization runs again on every
+one of them: the job is re-loaded and re-authorized before any event is
+rendered. A membership revoked between two reconnects is honoured on the next.
+Revalidation *during* a response is deliberately not attempted — see
+``job_authz``'s module docstring for why the bounded response is the control.
 """
 
 from __future__ import annotations
@@ -18,18 +33,18 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
-from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Path, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from smartmatch_domain.jobs import JobState
-from smartmatch_persistence.jobs import JobRepository
-from smartmatch_persistence.principals import ResolvedPrincipal
+from smartmatch_persistence.jobs import JobRecord, JobRepository
+from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession
 from smartmatch_api.errors import ApiError
+from smartmatch_api.job_authz import authorize_job_read
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
@@ -63,17 +78,18 @@ class JobEventResponse(BaseModel):
     occurred_at: str
 
 
-#: Roles that may read jobs they did not themselves create. Reading a job exposes
-#: its command type and event payloads, which carry operational detail.
-_JOB_OVERSIGHT_ROLES = frozenset({"admin", "coordinator"})
-
-
-def _load_job_or_404(session: Any, tenant_id: uuid.UUID, job_id: uuid.UUID) -> Any:
+def _load_job_or_404(session: Session, tenant_id: uuid.UUID, job_id: uuid.UUID) -> JobRecord:
     """Fetch a job within the caller's tenant, or raise 404.
 
     A job in another tenant produces the same 404 as a job that does not exist.
     Distinguishing them would turn this endpoint into an existence oracle for
     other tenants' work.
+
+    The record carries the owning unit's ``ltree`` path, joined in by
+    ``JobRepository.get`` on both ``tenant_id`` and ``id``. That is what
+    :func:`~smartmatch_api.job_authz.authorize_job_read` scopes against, and it
+    is why authorization happens in the handler rather than in a dependency: a
+    dependency cannot authorize a resource it has not fetched.
     """
     job = _jobs.get(session, tenant_id=tenant_id, job_id=job_id)
     if job is None:
@@ -83,55 +99,6 @@ def _load_job_or_404(session: Any, tenant_id: uuid.UUID, job_id: uuid.UUID) -> A
             message="No such job.",
         )
     return job
-
-
-def _authorize_job_read(principal: ResolvedPrincipal, job: Any, *, at: datetime) -> None:
-    """Authorize a job read. Tenant scoping alone is not authorization.
-
-    These routes previously relied on tenant scoping and nothing else, which had
-    two consequences: a **suspended** account kept full read access, because
-    suspension is enforced by the policy and the policy was never invoked; and
-    any authenticated tenant member could read every job in the tenant.
-
-    Suspension is checked first and unconditionally — it is the control that must
-    not be reachable around.
-
-    **Known limitation, deliberately not papered over:** the ``job`` table has no
-    owning org unit, so a job read cannot be scoped to a subtree the way
-    ``/imports`` scopes its unit. Authorization here is therefore
-    actor-or-oversight-role within the tenant. Making job reads unit-scoped needs
-    a ``job.owning_unit_id`` column and an expand-phase migration; until then a
-    coordinator in one department can read another department's job, and
-    inventing a unit path to feed the policy would be fabricating authorization
-    data rather than enforcing it.
-
-    Raises:
-        ApiError: 403 when the caller may not read this job.
-    """
-    if principal.principal.suspended:
-        raise ApiError(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="forbidden",
-            message="You do not have access to this resource.",
-            details={"reason": "principal_suspended"},
-        )
-
-    if job.actor_id is not None and job.actor_id == principal.user_id:
-        return
-
-    holds_oversight_role = any(
-        membership.is_active_at(at) and membership.role in _JOB_OVERSIGHT_ROLES
-        for membership in principal.principal.memberships
-    )
-    if holds_oversight_role:
-        return
-
-    raise ApiError(
-        status_code=status.HTTP_403_FORBIDDEN,
-        code="forbidden",
-        message="You do not have access to this resource.",
-        details={"reason": "no_grant"},
-    )
 
 
 @router.get(
@@ -147,10 +114,12 @@ def get_job(
     """Return one job's current state.
 
     Tenant-scoped by the caller's own tenant, which is derived server-side from
-    their token and never read from the request.
+    their token and never read from the request, and then scoped again to the
+    org unit the job belongs to — so a coordinator in one department no longer
+    reads another department's work (A5).
     """
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_job_read(principal, job, at=utc_now())
+    authorize_job_read(principal, job, at=utc_now())
 
     return JobStatusResponse(
         id=job.id,
@@ -198,12 +167,18 @@ def stream_job_events(
     polyfills, simple polling loops) and means the same thing. When both are
     present ``Last-Event-ID`` wins, since it is the standard.
 
+    Every reconnect re-authorizes. The response is bounded at
+    ``_MAX_EVENTS_PER_RESPONSE`` and then closes, and the request the client
+    makes to resume runs the same load and the same authorization the first one
+    did — so this route cannot become a long-lived hole through which a
+    membership revoked ten minutes ago keeps delivering events.
+
     Browser disconnect does not cancel the underlying work. Cancellation is an
     explicit, persisted, authorized command (v1.1 §1.6) — closing a tab must
     never stop a running job.
     """
     job = _load_job_or_404(session, principal.tenant_id, job_id)
-    _authorize_job_read(principal, job, at=utc_now())
+    authorize_job_read(principal, job, at=utc_now())
 
     cursor = last_event_id if last_event_id is not None else (after or 0)
     if cursor < 0:

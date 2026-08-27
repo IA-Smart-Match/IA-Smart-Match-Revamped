@@ -130,7 +130,7 @@ redesign starts from them rather than rediscovering them.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| **D-0** | **Assign a DESIGN.md owner and settle the eight open decisions** | — | **Blocks everything below.** See `apps/web/DESIGN.md` Part 2. |
+| **D-0** | **Assign a DESIGN.md owner and settle the eleven open decisions** | — | **Blocks everything below.** See `apps/web/DESIGN.md` Part 2. |
 | W1 | Scaffold `apps/web` — React 18, TypeScript, Vite | D-0 | |
 | W2 | Generate the TypeScript client from OpenAPI; add a drift check to CI | W1 | Routes now exist (`/imports`, `/v1/jobs/*`), so this is unblocked once W1 is |
 | W4 | Provenance and truthful-state components | W1 | **Before W3 and W5, deliberately.** These enforce the labelling rule; anything built before them needs revisiting. |

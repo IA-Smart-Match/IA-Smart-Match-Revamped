@@ -21,13 +21,8 @@ Requires a live database. Skipped automatically when one is not configured.
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
-import sys
 import uuid
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
@@ -35,45 +30,31 @@ pytest.importorskip("sqlalchemy")
 
 import sqlalchemy as sa
 from conftest import _TENANT_SCOPED_TABLES, unique_subject
+from migration_harness import alembic, scratch_database
 from smartmatch_authz import OrgPath
 from smartmatch_persistence.principals import PrincipalRepository
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: The revision immediately before the one under test. The scratch database is
 #: brought to here, filled with the data the constraint forbids, and only then
 #: asked to go to head.
 _REVISION_BEFORE = "0002_rate_limit"
 
-#: PostgreSQL's ``insufficient_privilege``. The *only* condition under which this
-#: module declines to exercise the migration guard, checked as a SQLSTATE rather
-#: than by catching the exception class it arrives as: SQLAlchemy wraps it as
-#: ``ProgrammingError``, psycopg raises it as ``InsufficientPrivilege``, and
-#: neither name is the thing being tested for. Verified against a role created
-#: ``NOCREATEDB``: ``exc.orig.sqlstate == "42501"``, message "permission denied
-#: to create database".
-_INSUFFICIENT_PRIVILEGE = "42501"
+#: The revision that drops the redundant tenant-scoped subject constraint (F12),
+#: and the one before it. The scratch database is brought to the latter so the
+#: constraint is present to be removed.
+_REVISION_0007 = "0007_drop_tenant_subject"
+_REVISION_BEFORE_0007 = "0006_job_owning_unit"
 
-#: PostgreSQL's ``object_in_use``: the database is connected to. The sweep below
-#: treats it as "not mine to remove" rather than as a failure.
-_OBJECT_IN_USE = "55006"
-
-#: Name prefix for the throwaway database the migration is run against. Used
-#: both to build the name and to recognise a leaked one, so the two cannot
-#: disagree about what this test owns.
-_SCRATCH_PREFIX = "smartmatch_dupcheck_"
-
-#: The exact shape this module creates. The sweep drops only names matching it,
-#: which keeps the sweep to databases this test made — and, because the pattern
-#: admits nothing but the prefix and twelve hex digits, means the name can be
-#: interpolated into ``DROP DATABASE`` without any question of what a catalog
-#: entry might contain.
-_SCRATCH_NAME = re.compile(rf"^{re.escape(_SCRATCH_PREFIX)}[0-9a-f]{{12}}$")
+#: The constraint F12 removes, and the one it must leave standing. Named because
+#: both appear in assertions on *both* sides of the change, and a typo in one of
+#: them would otherwise read as a passing test.
+_REDUNDANT_SUBJECT_CONSTRAINT = "uq_user_account_tenant_subject"
+_GLOBAL_SUBJECT_CONSTRAINT = "uq_user_account_external_subject"
 
 
 def _insert_account(
@@ -156,21 +137,28 @@ def test_one_subject_cannot_hold_accounts_in_two_tenants(
 
 
 def test_one_subject_cannot_be_reused_inside_a_tenant(engine: Engine, tenant_id: uuid.UUID):
-    """The narrower rule still holds, which is the point of keeping both.
+    """The narrower rule outlives the constraint that used to state it.
 
-    ``uq_user_account_tenant_subject`` is now implied by the global constraint
-    and is retained only because dropping it is a contract-phase action (v1.1
-    §4.2). Whichever of the two refuses this insert, the guarantee callers depend
-    on is unchanged, so the assertion is on the refusal and not on which
-    constraint produced it.
+    ``uq_user_account_tenant_subject`` said this directly and was dropped by
+    ``0007`` (F12) as redundant: a subject appearing at most once in the whole
+    table appears at most once per tenant. That implication is the entire
+    argument for removing it, so the refusal is asserted here **and** attributed
+    to the surviving constraint by name — a test that only required "some
+    IntegrityError" would pass just as well if F12 had dropped the wrong one.
     """
     subject = unique_subject("sub-reused")
 
     with engine.begin() as conn:
         _insert_account(conn, tenant_id, subject)
 
-    with pytest.raises(IntegrityError), engine.begin() as conn:
+    with pytest.raises(IntegrityError) as raised, engine.begin() as conn:
         _insert_account(conn, tenant_id, subject)
+
+    assert _GLOBAL_SUBJECT_CONSTRAINT in str(raised.value), (
+        f"the within-tenant duplicate was refused by something other than "
+        f"{_GLOBAL_SUBJECT_CONSTRAINT}, which is the only subject constraint left; "
+        f"got {raised.value}"
+    )
 
 
 def test_load_by_subject_resolves_the_one_account_that_holds_it(
@@ -268,81 +256,20 @@ def test_the_migration_refuses_to_run_against_duplicate_subjects(engine: Engine)
     migration does not quietly deduplicate is asserted the only way it can be —
     the duplicate rows are still there afterwards, and the revision did not move.
 
-    Skipped, not failed, in exactly one case: the test role lacks the privilege
-    to create a database, which is a gap in the environment rather than a defect
-    in the migration. Every other database failure — a server restart, ``too many
-    clients already``, the ``postgres`` maintenance database briefly unreachable —
-    fails loudly and deliberately. This is the only test that exercises the
-    duplicate guard at all, so a skip a flake can produce would leave the guard
-    unverified while CI stayed green, which is the failure mode this whole
-    module exists to avoid.
+    The scratch database itself comes from ``migration_harness``, which is where
+    the create/drop/sweep and the one legitimate skip now live — ``0006`` needs
+    the same machinery, and a second copy of a ``DROP DATABASE`` sweep is not a
+    thing to have. The skip is still narrow: only a role that cannot create a
+    database, which is a gap in the environment rather than a defect in the
+    migration.
     """
-    scratch = f"{_SCRATCH_PREFIX}{uuid.uuid4().hex[:12]}"
-    admin_url = engine.url.set(database="postgres")
-    scratch_url = engine.url.set(database=scratch)
-
-    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT", future=True)
-    try:
-        try:
-            with admin.connect() as conn:
-                _drop_leaked_scratch_databases(conn)
-                conn.execute(text(f'CREATE DATABASE "{scratch}"'))
-        except DBAPIError as exc:  # pragma: no cover - environment dependent
-            if getattr(exc.orig, "sqlstate", None) != _INSUFFICIENT_PRIVILEGE:
-                raise
-            pytest.skip(
-                f"{engine.url.username} lacks the privilege to create a database, so the "
-                f"migration's duplicate guard cannot be exercised here: {exc.orig}"
-            )
-
-        try:
-            _run_the_refusal(scratch_url)
-        finally:
-            with admin.connect() as conn:
-                conn.execute(text(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)'))
-    finally:
-        # Outermost, so the AUTOCOMMIT connection to ``postgres`` is returned
-        # even when the create above skips the test — ``pytest.skip`` raises a
-        # ``BaseException``, which an ``except`` clause alone does not survive.
-        admin.dispose()
-
-
-def _drop_leaked_scratch_databases(admin: sa.Connection) -> None:
-    """Remove scratch databases an earlier run was killed before dropping.
-
-    The drop below lives in a ``finally``, which covers a failing assertion and
-    does not cover the process being killed — and on this project being killed
-    mid-run is routine rather than exceptional, which is the same premise
-    :func:`conftest.unique_subject` is built on. Each leak carries a fresh random
-    name, so leaks accumulate quietly instead of colliding and announcing
-    themselves.
-
-    Scoped by :data:`_SCRATCH_NAME` to databases this test created, in the same
-    spirit as ``_clean_dispatch_state``: clean up what an interrupted run left
-    behind, and nothing that belongs to somebody else.
-
-    ``DROP DATABASE`` is issued **without** ``FORCE``. A database still connected
-    to is one a concurrently running suite is using, and terminating its backends
-    to tidy up would be a worse bug than the leak. PostgreSQL refuses with
-    ``object_in_use`` (``55006``) in that case and the name is left alone; any
-    other failure is re-raised.
-    """
-    leaked = [
-        name
-        for name in admin.execute(text("SELECT datname FROM pg_database")).scalars()
-        if _SCRATCH_NAME.match(name)
-    ]
-    for name in leaked:
-        try:
-            admin.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
-        except DBAPIError as exc:
-            if getattr(exc.orig, "sqlstate", None) != _OBJECT_IN_USE:
-                raise
+    with scratch_database(engine) as scratch_url:
+        _run_the_refusal(scratch_url)
 
 
 def _run_the_refusal(scratch_url: sa.engine.URL) -> None:
     """Fill the scratch database with duplicates and require ``0003`` to refuse."""
-    _alembic(scratch_url, _REVISION_BEFORE, expect_success=True)
+    alembic(scratch_url, _REVISION_BEFORE, expect_success=True)
 
     scratch_engine = create_engine(scratch_url, future=True)
     try:
@@ -363,7 +290,7 @@ def _run_the_refusal(scratch_url: sa.engine.URL) -> None:
                     )
                     _insert_account(conn, tid, subject)
 
-        completed = _alembic(scratch_url, "head", expect_success=False)
+        completed = alembic(scratch_url, "head", expect_success=False)
         message = completed.stderr
 
         assert "2 subject(s), across 5 accounts" in message, message
@@ -393,30 +320,114 @@ def _run_the_refusal(scratch_url: sa.engine.URL) -> None:
         scratch_engine.dispose()
 
 
-def _alembic(
-    url: sa.engine.URL, revision: str, *, expect_success: bool
-) -> subprocess.CompletedProcess[str]:
-    """Run ``alembic upgrade`` against ``url`` the way an operator would.
+# ---------------------------------------------------------------------------
+# F12 — dropping the redundant constraint without weakening the real one
+# ---------------------------------------------------------------------------
+#
+# ``0003`` added the global constraint and deliberately kept
+# ``uq_user_account_tenant_subject``, because dropping it is a contract-phase
+# action and ``0003`` was the expand phase (ADR-0008). ``0007`` is that contract
+# phase.
+#
+# The risk is the obvious one, and it is why the guarantee is asserted as
+# behaviour above rather than only as a catalog lookup here: "drop the redundant
+# constraint" and "drop the constraint that matters" are one identifier apart in
+# a migration, and produce identical green suites if nothing attempts the write.
+# ``test_one_subject_cannot_hold_accounts_in_two_tenants`` and
+# ``test_one_subject_cannot_be_reused_inside_a_tenant`` both name the surviving
+# constraint, so a swap fails there. What is added here is *which* constraint
+# moved, so a failure locates the change instead of leaving it to be inferred
+# from a duplicate-insert error in another module.
 
-    ``sys.executable -m alembic`` rather than a path to the console script, so
-    the interpreter running the tests is the one running the migration and there
-    is no virtualenv layout to guess. ``render_as_string(hide_password=False)``
-    because the default masks the password as ``***``, which the subprocess
-    would then try to authenticate with.
-    """
-    env = dict(os.environ, SMARTMATCH_DATABASE_URL=url.render_as_string(hide_password=False))
-    completed = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", revision],
-        cwd=_REPO_ROOT / "db",
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+
+def _unique_constraints(conn: sa.Connection, table: str) -> set[str]:
+    return set(
+        conn.execute(
+            text(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = CAST(:table AS regclass) AND contype = 'u'"
+            ),
+            {"table": table},
+        ).scalars()
     )
-    if expect_success:
-        assert completed.returncode == 0, f"upgrade to {revision} failed: {completed.stderr}"
-    else:
-        assert completed.returncode != 0, (
-            f"upgrade to {revision} succeeded and should not have: {completed.stdout}"
-        )
-    return completed
+
+
+def test_the_redundant_subject_constraint_is_gone_and_the_global_one_is_not(engine: Engine):
+    """The state F12 leaves behind, on the database the rest of the suite uses."""
+    with engine.connect() as conn:
+        constraints = _unique_constraints(conn, "user_account")
+
+    assert _REDUNDANT_SUBJECT_CONSTRAINT not in constraints, (
+        f"{_REDUNDANT_SUBJECT_CONSTRAINT} is still present; F12 removes it as contract-phase work"
+    )
+    assert _GLOBAL_SUBJECT_CONSTRAINT in constraints, (
+        f"{_GLOBAL_SUBJECT_CONSTRAINT} is missing — ADR-0008's global subject "
+        f"uniqueness has been dropped, and load_by_subject's .one_or_none() is "
+        f"unsound again"
+    )
+
+
+def test_the_migration_drops_exactly_one_constraint(engine: Engine):
+    """Run ``0007`` against a scratch database and compare before with after.
+
+    Asserted as a set difference rather than as two membership checks, so a
+    revision that dropped the redundant constraint *and* something else fails
+    here — which two independent assertions about two named constraints would
+    not.
+    """
+    with scratch_database(engine) as scratch_url:
+        alembic(scratch_url, _REVISION_BEFORE_0007, expect_success=True)
+
+        scratch_engine = create_engine(scratch_url, future=True)
+        try:
+            with scratch_engine.connect() as conn:
+                before = _unique_constraints(conn, "user_account")
+
+            alembic(scratch_url, _REVISION_0007, expect_success=True)
+
+            with scratch_engine.connect() as conn:
+                after = _unique_constraints(conn, "user_account")
+        finally:
+            scratch_engine.dispose()
+
+    assert _REDUNDANT_SUBJECT_CONSTRAINT in before, (
+        f"{_REDUNDANT_SUBJECT_CONSTRAINT} was already absent at "
+        f"{_REVISION_BEFORE_0007}; this test proves nothing"
+    )
+    assert before - after == {_REDUNDANT_SUBJECT_CONSTRAINT}, (
+        f"0007 removed {sorted(before - after)}, not exactly "
+        f"{sorted({_REDUNDANT_SUBJECT_CONSTRAINT})}"
+    )
+    assert not after - before, f"0007 added constraints it does not declare: {after - before}"
+
+
+def test_the_0007_downgrade_restores_the_removed_constraint(engine: Engine):
+    """A reversed ``0007`` must leave the schema an older release was built against.
+
+    Restoring it is the only thing the downgrade owes: the global constraint was
+    never touched, so a downgraded database is exactly the schema ``0006``
+    produced.
+    """
+    with scratch_database(engine) as scratch_url:
+        alembic(scratch_url, "head", expect_success=True)
+
+        scratch_engine = create_engine(scratch_url, future=True)
+        try:
+            with scratch_engine.connect() as conn:
+                assert _REDUNDANT_SUBJECT_CONSTRAINT not in _unique_constraints(
+                    conn, "user_account"
+                )
+
+            alembic(scratch_url, _REVISION_BEFORE_0007, expect_success=True, command="downgrade")
+
+            with scratch_engine.connect() as conn:
+                restored = _unique_constraints(conn, "user_account")
+                revision = conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+        finally:
+            scratch_engine.dispose()
+
+    assert _REDUNDANT_SUBJECT_CONSTRAINT in restored
+    assert _GLOBAL_SUBJECT_CONSTRAINT in restored
+    assert revision == _REVISION_BEFORE_0007

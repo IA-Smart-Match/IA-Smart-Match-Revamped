@@ -19,6 +19,14 @@ and because the intent is durable, a crash at any point is recoverable:
 
 Claiming uses ``FOR UPDATE SKIP LOCKED``, so several dispatcher instances can
 run concurrently without coordinating and without any row being claimed twice.
+
+Concurrency needs one thing beyond that, because a lease can expire while the
+dispatcher holding it is merely slow rather than dead: each claim mints a
+``lease_token`` onto the row, and the two writers that finish a row require it
+back. That is what lets them prove *this caller* holds the row rather than that
+*someone* does — see :func:`_held_by`, which is where the reasoning lives,
+including what a ``NULL`` token means and the rollout constraint that comes with
+it.
 """
 
 from __future__ import annotations
@@ -100,7 +108,15 @@ class OutboxStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ClaimedOutboxRecord:
-    """An outbox row claimed by a dispatcher, with its lease running."""
+    """An outbox row claimed by a dispatcher, with its lease running.
+
+    ``lease_token`` is what makes this record a *claim* rather than a copy of the
+    row. It is minted by :meth:`OutboxRepository.claim_batch`, one value per row
+    per claim, and both writers require it back — so the token is the caller's
+    only proof that the row it is finishing is still the row it took. Losing the
+    record loses the right to write to the row, which is the intended shape: the
+    lease may have expired and a peer may hold it now.
+    """
 
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -108,6 +124,7 @@ class ClaimedOutboxRecord:
     task_name: str
     dispatch_attempts: int
     lease_expires_at: datetime
+    lease_token: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +205,66 @@ def _stranded_predicate(now: datetime) -> sa.ColumnElement[bool]:
         schema.outbox_record.c.status == OutboxStatus.LEASED.value,
         schema.outbox_record.c.lease_expires_at < now,
         schema.outbox_record.c.dispatch_attempts >= MAX_DISPATCH_ATTEMPTS,
+    )
+
+
+def _held_by(record_id: uuid.UUID, lease_token: uuid.UUID) -> sa.ColumnElement[bool]:
+    """The single definition of "*this* caller still holds this row" (J17).
+
+    Shared by :meth:`OutboxRepository.mark_dispatched` and
+    :meth:`OutboxRepository.mark_failed` for the reason
+    :func:`_claimable_predicate` is shared: two writers that must agree about
+    who owns a row will eventually disagree if each spells it out itself.
+
+    Both halves are required, and the ``status`` half is **not** made redundant
+    by the token:
+
+    * ``status = 'leased'`` is a *liveness* test. It is what keeps a late writer
+      off a row :meth:`reclaim_stranded` has already written off, which is a
+      ``failed`` row still carrying no token at all.
+    * ``lease_token = :token`` is the *ownership* test J17 adds. ``leased`` alone
+      is satisfied by a **peer's** claim as readily as by this caller's, so a
+      dispatcher whose lease expired mid-enqueue could overwrite the peer's
+      fresh lease with its own older attempt count's much shorter backoff — 56
+      seconds cut off a 60-second lease in the measurement J17 records — and
+      replace the peer's ``last_error``. The row then became claimable while the
+      peer was still working it, burning an attempt it should not have spent.
+
+    ## What a ``NULL`` token means here, and what it deliberately does not
+
+    **A ``NULL`` token is not "no dispatcher holds this row".** It is tempting to
+    read it that way and it is false: a dispatcher running pre-J17 code claims
+    rows against this schema without writing a token and *actively holds* them.
+    So ``NULL`` means "held by someone this code cannot identify", and the safe
+    move is to refuse the write.
+
+    That is what this predicate does, by construction rather than by a special
+    case: ``lease_token = :token`` is ``NULL`` — never true — when the column is
+    ``NULL``, so a tokenless row matches nothing and the caller takes the
+    ordinary lost-the-race path and reads the row back. No ``IS NOT DISTINCT
+    FROM`` and no ``OR lease_token IS NULL``: either would hand the row to
+    whichever writer arrived, which is precisely the defect.
+
+    Refusing costs this code nothing, because a caller on this code always has a
+    token — :meth:`claim_batch` mints one in the same UPDATE that takes the
+    lease, so there is no path to a ``ClaimedOutboxRecord`` without one. The only
+    rows carrying ``leased`` with a ``NULL`` token are rows an old dispatcher
+    holds, and leaving those alone is the correct answer.
+
+    **The rollout constraint, because the token alone does not close J17.** The
+    residual exposure runs the other way and no change here can reach it: the old
+    dispatcher's own ``mark_dispatched``/``mark_failed`` still guard on
+    ``status = 'leased'`` alone, so it can overwrite a *new* dispatcher's
+    tokenized lease exactly as J17 describes. **J17's ownership guarantee holds
+    only once every dispatcher runs this code.** The column makes the fix
+    possible; draining the old dispatchers is what makes it true. Recorded in
+    migration ``0004``'s docstring, which is where the expand-phase reasoning for
+    the column lives.
+    """
+    return sa.and_(
+        schema.outbox_record.c.id == record_id,
+        schema.outbox_record.c.status == OutboxStatus.LEASED.value,
+        schema.outbox_record.c.lease_token == lease_token,
     )
 
 
@@ -367,6 +444,31 @@ class OutboxRepository:
         committed inside the same transaction share a ``now()``, and without the
         tiebreak their relative order would still be whatever the heap decided.
 
+        ## Why the claim mints a token (J17)
+
+        Taking the lease and recording *who* took it are the same write, because
+        a row that is ``leased`` without saying by whom is the state J17 is
+        about: both writers could then prove only that someone held the row, and
+        a dispatcher whose lease had expired would win against the peer that
+        legitimately re-claimed it. The token is minted here, returned on the
+        :class:`ClaimedOutboxRecord`, and required back by
+        :meth:`mark_dispatched` and :meth:`mark_failed` — see :func:`_held_by`,
+        including what a ``NULL`` token means and the rollout constraint that
+        comes with it.
+
+        ``gen_random_uuid()`` rather than :func:`uuid.uuid4` — the one place this
+        module generates an identifier in SQL rather than in Python — because the
+        claim is a single set-based ``UPDATE`` over a batch, so a Python value
+        would be one token shared by every row it touched. PostgreSQL evaluates
+        the function once per row, which is what ``0004`` specifies ("writes a
+        fresh one per row") and what makes the token mean *this claim of this
+        row* rather than *this pass*. Stated honestly: a batch-wide token would
+        also be sound today, because :func:`_held_by` pins the row id as well —
+        per-row is the stronger of two working options, not the only one that
+        works, and it is the one an operator reading the column can interpret
+        without knowing how batches were cut. ``gen_random_uuid()`` is core since
+        PostgreSQL 13 and needs no extension.
+
         Args:
             now: Injected for tests so lease expiry is exercised without waiting.
 
@@ -393,6 +495,10 @@ class OutboxRepository:
             .values(
                 status=OutboxStatus.LEASED.value,
                 lease_expires_at=deadline,
+                # Minted in the same write that takes the lease, never a step
+                # later: a row that is `leased` without saying by whom is the
+                # window J17 exists to close.
+                lease_token=sa.func.gen_random_uuid(),
                 dispatch_attempts=schema.outbox_record.c.dispatch_attempts + 1,
             )
             .returning(
@@ -402,6 +508,7 @@ class OutboxRepository:
                 schema.outbox_record.c.task_name,
                 schema.outbox_record.c.dispatch_attempts,
                 schema.outbox_record.c.lease_expires_at,
+                schema.outbox_record.c.lease_token,
                 schema.outbox_record.c.created_at,
             )
         ).all()
@@ -416,6 +523,7 @@ class OutboxRepository:
                 task_name=row.task_name,
                 dispatch_attempts=row.dispatch_attempts,
                 lease_expires_at=row.lease_expires_at,
+                lease_token=row.lease_token,
             )
             for row in ordered
         ]
@@ -438,7 +546,8 @@ class OutboxRepository:
         failure-write that itself failed. Before this existed the row stayed
         there permanently, its job stuck ``queued``, with no symptom anywhere.
 
-        Marks the row ``failed`` and clears the lease, which is precisely what
+        Marks the row ``failed`` and clears the lease — and with it the lease
+        token, which goes wherever the lease goes — which is precisely what
         :meth:`mark_failed` does at exhaustion — the same terminal state, reached
         by the row that never got there. ``last_error`` is overwritten with
         :data:`_STRANDED_ERROR` rather than left alone; see that constant for why
@@ -484,6 +593,12 @@ class OutboxRepository:
             .values(
                 status=OutboxStatus.FAILED.value,
                 lease_expires_at=None,
+                # The token goes with the lease, always. A terminal row nobody
+                # holds must not keep a token that would let a late writer
+                # satisfy `_held_by` — the status check already refuses it, and
+                # leaving a token behind would make the row read as though a
+                # dispatcher were still on it.
+                lease_token=None,
                 last_error=_STRANDED_ERROR[:2000],
             )
             .returning(
@@ -509,14 +624,17 @@ class OutboxRepository:
             for row in ordered
         ]
 
-    def mark_dispatched(self, session: Session, *, record_id: uuid.UUID) -> bool:
+    def mark_dispatched(
+        self, session: Session, *, record_id: uuid.UUID, lease_token: uuid.UUID
+    ) -> bool:
         """Record that the task now exists in Cloud Tasks. Compare-and-set.
 
         This is the dispatch evidence v1.1 §1.6 requires. Clearing the lease
         matters as much as setting the status: a dispatched row with a live lease
         would look claimable again the moment the lease expired.
 
-        **Only a row still ``leased`` is moved, and that guard is load-bearing.**
+        **Only a row still ``leased`` *and still carrying this caller's token* is
+        moved, and that guard is load-bearing.**
         An expired lease is not proof the dispatcher holding it is dead — the
         lease bounds how long a dispatcher may *hold* a row, not how long Cloud
         Tasks may take to answer. So a dispatcher can still be mid-enqueue on a
@@ -532,23 +650,33 @@ class OutboxRepository:
         ``redrive_pending -> queued`` set — rather than a new mechanism. Widening
         the lease would not have fixed it, only made the window smaller.
 
-        Like :meth:`mark_failed`, this is a liveness test rather than an
-        ownership test — ``leased`` is satisfied by a *peer's* claim as readily
-        as by this caller's — but here that is harmless. A stale write reaching a
-        re-claimed row asserts the row is ``dispatched``, and it is: this caller
-        only reaches here having enqueued the task or found it already present,
-        so the task genuinely exists. The peer's own write then finds
-        ``dispatched`` rather than ``leased``, loses its compare-and-set, and
-        converges. J17 tracks real ownership, which this method wants for
-        tidiness rather than for correctness.
+        **The token is the ownership half, and J17 closed it here for symmetry
+        rather than for a defect.** ``status = 'leased'`` alone is a liveness
+        test: it is satisfied by a *peer's* claim as readily as by this caller's.
+        On this path that was harmless — a stale write reaching a re-claimed row
+        asserts the row is ``dispatched``, and it is, because this caller only
+        gets here having enqueued the task or found it already present, so the
+        peer's own write would then lose and converge on the same answer. The
+        token is required anyway, because a rule about who may finish a row that
+        one of its two writers is exempt from is a rule nobody can rely on, and
+        the exemption's safety rests on a chain of reasoning about the enqueue
+        that a later change could quietly break.
+
+        It is not free, and the cost is named rather than hidden: a stale write
+        that used to win now loses, so this dispatcher reports the row as one it
+        could not complete — see ``OutboxDispatcher._record_dispatched``'s
+        ``unresolved`` branch, which is where a peer's *live* claim now lands.
+        The row still ends up ``dispatched``, by the peer that holds it.
 
         Returns:
-            Whether the row was still ``leased`` and was moved. ``False`` means
-            this caller lost the race and the row has moved on without it. It is
-            not an error, and it is **not one situation but two** — the row may
-            have been reclaimed, or finalised by a healthy peer. The caller must
-            read :meth:`status_of` before reporting anything, because those two
-            call for opposite responses; see
+            Whether the row was still ``leased``, still carried this caller's
+            token, and was moved. ``False`` means this caller lost the race and
+            the row has moved on without it. It is not an error, and it is **not
+            one situation but two** — the row may have been reclaimed, or
+            finalised by a healthy peer. (Since J17 it can also be a peer that
+            re-claimed the row and is still working it, which reads as neither.)
+            The caller must read :meth:`status_of` before reporting anything,
+            because those call for opposite responses; see
             ``OutboxDispatcher._record_dispatched``.
         """
         # ``RETURNING`` rather than ``rowcount``: it is the shape the rest of this
@@ -557,13 +685,11 @@ class OutboxRepository:
         # ``Result`` the session is declared to return.
         moved = session.execute(
             sa.update(schema.outbox_record)
-            .where(
-                schema.outbox_record.c.id == record_id,
-                schema.outbox_record.c.status == OutboxStatus.LEASED.value,
-            )
+            .where(_held_by(record_id, lease_token))
             .values(
                 status=OutboxStatus.DISPATCHED.value,
                 lease_expires_at=None,
+                lease_token=None,
                 last_error=None,
             )
             .returning(schema.outbox_record.c.id)
@@ -596,6 +722,7 @@ class OutboxRepository:
         session: Session,
         *,
         record_id: uuid.UUID,
+        lease_token: uuid.UUID,
         error: str,
         attempts: int,
         now: datetime | None = None,
@@ -623,8 +750,9 @@ class OutboxRepository:
         view rather than looping. Leaving a lease on a terminal row would make it
         look claimable again once the timer elapsed.
 
-        **Only a row still ``leased`` is moved**, the same compare-and-set guard
-        :meth:`mark_dispatched` carries and for the same race — a dispatcher can
+        **Only a row still ``leased`` and still carrying this caller's token is
+        moved**, the same compare-and-set guard :meth:`mark_dispatched` carries
+        and for the same race — a dispatcher can
         still be working a row that :meth:`reclaim_stranded` has written off. The
         asymmetry worth naming is what each guard protects, because it is not the
         same thing:
@@ -645,47 +773,68 @@ class OutboxRepository:
         So the guard is here for a quieter reason than its twin, not for
         symmetry's sake — but the row it refuses to touch is the same row.
 
-        **What this guard does not do, stated so it is not mistaken for more.**
-        ``status = 'leased'`` is a *liveness* test, not an *ownership* test: it
-        proves someone holds the row, not that the caller does. It closes the
-        race against :meth:`reclaim_stranded`, because a reclaimed row is
-        ``failed`` and so fails the check. It does **not** close the race against
-        a peer dispatcher that re-claimed the row after this caller's lease
-        expired — that peer's own claim satisfies ``leased``, so a stale
-        failure-write still lands on it. Measured: a peer re-claims with a fresh
-        60-second lease, a stale write carrying the *older* attempt count then
-        overwrites the lease with that count's much shorter backoff, cutting 56
-        seconds off it and replacing the peer's ``last_error``. The row becomes
-        claimable again while the peer is still working it, and the extra claim
-        burns an attempt the row should not have spent.
+        **This is the writer J17 was actually filed against, and the token is
+        what closes it.** ``status = 'leased'`` is a *liveness* test, not an
+        *ownership* test: it proves someone holds the row, not that the caller
+        does. It closes the race against :meth:`reclaim_stranded`, because a
+        reclaimed row is ``failed`` and so fails the check. It never closed the
+        race against a peer dispatcher that re-claimed the row after this
+        caller's lease expired — that peer's own claim satisfies ``leased``, so a
+        stale failure-write landed on it. Measured before the fix: a peer
+        re-claims with a fresh 60-second lease, a stale write carrying the
+        *older* attempt count then overwrites the lease with that count's much
+        shorter backoff, cutting 56 seconds off it and replacing the peer's
+        ``last_error``. The row became claimable again while the peer was still
+        working it, and the extra claim burned an attempt the row should not have
+        spent — repeated near the limit, a row could be parked as exhausted
+        having had fewer real attempts than :data:`MAX_DISPATCH_ATTEMPTS`
+        promises.
 
-        Closing that needs the row to carry who claimed it — a lease token or
-        claim identifier written by :meth:`claim_batch` and required by both
-        writers — which is a schema change and a migration. Tracked as **J17**.
-        The gap pre-dates this guard and is not made worse by it.
+        ``lease_token`` (migration ``0004``) is that missing identity: minted per
+        row by :meth:`claim_batch`, carried on the
+        :class:`ClaimedOutboxRecord`, and required back here. The peer holds a
+        different token, so the stale writer now matches zero rows and takes the
+        lost-the-race path instead of corrupting the winner's state. See
+        :func:`_held_by` for what a ``NULL`` token means and for the rollout
+        constraint the column does not remove.
+
+        **The re-armed row keeps its token, deliberately.** The backoff branch
+        writes ``leased`` again with a later lease, and that is the same claim
+        cooling off rather than a new one — this caller is still the last
+        dispatcher to have held the row. Clearing it would leave a ``leased`` row
+        with a ``NULL`` token, which is the shape :func:`_held_by` reads as "held
+        by someone unidentifiable", and would say something false about the row.
+        The next :meth:`claim_batch` overwrites it with a fresh token, which is
+        where the new claim's ownership begins.
 
         Args:
+            lease_token: The token :meth:`claim_batch` minted for this claim, off
+                the :class:`ClaimedOutboxRecord`. Required, not optional: a
+                default would let a caller silently opt out of the ownership
+                check J17 exists to add.
             attempts: The attempt count this failure belongs to, as returned by
                 :meth:`claim_batch`. Passed in rather than recomputed in SQL so
                 the backoff schedule is plain Python and unit-testable without a
                 database.
 
         Returns:
-            Whether the row was still ``leased`` and was moved. ``False`` means
-            the row was written off while this attempt was in flight.
+            Whether the row was still ``leased``, still carried this caller's
+            token, and was moved. ``False`` means the row was written off, or
+            finished, or re-claimed by a peer while this attempt was in flight.
         """
         moment = now or datetime.now(UTC)
         exhausted = attempts >= MAX_DISPATCH_ATTEMPTS
 
         moved = session.execute(
             sa.update(schema.outbox_record)
-            .where(
-                schema.outbox_record.c.id == record_id,
-                schema.outbox_record.c.status == OutboxStatus.LEASED.value,
-            )
+            .where(_held_by(record_id, lease_token))
             .values(
                 status=(OutboxStatus.FAILED.value if exhausted else OutboxStatus.LEASED.value),
                 lease_expires_at=(None if exhausted else moment + backoff_for(attempts)),
+                # Cleared only where the lease is cleared. On the backoff branch
+                # the row stays `leased` and keeps this caller's token — see the
+                # docstring for why a `leased` row must never carry a NULL one.
+                lease_token=(None if exhausted else lease_token),
                 last_error=error[:2000],
             )
             .returning(schema.outbox_record.c.id)

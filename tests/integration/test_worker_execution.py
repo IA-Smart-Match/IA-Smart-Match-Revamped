@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from conftest import ensure_owning_unit
 from fastapi.testclient import TestClient
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRepository
@@ -272,13 +273,39 @@ def client(session_factory, verifier, recorder) -> TestClient:
 # ---------------------------------------------------------------------------
 
 
-def accept_command(session_factory, jobs, outbox, tenant_id, command_type) -> uuid.UUID:
-    """Accept a command the way the API does: job and outbox in one transaction."""
+def accept_command(
+    session_factory, jobs, outbox, tenant_id, command_type, payload=None
+) -> uuid.UUID:
+    """Accept a command the way the API does: job, payload, and outbox together.
+
+    ``payload=None`` writes a job with a NULL payload, which is what every job
+    accepted before migration ``0005`` looks like. It is not the same as an
+    empty payload and the handlers do not treat it as one — see
+    ``test_an_import_with_no_persisted_payload_fails_rather_than_inventing_one``.
+    """
     with session_factory() as session:
-        job = jobs.create(session, tenant_id=tenant_id, command_type=command_type)
+        job = jobs.create(
+            session,
+            tenant_id=tenant_id,
+            command_type=command_type,
+            owning_unit_id=ensure_owning_unit(session, tenant_id),
+            payload=payload,
+        )
         outbox.enqueue(session, tenant_id=tenant_id, job_id=job.id, command_type=command_type)
         session.commit()
     return job.id
+
+
+def import_payload(**overrides):
+    """The payload ``POST /v1/units/{unit_id}/imports`` persists, plus overrides."""
+    payload = {
+        "unit_id": str(uuid.uuid4()),
+        "source_reference": "gs://bucket/roster.csv",
+        "dataset": "professionals",
+        "dry_run": True,
+    }
+    payload.update(overrides)
+    return payload
 
 
 def dispatch_everything(session_factory) -> FixtureTaskQueue:
@@ -437,32 +464,161 @@ def test_declared_failures_map_to_the_state_that_names_them(
     assert job_state(session_factory, jobs, tenant_id, job_id) is expected
 
 
-def test_the_import_command_fails_rather_than_reporting_work_it_did_not_do(
-    session_factory, jobs, outbox, tenant_id, verifier
-):
-    """``import.create`` is registered, and refuses.
-
-    The submitted import parameters are never persisted — ``job`` has no payload
-    column and the outbox row carries identifiers only — so the worker cannot
-    know what to import. Reporting success would be the fabrication this whole
-    revamp exists to end, and ``failed_provider`` would invite a re-drive that
-    can never succeed, so it is terminal.
-    """
-    client = TestClient(
+@pytest.fixture
+def shipped_worker(session_factory, verifier) -> TestClient:
+    """A worker running the registry that actually ships, not the test double."""
+    return TestClient(
         create_app(
             session_factory=session_factory,
             task_verifier=verifier,
             registry=default_registry(),
         )
     )
+
+
+def test_the_import_command_executes_the_payload_it_was_submitted_with(
+    session_factory, jobs, outbox, tenant_id, shipped_worker
+):
+    """``import.create`` executes, and the parameters it executes are the submitted ones.
+
+    This is J10 closed at the worker end. Before ``job.payload`` existed the
+    handler had a tenant, a job id and a command type, and failed every import
+    as ``command_not_executable``; the parameters had been hashed into an
+    idempotency fingerprint and dropped.
+
+    The assertions are about *success with the right values*, not about the
+    absence of an exception. A handler that ignored the payload and returned
+    ``succeeded`` with an empty summary would satisfy "reached a terminal state"
+    and fail here, which is the point: the dataset, the unit and the source
+    reference in the terminal event are the ones that were persisted, so they
+    demonstrably travelled from the submission to the worker.
+    """
+    payload = import_payload(dataset="professionals", source_reference="gs://bucket/roster.csv")
+    job_id = accept_command(
+        session_factory, jobs, outbox, tenant_id, "import.create", payload=payload
+    )
+    dispatch_everything(session_factory)
+
+    response = deliver(shipped_worker, tenant_id, job_id)
+
+    assert response.status_code == 200
+    assert response.json()["state"] == JobState.SUCCEEDED.value
+    assert job_state(session_factory, jobs, tenant_id, job_id) is JobState.SUCCEEDED
+
+    events = job_events(session_factory, jobs, tenant_id, job_id)
+    assert [event["type"] for event in events] == ["job.started", "progress", "job.completed"]
+
+    completed = events[-1]
+    assert completed["state"] == JobState.SUCCEEDED.value
+    assert completed["summary"]["dataset"] == payload["dataset"]
+    assert completed["summary"]["source_reference"] == payload["source_reference"]
+    assert completed["summary"]["unit_id"] == payload["unit_id"]
+
+    # The success is scoped, and says so where a client reading the stream sees
+    # it. A dry run that had validated the caller's data would report rows; this
+    # one reports that it read none, which is the difference between a narrow
+    # true claim and a broad false one.
+    assert completed["summary"]["content_validated"] is False
+    assert completed["summary"]["rows_examined"] == 0
+
+
+def test_an_import_with_no_persisted_payload_fails_rather_than_inventing_one(
+    session_factory, jobs, outbox, tenant_id, shipped_worker
+):
+    """A NULL payload is a job accepted before ``0005``, and it is unrecoverable.
+
+    Reading it as "an import with no parameters" and completing would report an
+    import that never happened. Terminal, because nothing can recover the
+    parameters — the idempotency fingerprint that was kept is a one-way hash —
+    so a re-drivable state would send an operator to press a button that cannot
+    work.
+    """
     job_id = accept_command(session_factory, jobs, outbox, tenant_id, "import.create")
     dispatch_everything(session_factory)
 
-    assert deliver(client, tenant_id, job_id).status_code == 200
+    assert deliver(shipped_worker, tenant_id, job_id).status_code == 200
     assert job_state(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_POLICY
 
     failure = job_events(session_factory, jobs, tenant_id, job_id)[-1]
-    assert failure["reason"] == "command_not_executable"
+    assert failure["type"] == "job.failed"
+    assert failure["reason"] == "command_payload_missing"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_problem"),
+    [
+        ({"dataset": ""}, "dataset"),
+        ({"source_reference": "   "}, "source_reference"),
+        ({"unit_id": "not-a-uuid"}, "unit_id"),
+        ({"dry_run": "false"}, "dry_run"),
+    ],
+    ids=["blank-dataset", "blank-source", "unit-id-not-a-uuid", "dry-run-not-a-boolean"],
+)
+def test_an_unreadable_import_payload_fails_honestly(
+    session_factory, jobs, outbox, tenant_id, shipped_worker, overrides, expected_problem
+):
+    """An invalid payload is a terminal failure that names what was wrong with it.
+
+    Two things are asserted rather than one. That the job is *not* succeeded —
+    a persisted payload makes it possible to execute an import and therefore
+    possible to claim one that could not be read — and that the failure names
+    the field, so the person who submitted it can fix it rather than resubmit
+    the same thing.
+
+    ``dry_run: "false"`` is in the list because it is the coercion trap:
+    ``bool("false")`` is ``True``, so a handler that coerced would run this as a
+    dry run and report success for a request nobody validated.
+    """
+    job_id = accept_command(
+        session_factory,
+        jobs,
+        outbox,
+        tenant_id,
+        "import.create",
+        payload=import_payload(**overrides),
+    )
+    dispatch_everything(session_factory)
+
+    assert deliver(shipped_worker, tenant_id, job_id).status_code == 200
+
+    state = job_state(session_factory, jobs, tenant_id, job_id)
+    assert state is not JobState.SUCCEEDED
+    assert state is JobState.FAILED_POLICY
+
+    failure = job_events(session_factory, jobs, tenant_id, job_id)[-1]
+    assert failure["type"] == "job.failed"
+    assert failure["reason"] == "invalid_command_payload"
+    assert expected_problem in failure["detail"]
+
+
+def test_a_live_import_is_refused_rather_than_reported_as_done(
+    session_factory, jobs, outbox, tenant_id, shipped_worker
+):
+    """``dry_run=false`` is the door this item does not open, and it fails loudly.
+
+    A live import has to read the content named by ``source_reference`` and
+    write review items into the quarantine-and-review path (v1.1 §1.5). Neither
+    exists: the worker has no object-storage adapter, and there is no
+    ``review_item`` table. The refusal is terminal for the same reason as an
+    unreadable payload, and it is a refusal rather than a silent downgrade to a
+    dry run — answering a live import with a validated command would be
+    reporting work that was never done.
+    """
+    job_id = accept_command(
+        session_factory,
+        jobs,
+        outbox,
+        tenant_id,
+        "import.create",
+        payload=import_payload(dry_run=False),
+    )
+    dispatch_everything(session_factory)
+
+    assert deliver(shipped_worker, tenant_id, job_id).status_code == 200
+    assert job_state(session_factory, jobs, tenant_id, job_id) is JobState.FAILED_POLICY
+
+    failure = job_events(session_factory, jobs, tenant_id, job_id)[-1]
+    assert failure["reason"] == "import_content_unavailable"
 
 
 def test_the_worker_reads_state_from_postgresql_not_from_the_payload(

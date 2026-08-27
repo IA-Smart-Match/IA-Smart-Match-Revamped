@@ -448,7 +448,7 @@
     },
     "/v1/jobs/{job_id}": {
       "get": {
-        "description": "Return one job's current state.\n\nTenant-scoped by the caller's own tenant, which is derived server-side from\ntheir token and never read from the request.",
+        "description": "Return one job's current state.\n\nTenant-scoped by the caller's own tenant, which is derived server-side from\ntheir token and never read from the request, and then scoped again to the\norg unit the job belongs to \u2014 so a coordinator in one department no longer\nreads another department's work (A5).",
         "operationId": "get_job_v1_jobs__job_id__get",
         "parameters": [
           {
@@ -716,7 +716,7 @@
     },
     "/v1/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
+        "description": "Stream a job's events as Server-Sent Events.\n\nReconnect is the interesting case. A browser that loses the connection\nreissues the request with ``Last-Event-ID`` set to the last sequence it saw,\nand the stream resumes from there \u2014 no duplicates, no gap. Because the cursor\nis a database column rather than in-memory state, the reconnect can land on\nany API instance.\n\n``after`` exists for clients that cannot set headers (EventSource\npolyfills, simple polling loops) and means the same thing. When both are\npresent ``Last-Event-ID`` wins, since it is the standard.\n\nEvery reconnect re-authorizes. The response is bounded at\n``_MAX_EVENTS_PER_RESPONSE`` and then closes, and the request the client\nmakes to resume runs the same load and the same authorization the first one\ndid \u2014 so this route cannot become a long-lived hole through which a\nmembership revoked ten minutes ago keeps delivering events.\n\nBrowser disconnect does not cancel the underlying work. Cancellation is an\nexplicit, persisted, authorized command (v1.1 \u00a71.6) \u2014 closing a tab must\nnever stop a running job.",
         "operationId": "stream_job_events_v1_jobs__job_id__events_get",
         "parameters": [
           {
@@ -868,7 +868,7 @@
     },
     "/v1/jobs/{job_id}/redrive": {
       "post": {
-        "description": "Re-queue work that failed terminally, under audit.\n\nReturns ``202``, not ``200``: nothing has re-run when this returns. The job\nis queued again and a fresh outbox row exists; the dispatcher moves it and\nthe worker performs it. Reporting ``200`` would be claiming success for work\nthat has not started (v1.1 \u00a73.6 N2) \u2014 the same mistake the ``partial`` state\nexists to correct.\n\nA job still sitting in ``failed_provider`` or ``timed_out`` is parked as part\nof this call rather than requiring a separate step. Both moves are declared\ntransitions; a job in any other state is refused with ``409``.\n\nEverything commits at once \u2014 the idempotency reservation, the quota, the\nparking, the state change, the audit stamp, and the new outbox row. A\nre-drive recorded without its outbox row would be an audit trail describing\nwork that never ran; an outbox row without the audit record would be work\nnobody authorized.",
+        "description": "Re-queue work that failed terminally, under audit.\n\nReturns ``202``, not ``200``: nothing has re-run when this returns. The job\nis queued again and a fresh outbox row exists; the dispatcher moves it and\nthe worker performs it. Reporting ``200`` would be claiming success for work\nthat has not started (v1.1 \u00a73.6 N2) \u2014 the same mistake the ``partial`` state\nexists to correct.\n\nA job still sitting in ``failed_provider`` or ``timed_out`` is parked as part\nof this call rather than requiring a separate step. Both moves are declared\ntransitions; a job in any other state is refused with ``409``.\n\nEverything the *command* writes commits at once \u2014 the idempotency\nreservation, the parking, the state change, the audit stamp, and the new\noutbox row. A re-drive recorded without its outbox row would be an audit\ntrail describing work that never ran; an outbox row without the audit record\nwould be work nobody authorized. The quota is not in that set and commits\nahead of all of it (ADR-0015): it is what the request cost, not part of what\nthe command did.",
         "operationId": "redrive_job_v1_jobs__job_id__redrive_post",
         "parameters": [
           {
@@ -1016,7 +1016,7 @@
     },
     "/v1/units/{unit_id}/imports": {
       "post": {
-        "description": "Accept an import command.\n\nReturns ``202``, not ``200``: nothing has been imported when this returns.\nThe command is recorded and will be dispatched; the job is where the outcome\nlives. Saying ``200`` here would be reporting success for work that has not\nstarted (v1.1 \u00a73.6 N2).\n\nAuthorization runs against the *owning unit*, after loading it \u2014 which is\nwhy it happens here rather than in a dependency. A dependency cannot\nauthorize a resource it has not fetched.",
+        "description": "Accept an import command.\n\nReturns ``202``, not ``200``: nothing has been imported when this returns.\nThe command is recorded and will be dispatched; the job is where the outcome\nlives. Saying ``200`` here would be reporting success for work that has not\nstarted (v1.1 \u00a73.6 N2).\n\nAuthorization runs against the *owning unit*, after loading it \u2014 which is\nwhy it happens here rather than in a dependency. A dependency cannot\nauthorize a resource it has not fetched.\n\nQuota is charged before any of that (ADR-0015), so a caller producing 404s\nagainst unit ids they invented, or 403s against a unit they may not import\ninto, is spending exactly what a caller submitting real imports spends. It\nused to be charged inside ``submit_command``, which is past all three\nrefusals \u2014 those requests were free, and they are the cheapest of all the\nrefusals to produce in bulk.",
         "operationId": "create_import_v1_units__unit_id__imports_post",
         "parameters": [
           {

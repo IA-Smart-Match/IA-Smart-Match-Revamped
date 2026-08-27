@@ -21,8 +21,10 @@ The sweep is guarded, because it is janitorial: a deadlock or a lock timeout
 while tidying up yesterday's wreckage must not cost a healthy row today's
 dispatch. And because an expired lease does not prove the dispatcher holding it
 is dead, both evidence writes — ``mark_dispatched`` and ``mark_failed`` — are
-compare-and-set on the row still being ``leased``, so an instance that was
-mid-enqueue when the sweep ran cannot write over a row that was written off.
+compare-and-set on the row still being ``leased`` **and still carrying the token
+this pass's claim minted** (J17), so an instance that was mid-enqueue when the
+sweep ran cannot write over a row that was written off, nor over one a peer
+re-claimed once its own lease expired.
 
 It then does three things per row, and the order is load-bearing:
 
@@ -52,6 +54,14 @@ from recording the outcome, and turns it into a counted failure.
 ``BaseException`` is deliberately not caught. ``KeyboardInterrupt`` and
 ``SystemExit`` are how a process is asked to stop; a dispatcher that worked
 through the rest of the batch first would be ignoring the request.
+
+## Nothing here decides when to run
+
+``run_once`` is one pass and holds no timer. :class:`ScheduledPass` composes it
+with J9's stalled-job sweep into the unit a scheduler drives, and
+:mod:`smartmatch_worker.main` exposes that unit as an endpoint. The reason the
+loop is not in this file is in that module: on Cloud Run there is no process to
+hold one.
 """
 
 from __future__ import annotations
@@ -60,8 +70,8 @@ import logging
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Literal
+from datetime import UTC, datetime, timedelta
+from typing import Final, Literal
 
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRepository
@@ -81,14 +91,40 @@ from smartmatch_providers.tasks import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
-__all__ = ["DispatchOutcome", "DispatcherLag", "OutboxDispatcher"]
+from smartmatch_worker.execution import StalledJobSweeper
+
+__all__ = [
+    "HEARTBEAT_MESSAGE",
+    "DispatchOutcome",
+    "DispatcherLag",
+    "OutboxDispatcher",
+    "ScheduledPass",
+    "ScheduledPassOutcome",
+]
 
 logger = logging.getLogger(__name__)
+
+#: The fixed prefix of the line :meth:`ScheduledPass.run` logs when a pass
+#: completes, and the closest thing this application has to a deployable
+#: liveness signal.
+#:
+#: It is a constant rather than an inline literal because something outside this
+#: repository is meant to match on it: a log-based counter, and an alert policy
+#: that fires on that counter's **absence**. Changing the text silently breaks
+#: an alert whose whole job is to notice silence, which is the one kind of alert
+#: that cannot notice its own failure. See ``main`` for the full alerting
+#: design.
+HEARTBEAT_MESSAGE: Final[str] = "scheduled dispatcher pass completed"
 
 #: What one row's processing amounted to. Exactly one of these per claimed row,
 #: which is what keeps ``claimed == dispatched + already_existed + failed`` true
 #: on every path through the loop.
-_RowOutcome = Literal["dispatched", "already_existed", "failed"]
+#:
+#: ``contended`` is the fourth member and is **not** a fourth term in that
+#: identity: it is folded into ``failed`` when the pass is summarised, and
+#: reported alongside it so an operator can subtract it. See
+#: :class:`DispatchOutcome`.
+_RowOutcome = Literal["dispatched", "already_existed", "failed", "contended"]
 
 #: What happened when a dispatcher tried to record a dispatch it had performed.
 #:
@@ -105,6 +141,12 @@ _RecordResult = Literal[
     "superseded",
     # The reclaim wrote the row off. The job is parked and needs a human.
     "reclaimed",
+    # A peer dispatcher re-claimed the row after this one's lease expired and is
+    # still working it. J17's ownership guard is what makes this reachable and
+    # what makes it *correct*: before it, the stale write won and corrupted the
+    # peer's lease. The row reads `leased` — neither of the two above — and its
+    # fate belongs to the peer's pass rather than to this one.
+    "contended",
     # The row moved on in some other way, or is gone. Not understood, so nothing
     # is asserted about it beyond "this dispatcher did not record a dispatch".
     "unresolved",
@@ -128,6 +170,10 @@ class DispatchOutcome:
             unrecorded dispatch is counted here rather than as a success,
             because the dispatcher's own record is what the rest of the system
             reads — a dispatch nothing recorded is one nothing can act on.
+        contended: How many of ``failed`` were not this pass's failure at all —
+            the row was still ``leased`` when this pass came to record its
+            outcome, because a peer dispatcher re-claimed it once this pass's
+            lease expired and is still working it. See below.
         reclaimed: Rows written off at the start of this pass because their
             attempts were spent and no attempt had ever recorded an outcome.
 
@@ -135,6 +181,40 @@ class DispatchOutcome:
     satisfy ``claimed == dispatched + already_existed + failed``. Operators alert
     on these numbers, and a pass that claimed five rows while accounting for four
     would look exactly like the silent loss the outbox exists to make impossible.
+
+    **``contended`` is a subdivision of ``failed``, not a fourth term**, and the
+    distinction is deliberate rather than cosmetic. The identity above is stated
+    in ADR-0005, in ``docs/architecture/command-path.md``, and in the backlog;
+    adding a term would quietly falsify all three. So a contended row is counted
+    ``failed`` — this pass genuinely did not finish it — and ``contended``
+    reports how many of those failures carry no fault. Alert on
+    :attr:`unexplained_failures`, never on ``failed`` alone.
+
+    **Why it exists at all**, which is the piece J17 left open. Before J17 both
+    evidence writes guarded on ``status = 'leased'``, so a stale writer *won*
+    against a peer that had legitimately re-claimed the row: it overwrote the
+    peer's fresh lease with its own older attempt count's much shorter backoff
+    and replaced the peer's ``last_error``. J17's lease token makes the stale
+    writer lose instead, which is correct — and made a previously unreachable
+    branch reachable: the row it lost to reads ``leased``, so the write fell to
+    ``unresolved``, and a benign, self-resolving race began producing a
+    ``failed`` increment and a WARNING.
+
+    Left there it would have been a false-alarm generator with the worst
+    possible shape: it fires *harder the more dispatcher instances run*, so the
+    ordinary response to a growing backlog — add an instance — makes the alert
+    noisier while the system is behaving exactly as designed. The decision taken
+    here is to distinguish it rather than to document it away. The row is not
+    lost, nothing needs retrying, and the peer finishes it; the honest statement
+    is "this pass did not complete this row, and that is somebody else's pass
+    working correctly".
+
+    ``contended`` is not *nothing*, though, and should not be alerted on as if
+    it were noise either. A sustained non-zero count says leases are expiring
+    while enqueues are still in flight — passes are overlapping, or the enqueue
+    is slower than ``DEFAULT_LEASE``. That is a tuning signal about the schedule
+    and the lease, not an incident, and it is the one thing the number is good
+    for.
 
     **``reclaimed`` is deliberately outside that identity, and is not a bug.** A
     reclaimed row was not claimed on this pass — it was claimed on some earlier
@@ -154,7 +234,18 @@ class DispatchOutcome:
     dispatched: int = 0
     already_existed: int = 0
     failed: int = 0
+    contended: int = 0
     reclaimed: int = 0
+
+    @property
+    def unexplained_failures(self) -> int:
+        """``failed`` minus the ones a peer dispatcher is already handling.
+
+        The number to alert on. ``failed`` on its own pages someone for a
+        benign lease race; this one moves only when a row's dispatch went wrong
+        in a way nobody else is fixing.
+        """
+        return self.failed - self.contended
 
     @property
     def is_idle(self) -> bool:
@@ -187,6 +278,235 @@ class DispatcherLag:
         if self.pending > max_pending:
             return True
         return self.oldest_age is not None and self.oldest_age > max_age
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledPassOutcome:
+    """What one scheduled pass did — the whole surface, in one object.
+
+    Attributes:
+        ran_at: When the pass started.
+        finished_at: When it finished. Both are recorded rather than a duration
+            alone, because an alert on the scheduler *not firing* is an alert
+            about timestamps, not about elapsed time.
+        dispatch: What :meth:`OutboxDispatcher.run_once` accomplished, reclaim
+            included.
+        timed_out: Jobs the J9 sweep moved ``running -> timed_out``.
+        sweep_failed: Whether the J9 sweep raised. ``timed_out`` is then ``0``,
+            and that zero means "not measured" rather than "nothing to do" —
+            which is exactly why the flag is reported beside it instead of the
+            count being left to speak for itself.
+        lag: The dispatcher's lag reading, or ``None`` if the measurement itself
+            failed. Same distinction: ``None`` is unmeasured, and a lag of zero
+            pending rows is a real, different fact.
+    """
+
+    ran_at: datetime
+    finished_at: datetime
+    dispatch: DispatchOutcome
+    timed_out: int = 0
+    sweep_failed: bool = False
+    lag: DispatcherLag | None = None
+
+    @property
+    def duration(self) -> timedelta:
+        """How long the pass took."""
+        return self.finished_at - self.ran_at
+
+    @property
+    def rescued(self) -> int:
+        """Work that had to be rescued: stranded outbox rows plus timed-out jobs.
+
+        The single number ``transaction-boundary-defects.md`` §3.3 asked this
+        pass to expose — "one metric surface for work that had to be rescued".
+        Both halves should be zero. Neither is a queue-depth reading to smooth
+        over a window: each one says something died holding work.
+
+        Kept as a sum *and* reported as two fields, because the sum is what an
+        operator alerts on and the split is what tells them which table to open.
+        """
+        return self.dispatch.reclaimed + self.timed_out
+
+
+class ScheduledPass:
+    """One tick of the timer: reclaim, dispatch, sweep, measure (J8, J9).
+
+    This is what Cloud Scheduler drives, through the endpoint in
+    :mod:`smartmatch_worker.main`. Nothing in this repository runs it on a loop,
+    and that is deliberate — see that module for why an in-process poll loop was
+    not the answer on Cloud Run.
+
+    Args:
+        dispatcher: The outbox dispatcher. Its ``run_once`` already begins with
+            the J12 reclaim, and this class deliberately calls ``run_once``
+            rather than any narrower entry point, so **no configuration of this
+            pass can schedule dispatch without also scheduling the reclaim.**
+            That coupling is J8's first constraint and it is enforced here by
+            there being nothing else to call.
+        sweeper: The J9 stalled-job sweep. A sibling call, not a step inside the
+            dispatcher: it touches ``job`` and never ``outbox_record``, and §3.3
+            argued at length against generalising the two into one reaper.
+        batch_size: Rows per dispatch batch.
+
+    ## Order, and why the sweep goes first
+
+    Sweep, then dispatch, then measure lag.
+
+    The sweep is first for the reason J8's own note gives about the reclaim,
+    turned on J9: *a dispatcher that is not running is precisely the condition
+    that strands work, and is then also the condition under which nothing
+    rescues it.* If the sweep ran after the dispatch, then a database refusing
+    claims — the exact situation in which workers are dying mid-job — would also
+    be the situation in which no job ever got swept, because ``run_once``
+    propagates a failed claim and the sweep would never be reached. That is the
+    same "fails twice over" shape, rediscovered one item later, and putting the
+    sweep first is what declines to repeat it.
+
+    So a failed claim costs this pass its dispatch and nothing else, and what
+    the sweep already committed travels out on the exception as a note — the
+    idiom ``run_once`` uses for exactly this, for exactly this reason.
+
+    ## What aborts a pass, and what does not
+
+    Only a failed *claim*, which is ``run_once``'s rule inherited unchanged. The
+    sweep is guarded and the lag read is guarded: both are janitorial or
+    observational, and neither may cost healthy rows their dispatch. A guarded
+    failure is logged with its traceback and reported in the outcome, never
+    silently turned into a zero.
+
+    ## The heartbeat, and why it moves only on a completed pass
+
+    :attr:`last_completed` and the :data:`HEARTBEAT_MESSAGE` log line are the
+    signal an operator's "the scheduler stopped firing" alert is built from. A
+    pass whose claim raised did not complete, so it moves neither. That is the
+    point: a heartbeat that ticked on failure would report a dispatcher that
+    dispatches nothing as healthy, which is precisely the condition the alert
+    exists to catch. The scheduler sees the failure as a non-2xx from the
+    endpoint, and its own attempt-failure metric is where that belongs.
+    """
+
+    def __init__(
+        self,
+        dispatcher: OutboxDispatcher,
+        sweeper: StalledJobSweeper,
+        *,
+        batch_size: int = 20,
+    ) -> None:
+        self._dispatcher = dispatcher
+        self._sweeper = sweeper
+        self._batch_size = batch_size
+        self._last_completed: ScheduledPassOutcome | None = None
+
+    @property
+    def last_completed(self) -> ScheduledPassOutcome | None:
+        """The most recent pass that finished, or ``None`` if none has.
+
+        **Process-local, and that is a real limitation rather than a detail.**
+        It answers "did *this instance* run a pass, and when" — not "is the
+        schedule firing", which is a question about a fleet and about time, and
+        which nothing this process can hold in memory is able to answer. On Cloud
+        Run with scale-to-zero the instance that ran the last pass may no longer
+        exist. The durable form of this signal is the log line; see ``main``.
+        """
+        return self._last_completed
+
+    def run(self) -> ScheduledPassOutcome:
+        """Run one scheduled pass.
+
+        Returns:
+            A :class:`ScheduledPassOutcome`. Also stored as
+            :attr:`last_completed` and written to the log as the heartbeat.
+
+        Raises:
+            Exception: whatever the dispatcher's *claim* raised, carrying a note
+                about anything the sweep had already committed. Nothing else
+                escapes.
+        """
+        ran_at = datetime.now(UTC)
+
+        # Guarded, and first. See the class docstring: janitorial work must not
+        # cost a healthy row its dispatch, and a dispatch that cannot happen
+        # must not cost a stalled job its rescue.
+        timed_out = 0
+        sweep_failed = False
+        try:
+            timed_out = self._sweeper.sweep()
+        except Exception:
+            sweep_failed = True
+            logger.exception(
+                "the stalled-job sweep failed; continuing with the dispatch. Jobs "
+                "whose lease has expired stay 'running' until a later pass succeeds"
+            )
+
+        try:
+            dispatch = self._dispatcher.run_once(batch_size=self._batch_size)
+        except Exception as exc:
+            # The claim propagates, for `run_once`'s own stated reason. But the
+            # sweep above already committed, and those jobs are rescued whatever
+            # happened next — losing that here would be backwards in the same
+            # way J12 identified: a database under enough strain to fail a claim
+            # is the same one whose workers are dying mid-job, so the signal
+            # would vanish exactly when it is most informative.
+            if timed_out:
+                logger.warning(
+                    "the dispatch failed after %d stalled job(s) had already been "
+                    "timed out and committed; that sweep stands",
+                    timed_out,
+                )
+                exc.add_note(
+                    f"{timed_out} stalled job(s) were timed out and committed by this "
+                    "pass before the dispatch failed; that work is done and should "
+                    "not be counted as lost."
+                )
+            raise
+
+        # Measured, not guessed, and guarded like the sweep: a lag reading is an
+        # observation about the pass, and failing to take one must not fail the
+        # pass that was otherwise successful.
+        lag: DispatcherLag | None = None
+        try:
+            lag = self._dispatcher.lag()
+        except Exception:
+            logger.exception("the lag measurement failed; the pass itself succeeded")
+
+        outcome = ScheduledPassOutcome(
+            ran_at=ran_at,
+            finished_at=datetime.now(UTC),
+            dispatch=dispatch,
+            timed_out=timed_out,
+            sweep_failed=sweep_failed,
+            lag=lag,
+        )
+        self._last_completed = outcome
+
+        # The heartbeat. One line per completed pass, at INFO, with a fixed
+        # leading message so a log-based metric can count it without parsing.
+        # Every number an operator alerts on is on this line, because the
+        # alternative — alerting on the response body — requires something to
+        # have been listening, and the whole point of this signal is to be there
+        # when nothing was.
+        logger.info(
+            "%s: claimed=%d dispatched=%d already_existed=%d failed=%d "
+            "unexplained_failures=%d contended=%d reclaimed=%d timed_out=%d "
+            "sweep_failed=%s pending=%s oldest_age_seconds=%s duration_ms=%d",
+            HEARTBEAT_MESSAGE,
+            dispatch.claimed,
+            dispatch.dispatched,
+            dispatch.already_existed,
+            dispatch.failed,
+            dispatch.unexplained_failures,
+            dispatch.contended,
+            dispatch.reclaimed,
+            timed_out,
+            sweep_failed,
+            "unmeasured" if lag is None else lag.pending,
+            "unmeasured"
+            if lag is None or lag.oldest_age is None
+            else round(lag.oldest_age.total_seconds(), 3),
+            round(outcome.duration.total_seconds() * 1000),
+        )
+
+        return outcome
 
 
 class OutboxDispatcher:
@@ -316,7 +636,12 @@ class OutboxDispatcher:
             claimed=len(claimed),
             dispatched=counts["dispatched"],
             already_existed=counts["already_existed"],
-            failed=counts["failed"],
+            # Contended rows are folded in here rather than counted apart, so
+            # ``claimed == dispatched + already_existed + failed`` still holds
+            # exactly as ADR-0005 states it. ``contended`` reports how many of
+            # them carry no fault; see :class:`DispatchOutcome`.
+            failed=counts["failed"] + counts["contended"],
+            contended=counts["contended"],
             reclaimed=reclaimed,
         )
 
@@ -459,7 +784,12 @@ class OutboxDispatcher:
             return self._record_failure_safely(record, f"{type(exc).__name__}: {exc}")
 
         try:
-            recorded = self._record_dispatched(record.tenant_id, record.job_id, record.id)
+            recorded = self._record_dispatched(
+                record.tenant_id,
+                record.job_id,
+                record.id,
+                lease_token=record.lease_token,
+            )
             if recorded == "superseded":
                 # A peer dispatcher claimed the row once this one's lease expired
                 # and finalised it correctly. Nothing is wrong: the row is
@@ -510,6 +840,27 @@ class OutboxDispatcher:
                     record.task_name,
                 )
                 return "failed"
+
+            if recorded == "contended":
+                # A peer re-claimed the row once this pass's lease expired and
+                # is still working it. Nothing is wrong and nothing is stuck:
+                # the peer's enqueue will find the task this pass created
+                # already present and converge on ``already_existed``, and the
+                # peer's own evidence write finalises the row.
+                #
+                # ``info``, not ``warning``, and there is no advice to act. This
+                # is the branch J17 made reachable, and treating a benign race
+                # as an incident would page an operator for the system working —
+                # more often, the more instances they run. Counted ``failed``
+                # for the accounting identity and reported apart from it in
+                # ``DispatchOutcome.contended``.
+                logger.info(
+                    "outbox row %s: task %s was created, but another dispatcher "
+                    "now holds the row and will finalise it; leaving it to them",
+                    record.id,
+                    record.task_name,
+                )
+                return "contended"
 
             if recorded == "unresolved":
                 # The row moved on in a way this dispatcher does not understand,
@@ -616,6 +967,19 @@ class OutboxDispatcher:
             )
             return "failed"
 
+        if recorded == "contended":
+            # A peer re-claimed the row once this pass's lease expired and is
+            # still working it, while this pass's own attempt was failing. The
+            # peer's attempt is the live one; this pass has nothing to record
+            # and nothing to advise. Same treatment as on the dispatch path, for
+            # the same reason.
+            logger.info(
+                "outbox row %s: recording a failure found another dispatcher "
+                "holding the row; leaving its attempt to run",
+                record.id,
+            )
+            return "contended"
+
         if recorded == "unresolved":
             # The row moved on in a way this dispatcher does not understand, or
             # is gone. Nothing is asserted and no advice is given: guessing here
@@ -631,7 +995,12 @@ class OutboxDispatcher:
         return "failed"
 
     def _record_dispatched(
-        self, tenant_id: uuid.UUID, job_id: uuid.UUID, record_id: uuid.UUID
+        self,
+        tenant_id: uuid.UUID,
+        job_id: uuid.UUID,
+        record_id: uuid.UUID,
+        *,
+        lease_token: uuid.UUID,
     ) -> _RecordResult:
         """Mark the outbox row dispatched and advance the job, atomically.
 
@@ -647,8 +1016,10 @@ class OutboxDispatcher:
         **The outbox write goes first, and is also conditional.** It is the one
         that decides whether this dispatcher still owns the row:
         :meth:`~OutboxRepository.mark_dispatched` moves it only while it is still
-        ``leased``, so a row :meth:`reclaim_stranded` has already written off is
-        left alone and nothing is committed. Ordering it first is what makes that
+        ``leased`` *and still carries this claim's lease token*, so a row
+        :meth:`reclaim_stranded` has already written off — or one a peer
+        re-claimed once this pass's lease expired — is left alone and nothing is
+        committed. Ordering it first is what makes that
         check meaningful — and it also puts this method's locks in the same order
         as the reclaim's and :meth:`_record_failure`'s, ``outbox_record`` then
         ``job``. It was the only one of the three taking them the other way
@@ -665,11 +1036,23 @@ class OutboxDispatcher:
         Announcing the second as the first would have an operator re-drive a job
         that is already running.
 
+        **J17 added a third way to lose, and it is neither of those.** With the
+        lease token in the guard, a peer that re-claimed the row and is *still
+        working it* now beats this write, where before the stale write won — and
+        the row it loses to reads ``leased``, not ``dispatched`` or ``failed``.
+        That falls to ``unresolved``, which is the honest bucket for it: the row
+        is mid-flight in someone else's pass, this dispatcher cannot say how it
+        ends, and ``unresolved`` is the branch that asserts nothing and advises
+        nothing. It is counted ``failed`` only in the sense that this pass did
+        not complete the row — the peer completes it. Naming a fourth result for
+        it would change what this dispatcher reports and alerts on, which belongs
+        with J8's alerting work rather than here.
+
         Returns:
             One of :data:`_RecordResult`.
         """
         with self._session_factory() as session:
-            if self._outbox.mark_dispatched(session, record_id=record_id):
+            if self._outbox.mark_dispatched(session, record_id=record_id, lease_token=lease_token):
                 self._jobs.transition(
                     session,
                     tenant_id=tenant_id,
@@ -689,6 +1072,11 @@ class OutboxDispatcher:
             return "superseded"
         if status is OutboxStatus.FAILED:
             return "reclaimed"
+        if status is OutboxStatus.LEASED:
+            # Still held, and not by this caller — `_held_by` pins the row id as
+            # well as the token, so a `leased` row this write could not match is
+            # a row somebody else claimed. A peer is working it.
+            return "contended"
         return "unresolved"
 
     def _record_failure(
@@ -721,6 +1109,15 @@ class OutboxDispatcher:
         reporting a peer's success as a reclaim would count a dispatched row as
         a failure and send an operator to re-drive live work.
 
+        Since J17 it also loses to a peer that re-claimed the row and has not
+        finished it — the case this method was previously *winning*, and wrongly:
+        the stale write overwrote the peer's fresh lease with this older attempt
+        count's shorter backoff and replaced the peer's ``last_error``, making
+        the row claimable again while the peer was still working it. It now takes
+        the ``unresolved`` branch, which says nothing about a row it does not
+        own. See :meth:`_record_dispatched` for why that branch rather than a new
+        one.
+
         Either way nothing is written and the method returns early, which also
         avoids taking a job-row lock for a transition that would no-op.
 
@@ -729,12 +1126,20 @@ class OutboxDispatcher:
         """
         with self._session_factory() as session:
             if not self._outbox.mark_failed(
-                session, record_id=record.id, error=error, attempts=attempts
+                session,
+                record_id=record.id,
+                lease_token=record.lease_token,
+                error=error,
+                attempts=attempts,
             ):
                 status = self._outbox.status_of(session, record_id=record.id)
                 if status is OutboxStatus.DISPATCHED:
                     return "superseded"
-                return "reclaimed" if status is OutboxStatus.FAILED else "unresolved"
+                if status is OutboxStatus.FAILED:
+                    return "reclaimed"
+                if status is OutboxStatus.LEASED:
+                    return "contended"
+                return "unresolved"
             if attempts >= MAX_DISPATCH_ATTEMPTS:
                 self._jobs.transition(
                     session,
