@@ -1,16 +1,23 @@
 # Handoff: the PR #1 blockers and TODOs
 
-**Branch:** `claude/pr1-blockers-todos-er5heu`, 13 commits ahead of `main`
-(`c4ae716`, the PR #1 merge).
-**State:** working tree clean, pushed. Every gate green at the tip —
-`ruff format --check`, `ruff check`, `mypy --strict` (44 files), 4 import
-contracts kept / 0 broken, forbidden-behavior scan clean (160 files),
-agent-memory ledger clean (3 records), OpenAPI document current, and
-**1078 test outcomes, exit 0** (576 in the no-database lane, 377 requiring
-PostgreSQL, plus the authz and contract lanes).
+**Branch:** `claude/pr1-blockers-todos-er5heu`, open as **PR #3**.
+**Base:** `main` at `c4ae716`, the PR #1 merge.
+
+**State at `2e13032`**, re-verified by the orchestrator against a freshly
+migrated database (`0001`…`0007`): `ruff format --check` (134 files),
+`ruff check`, `mypy --strict` (45 files), 4 import contracts kept / 0 broken,
+forbidden-behavior scan clean (171 files), agent-memory ledger clean (3
+records), license policy clean (43 allowed, 4 under a recorded exception, 0
+undetermined), environment isolation clean (4 environments, 40 identifiers,
+none shared), OpenAPI document current, and **1135 test outcomes, exit 0**.
 
 Baseline at the start of this work was 789 outcomes. Nothing was skipped or
-disabled to reach green.
+disabled to reach green — but read §2.2 before reading that number as coverage.
+
+**CI on PR #3 is red on two checks, and neither is this branch's.** Both are
+pre-existing failures on `main` — the `--strip-extras` lock drift and the
+gitleaks organisation-licence failure — and **PR #2 fixes both**. Diagnosed in
+a comment on PR #3.
 
 ---
 
@@ -35,52 +42,113 @@ disabled to reach green.
 
 ## 2. Read this before trusting section 1
 
-**Four of these items carry an evidence gap, and it is the same gap in each.**
+**Four items carried an evidence gap. Two have since been resolved, and one of
+them turned out to be worse than a missing report.**
 
 The agents implementing **J9+J8**, **J16**, **F9 (docs)** and **F2b+F5** were
 each terminated by a usage limit at their final verification step. Their code
-landed; their reports did not. So for those four:
-
-- Every gate was re-run by the orchestrator and passes. The suite is green.
-- **But the per-test revert-check evidence was never delivered.** This
-  repository's standing rule is that a test must be shown to fail against the
-  behaviour it fixes, and for these four items nobody has confirmed that.
+landed; their reports did not — so nobody had confirmed their tests fail
+against the behaviour they fix, which is this repository's standing rule.
 
 A test that passes both before and after a change is worthless, and this
 project has already been bitten by exactly that (F-2, F-24 — both were tests
-that asserted a tautology and passed against an empty implementation). **The
-first task for whoever picks this up is to run the revert-check on the tests
-added by those four commits**, not to add more work on top.
+that asserted a tautology and passed against an empty implementation).
 
-The items whose evidence *was* delivered and reviewed — J10, J17, J15, A4,
-F9 (code), F13 — do not carry this caveat. Their revert-checks are described in
-their commit messages, including two cases where a mutant was needed because
-the defect was in the evidence rather than the code.
+### 2.1 J16 — revert-check run, evidence good
 
-Two further specifics:
+Reverting J16's four source files to `41d47da~1`, keeping the tests, fails
+exactly the six tests J16 added and no others:
 
-- **No `terraform validate` has been run against the F5 files.** Terraform is
-  not installed in the environment this was built in. The Python-side isolation
-  assertion runs and passes; the HCL itself is unvalidated.
+```
+FAILED test_command_path.py::test_a_run_of_forbidden_imports_is_charged_and_then_limited
+FAILED test_command_path.py::test_a_run_of_imports_into_a_unit_that_does_not_exist_is_charged_and_then_limited
+FAILED test_command_path.py::test_a_run_of_imports_with_no_idempotency_key_is_charged_and_then_limited
+FAILED test_redrive.py::test_a_run_of_forbidden_redrives_is_charged_and_then_limited
+FAILED test_redrive.py::test_a_run_of_redrives_against_ids_that_do_not_exist_is_charged_and_then_limited
+FAILED test_redrive.py::test_a_run_of_redrives_with_no_idempotency_key_is_charged_and_then_limited
+```
+
+Restored, and all six pass again. **J16's evidence gap is closed.**
+
+### 2.2 J9 and J8 — the tests do not exist
+
+This one was not a missing report. It was missing tests.
+
+Commit `3243e00` changed 22 lines of test across two files, and **none of them
+test J9 or J8.** Measured:
+
+| Location | `timed_out\|sweep\|heartbeat\|lease_expires` |
+|---|---|
+| `tests/integration/test_worker_execution.py` | **0** |
+| `tests/contract/test_worker_boundary.py` | **0** |
+| `tests/integration/test_outbox_dispatcher.py` | 27 — but **every one is `outbox_record.lease_expires_at`**, the *outbox* lease, which predates J9 |
+| `services/worker/smartmatch_worker/main.py` | 28 |
+| `services/worker/smartmatch_worker/execution.py` | 19 |
+| `python/smartmatch_persistence/.../jobs.py` | 34 |
+
+So the job lease, the sweep to `timed_out`, and the heartbeat have **no test
+coverage whatsoever**. The suite is green because nothing exercises them.
+
+Confirmed by revert-check: reverting the four worker source files to
+`3243e00~1` (leaving `jobs.py` at HEAD — see the trap below) fails only three
+tests, and two of those are J17's, adapted by `3243e00` rather than written for
+it. The third is a route-surface contract assertion.
+
+**Trap for whoever runs this again:** do not revert
+`smartmatch_persistence/jobs.py` to `3243e00~1`. A later commit (A5, `7e27268`)
+added `owning_unit_id` to `JobRepository.create()`, so reverting that far
+produces 40 `TypeError` failures that are an API mismatch, not evidence.
+Reverting only the worker files reproduces the true pre-J9 condition the
+backlog describes — the column exists and nothing reads or writes it.
+
+### 2.3 Still unverified
+
+- **F9 (docs)** — documentation only, so there is no behavioural revert-check
+  to run. What it needs instead is the re-review in §3.2, and its re-measured
+  test counts re-counted by someone else.
+- **F2b+F5** — the two new tools have self-tests that pass, but nobody has
+  confirmed those self-tests fail against a broken tool. The mutation check is
+  the one that matters for a gate.
+- **No `terraform validate`** has been run against the F5 files; terraform is
+  not installed here. The Python-side isolation assertion runs and passes; the
+  HCL itself is unvalidated.
 - **The J17 commit records a correction to its own backlog row** — the row
   called `mark_dispatched` "affected in form but not in substance", which is
   true of the outcome and not of the reporting. A benign lease race now
   produces a `DispatchOutcome.failed` increment. J8's alerting design was
   handed that question; confirm it was answered.
 
+The items whose evidence *was* delivered and reviewed — J10, J17, J15, A4,
+F9 (code), F13 — do not carry this caveat. Their revert-checks are described in
+their commit messages, including two cases where a mutant was needed because
+the defect was in the evidence rather than the code.
+
 ---
 
 ## 3. What is still open
 
-### 3.1 Engineering work not started
+### 3.1 Engineering work
+
+**Closed since this document was first written** (commits `7e27268`, `5f02423`,
+`2e13032`):
+
+- **A5 / S-006** — `job.owning_unit_id` (migration `0006`). A coordinator can no
+  longer reach another department's job.
+- **JOB-READ-IGNORES-GRANTS** — closed with A5, and closed properly: rather than
+  patching the read path, `routers/jobs.py` and `routers/redrive.py` now both
+  call one `job_authz.authorize_job_read`, so all four job operations apply the
+  same policy to the same resource. The old defect is named in that module's
+  docstring so the reason the two implementations were merged is not lost.
+- **F12** — `uq_user_account_tenant_subject` dropped (migration `0007`).
+
+**Still open:**
 
 | # | Item | Why it matters |
 |---|---|---|
-| **A5 / S-006** | `job.owning_unit_id` and unit-scoped job reads | A coordinator in one department can read, re-drive or abandon another department's job. The A4 matrix pins this hole as an equality across all four `job.*` operations, so closing A5 will break those cells and point at itself. A4 also measured that this is *missing data, not a missing rule* — the same principal against a resource that does carry an owning unit is correctly denied. Migration `0006`; `payload.unit_id` now exists to backfill from, which it did not before J10. |
-| **JOB-READ-IGNORES-GRANTS** | `_authorize_job_read` consults no `resource_grant` at all | **Found by A4 and not yet fixed.** Policy rule 3, "an explicit deny beats inheritance", is not applied on the job-read path: an admin holding an explicit DENY on a job is refused by `/redrive` and `/abandon` and **permitted** by `GET /v1/jobs/{id}` and its event stream. An administrator carving one job out of a broad grant is silently ignored for reads. Current behaviour is pinned in two matrix cells, so the fix will break them visibly. This is the one I would do first. |
-| **F12** | Drop `uq_user_account_tenant_subject` | Contract-phase. `uq_user_account_external_subject` (migration `0003`) makes it strictly redundant. |
+| **J9 / J8 tests** | The lease, the sweep and the heartbeat are untested | See §2.2. This is the top item: the code is in and nothing exercises it. |
 | **F-25** | The weight-proposal aggregate bound | **Deliberately left open**, per `defect-remediation.md` §4.5 — the real finding is that the number a human approves is not the number applied, and choosing between normalize-on-apply and bound-at-proposal belongs with the M1/M8 consumer behind gate G1. Pinned by `test_aggregate_movement_is_deliberately_unbounded`. An earlier agent bounded it and was reverted; do not re-add a bound without settling the semantics. |
 | **A1b / S-001** | Live identity verification, and the worker's signature backend | Ruled **out of scope** for this branch by the repository owner: closing it needs an asymmetric-crypto runtime dependency and a lock recompile, and PR #2 is already touching the lock files. The worker still refuses every task delivery. |
+| **CI** | Two checks red on PR #3 | Neither is this branch's: the `--strip-extras` lock drift and the gitleaks org-licence failure, both pre-existing on `main` and both fixed by **PR #2**. Diagnosed in a comment on PR #3. Merging #2 resolves them. |
 
 ### 3.2 The re-review F9 requires
 
