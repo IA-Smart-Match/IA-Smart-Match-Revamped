@@ -31,7 +31,7 @@ setup: ## Create the virtualenv and install pinned dev dependencies
 
 .PHONY: lock
 lock: ## Recompile the dependency locks from requirements/*.in
-	$(PIP) install -q pip-tools
+	$(PIP) install -q 'pip-tools==7.6.1'  # must match .github/workflows/verify.yml
 	$(VENV)/bin/pip-compile --generate-hashes --strip-extras --quiet \
 		--output-file=requirements/runtime.txt requirements/runtime.in
 	$(VENV)/bin/pip-compile --generate-hashes --strip-extras --quiet \

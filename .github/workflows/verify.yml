@@ -142,18 +142,34 @@ jobs:
       - name: Dependency locks are current
         # A .in edited without recompiling means CI installs something other than
         # what the author intended. Cheap to check, expensive to discover later.
+        #
+        # This step reports WHICH lines differ. It used to use `diff -q`, which
+        # prints only "files differ" -- so a red run said a lock was stale
+        # without saying how, and the cause had to be guessed at. It was guessed
+        # at wrongly at least once: PR #2 regenerated the header and the step
+        # stayed red. Print the diff and let the next run answer the question.
         run: |
-          python -m pip install --upgrade pip pip-tools
+          # Pinned deliberately. This step compares pip-compile's OUTPUT against a
+          # committed file, so the tool's version is part of the comparison: an
+          # unpinned upgrade can change the output and fail the check with no
+          # repository change at all. That is exactly what happened -- 7.6.1 began
+          # recording --no-index in the header that older versions omitted.
+          python -m pip install --upgrade pip 'pip-tools==7.6.1'
+          pip-compile --version
           cp requirements/runtime.txt /tmp/runtime.expected
           cp requirements/dev.txt /tmp/dev.expected
           pip-compile --generate-hashes --strip-extras --quiet \
             --output-file=requirements/runtime.txt requirements/runtime.in
           pip-compile --generate-hashes --strip-extras --quiet \
             --output-file=requirements/dev.txt requirements/dev.in
-          diff -q /tmp/runtime.expected requirements/runtime.txt || {
-            echo "::error::requirements/runtime.txt is stale; run 'make lock'"; exit 1; }
-          diff -q /tmp/dev.expected requirements/dev.txt || {
-            echo "::error::requirements/dev.txt is stale; run 'make lock'"; exit 1; }
+          stale=0
+          for f in runtime dev; do
+            if ! diff -u "/tmp/$f.expected" "requirements/$f.txt"; then
+              echo "::error::requirements/$f.txt is stale; run 'make lock'"
+              stale=1
+            fi
+          done
+          exit "$stale"
 
       - name: No local databases or archives committed
         # The legacy tracked demo.db, smartmatch.db, and archive bundles. Business
