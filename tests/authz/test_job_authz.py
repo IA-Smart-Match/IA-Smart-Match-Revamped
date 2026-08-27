@@ -340,3 +340,103 @@ def test_both_entry_points_gate_on_the_same_oversight_roles():
 def test_the_resource_type_matches_what_a_grant_would_carry():
     """An explicit grant on a job names this string in ``resource_grant``."""
     assert job_authz.JOB_RESOURCE_TYPE == "job"
+
+
+# ---------------------------------------------------------------------------
+# The one guard the ordering design was missing
+# ---------------------------------------------------------------------------
+
+
+def _denial_reasons_evaluate_can_emit() -> frozenset[str]:
+    """Every ``reason`` the policy returns on a denial, read out of its source.
+
+    Read by AST rather than listed here, because a list here would be the second
+    copy of the vocabulary and would agree with the first until the day it
+    mattered. Walking the module finds the reasons whatever order they appear in
+    and whichever branch returns them.
+    """
+    import ast
+    import inspect as _inspect
+
+    from smartmatch_authz import policy as policy_module
+
+    tree = ast.parse(_inspect.getsource(policy_module))
+    reasons: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "id", None) != "AccessDecision":
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords}
+        allowed = keywords.get("allowed")
+        reason = keywords.get("reason")
+        if not isinstance(allowed, ast.Constant) or allowed.value is not False:
+            continue
+        if isinstance(reason, ast.Constant) and isinstance(reason.value, str):
+            reasons.add(reason.value)
+    assert reasons, "no denial reasons could be read out of the policy module"
+    return frozenset(reasons)
+
+
+def test_the_denial_vocabulary_is_exactly_the_five_documented_reasons():
+    """The five stable reason codes, pinned as a *set* rather than one at a time.
+
+    Each of the five is already asserted individually by a test above, which
+    catches one being renamed. None of them catches one being *added* — and an
+    added reason is the case that matters, because
+    :func:`test_a_new_denial_reason_must_choose_a_side` is what decides whether
+    the new one is overridable by the actor exception.
+
+    These strings are a contract beyond this repository: they are emitted as
+    ``details.reason`` on a 403 and are safe to log and to audit against.
+    """
+    assert _denial_reasons_evaluate_can_emit() == frozenset(
+        {
+            "principal_suspended",
+            "tenant_mismatch",
+            "explicit_resource_deny",
+            "resource_grant_lacks_required_role",
+            "no_grant",
+        }
+    )
+
+
+def test_a_new_denial_reason_must_choose_a_side():
+    """``_STRUCTURAL_DENIALS`` is an allowlist, and an allowlist fails open.
+
+    ``_decide`` raises immediately for a reason *in* that set and lets the actor
+    exception override any reason *not* in it. So a denial added to the policy
+    later — ``tenant_suspended``, say — would land silently on the
+    **overridable** side, and the job's own actor would read straight past it.
+    Nothing else in the codebase relates the two sets: the constant is
+    referenced only inside ``job_authz`` itself.
+
+    This test is the relation. It fails the moment the policy grows a reason,
+    and the fix is not to edit the expected set below — it is to decide,
+    deliberately, whether the new reason is structural, and to put it in
+    ``_STRUCTURAL_DENIALS`` if it is.
+
+    The halves below are separate assertions because they fail for different
+    causes: a reason that is structural but unlisted is a fail-open hole, while
+    a listed reason the policy cannot emit is dead configuration.
+    """
+    vocabulary = _denial_reasons_evaluate_can_emit()
+
+    assert vocabulary >= job_authz._STRUCTURAL_DENIALS, (
+        "_STRUCTURAL_DENIALS names reasons the policy cannot emit: "
+        f"{sorted(job_authz._STRUCTURAL_DENIALS - vocabulary)}"
+    )
+
+    # The reasons that are about the caller or the request rather than about
+    # which grants they hold. No relationship to the job can answer these, so
+    # the actor exception must never reach them.
+    assert (
+        frozenset({"principal_suspended", "tenant_mismatch", "explicit_resource_deny"})
+        == job_authz._STRUCTURAL_DENIALS
+    )
+
+    # Stated the other way round, so a failure names the hole rather than a set
+    # difference: everything else is deliberately overridable.
+    assert vocabulary - job_authz._STRUCTURAL_DENIALS == frozenset(
+        {"resource_grant_lacks_required_role", "no_grant"}
+    ), "a denial reason became overridable by the actor exception without anyone deciding it"
