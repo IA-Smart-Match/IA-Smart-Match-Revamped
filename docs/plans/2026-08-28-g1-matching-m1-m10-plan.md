@@ -60,11 +60,18 @@ or tentative: **stop and report "G1 artifact missing or incomplete."**
   reference doc, new golden fixtures directory
   `tests/golden/matching/` (or the repo's existing golden layout).
 - **Work:** copy the approved factors/weights exactly from the artifact — no
-  interpretation; set the approved registry version and
-  `REGISTRY_STATUS = "approved"`; land approved golden cases as fixtures;
-  invert `test_registry_is_not_yet_approved` into
-  `test_registry_is_approved_at_version_X` in the same commit; cite the
-  decision artifact path in the module header.
+  interpretation; set the approved registry version; land approved golden
+  cases as fixtures; cite the decision artifact path in the module header.
+  **Two-stage status — scoring stays fail-closed until M6j:** M1 sets
+  `REGISTRY_STATUS = "approved_pending_implementation"` (new value), and
+  `assert_registry_approved()` continues to raise for it. Only card M6j —
+  after proving every approved scoring factor is implemented and weights
+  normalize over the complete approved set — flips the status to
+  `"approved"` and inverts `test_registry_is_not_yet_approved` into
+  `test_registry_is_approved_at_version_X`, in that same M6j commit. M1
+  instead updates the guard test to assert the intermediate status still
+  refuses scoring. This prevents the window where an "approved" registry
+  could score using only a subset of the approved factors.
 - **Hard rule:** weights must normalize to 1.0 over exactly the approved
   *implemented* factor set at every stage of M2–M6 (re-normalization is
   computed, never hand-tuned); a factor without an implementation carries no
@@ -86,8 +93,11 @@ lane has the same shape:
   not, implement it returning unknown with a documented reason — never
   fabricate mileage.
 - **Join card M6j:** wire implemented factors into the registry table, flip
-  each factor's `implemented` flag, assert normalization over the implemented
-  set, run the full golden suite.
+  each factor's `implemented` flag, add a readiness assertion that the
+  implemented set equals the approved scoring-factor set exactly, then — and
+  only then — set `REGISTRY_STATUS = "approved"`, perform the deliberate
+  guard-test inversion (see M1), assert normalization over the complete
+  approved set, and run the full golden suite.
 
 ### Card M7 — portfolio optimization (after M6j)
 

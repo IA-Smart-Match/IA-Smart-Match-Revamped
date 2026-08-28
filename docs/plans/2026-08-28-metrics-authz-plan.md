@@ -74,10 +74,15 @@ Task card U1 (single card, no parallelism needed):
 Lane A — API (card G1a):
 
 - **Fence:** `services/api/smartmatch_api/routers/metrics.py`.
-- **Work:** add a module-level role constant named per the decision (pattern:
-  `_METRICS_ROLES = frozenset({...})` mirroring `_IMPORT_ROLES`), pass
-  `required_roles` in `_authorize_unit_read`. Continue loading the unit and
-  calling `assert_allowed` — do not weaken unit scoping.
+- **Work:** add **two** module-level role constants, even under this branch:
+  `_METRICS_READ_ROLES` and `_METRICS_DRILL_DOWN_ROLES` (pattern mirrors
+  `_IMPORT_ROLES`), populated per the decision — the artifact answers the
+  aggregate and row questions separately, and "both gated" does not imply
+  the two role sets are equal. If the decision happens to name one set for
+  both, the two constants hold the same value; the code paths stay distinct.
+  Pass the appropriate constant as `required_roles` in each authorizer path.
+  Continue loading the unit and calling `assert_allowed` — do not weaken
+  unit scoping.
 
 Lane B — policy matrix (card G1b, parallel with A):
 

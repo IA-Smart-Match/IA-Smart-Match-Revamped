@@ -100,7 +100,14 @@ For each field the artifact **collects**:
   contract loaded from `columns.yaml` (single source of truth — no duplicated
   literal lists); imports violating the contract produce named findings into
   the existing quarantine/review path, not silent drops.
-- **Note:** W1 is valuable after *any* gate ratifies the contract; do not bury
+- **Partial-ratification rule:** enforcement is **section-level**. W1 wires
+  only the sections whose gate has passed: after Gate A alone, professional
+  columns are enforced while the three contact fields remain in an explicit
+  `undecided` posture (accepted as optional, flagged for review, never
+  rejected and never rendered); after Gate B, event contact sections wire in
+  per their collect/drop outcomes. W1 must not treat a still-open
+  `open_questions` entry as ratified contract.
+- **Note:** W1 is valuable after *any* gate ratifies its section; do not bury
   it inside a documentation change (it is its own reviewable slice).
 
 ## Evidence ladder

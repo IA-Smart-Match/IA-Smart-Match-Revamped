@@ -85,9 +85,12 @@ authorization recorded in the artifact.
 ### Card S5 — vocabulary, quarantine, review queue (parallel with S4 after S3)
 
 - **Fence:** vocabulary data module in `smartmatch_domain` (terms **copied
-  exactly from the G3 artifact** — the executor never invents terms), mapped
-  and quarantined tag persistence in a follow-on migration if needed, review
-  queue repository + tests.
+  exactly from the G3 artifact** — the executor never invents terms), review
+  queue repository + tests. **No migration in this card.** If tag/review
+  persistence needs schema beyond what S3 created, that is a separate serial
+  card **S5m**, which runs only after S5f and holds the portfolio migration
+  slot listed in the index — S5 itself stays migration-free so it can run
+  parallel to S4 safely.
 - **Work:** persist mapped tags against vocabulary versions; quarantined raw
   tags persist for human review but never enter read or match results; review
   transitions (approve → maps to vocabulary term; reject → stays quarantined)

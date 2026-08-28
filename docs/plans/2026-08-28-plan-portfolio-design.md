@@ -66,8 +66,15 @@ legacy scoring-engine port) so an excerpt cannot be misread as authorization.
   decision-artifact path, the fields that must be non-blank (named owner,
   approved values, sign-off), and the rule that a missing or ambiguous
   artifact means stop and report — never infer approval.
-  `tests/unit/test_gate_decision_artifacts.py` is the ground truth for packet
-  completeness.
+  **Scope honesty:** `tests/unit/test_gate_decision_artifacts.py` covers
+  only the G1 packet, G3 threat-model draft, and D6 worksheet, and it checks
+  packet *structure*, not ratification. For every other gate (P1 metrics
+  authz, P2 IdP configuration, P8 opportunities definition, P9's two
+  decisions) — and for ratification itself on all gates — enforcement is the
+  executing agent applying the plan's checklist manually. A gated plan's
+  first post-gate card SHOULD extend the artifact test file with a
+  completeness check for its own ratified artifact before touching code, so
+  gate coverage grows as decisions land.
 - **Branch selection.** Conditional plans enumerate each decision outcome as a
   named branch with a complete task-card set. The agent selects the branch
   matching the committed artifact's content; a decision that leaves

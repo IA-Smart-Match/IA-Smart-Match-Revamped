@@ -96,10 +96,20 @@ Tavily/web-crawler API calls took 5–10 seconds.
 - **Work:** add TanStack Query (latest v5). Wrap the app in a provider;
   convert `useUnitMetrics` to `useQuery` with stale-while-revalidate defaults
   (`staleTime` ~30 s for metrics; refetch on window focus off for demo
-  stability). Cache keys: `["metrics", unitId]`,
-  `["drilldown", unitId, metricName]` — the principal is implicit while the
-  bearer is process-global, but sign-out (plan P2 card A2) must call
-  `queryClient.clear()`; add that hook point now.
+  stability). Cache keys MUST embed a **server-derived principal subject** as
+  the first segment: `[principalKey, "metrics", unitId]`,
+  `[principalKey, "drilldown", unitId, metricName]`, where `principalKey` is
+  the `user_id` from the last successful `fetchMe()` (or, until P2 lands, a
+  stable hash of the active bearer token). Sign-out clearing alone is **not**
+  sufficient — token replacement, account switching, or a failed `fetchMe()`
+  must never serve a prior principal's entries. On any identity change
+  (token set/replaced/cleared, `fetchMe()` returning a different `user_id`,
+  or `fetchMe()` failure), call `queryClient.clear()` in addition to the
+  key scoping; plan P2 card A2 wires the sign-in/out hooks into this seam.
+- **Test:** add an account-switch isolation test (component-level or the
+  narrow source-contract style): with principal A's data cached, switching to
+  principal B must produce zero cache hits on A-keyed entries and a fresh
+  fetch for B.
 - **Hard rule:** an unknown metric (`value: null`) is cached like any value —
   do not retry-hammer unknowns; do not transform them.
 

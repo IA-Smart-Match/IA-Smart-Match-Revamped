@@ -98,7 +98,12 @@ artifacts exist, because the fold's earn policy comes from D7.
   synthetic approved fixtures (fixture values copied from the D6/D7 artifact,
   never invented).
 
-### Card R3 — routes, policy, OpenAPI (after L3/L4; requires decided roles)
+### Card R3 — routes, policy, OpenAPI (after L2, L3, and L4; requires decided roles)
+
+R3 explicitly depends on **L2** as well: no redemption or listing route may
+land before the DB-level append-only guard on `point_ledger_entry` is merged
+and CI-proven — otherwise an ordering race exposes routes over a mutable
+ledger.
 
 - **Fence:** `services/api/smartmatch_api/routers/engagement.py`,
   `tests/authz/test_policy_matrix.py` rows for every new operation,

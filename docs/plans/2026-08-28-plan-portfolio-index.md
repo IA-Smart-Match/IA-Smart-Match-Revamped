@@ -61,7 +61,7 @@ step, one branch at a time, respecting the serial resources below.
 
 | Resource | Rule | Ownership order |
 |---|---|---|
-| Migration numbers (`db/migrations/versions/`) | one open migration card portfolio-wide at a time | P6·S3 → P6·S5f → P7·L1/L2 → P5·M8a → P8·O2 → P9·A2a (re-sequence at merge time as gates actually close; renumber on rebase) |
+| Migration numbers (`db/migrations/versions/`) | one open migration card portfolio-wide at a time | P6·S3 → P6·S5f → P6·S5m (optional tag/review schema) → P7·L1/L2 → P5·M8a → P8·O2 → P9·A2a (re-sequence at merge time as gates actually close; renumber on rebase) |
 | `contracts/openapi/smartmatch.json` regeneration | regenerate + `make openapi-check` in exactly one card per plan; never hand-edit | P1 join card, P4·F3, P5·M8b, P6·S6b, P7·R3, P8·O3 |
 | `tests/authz/test_policy_matrix.py` | rows travel with routes in the same commit; merge conflicts resolved by re-running completeness meta-tests | any plan adding routes |
 | `tests/unit/test_matching_fail_closed.py` (fail-closed scans) | each deliberate flip happens in the commit that lands the gated capability | P5·M8b, P6·S6b, P7·R3, P4·C1 (extends only) |

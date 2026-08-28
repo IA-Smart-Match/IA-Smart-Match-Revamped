@@ -21,8 +21,18 @@ committed decision artifact (expected under `docs/decisions/`) naming:
 
 1. the IdP and environment (a development/test tenant is acceptable and
    expected — live production SSO is out of scope under standing constraints);
-2. issuer URL, audience, and JWKS retrieval approach;
-3. the owner who approved the configuration.
+2. issuer URL, audience, and JWKS retrieval approach, plus key-rotation
+   policy;
+3. the full client-flow contract the PKCE implementation needs: client ID,
+   authorization endpoint (or discovery-document policy), registered redirect
+   URI(s), requested scopes, token-exchange model (public client + PKCE
+   assumed; the artifact must confirm), token storage and refresh policy for
+   the browser, and logout / post-logout redirect URI;
+4. the owner who approved the configuration.
+
+A decision naming only issuer/audience/JWKS is incomplete for card A2; the
+executor stops and reports the missing client-flow fields rather than
+inventing endpoints or scopes.
 
 If absent: run card A0 only (preparation), then stop and report
 "IdP decision artifact missing".
@@ -65,8 +75,10 @@ If absent: run card A0 only (preparation), then stop and report
 
 - **Fence:** new file `docs/decisions/a1b-idp-configuration-worksheet.md`; audit
   output committed as part of this card.
-- **Work:** (1) write the IdP worksheet listing the fields the decision must
-  supply (issuer, audience, JWKS, rotation, session lifetime, logout); leave
+- **Work:** (1) write the IdP worksheet listing every field the stop-gate
+  requires (issuer, audience, JWKS, rotation, client ID, authorization/
+  discovery endpoints, redirect URIs, scopes, token-exchange model, token
+  storage/refresh policy, session lifetime, logout/post-logout URI); leave
   values blank for the human. (2) Inventory every read of
   `sessionStorage["iaw_session"]` and every fallback identity literal across
   `apps/web/legacy-frontend/src/` (ripgrep for `iaw_session`, `stu-001`,
@@ -76,13 +88,19 @@ If absent: run card A0 only (preparation), then stop and report
 
 ### Card A1 — backend verifier configuration (after stop-gate)
 
-- **Fence:** the A1a verification seam module in `services/api/` (locate via
-  the existing bearer-verification fixture used by `tests/contract/test_me.py`)
-  plus its settings/env wiring; **do not** touch routers.
-- **Work:** wire issuer/audience/JWKS from configuration (environment
-  variables documented in the repo's settings pattern), keeping the existing
-  test fixture path working for CI. Verification failures must map to the
-  standard error envelope; no fallback identity on failure.
+- **Fence:** the A1a verification seam — the current verifier is
+  **fixture-only** and lives in the provider registry
+  (`python/smartmatch_providers/smartmatch_providers/registry.py`, ~line 185),
+  so this card's fence is: that registry module, the API settings/env wiring,
+  and the app bootstrap that selects the verifier
+  (`services/api/smartmatch_api/` startup/config path). **Do not** touch
+  routers.
+- **Work:** add a real OIDC verifier implementation to the provider registry
+  (issuer/audience/JWKS/rotation from configuration per the repo's settings
+  pattern) and make bootstrap select fixture vs. real verifier by explicit
+  configuration, keeping the existing fixture path working for CI.
+  Verification failures must map to the standard error envelope; no fallback
+  identity on failure.
 - **Tests:** unit tests for issuer/audience/expiry/rotation rejection paths;
   `tests/contract/test_me.py` stays green.
 
