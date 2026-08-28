@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.token_verifier = build_token_verifier(
         settings.edition,
         use_fixture=settings.use_fixture_providers,
+        fixture_principals=settings.dev_principals,
     )
 
     yield

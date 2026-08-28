@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     #: corresponding release gate opens.
     use_fixture_providers: bool = True
 
+    #: Local-pilot bearer tokens mapped to their stable external subjects.
+    #:
+    #: This is intentionally not an account-authentication system: it has no
+    #: password, expiry, or revocation. It exists only to make a local fixture
+    #: verifier accept a finite, explicitly configured set of test principals.
+    #: It must never be present outside development.
+    dev_principals: dict[str, str] = Field(default_factory=dict)
+
     email_api_key: str | None = None
     routes_api_key: str | None = None
 
@@ -68,6 +76,18 @@ class Settings(BaseSettings):
                     "project — classroom and production must share no secret "
                     "identifiers (architecture v1.1 §3.2)."
                 )
+        if self.dev_principals:
+            if self.edition is not Edition.DEV:
+                raise ValueError(
+                    "dev_principals may only be configured for edition=dev; "
+                    "staging, classroom, and production must reject local pilot tokens."
+                )
+            if not self.use_fixture_providers:
+                raise ValueError(
+                    "dev_principals require fixture providers; no live verifier exists."
+                )
+            if any(not token or not subject for token, subject in self.dev_principals.items()):
+                raise ValueError("dev_principals keys and values must be non-empty strings.")
         return self
 
 

@@ -124,6 +124,10 @@ migrate-check: ## Verify migrations apply cleanly from an empty database
 	@su postgres -c "dropdb smartmatch_migcheck"
 	@echo "Migrations apply cleanly from empty."
 
+.PHONY: seed-pilot
+seed-pilot: ## Seed one synthetic local-pilot principal; set SEED_PILOT_ARGS="--subject ... --email ... --role ..."
+	PYTHONPATH="$(DOMAIN_PATH)" $(PY) tools/seed_pilot.py $(SEED_PILOT_ARGS)
+
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------

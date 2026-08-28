@@ -13,6 +13,8 @@ check happens before the credential check and raises rather than warning.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from smartmatch_providers.base import (
     Edition,
     EmailProvider,
@@ -185,6 +187,7 @@ def build_token_verifier(
     *,
     project_id: str | None = None,
     use_fixture: bool = False,
+    fixture_principals: Mapping[str, str] | None = None,
 ) -> TokenVerifier:
     """Construct the identity token verifier for this edition.
 
@@ -202,8 +205,18 @@ def build_token_verifier(
         ProviderConfigurationError: if a live verifier is requested under a
             fixture-only edition, or requested at all — it does not exist yet.
     """
+    principals = fixture_principals or {}
+    if principals and (edition is not Edition.DEV or not use_fixture):
+        raise ProviderConfigurationError(
+            "fixture principals may only be registered for edition='dev' with "
+            "use_fixture=true; local pilot tokens must never reach a deployed edition."
+        )
+
     if use_fixture or edition in _FIXTURE_ONLY_EDITIONS:
-        return FixtureTokenVerifier()
+        verifier = FixtureTokenVerifier()
+        for token, subject in principals.items():
+            verifier.register(token, subject)
+        return verifier
 
     _assert_fixture_only(edition, "identity")
 
