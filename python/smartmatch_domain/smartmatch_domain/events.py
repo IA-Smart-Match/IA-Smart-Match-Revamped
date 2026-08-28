@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from typing import TypeAlias
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 __all__ = [
     "DateOnlyTime",
@@ -104,6 +105,42 @@ def _require_aware_datetime(value: datetime, field: str) -> None:
             f"{field} must be timezone-aware. A naive value treated as an instant "
             "silently claims a timezone it never carried."
         )
+
+
+def _require_known_time_zone(value: str, field: str) -> None:
+    """Reject a zone name the IANA tz database does not actually contain.
+
+    ADR-0010 rule 1 makes `time_zone` the frame every other temporal answer is
+    computed in — the event's own zone, never the viewer's and never the
+    server's — and `resolved_date` converts into it to produce the local date
+    ADR-0012 folds into the identity key. That promotes a misspelled zone from
+    a cosmetic defect to an identity defect: the key is not merely mislabelled,
+    it is uncomputable. So the name is checked where it enters rather than
+    where it is first needed, and `resolved_date` has no failure mode at all.
+
+    An earlier revision of this module declined to resolve the name, on the
+    grounds that `zoneinfo` reads tzdata from disk and the domain layer
+    performs no I/O (ADR-0002, the import-linter contract "Domain is pure").
+    That reading was too broad. The contract forbids `os`, `pathlib`, `socket`,
+    and `subprocess` — ambient machine state, configuration, and the network,
+    which are the things that make a domain rule non-deterministic under test
+    and untestable without fixtures. `zoneinfo` is none of them: it is
+    read-only, versioned reference data in the same category as `unicodedata`,
+    it takes no argument from the environment, and it returns the same answer
+    on every machine carrying the same tzdata. `lint-imports` agrees — all four
+    contracts stay KEPT with `zoneinfo` imported here, which was verified
+    before this change was written rather than assumed after.
+    """
+    _require_non_blank(value, field)
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(
+            f"{field} must be an IANA zone name present in the tz database; "
+            f"{value!r} is not. ADR-0010 rule 1 makes this the zone the event "
+            "happens in, and ADR-0012 folds the date it resolves to into the "
+            "event's identity key — an unresolvable name makes that key wrong."
+        ) from exc
 
 
 def _fold(text: str) -> str:
@@ -185,12 +222,12 @@ class ExactTime:
         starts_at: The instant. Must be timezone-aware — see
             `_require_aware_datetime`.
         time_zone: An IANA zone name, e.g. `"America/Los_Angeles"` — the
-            event's own zone, never the viewer's or the server's. Checked only
-            for being a non-blank string: validating it against the real IANA
-            database needs `zoneinfo`, which reads tzdata from disk, and the
-            domain layer performs no I/O (ADR-0002, the import-linter contract
-            "Domain is pure"). A real-but-misspelled zone name is an
-            adapter-layer concern to catch, not this one's.
+            event's own zone, never the viewer's or the server's. Resolved
+            against the real tz database, not merely checked for being a
+            non-blank string: `resolved_date` converts `starts_at` into this
+            zone to produce the date ADR-0012 keys on, so a real-but-misspelled
+            name is no longer something an adapter layer can be left to catch
+            later. See `_require_known_time_zone`.
     """
 
     starts_at: datetime
@@ -198,7 +235,7 @@ class ExactTime:
 
     def __post_init__(self) -> None:
         _require_aware_datetime(self.starts_at, "starts_at")
-        _require_non_blank(self.time_zone, "time_zone")
+        _require_known_time_zone(self.time_zone, "time_zone")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,13 +248,19 @@ class DateOnlyTime:
     is exactly the fabrication that produced the stakeholder-visible defect,
     and it cannot happen here because the field that would hold a fabricated
     instant does not exist on this type.
+
+    Its `time_zone` is resolved the same way `ExactTime`'s is
+    (`_require_known_time_zone`), even though `resolved_date` has no instant to
+    convert with it here: ADR-0010 rule 3 renders this event in that zone and
+    names it, and one temporal type accepting a zone name the other rejects
+    would be a difference nobody could justify from the ADR.
     """
 
     on_date: date
     time_zone: str
 
     def __post_init__(self) -> None:
-        _require_non_blank(self.time_zone, "time_zone")
+        _require_known_time_zone(self.time_zone, "time_zone")
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,20 +309,32 @@ def is_resolved(event_time: EventTime) -> bool:
 def resolved_date(event_time: EventTime) -> date | None:
     """The calendar date ADR-0012 folds into the identity key, or `None`.
 
-    * `ExactTime` -> the date component of `starts_at`, taken exactly as
-      given. This does **not** convert `starts_at` into `time_zone` before
-      taking its date — that conversion needs the system timezone database,
-      which is I/O the domain layer does not perform. Only very close to local
-      midnight can the UTC date and the event's local date differ; a caller
-      that needs the local calendar date must resolve that before constructing
-      `ExactTime`. This module folds the date it is given; it deliberately
-      does not try to see across a zone boundary it has no way to see across
-      correctly.
-    * `DateOnlyTime` -> `on_date`, unchanged.
+    * `ExactTime` -> the date of `starts_at` **as it falls in `time_zone`**,
+      not the date of the UTC instant. ADR-0010 stores the instant and the
+      event's own zone as two separate fields precisely because they are two
+      different facts, and ADR-0012's key names the "resolved date window —
+      the date, at the precision ADR-0010 records", which is the date the
+      event happens on where it happens. An event at `2026-09-15T06:30Z` in
+      `America/Los_Angeles` happens on the 14th; reading the UTC date returns
+      the 15th, and the same real event described by a second source from the
+      other side of local midnight then resolves to a *second* identity key —
+      which is precisely the duplicate class ADR-0012 exists to close, arriving
+      through the one door the key itself left open. Zones east of UTC have the
+      mirror of it (`Asia/Tokyo` is already on the next local day for most of
+      the UTC evening). Neither is an edge case worth pushing onto callers: it
+      is a fixed window of every single day, and every event inside it is
+      wrong, silently and identically, at every call site that forgets.
+    * `DateOnlyTime` -> `on_date`, unchanged. It is already a local calendar
+      date — there is no instant to convert, and nothing to convert it into.
     * `UnresolvedTime` -> `None`.
+
+    Total — this raises nothing. The conversion cannot fail, because a zone
+    name the tz database does not contain is rejected at construction
+    (`_require_known_time_zone`) rather than surfacing here as an identity key
+    that cannot be computed.
     """
     if isinstance(event_time, ExactTime):
-        return event_time.starts_at.date()
+        return event_time.starts_at.astimezone(ZoneInfo(event_time.time_zone)).date()
     if isinstance(event_time, DateOnlyTime):
         return event_time.on_date
     return None

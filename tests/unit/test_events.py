@@ -50,6 +50,19 @@ def test_date_only_time_rejects_blank_zone():
         DateOnlyTime(on_date=date(2026, 9, 14), time_zone="")
 
 
+def test_exact_time_rejects_a_zone_the_tz_database_does_not_contain():
+    """A misspelled zone stopped being cosmetic once `resolved_date` converts
+    into it: the identity key ADR-0012 computes from the result would be wrong
+    rather than merely mislabelled, so the name is rejected on the way in."""
+    with pytest.raises(ValueError, match="IANA zone name"):
+        ExactTime(starts_at=AWARE_NOON, time_zone="America/Los_Angelas")
+
+
+def test_date_only_time_rejects_a_zone_the_tz_database_does_not_contain():
+    with pytest.raises(ValueError, match="IANA zone name"):
+        DateOnlyTime(on_date=date(2026, 9, 14), time_zone="Mars/Olympus_Mons")
+
+
 def test_date_only_time_carries_no_starts_at_field():
     """Fixes the legacy defect directly: there is no field to fabricate an
     instant into. Accessing one is a type error, not a runtime possibility."""
@@ -98,9 +111,86 @@ def test_unresolved_date_cannot_become_a_precise_one():
     assert resolved_date(UnresolvedTime()) is None
 
 
-def test_exact_time_resolved_date_is_the_instants_date_component():
-    event_time = ExactTime(starts_at=datetime(2026, 9, 14, 23, 30, tzinfo=UTC), time_zone="UTC")
-    assert resolved_date(event_time) == date(2026, 9, 14)
+def test_exact_time_resolved_date_is_the_local_date_not_the_utc_date():
+    """Deliberately inverts what this test used to assert.
+
+    It was `test_exact_time_resolved_date_is_the_instants_date_component`, and
+    on this exact instant it passed only because the zone it happened to pick
+    was `UTC`, where the two answers coincide. The instant here is unchanged;
+    the zone is now what decides, and the same instant in `Asia/Tokyo` is
+    already the next local day.
+    """
+    instant = datetime(2026, 9, 14, 23, 30, tzinfo=UTC)
+    in_utc = ExactTime(starts_at=instant, time_zone="UTC")
+    in_tokyo = ExactTime(starts_at=instant, time_zone="Asia/Tokyo")
+    assert resolved_date(in_utc) == date(2026, 9, 14)
+    assert resolved_date(in_tokyo) == date(2026, 9, 15)
+
+
+@pytest.mark.parametrize(
+    ("starts_at", "time_zone", "expected"),
+    [
+        pytest.param(
+            datetime(2026, 9, 15, 6, 30, tzinfo=UTC),
+            "America/Los_Angeles",
+            date(2026, 9, 14),
+            id="west-of-utc-is-still-the-previous-local-day",
+        ),
+        pytest.param(
+            datetime(2026, 9, 14, 23, 30, tzinfo=UTC),
+            "Asia/Tokyo",
+            date(2026, 9, 15),
+            id="east-of-utc-is-already-the-next-local-day",
+        ),
+        pytest.param(
+            datetime(2026, 9, 15, 19, 0, tzinfo=UTC),
+            "America/Los_Angeles",
+            date(2026, 9, 15),
+            id="midday-local-agrees-with-utc-no-false-positive",
+        ),
+    ],
+)
+def test_resolved_date_crosses_local_midnight_in_both_directions(starts_at, time_zone, expected):
+    """The window either side of local midnight, from both sides of UTC, plus a
+    midday case that must not move — a conversion applied in the wrong
+    direction passes the first two and fails the third."""
+    assert resolved_date(ExactTime(starts_at=starts_at, time_zone=time_zone)) == expected
+
+
+def test_dst_moves_where_the_local_date_boundary_falls():
+    """ADR-0010 rule 1's own argument ("an offset is a fact about one instant"),
+    as a test. Both instants are 07:30Z. On 1 November 2026 — the date
+    America/Los_Angeles falls back, at 09:00Z — the zone is still PDT (-07:00)
+    and 07:30Z is 00:30 on the 1st. A month later the same clock time is PST
+    (-08:00) and lands on the *previous* local day. A stored offset would get
+    exactly one of these two wrong, whichever one it was captured on.
+    """
+    on_transition_day = ExactTime(
+        starts_at=datetime(2026, 11, 1, 7, 30, tzinfo=UTC), time_zone="America/Los_Angeles"
+    )
+    after_transition = ExactTime(
+        starts_at=datetime(2026, 12, 1, 7, 30, tzinfo=UTC), time_zone="America/Los_Angeles"
+    )
+    assert resolved_date(on_transition_day) == date(2026, 11, 1)
+    assert resolved_date(after_transition) == date(2026, 11, 30)
+
+
+def test_the_ambiguous_hour_of_a_dst_fall_back_resolves_to_one_date():
+    """01:30 local occurs twice on 2026-11-01 in America/Los_Angeles: once at
+    08:30Z as PDT and again at 09:30Z as PST. ADR-0010 rejected storing a local
+    naive datetime because "the ambiguous hour of a DST fall-back has no single
+    answer" — storing the instant means it does. The two are different instants
+    and stay different values; they simply agree on the date, which is all the
+    identity key asks of them."""
+    first_pass = ExactTime(
+        starts_at=datetime(2026, 11, 1, 8, 30, tzinfo=UTC), time_zone="America/Los_Angeles"
+    )
+    second_pass = ExactTime(
+        starts_at=datetime(2026, 11, 1, 9, 30, tzinfo=UTC), time_zone="America/Los_Angeles"
+    )
+    assert first_pass != second_pass
+    assert resolved_date(first_pass) == date(2026, 11, 1)
+    assert resolved_date(second_pass) == date(2026, 11, 1)
 
 
 def test_date_only_resolved_date_is_the_stored_date_unchanged():
@@ -166,6 +256,33 @@ def test_identity_key_is_stable_across_cosmetic_title_variation(cosmetic_title):
         event_time=DateOnlyTime(on_date=date(2026, 9, 14), time_zone="UTC"),
     )
     assert baseline == variant
+
+
+def test_two_sources_across_local_midnight_resolve_to_one_identity_key():
+    """The duplicate class ADR-0012 exists to close, in its cheapest form.
+
+    One source records the instant (23:30 on 14 September, Pacific — 06:30Z on
+    the 15th); another records only "Thursday 14 September". Same event, same
+    host, same title. They must produce one key. Reading the UTC date off the
+    first gives 15 September and hands this event a second identity — a
+    duplicate arriving through the identity key itself, which is the one door
+    ADR-0012 cannot leave open.
+    """
+    from_exact = resolve_identity_key(
+        host_org_unit="cs-dept",
+        title="Career Night",
+        event_time=ExactTime(
+            starts_at=datetime(2026, 9, 15, 6, 30, tzinfo=UTC),
+            time_zone="America/Los_Angeles",
+        ),
+    )
+    from_date_only = resolve_identity_key(
+        host_org_unit="cs-dept",
+        title="Career Night",
+        event_time=DateOnlyTime(on_date=date(2026, 9, 14), time_zone="America/Los_Angeles"),
+    )
+    assert from_exact is not None
+    assert from_exact == from_date_only
 
 
 def test_identity_key_is_unstable_across_host_org_unit():
