@@ -72,8 +72,8 @@ export function LandingPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3">
-              <Link to="/login?role=ia_admin" className="public-button-primary">
-                Start Matching
+              <Link to="/login" className="public-button-primary">
+                Sign in
               </Link>
               <a href="#proof" className="public-button-secondary">
                 View Demo
@@ -212,8 +212,8 @@ export function LandingPage() {
                   university sites in real-time. No more manual searching; opportunities are
                   delivered directly to your dashboard.
                 </p>
-                <Link to="/login?role=ia_admin" className="public-button-primary self-start">
-                  Start Matching
+                <Link to="/login" className="public-button-primary self-start">
+                  Sign in
                 </Link>
               </div>
             </div>
@@ -232,25 +232,16 @@ export function LandingPage() {
               <div className="space-y-4">
                 <p className="public-pill">Ready to explore?</p>
                 <h2 className="font-[Inter_Tight] text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-                  Pick your portal and jump straight in.
+                  Sign in when institutional access is connected.
                 </h2>
                 <p className="max-w-2xl text-muted-foreground">
-                  Students track events and earn points. Event coordinators manage outreach and
-                  meetings with IA West. Both portals use pre-loaded demo data.
+                  Portal access and roles are assigned by the server after verified identity. Until
+                  institutional sign-in is connected, the login page explains what is not available yet.
                 </p>
               </div>
               <div className="flex flex-col gap-3 justify-self-start lg:justify-self-end">
-                <Link to="/login?role=student" className="public-button-primary">
-                  Student Portal
-                </Link>
-                <Link to="/login?role=event_coordinator" className="public-button-secondary">
-                  Event Coordinator
-                </Link>
-                <Link
-                  to="/login"
-                  className="text-center text-sm text-muted-foreground transition hover:text-primary"
-                >
-                  Sign in with email →
+                <Link to="/login" className="public-button-primary">
+                  Sign in
                 </Link>
               </div>
             </div>
