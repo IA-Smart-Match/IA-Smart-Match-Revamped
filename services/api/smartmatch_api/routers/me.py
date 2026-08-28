@@ -26,7 +26,10 @@ Authentication is the entire gate: any principal ``get_current_principal``
 resolves — suspended accounts included, per its own docstring — may read their
 own identity back. That is deliberate, not an oversight: a suspended caller
 needs to be able to tell it is suspended, not receive a second, differently
-shaped 401 for asking.
+shaped 401 for asking — which is why ``MeResponse.suspended`` exists below.
+Admitting the request and then answering with a body indistinguishable from an
+active caller's would leave that rationale unfulfilled: the caller could reach
+this route but still could not learn the one thing it was let in to learn.
 
 ## What must never appear here (MM-A01)
 
@@ -121,6 +124,15 @@ class MeResponse(BaseModel):
     user_id: uuid.UUID = Field(description="This account's local id")
     tenant_id: uuid.UUID = Field(description="The tenant this account belongs to")
     email: str = Field(description="This account's own email address")
+    suspended: bool = Field(
+        description=(
+            "Whether an administrator has suspended this account. A suspended "
+            "caller is still admitted to this route — see the module docstring "
+            "— specifically so it can read this field and learn that every "
+            "other authorized route will now deny it with a `principal_suspended` "
+            "reason, rather than reaching each one to find out"
+        )
+    )
     memberships: list[MembershipResponse] = Field(
         description=(
             "Every membership row granted to this account, active or not — "
@@ -154,5 +166,6 @@ def get_me(principal: CurrentPrincipal) -> MeResponse:
         user_id=principal.user_id,
         tenant_id=principal.tenant_id,
         email=principal.email,
+        suspended=principal.principal.suspended,
         memberships=memberships,
     )

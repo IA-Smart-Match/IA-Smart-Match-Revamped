@@ -45,7 +45,7 @@ from datetime import timedelta
 from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Header, Path, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_persistence.rate_limit import RateLimit
 
@@ -100,7 +100,32 @@ class ImportRequest(BaseModel):
     ``rows`` carries the content already parsed, in the request body itself,
     which is what lets a live import actually succeed. See
     ``smartmatch_worker.handlers.handle_import_create`` for what each does.
+
+    The ``oneOf`` below is what makes that exclusivity a *documented* part of
+    the contract rather than a rule only ``create_import`` enforces at
+    runtime — a generated client, or a human reading the OpenAPI document, can
+    see it without reading this docstring. It does not replace the runtime
+    check: ``oneOf`` describes the shape a request should take, and
+    ``create_import`` is still what actually rejects both or neither, in the
+    API's own stable error envelope rather than in whatever validator a
+    generated client's own OpenAPI tooling produces from this schema.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            # Plain "required" subschemas, not "not"-negated ones: `oneOf`
+            # already demands exactly one subschema match, and an object
+            # naming both `rows` and `source_reference` satisfies *both*
+            # `{"required": ["rows"]}` and `{"required": ["source_reference"]}`
+            # — which is two matches, and `oneOf` fails a request shaped that
+            # way for exactly that reason, with no extra negation needed. An
+            # object naming neither satisfies zero, which `oneOf` fails too.
+            "oneOf": [
+                {"required": ["rows"]},
+                {"required": ["source_reference"]},
+            ]
+        }
+    )
 
     source_reference: str | None = Field(
         default=None,
@@ -115,6 +140,18 @@ class ImportRequest(BaseModel):
     )
     rows: list[dict[str, Any]] | None = Field(
         default=None,
+        # A schema-documented ceiling on entry count, matching
+        # MAX_INLINE_ROWS. Deliberately expressed as `json_schema_extra`
+        # rather than as Pydantic's own `max_length` (which a list field
+        # translates to the same `maxItems` keyword): `max_length` would make
+        # Pydantic itself refuse an oversized list during body parsing, as a
+        # generic 422 — before `create_import` ever runs — which would swap
+        # out the stable `import_rows_too_many` 400 this route promises
+        # (`_validate_inline_rows`, below) for the one error shape this
+        # codebase's error handling exists to avoid depending on. The bound is
+        # real either way; this only chooses where it is enforced without
+        # changing what a caller who trips it sees.
+        json_schema_extra={"maxItems": MAX_INLINE_ROWS},
         description=(
             "Already-parsed rows to import, mutually exclusive with "
             "source_reference. An empty list is a legal, distinct submission — "
@@ -295,14 +332,19 @@ def _validate_inline_rows(rows: list[dict[str, Any]]) -> None:
     already within bounds — at most :data:`MAX_INLINE_ROWS` rows to serialize,
     never more.
 
-    What this does **not** bound: FastAPI/Pydantic has already parsed the
-    entire request body into ``rows`` by the time this function runs, so a
-    request whose *raw bytes* are enormous has already paid that parsing cost
-    before either check below ever sees it. Refusing an oversized ``rows`` here
-    still keeps it out of ``job.payload``, out of durable storage, and out of
-    queued work — which is what this route controls — but a hard cap on
-    request-body size ahead of parsing is an ASGI-level concern that belongs in
-    the service's own app wiring (``smartmatch_api.main``), not in this router.
+    A hard cap on *raw request-body* size, ahead of any parsing at all, is
+    enforced separately by ``smartmatch_api.main.MaxBodySizeMiddleware`` — an
+    ASGI-level concern belonging in the service's own app wiring, not in this
+    router. That bound runs before FastAPI's routing or dependency resolution
+    ever sees the request, so an enormous raw body is refused before Pydantic
+    builds ``rows`` at all, not after. What remains here, once a request has
+    passed that outer bound, is checking the *parsed* ``rows`` two more
+    specific ways a raw-byte cap cannot: an entry count independent of any
+    single row's size, and the serialized size of ``rows`` alone rather than
+    the request body as a whole (the two necessarily agree in the direction
+    that matters — a body under the outer bound cannot contain a ``rows`` that
+    exceeds it — but the message this check gives a caller names the field
+    that is actually too big).
 
     Raises:
         ApiError: 400, ``import_rows_too_many`` or ``import_rows_too_large``.

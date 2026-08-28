@@ -320,4 +320,4 @@ def test_response_carries_nothing_beyond_identity_tenant_and_memberships(
 
     body = client.get("/v1/me", headers={"Authorization": "Bearer tok-grant"}).json()
 
-    assert set(body) == {"user_id", "tenant_id", "email", "memberships"}
+    assert set(body) == {"user_id", "tenant_id", "email", "suspended", "memberships"}
