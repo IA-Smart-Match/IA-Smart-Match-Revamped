@@ -13,8 +13,35 @@ would alter any of those three facts is not an ordinary change.
 
 ## Setup
 
-Python 3.11 (`.python-version`; `pyproject.toml` requires `>=3.11,<3.13`) and
-PostgreSQL 16.
+### Prerequisites
+
+| Requirement | Version | Why this range |
+|---|---|---|
+| **Python** | **3.11 or 3.12** | `.python-version` says 3.11; `pyproject.toml` requires `>=3.11,<3.13` for all five workspace packages. **3.13 is not supported.** CI runs 3.11 and both images are `python:3.11-slim-bookworm`, so 3.11 is what everything is verified against. |
+| **PostgreSQL** | **16** | Only for the integration lane and for running the app. `make check` needs no database. |
+| **make**, **git** | any recent | — |
+
+No compiler is needed — `psycopg[binary]` ships wheels.
+
+Check first: `python3 --version` must report 3.11.x or 3.12.x.
+
+### System packages
+
+Debian and Ubuntu ship the standard library's virtualenv support as a separate
+package. Without it, `make setup` fails on its first line.
+
+```bash
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y python3-venv postgresql-16
+
+# Fedora / RHEL
+sudo dnf install -y python3-devel postgresql16-server
+
+# macOS (Homebrew)
+brew install python@3.12 postgresql@16
+```
+
+### The four steps
 
 ```bash
 make setup          # virtualenv + hash-verified dependencies + editable workspace packages
@@ -22,6 +49,45 @@ make db-up          # local PostgreSQL role and database
 make migrate        # apply migrations to head
 make check          # the local gate set
 ```
+
+**`make setup` is slow, and interrupting it leaves a half-built virtualenv.**
+The hash-verified install is the slow step: minutes on a native Linux
+filesystem, and it can exceed fifteen on a Windows-mounted path under WSL
+(`/mnt/c/...`). If it looks frozen, `ls .venv/lib/*/site-packages | wc -l` shows
+the count still climbing. Working from the native Linux filesystem
+(`~/src/...`) is a large speedup.
+
+### Troubleshooting
+
+Keyed to the error text you will actually see.
+
+**`ensurepip is not available`, or `The virtual environment was not created successfully`**
+→ `python3-venv` is missing. `sudo apt install python3-venv`. The most common
+first-run failure on Debian and Ubuntu; it exits 1 on the first line of
+`make setup`.
+
+**`ERROR: Package 'smartmatch-domain' requires a different Python: 3.13.x not in '<3.13,>=3.11'`**
+→ Python 3.13 or newer. Build the virtualenv with a supported interpreter
+explicitly, then re-run: `python3.12 -m venv .venv && make setup`. This one
+surfaces at the *last* step of `make setup`, after the dependency install has
+already succeeded, so everything before it looks healthy.
+
+**`su: Authentication failure` or `service: command not found` from `make db-up`**
+→ See the note on `make db-up` below; provide the database yourself.
+
+**`THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE`**
+→ The lock and your index disagree. Do not work around it with `--no-deps`.
+Re-run `make lock` and review the diff. `make lock` pins `pip-tools==7.6.1`
+deliberately and that pin must match `.github/workflows/verify.yml` — the two
+move together, because the step compares pip-compile's *output* against a
+committed file, which makes the tool's version part of the comparison.
+
+**`make format-check` fails right after a fresh clone on Windows**
+→ Line endings. `git add --renormalize . && git checkout -- .` resets the
+working copy.
+
+**Still stuck?** Open an issue with `python3 --version`, your OS, and the last
+twenty lines of `make setup`. The step it dies on identifies it.
 
 `make setup` installs from `requirements/dev.txt` with `--require-hashes`, so a
 compromised or newly broken upstream release cannot be picked up silently
@@ -48,7 +114,7 @@ make run-worker     # http://localhost:8001
 
 ## The gates
 
-`make check` runs seven targets, in this order:
+`make check` runs nine targets, in this order:
 
 | Target | Command | What it protects |
 |---|---|---|
@@ -59,6 +125,8 @@ make run-worker     # http://localhost:8001
 | `test` | `pytest tests/ -m "not integration"` | The lane that needs no database |
 | `scan` | `python tools/scan_forbidden.py` | The legacy anti-patterns cannot return. See §15 of the migration orchestrator contract |
 | `memory` | `python tools/agent_memory_check.py` | The agent-memory ledger in `docs/agent-memory/` |
+| `licenses` | `python tools/supply_chain.py licenses` | No dependency enters under a license outside the policy |
+| `infra-check` | `python tools/env_isolation_check.py` | The Terraform environments share no identifier, so one environment cannot reach another's resources. Applies nothing |
 
 **`make check` is a subset of CI, not the whole of it.** A green `make check` is
 necessary and not sufficient. `.github/workflows/verify.yml` additionally runs,
