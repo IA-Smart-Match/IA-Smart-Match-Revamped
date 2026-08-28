@@ -99,7 +99,7 @@
         "type": "object"
       },
       "ImportRequest": {
-        "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.",
+        "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.",
         "properties": {
           "dataset": {
             "description": "Logical dataset name, e.g. 'professionals'",
@@ -114,16 +114,38 @@
             "title": "Dry Run",
             "type": "boolean"
           },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Already-parsed rows to import, mutually exclusive with source_reference. An empty list is a legal, distinct submission \u2014 it is not the same as omitting rows \u2014 and is reported as an unusable (empty) dataset rather than accepted silently. Bounded at 5000 rows and 2097152 serialized bytes; see create_import for where each bound is enforced.",
+            "title": "Rows"
+          },
           "source_reference": {
-            "description": "Opaque reference to previously uploaded content in Cloud Storage",
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Source Reference",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque reference to previously uploaded content in Cloud Storage. Mutually exclusive with rows; a live import against a source_reference is still refused \u2014 this release has no adapter that reads object storage.",
+            "title": "Source Reference"
           }
         },
         "required": [
-          "source_reference",
           "dataset"
         ],
         "title": "ImportRequest",
@@ -186,6 +208,95 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "MeResponse": {
+        "description": "The caller's own identity, tenant, and server-assigned memberships.\n\nNothing here is caller-supplied (MM-A01): every field is either the\nverified subject itself or a database row keyed by that subject.",
+        "properties": {
+          "email": {
+            "description": "This account's own email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "memberships": {
+            "description": "Every membership row granted to this account, active or not \u2014 filtering by validity is the client's choice, so `is_active` is reported rather than the row being silently dropped",
+            "items": {
+              "$ref": "#/components/schemas/MembershipResponse"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "tenant_id": {
+            "description": "The tenant this account belongs to",
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "This account's local id",
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "tenant_id",
+          "email",
+          "memberships"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "MembershipResponse": {
+        "description": "One server-assigned membership, exactly as ``membership`` recorded it.",
+        "properties": {
+          "is_active": {
+            "description": "Whether this membership is in force as of this response",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "org_unit_path": {
+            "description": "Dotted path in the org tree this membership covers, e.g. 'iawest.cpp.engineering'",
+            "title": "Org Unit Path",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role held over that subtree",
+            "title": "Role",
+            "type": "string"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 inclusive start of the validity window, or null for no lower bound",
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 exclusive end of the validity window, or null for no upper bound",
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "org_unit_path",
+          "role",
+          "is_active"
+        ],
+        "title": "MembershipResponse",
         "type": "object"
       },
       "RedriveAcceptedResponse": {
@@ -1011,6 +1122,116 @@
         "summary": "Re-drive a parked job",
         "tags": [
           "redrive"
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "description": "Return the caller's own identity, tenant, and server-assigned memberships.\n\nNo path parameter, no query parameter, no body \u2014 there is nothing here for\na caller to supply, and therefore nothing here for MM-A01 to reopen. Every\nfield is read off the ``ResolvedPrincipal`` that authenticated this request.",
+        "operationId": "get_me_v1_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get the caller's own identity",
+        "tags": [
+          "identity"
         ]
       }
     },
