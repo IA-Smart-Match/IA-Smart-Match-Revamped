@@ -256,6 +256,71 @@ export interface FeedbackSubmitResponse {
   optimizer_snapshot: FeedbackWeightSnapshot;
 }
 
+/**
+ * The backend's stable error envelope (`services/api/smartmatch_api/errors.py`,
+ * `ErrorEnvelope`): `{ "error": { "code": "...", "message": "...", "details"?: {...} } }`.
+ * A 422 populates `details` with `{ fields: [...], field_count: number }`.
+ */
+interface ApiErrorEnvelope {
+  error: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown> | null;
+  };
+}
+
+function isApiErrorEnvelope(payload: unknown): payload is ApiErrorEnvelope {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const error = (payload as { error?: unknown }).error;
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return typeof code === "string" && typeof message === "string";
+}
+
+/**
+ * Thrown by `requestJson` for any non-2xx response. Carries the HTTP status
+ * and the backend's machine-readable `code` (not just a human message) so
+ * callers can branch on failure type instead of parsing text.
+ */
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(message: string, status: number, code: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/** Parses the standard error envelope off a failed response and throws {@link ApiRequestError}. */
+async function throwApiRequestError(response: Response): Promise<never> {
+  let code = "unknown_error";
+  let message = `${response.status} ${response.statusText}`;
+  let details: Record<string, unknown> | undefined;
+
+  try {
+    const payload: unknown = await response.json();
+    if (isApiErrorEnvelope(payload)) {
+      code = payload.error.code;
+      message = payload.error.message;
+      details = payload.error.details ?? undefined;
+    }
+  } catch {
+    // Response body was not JSON at all (e.g. a dev-server/proxy HTML error
+    // page). Fall back to the status-line message above.
+  }
+
+  throw new ApiRequestError(message, response.status, code, details);
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: {
@@ -266,18 +331,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) {
-        detail = payload.detail;
-      }
-    } catch {
-      // Ignore non-JSON error bodies.
-    }
-    const error = new Error(detail) as Error & { status?: number };
-    error.status = response.status;
-    throw error;
+    await throwApiRequestError(response);
   }
 
   return (await response.json()) as T;
@@ -1138,6 +1192,48 @@ export async function initiateWorkflow(
       event_name: eventName,
     }),
   });
+}
+
+export interface AgenticOutreachWorkflowInput {
+  speaker_name: string;
+  event_name: string;
+  coordinator_id?: string;
+  event_date?: string;
+  request_source: string;
+  voice: OutreachEmailVoice;
+}
+
+/**
+ * Opens the agentic outreach workflow's server-sent-events stream. Routes
+ * through the same fetch + error-envelope policy as `requestJson` (rather
+ * than a bare `fetch`) so a refusal (auth, validation, etc.) surfaces the
+ * backend's real `code`/`message` instead of failing silently; the caller
+ * still owns reading and parsing the `data: ` lines out of the stream.
+ */
+export async function openAgenticOutreachWorkflowStream(
+  input: AgenticOutreachWorkflowInput,
+  signal: AbortSignal,
+): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+  const response = await fetch("/api/outreach/agentic-workflow/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+
+  if (!response.ok) {
+    await throwApiRequestError(response);
+  }
+
+  if (!response.body) {
+    throw new ApiRequestError(
+      "The server did not return a streaming response body.",
+      response.status,
+      "empty_stream_body",
+    );
+  }
+
+  return response.body.getReader();
 }
 
 export interface CppCourse {

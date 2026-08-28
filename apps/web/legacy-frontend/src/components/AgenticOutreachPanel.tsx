@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Sparkles, X } from "lucide-react";
+import { openAgenticOutreachWorkflowStream } from "@/lib/api";
 
 export interface AgenticOutreachPanelProps {
   speakerName: string;
@@ -42,32 +43,29 @@ export function AgenticOutreachPanel({
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
   const [rejectReason, setRejectReason] = useState("");
   const [selectedSlot, setSelectedSlot] = useState<string>("");
+  const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setPhase("streaming");
+    setStreamError(null);
 
     (async () => {
       try {
-        const res = await fetch("/api/outreach/agentic-workflow/stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const reader = await openAgenticOutreachWorkflowStream(
+          {
             speaker_name: speakerName,
             event_name: eventName,
             coordinator_id: coordinatorId,
             event_date: eventDate,
             request_source: "coordinator_portal",
             voice: "school_coordinator",
-          }),
-          signal: ctrl.signal,
-        });
+          },
+          ctrl.signal,
+        );
 
-        if (!res.body) return;
-
-        const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -133,7 +131,10 @@ export function AgenticOutreachPanel({
           }
         }
       } catch (err) {
-        if ((err as Error).name !== "AbortError") {
+        const isAbort = err instanceof Error && err.name === "AbortError";
+        if (!isAbort) {
+          const message = err instanceof Error ? err.message : "The outreach workflow could not be started.";
+          setStreamError(message);
           setPhase("approval");
         }
       }
@@ -192,6 +193,14 @@ export function AgenticOutreachPanel({
           </button>
         )}
       </div>
+
+      {/* Stream error banner */}
+      {streamError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{streamError}</span>
+        </div>
+      )}
 
       {/* Agent rows */}
       <div className="space-y-2">
