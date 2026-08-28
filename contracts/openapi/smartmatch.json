@@ -99,7 +99,19 @@
         "type": "object"
       },
       "ImportRequest": {
-        "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.",
+        "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.\n\nThe ``oneOf`` below is what makes that exclusivity a *documented* part of\nthe contract rather than a rule only ``create_import`` enforces at\nruntime \u2014 a generated client, or a human reading the OpenAPI document, can\nsee it without reading this docstring. It does not replace the runtime\ncheck: ``oneOf`` describes the shape a request should take, and\n``create_import`` is still what actually rejects both or neither, in the\nAPI's own stable error envelope rather than in whatever validator a\ngenerated client's own OpenAPI tooling produces from this schema.",
+        "oneOf": [
+          {
+            "required": [
+              "rows"
+            ]
+          },
+          {
+            "required": [
+              "source_reference"
+            ]
+          }
+        ],
         "properties": {
           "dataset": {
             "description": "Logical dataset name, e.g. 'professionals'",
@@ -128,6 +140,7 @@
               }
             ],
             "description": "Already-parsed rows to import, mutually exclusive with source_reference. An empty list is a legal, distinct submission \u2014 it is not the same as omitting rows \u2014 and is reported as an unusable (empty) dataset rather than accepted silently. Bounded at 5000 rows and 2097152 serialized bytes; see create_import for where each bound is enforced.",
+            "maxItems": 5000,
             "title": "Rows"
           },
           "source_reference": {
@@ -226,6 +239,11 @@
             "title": "Memberships",
             "type": "array"
           },
+          "suspended": {
+            "description": "Whether an administrator has suspended this account. A suspended caller is still admitted to this route \u2014 see the module docstring \u2014 specifically so it can read this field and learn that every other authorized route will now deny it with a `principal_suspended` reason, rather than reaching each one to find out",
+            "title": "Suspended",
+            "type": "boolean"
+          },
           "tenant_id": {
             "description": "The tenant this account belongs to",
             "format": "uuid",
@@ -243,6 +261,7 @@
           "user_id",
           "tenant_id",
           "email",
+          "suspended",
           "memberships"
         ],
         "title": "MeResponse",
@@ -297,6 +316,140 @@
           "is_active"
         ],
         "title": "MembershipResponse",
+        "type": "object"
+      },
+      "MetricDrillDownResponse": {
+        "description": "The exact rows from which one aggregate was calculated.",
+        "properties": {
+          "aggregate_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregate Value"
+          },
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "unknown_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unknown Reason"
+          }
+        },
+        "required": [
+          "unit_id",
+          "name",
+          "definition",
+          "aggregate_value",
+          "rows"
+        ],
+        "title": "MetricDrillDownResponse",
+        "type": "object"
+      },
+      "MetricSummary": {
+        "description": "One registered metric and its current accountable value.",
+        "properties": {
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "drill_down_url": {
+            "title": "Drill Down Url",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unknown_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why value is unknown; absent when value is measured.",
+            "title": "Unknown Reason"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured row count, or null when no evidence source exists.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "definition",
+          "value",
+          "drill_down_url"
+        ],
+        "title": "MetricSummary",
+        "type": "object"
+      },
+      "MetricsResponse": {
+        "description": "All accountable metrics registered for an organizational unit.",
+        "properties": {
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSummary"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "metrics"
+        ],
+        "title": "MetricsResponse",
         "type": "object"
       },
       "RedriveAcceptedResponse": {
@@ -428,6 +581,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -529,6 +692,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -649,6 +822,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -797,6 +980,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -950,6 +1143,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1098,6 +1301,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1207,6 +1420,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -1356,6 +1579,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1380,6 +1613,276 @@
         "summary": "Submit an import command",
         "tags": [
           "imports"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/metrics": {
+      "get": {
+        "description": "Return registered metrics, preserving unknown values as null.",
+        "operationId": "list_metrics_v1_units__unit_id__metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List accountable metrics for a unit",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/metrics/{metric_name}/drill-down": {
+      "get": {
+        "description": "Return exactly the rows the named metric's aggregate counted.",
+        "operationId": "metric_drill_down_v1_units__unit_id__metrics__metric_name__drill_down_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "metric_name",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Metric Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricDrillDownResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Drill into an accountable metric",
+        "tags": [
+          "metrics"
         ]
       }
     }
