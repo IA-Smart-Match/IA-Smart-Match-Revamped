@@ -1,0 +1,112 @@
+# SmartMatch pilot import column contract -- PROPOSAL, NOT YET RATIFIED.
+#
+# This file is a proposal for a human to review and adopt or amend. It is not
+# wired into any application code (smartmatch_worker.handlers currently calls
+# smartmatch_domain.ingest.validate_columns with required=(), optional=()) and
+# adopting it is a decision for a human, not something this file does on its
+# own. See docs/pilot-data/README.md for the finding this fills (F-28 /
+# migration manifest: architecture v1.1 Section 1.5 is not in this repository,
+# so the "real" column contract it might define has never been read).
+#
+# Column names are quoted verbatim as a coordinator's export would spell them.
+# smartmatch_domain.ingest.normalize_header() compares them case- and
+# punctuation-insensitively, so "Metro Region", "metro_region", and
+# "  Metro-Region " are the same declared column -- but declaring the SAME
+# name twice (once under required, once under optional) is a caller bug that
+# validate_columns raises ValueError on, so each column below is listed once.
+#
+# blank_sentinels are GLOBAL to a validate_columns() call, not per-column.
+# Declaring "NULL" as a sentinel to catch a blank metro_region also makes a
+# professional literally surnamed "Null" count as blank in *every* column on
+# their row. See "OPEN QUESTIONS" at the bottom -- this is flagged, not
+# resolved, by this proposal.
+
+datasets:
+  professionals:
+    description: >-
+      Professionals / volunteers -- the people who speak or mentor. Column
+      names and the required/optional split are derived from two existing
+      sources, not invented for this proposal:
+        1. tests/unit/test_ingest.py already uses full_name and metro_region
+           as its REQUIRED example columns for this dataset, and "pronouns"
+           as its optional-column example -- this is the only place in the
+           repository that names professionals columns today, so it is
+           treated as the established vocabulary rather than overridden.
+        2. apps/web/legacy-frontend/src/lib/mockData.ts's Specialist type
+           (now orphaned, used here for shape/vocabulary only) supplies the
+           remaining optional fields: board_role, company, title,
+           expertise_tags, initials. Its field is spelled "name"; this
+           proposal renames it to "full_name" to match (1) instead -- see
+           OPEN QUESTIONS.
+    required:
+      - full_name
+      - metro_region
+    optional:
+      - company
+      - title
+      - expertise_tags
+      - board_role
+      - initials
+      - pronouns
+    blank_sentinels:
+      - "NULL"
+      - "nan"
+      - "N/A"
+
+  events:
+    description: >-
+      Events / programs -- the sessions professionals are matched to. Column
+      names are taken verbatim from mockData.ts's CppEvent type, including
+      its punctuation and casing (e.g. "Event / Program", "Host / Unit").
+      CppEvent marks "Event / Program" and "Category" as required (no `?`)
+      and everything else optional (`?`); this proposal keeps that split.
+      Two CppEvent optional fields -- "Public URL" and
+      "Point(s) of Contact (published)" / "Contact Email / Phone
+      (published)" -- are declared here for completeness but are not
+      exercised by any fixture in this drop; see README.
+    required:
+      - "Event / Program"
+      - "Category"
+    optional:
+      - "Recurrence (typical)"
+      - "Host / Unit"
+      - "Volunteer Roles (fit)"
+      - "Primary Audience"
+      - "Public URL"
+      - "Point(s) of Contact (published)"
+      - "Contact Email / Phone (published)"
+    blank_sentinels:
+      - "NULL"
+      - "nan"
+      - "N/A"
+
+open_questions:
+  - >-
+    full_name vs. name: tests/unit/test_ingest.py's fixtures use "full_name"
+    for professionals; mockData.ts's Specialist type uses "name". This
+    proposal picks "full_name" because it is the spelling already codified in
+    a committed test, but a human who considers mockData.ts's vocabulary
+    authoritative instead should rename this before ratifying.
+  - >-
+    blank_sentinels are declared once per dataset and apply to every column
+    in that dataset, not to metro_region alone. A coordinator's row where
+    full_name is literally "Null" (a real, if rare, surname -- see
+    docs/pilot-data/fixtures/professionals_literal_null_value.json) would
+    have that cell counted as blank once "NULL" is declared as a sentinel,
+    exactly as if metro_region were blank. validate_columns has no per-column
+    sentinel mechanism today. Options for a human to weigh: (a) accept the
+    risk as rare enough to ignore, (b) drop "NULL"/"nan"/"N/A" from this
+    proposal and handle those tokens in the adapter that parses rows instead
+    of via blank_sentinels, or (c) request a per-column blank_sentinels
+    parameter on validate_columns.
+  - >-
+    Whether "board_role" belongs on a *professional* at all, or is really a
+    property of their relationship to a specific unit/chapter, is a modeling
+    question mockData.ts does not answer (Specialist carries it as a flat
+    field) and this proposal does not attempt to resolve.
+  - >-
+    Two events fields -- "Public URL" and the two "(published)" contact
+    fields -- are declared as optional here because mockData.ts's CppEvent
+    type has them, but no fixture in this drop exercises them. A human
+    ratifying this contract should decide whether the pilot actually collects
+    them or whether they should be dropped from the proposal.
