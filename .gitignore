@@ -64,3 +64,9 @@ apps/web/.vite/
 # tooling run with the wrong working directory.
 *.whl
 *.tar.gz
+
+# Stakeholder working spreadsheets. The 19-20 August 2026 test log lives in
+# docs/ as a local reference while its findings are worked through; the
+# findings themselves belong in docs/plans/, in text a reviewer can diff.
+# A binary spreadsheet in git is a file nobody can review a change to.
+*.xlsx
