@@ -27,7 +27,10 @@ files:
    every row names a route that exists. A route that is *not* authenticated must
    be declared in :data:`UNAUTHENTICATED_ROUTES` with a reason, so a handler that
    silently loses its ``CurrentPrincipal`` parameter fails here rather than
-   passing quietly.
+   passing quietly. A route that authenticates but authorizes nothing has no
+   honest row to write — a row must name an authorizer the route really calls —
+   so it is declared in :data:`AUTHENTICATED_ONLY_ROUTES` instead, and held to
+   that claim: gaining an authorizer moves it back into the matrix.
 2. **The row describes the code.** The authorizer the row names is the one the
    route actually calls, and the role set the row states is the constant the
    authorizer actually reads — compared against the live object, so widening
@@ -294,6 +297,33 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "by someone who by definition has no account, so the bearer token is "
         "the signed token in the path. It never changes state — the actual "
         "unsubscribe is the signed POST (v1.1 §1.10)."
+    ),
+}
+
+
+#: Routes that authenticate and then authorize *nothing*, and why that is
+#: correct. This is a third category, not a loophole. ``OPERATIONS`` rows are
+#: required to name an authorizer the route really calls
+#: (:func:`test_the_route_calls_the_authorizer_the_matrix_names`), so a route
+#: with no authorization has no honest row to write — and before this table
+#: existed the only ways to land it were to invent an authorizer it does not
+#: call, or to drop its ``CurrentPrincipal`` and declare it public. Both are
+#: worse than saying plainly that authentication is the whole gate.
+#:
+#: The entry is held to that claim in both directions by
+#: :func:`test_authentication_only_routes_really_authorize_nothing`: the route
+#: must exist, must take a principal, and must call no authorizer. Adding an
+#: authorization call to one of these routes therefore fails this file until
+#: the route is moved into ``OPERATIONS`` and characterised properly.
+AUTHENTICATED_ONLY_ROUTES: dict[tuple[str, str], str] = {
+    ("GET", "/v1/me"): (
+        "Identity echo. Every field is keyed by the caller's own verified "
+        "subject, so there is no resource to authorize against that is not a "
+        "roundabout 'are you you' — the token already settled that. It reports "
+        "the memberships the server assigned; it never accepts a role from the "
+        "caller, which is the defect Fix #7 named. A suspended account is "
+        "deliberately still allowed to read it, so a suspended caller can see "
+        "that it is suspended rather than receive a second flavour of 401."
     ),
 }
 
@@ -904,6 +934,7 @@ def _observe(operation: Operation, shape: Shape) -> Cell:
 def _missing_rows(routes: dict[tuple[str, str], Route]) -> list[tuple[str, str]]:
     """Authenticated routes with no matrix row. The failure this file exists for."""
     covered = {(operation.method, operation.path) for operation in OPERATIONS}
+    covered |= set(AUTHENTICATED_ONLY_ROUTES)
     return sorted(
         key for key, route in routes.items() if route.authenticated and key not in covered
     )
@@ -957,6 +988,48 @@ def test_every_route_is_either_authenticated_or_declared_public() -> None:
     assert not stale, (
         "UNAUTHENTICATED_ROUTES lists routes that no longer exist or that now "
         "take a principal: " + ", ".join(f"{method} {path}" for method, path in stale)
+    )
+
+
+def test_authentication_only_routes_really_authorize_nothing() -> None:
+    """The claim in :data:`AUTHENTICATED_ONLY_ROUTES` is checked, not trusted.
+
+    Exempting a route from the matrix is exactly the shape of change that could
+    hide a missing authorization, so the exemption is only honoured while the
+    route still matches what the table says about it: it exists, it takes a
+    principal, and it calls no authorizer at all. The last clause is the one
+    that matters. The moment someone adds an ``assert_allowed`` to one of these
+    handlers, the route has a policy worth characterising and belongs in
+    ``OPERATIONS`` with a row describing it — so this fails until it is moved,
+    rather than leaving it exempt with authorization nobody ever exercised.
+    """
+    routes = _declared_routes()
+
+    missing = sorted(key for key in AUTHENTICATED_ONLY_ROUTES if key not in routes)
+    assert not missing, "AUTHENTICATED_ONLY_ROUTES lists routes that do not exist: " + ", ".join(
+        f"{method} {path}" for method, path in missing
+    )
+
+    unauthenticated = sorted(
+        key for key in AUTHENTICATED_ONLY_ROUTES if not routes[key].authenticated
+    )
+    assert not unauthenticated, (
+        "AUTHENTICATED_ONLY_ROUTES lists routes that take no principal; they are "
+        "public, and belong in UNAUTHENTICATED_ROUTES: "
+        + ", ".join(f"{method} {path}" for method, path in unauthenticated)
+    )
+
+    now_authorizing = sorted(
+        (key, routes[key].authorizers)
+        for key in AUTHENTICATED_ONLY_ROUTES
+        if routes[key].authorizers
+    )
+    assert not now_authorizing, (
+        "these routes are declared as authenticating and authorizing nothing, but "
+        "now call an authorizer; give each a row in OPERATIONS instead: "
+        + ", ".join(
+            f"{method} {path} calls {', '.join(names)}" for (method, path), names in now_authorizing
+        )
     )
 
 
