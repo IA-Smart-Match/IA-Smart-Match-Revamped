@@ -278,44 +278,62 @@ class TaskExecutor:
                 },
             )
 
-        context = CommandContext(
-            job=job,
-            emit=lambda payload: self._emit(job, payload),
-        )
-
-        try:
-            result = handler(context)
-        except HandlerFailure as exc:
-            state = _state_for(exc)
-            logger.info("job %s failed (%s): %s", job.id, state.value, exc)
-            return self._finish(
-                job,
-                state,
-                {
-                    "type": "job.failed",
-                    "reason": exc.reason,
-                    "detail": str(exc),
-                },
-            )
-        except Exception as exc:
-            # Nobody predicted this one, which is exactly why it is logged with a
-            # traceback and why the job must still reach a terminal state. A
-            # handler bug that left jobs in ``running`` would be discovered only
-            # by someone noticing work that never finished.
-            logger.exception("job %s: handler raised an unexpected exception", job.id)
-            return self._finish(
-                job,
-                _UNEXPECTED_FAILURE_STATE,
-                {
-                    "type": "job.failed",
-                    "reason": "unhandled_error",
-                    "detail": f"{type(exc).__name__}: {exc}",
-                },
+        # The handler's durable business writes and the terminal transition are
+        # one outcome. A separate handler-owned session could commit review
+        # work before cancellation or J9's sweep made ``running -> succeeded``
+        # inapplicable, leaving a queue item whose job never succeeded. Keeping
+        # this session open through ``_finish`` lets that conditional transition
+        # decide whether all staged business work commits or none of it does.
+        with self._session_factory() as session:
+            context = CommandContext(
+                job=job,
+                emit=lambda payload: self._emit(job, payload),
+                session=session,
             )
 
-        return self._complete(job, result)
+            try:
+                result = handler(context)
+            except HandlerFailure as exc:
+                # A handler may have staged writes before discovering the
+                # failure. Clear them before using this same session to record
+                # the failure outcome; otherwise a terminal failure could make
+                # partial business work durable alongside itself.
+                session.rollback()
+                state = _state_for(exc)
+                logger.info("job %s failed (%s): %s", job.id, state.value, exc)
+                return self._finish(
+                    job,
+                    state,
+                    {
+                        "type": "job.failed",
+                        "reason": exc.reason,
+                        "detail": str(exc),
+                    },
+                    session=session,
+                )
+            except Exception as exc:
+                # Nobody predicted this one, which is exactly why it is logged
+                # with a traceback and why the job must still reach a terminal
+                # state. Roll back first for the same reason as a declared
+                # failure: an exception cannot authorize staged business work.
+                session.rollback()
+                logger.exception("job %s: handler raised an unexpected exception", job.id)
+                return self._finish(
+                    job,
+                    _UNEXPECTED_FAILURE_STATE,
+                    {
+                        "type": "job.failed",
+                        "reason": "unhandled_error",
+                        "detail": f"{type(exc).__name__}: {exc}",
+                    },
+                    session=session,
+                )
 
-    def _complete(self, job: JobRecord, result: HandlerResult) -> ExecutionOutcome:
+            return self._complete(job, result, session=session)
+
+    def _complete(
+        self, job: JobRecord, result: HandlerResult, *, session: Session
+    ) -> ExecutionOutcome:
         """Record a handler's successful (or partial) completion."""
         return self._finish(
             job,
@@ -325,9 +343,17 @@ class TaskExecutor:
                 "state": result.state.value,
                 "summary": result.summary,
             },
+            session=session,
         )
 
-    def _finish(self, job: JobRecord, state: JobState, event: dict[str, Any]) -> ExecutionOutcome:
+    def _finish(
+        self,
+        job: JobRecord,
+        state: JobState,
+        event: dict[str, Any],
+        *,
+        session: Session | None = None,
+    ) -> ExecutionOutcome:
         """Move the job to its terminal state and record why, in one transaction.
 
         A terminal state with no event explaining it, or an event describing an
@@ -340,28 +366,55 @@ class TaskExecutor:
         the discarded outcome is recorded instead, so the stream shows what
         happened rather than falling silent.
         """
-        with self._session_factory() as session:
-            applied = self._jobs.transition(
+        if session is None:
+            # Unknown command types are rejected before any handler is invoked,
+            # so there is no business transaction to coordinate on that path.
+            # Opening one here keeps the ordinary outcome invariant without
+            # making an unused session part of handler lookup.
+            with self._session_factory() as owned_session:
+                return self._finish(job, state, event, session=owned_session)
+
+        applied = self._jobs.transition(
+            session,
+            tenant_id=job.tenant_id,
+            job_id=job.id,
+            to_state=state,
+            expected_from=JobState.RUNNING,
+        )
+        if applied:
+            self._jobs.append_event(
                 session,
                 tenant_id=job.tenant_id,
                 job_id=job.id,
-                to_state=state,
-                expected_from=JobState.RUNNING,
+                payload=event,
             )
-            if not applied:
-                logger.warning(
-                    "job %s left 'running' before its outcome was recorded; "
-                    "the %s outcome is being discarded",
-                    job.id,
-                    state.value,
-                )
-                event = {
-                    "type": "job.outcome_discarded",
-                    "state": state.value,
-                    "detail": "the job left 'running' before this outcome could be applied",
-                }
-            self._jobs.append_event(session, tenant_id=job.tenant_id, job_id=job.id, payload=event)
             session.commit()
+        else:
+            logger.warning(
+                "job %s left 'running' before its outcome was recorded; "
+                "the %s outcome is being discarded",
+                job.id,
+                state.value,
+            )
+            # The failed conditional transition is the authority for every
+            # staged handler write too. Roll back the entire outcome transaction
+            # before opening a clean one for the audit event; recording that
+            # event on this session would otherwise commit the very business
+            # work whose outcome the state machine refused.
+            session.rollback()
+            discarded = {
+                "type": "job.outcome_discarded",
+                "state": state.value,
+                "detail": "the job left 'running' before this outcome could be applied",
+            }
+            with self._session_factory() as event_session:
+                self._jobs.append_event(
+                    event_session,
+                    tenant_id=job.tenant_id,
+                    job_id=job.id,
+                    payload=discarded,
+                )
+                event_session.commit()
 
         final = self._read_job(job.tenant_id, job.id)
         return ExecutionOutcome(

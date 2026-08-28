@@ -42,7 +42,13 @@ from smartmatch_providers import FixtureTokenVerifier
 from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.execution import TaskExecutor
-from smartmatch_worker.handlers import default_registry
+from smartmatch_worker.handlers import (
+    CommandContext,
+    CommandRegistry,
+    HandlerResult,
+    default_registry,
+    handle_import_create,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -231,6 +237,68 @@ def test_a_live_inline_row_import_creates_review_items_and_succeeds(
     # shape, not the raw submission.
     assert items[0].row_data == {"full_name": "A. Rivera", "metro_region": "Inland Empire"}
     assert items[1].row_data == {"full_name": "B. Osei", "metro_region": "Coastal"}
+
+
+def test_cancellation_after_handler_writes_discards_review_work(
+    client, engine, session_factory, unit_id, coordinator, tenant_id
+):
+    """A terminal outcome that loses its race must lose its business writes too.
+
+    ``running -> cancelled`` is allowed while a handler is working. This puts
+    that cancellation in the narrow window after the real import handler has
+    staged its batch and review items but before the executor attempts
+    ``running -> succeeded``. The conditional transition is the authority: if
+    it loses, retaining the staged review queue would claim useful work exists
+    for a job whose outcome was explicitly discarded.
+    """
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="cancel-after-review-write",
+            body=_rows_body(_SAMPLE_ROWS, dry_run=False),
+        ).json()["job_id"]
+    )
+    OutboxDispatcher(session_factory, FixtureTaskQueue()).run_once()
+    jobs = JobRepository()
+
+    def import_then_cancel(context: CommandContext) -> HandlerResult:
+        result = handle_import_create(context)
+        with session_factory() as cancellation:
+            assert jobs.transition(
+                cancellation,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                to_state=JobState.CANCELLED,
+                expected_from=JobState.RUNNING,
+            )
+            cancellation.commit()
+        return result
+
+    outcome = TaskExecutor(
+        session_factory,
+        CommandRegistry(handlers={"import.create": import_then_cancel}),
+    ).execute(tenant_id=tenant_id, job_id=job_id)
+
+    assert outcome.state is JobState.CANCELLED
+    with engine.connect() as conn:
+        batches = conn.execute(
+            text("SELECT count(*) FROM import_batch WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        ).scalar_one()
+        items = conn.execute(
+            text(
+                "SELECT count(*) FROM review_item ri "
+                "JOIN import_batch ib ON ib.id = ri.import_batch_id "
+                "WHERE ib.job_id = :job_id"
+            ),
+            {"job_id": job_id},
+        ).scalar_one()
+
+    assert batches == 0
+    assert items == 0
+    assert _terminal_event(session_factory, tenant_id, job_id)["type"] == ("job.outcome_discarded")
 
 
 def test_a_dry_run_inline_row_import_creates_no_review_items(

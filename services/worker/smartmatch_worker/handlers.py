@@ -49,24 +49,23 @@ anyone who reaches the queue can dictate.
 an empty command and must not be executed as one — see
 :func:`handle_import_create`.
 
-## Handlers do not get a session — from ``CommandContext``, still
+## Business writes belong to the executor's outcome transaction
 
-A handler receives its job and an :attr:`CommandContext.emit` callable from
-:class:`CommandContext` itself, and nothing else. Emitting commits immediately,
-so a client watching the SSE stream sees progress while the work is still
-running rather than only at the end. Widening ``CommandContext`` to also carry
-a session is a decision about ``smartmatch_worker.execution`` — which owns the
-executor's transaction boundaries and constructs every ``CommandContext`` this
-module receives — not one this module can make for it.
+A handler receives the executor-owned :attr:`CommandContext.session` for every
+durable business write. It may stage work there, but it must never commit or
+roll it back: the executor conditionally moves the job out of ``running`` in
+that same transaction, and only an applied terminal transition makes the
+handler's work durable. If cancellation or J9's stalled-job sweep wins first,
+the executor rolls the session back before recording ``job.outcome_discarded``.
+That keeps the review queue from containing work attributed to a job whose
+success was refused by the state machine.
 
-:func:`handle_import_create` is the first handler with genuine business data to
-write, and it does not wait for that decision: for a live import over ``rows``
-it opens its own session, independent of the executor's, from the same
-``WorkerSettings.database_url`` the executor's own is built from — see
-``_review_session_factory`` for the reasoning and the trade-off this makes.
-That is a narrower claim than "handlers get a session": every other handler,
-and this one on every path but a successful live import over rows, is exactly
-as session-less as this section always said.
+:attr:`CommandContext.emit` deliberately remains different. Progress commits
+immediately in its own transaction so an SSE client can see it while the work
+is running, and so a rollback of business work does not erase the evidence that
+the handler was active. The split is therefore by meaning, not convenience:
+business work is atomic with the terminal outcome; progress is independently
+durable and renews the job lease (J9).
 """
 
 from __future__ import annotations
@@ -74,18 +73,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import Any, ClassVar, Final
 
 from smartmatch_domain.ingest import QualityFinding, validate_columns
 from smartmatch_domain.ingest import normalize_header as _normalize_header
 from smartmatch_domain.jobs import JobState
-from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import JobRecord
 from smartmatch_persistence.review import ReviewRepository
-from sqlalchemy.orm import Session, sessionmaker
-
-from smartmatch_worker.config import get_settings
+from sqlalchemy.orm import Session
 
 __all__ = [
     "BudgetFailure",
@@ -176,10 +171,16 @@ class CommandContext:
         emit: Records one job event immediately, in its own transaction, and
             returns its sequence number. Progress a client can see while the
             work is still running.
+        session: The executor-owned transaction for durable business writes.
+            A handler may flush or query through it when needed, but must not
+            commit or roll it back. The executor commits it only with an
+            applied terminal transition, or rolls it back when the job left
+            ``running`` before the outcome could be recorded.
     """
 
     job: JobRecord
     emit: Callable[[dict[str, Any]], int]
+    session: Session
 
 
 @dataclass(frozen=True, slots=True)
@@ -615,16 +616,14 @@ def _execute_inline_rows_import(
         )
 
     normalized_rows = [_normalize_row(row) for row in rows]
-    with _review_session_factory()() as session:
-        batch = _reviews.create_batch_with_items(
-            session,
-            tenant_id=context.job.tenant_id,
-            owning_unit_id=context.job.owning_unit_id,
-            job_id=context.job.id,
-            dataset=command.dataset,
-            rows=normalized_rows,
-        )
-        session.commit()
+    batch = _reviews.create_batch_with_items(
+        context.session,
+        tenant_id=context.job.tenant_id,
+        owning_unit_id=context.job.owning_unit_id,
+        job_id=context.job.id,
+        dataset=command.dataset,
+        rows=normalized_rows,
+    )
 
     return HandlerResult(
         state=JobState.SUCCEEDED,
@@ -689,27 +688,6 @@ def _finding_payload(finding: QualityFinding) -> dict[str, Any]:
 #: (``commands.py``'s ``_jobs``/``_outbox``, ``redrive.py``'s own ``_jobs``):
 #: stateless, so one instance safely serves every call.
 _reviews: Final[ReviewRepository] = ReviewRepository()
-
-
-@lru_cache(maxsize=1)
-def _review_session_factory() -> sessionmaker[Session]:
-    """A session factory for writing review data, built from this process's own settings.
-
-    ``CommandContext`` deliberately carries no session (see the module
-    docstring): ``TaskExecutor`` — this worker's caller, in
-    ``smartmatch_worker.execution`` — does not hand this module one, and
-    widening ``CommandContext`` to carry the executor's own ``session_factory``
-    is a change to that module, outside this track. ``_execute_inline_rows_import``
-    is the first handler with genuine business data to write, so it opens its
-    own — built from the same :class:`~smartmatch_worker.config.WorkerSettings`
-    ``database_url`` that ``smartmatch_worker.main`` builds the executor's
-    ``session_factory`` from, which is what makes this safe: the same database,
-    a second connection pool to it, not a different one. Cached for the life of
-    the process so a busy worker opens the underlying engine once rather than
-    per delivery — the same reason ``smartmatch_worker.config.get_settings`` is
-    itself cached.
-    """
-    return create_session_factory(get_settings().database_url)
 
 
 # Built by a function rather than exposed as a module-level constant, so that no
