@@ -8,7 +8,6 @@ import {
   Briefcase,
   CalendarDays,
   LogOut,
-  Mail,
   MapPinned,
   MessageSquareHeart,
   RefreshCw,
@@ -41,19 +40,16 @@ import {
   fetchFeedbackStats,
   fetchPipeline,
   fetchSpecialists,
-  initiateWorkflow,
-  rankSpeakers,
-  splitTags,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
   type PipelineRecord,
-  type RankedMatch,
   type Specialist,
-  type WorkflowResponse,
 } from "@/lib/api";
 import {
+  accountableDemoMetric,
   accountableMetricFromSummary,
+  MATCHING_UNAVAILABLE_REASON,
   OPPORTUNITIES_UNKNOWN_REASON,
   unavailableOpportunitiesMetric,
   unavailablePipelineMetric,
@@ -61,7 +57,6 @@ import {
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
 import { AccountableValue, MetricDrilldownSheet } from "@/app/components/provenance";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
-import { OutreachWorkflowModal } from "@/components/OutreachWorkflowModal";
 import { DemoModeBadge } from "../components/ui/DemoModeBadge";
 import { Button } from "../components/ui/button";
 
@@ -285,20 +280,16 @@ export function Dashboard() {
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>(
     [],
   );
-  const [topMatches, setTopMatches] = useState<RankedMatch[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
+  const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
+  const [feedbackAvailable, setFeedbackAvailable] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const [showWorkflowModal, setShowWorkflowModal] = useState(false);
-  const [selectedVolunteer, setSelectedVolunteer] = useState<RankedMatch | null>(null);
-  const [workflowResult, setWorkflowResult] = useState<WorkflowResponse | null>(null);
-  const [workflowLoading, setWorkflowLoading] = useState(false);
-  const [workflowError, setWorkflowError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -312,7 +303,8 @@ export function Dashboard() {
       setCalendarEvents([]);
       setCalendarAssignments([]);
       setFeedbackStats(emptyFeedbackStatsSummary());
-      setTopMatches([]);
+      setAssignmentsAvailable(false);
+      setFeedbackAvailable(false);
       setIsMockData(false);
     }
 
@@ -382,18 +374,22 @@ export function Dashboard() {
 
         if (assignmentResult.status === "fulfilled") {
           setCalendarAssignments(assignmentResult.value.data);
+          setAssignmentsAvailable(true);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
           // Assignment overlays are supplementary — keep the core dashboard
           // honest and surface a warning instead of fabricating overlays.
           setCalendarAssignments([]);
+          setAssignmentsAvailable(false);
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
+          setFeedbackAvailable(true);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
           setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
         }
 
         setIsMockData(anyMock);
@@ -410,25 +406,6 @@ export function Dashboard() {
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
-
-        const firstEventName = eventRows[0]?.["Event / Program"];
-        if (firstEventName) {
-          try {
-            const feedbackWeights =
-              feedbackResult.status === "fulfilled" &&
-              Object.keys(feedbackResult.value.data.current_weights).length > 0
-                ? feedbackResult.value.data.current_weights
-                : undefined;
-            const ranked = await rankSpeakers(firstEventName, 4, feedbackWeights);
-            if (active) {
-              setTopMatches(ranked);
-            }
-          } catch {
-            if (active) {
-              setTopMatches([]);
-            }
-          }
-        }
       } catch (err: unknown) {
         if (active) {
           // Unexpected failure — report it honestly rather than
@@ -481,6 +458,85 @@ export function Dashboard() {
 
   const opportunitiesMetric = unavailableOpportunitiesMetric();
 
+  const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
+  const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
+  const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+
+  const averageFatigueMetric = accountableDemoMetric(
+    "Average volunteer fatigue",
+    "Mean fatigue score from calendar assignment overlays.",
+    assignmentsAvailable && calendarAssignments.length > 0
+      ? calendarAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) /
+          calendarAssignments.length
+      : null,
+    {
+      provenance: assignmentProvenance,
+      unknownReason:
+        assignmentsAvailable && calendarAssignments.length === 0
+          ? "No assignment overlays recorded yet."
+          : "Assignment overlays are unavailable.",
+    },
+  );
+  const restRecommendedMetric = accountableDemoMetric(
+    "Rest recommended count",
+    "Volunteers flagged for recovery in assignment overlays.",
+    assignmentsAvailable
+      ? calendarAssignments.filter(
+          (assignment) => assignment.recovery_status === "Rest Recommended",
+        ).length
+      : null,
+    {
+      provenance: assignmentProvenance,
+      unknownReason: "Assignment overlays are unavailable.",
+    },
+  );
+  const feedbackRowsMetric = accountableDemoMetric(
+    "Feedback rows",
+    "Coordinator accept/decline submissions captured for matcher tuning.",
+    feedbackAvailable ? feedbackStats.total_feedback : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackAcceptanceMetric = accountableDemoMetric(
+    "Feedback acceptance rate",
+    "Accepted decisions divided by all coordinator feedback rows.",
+    feedbackAvailable && feedbackStats.total_feedback > 0
+      ? feedbackStats.acceptance_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackPainMetric = accountableDemoMetric(
+    "Matcher pain score",
+    "How much correction pressure the matcher is under from recent feedback.",
+    feedbackAvailable ? feedbackStats.pain_score : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackMembershipMetric = accountableDemoMetric(
+    "Membership interest rate",
+    "Follow-through signals attributed to coordinator feedback.",
+    feedbackAvailable && feedbackStats.total_feedback > 0
+      ? feedbackStats.membership_interest_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
+
   const funnelData = stageCounts(pipeline);
   const eventVolume = matchVolume(pipeline);
   const reachTrend = calendarReach(calendarEvents);
@@ -490,24 +546,13 @@ export function Dashboard() {
   const utilization = specialists.length
     ? Math.round((uniqueMatchedSpeakers / specialists.length) * 100)
     : 0;
-  const primaryMatch = topMatches[0];
   const coveredCalendarCount = calendarEvents.filter(
     (event) => event.coverage_status === "covered",
   ).length;
   const openCalendarCount = calendarEvents.filter(
     (event) => event.coverage_status !== "covered",
   ).length;
-  const averageFatigue = calendarAssignments.length
-    ? Math.round(
-        (calendarAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) /
-          calendarAssignments.length) *
-          100,
-      )
-    : 0;
-  const cooldownCount = calendarAssignments.filter(
-    (assignment) => assignment.recovery_status === "Rest Recommended",
-  ).length;
-  const leadAdjustment = feedbackStats.recommended_adjustments[0] ?? null;
+  const leadAdjustment = feedbackAvailable ? feedbackStats.recommended_adjustments[0] ?? null : null;
   const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments, pipeline);
   const regionNeedingCoverage =
     regionalPulse
@@ -527,34 +572,12 @@ export function Dashboard() {
       .filter((row) => row.memberInquiryCount > 0)
       .sort((left, right) => right.memberInquiryCount - left.memberInquiryCount)[0] ?? null;
 
-  const handleConnect = async (match: RankedMatch) => {
-    setSelectedVolunteer(match);
-    setShowWorkflowModal(true);
-    setWorkflowLoading(true);
-    setWorkflowError(null);
-    setWorkflowResult(null);
-    try {
-      const result = await initiateWorkflow(match.name, match.event_name);
-      setWorkflowResult(result);
-    } catch (err: unknown) {
-      setWorkflowError(err instanceof Error ? err.message : "Workflow failed.");
-    } finally {
-      setWorkflowLoading(false);
-    }
-  };
-
   const discoveryFeed = [
     {
       icon: BellRing,
-      title: primaryMatch
-        ? `Lead match ready: ${primaryMatch.name}`
-        : "Lead match queue ready",
-      detail: primaryMatch
-        ? `${primaryMatch.event_name} is sitting at ${(primaryMatch.score * 100).toFixed(
-            0,
-          )}% confidence and can be reviewed now.`
-        : "Run the matcher to populate the top recommendation feed.",
-      stamp: primaryMatch ? "Top recommendation" : "Awaiting data",
+      title: "Matching recommendations unavailable",
+      detail: MATCHING_UNAVAILABLE_REASON,
+      stamp: "Gate G1",
     },
     {
       icon: MapPinned,
@@ -739,12 +762,19 @@ export function Dashboard() {
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Avg fatigue</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{averageFatigue}%</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue
+                metric={averageFatigueMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
+            </p>
             <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{cooldownCount}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue metric={restRecommendedMetric} />
+            </p>
             <p className="mt-1 text-sm text-gray-600">Volunteers the matcher should avoid</p>
           </div>
         </div>
@@ -763,7 +793,10 @@ export function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-full border border-[#d5e0f7] bg-[#f7f9fc] px-3 py-1 text-xs font-medium text-[#005394]">
-              {feedbackStats.total_feedback} feedback rows
+              <AccountableValue
+                metric={feedbackRowsMetric}
+                formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
+              />
             </div>
             <Link to="/ai-matching" className="text-xs font-medium text-[#005394] hover:underline">
               View matches →
@@ -775,32 +808,45 @@ export function Dashboard() {
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.acceptance_rate * 100)}%
+              <AccountableValue
+                metric={feedbackAcceptanceMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackStats.accepted} accepted / {feedbackStats.declined} declined
+              {feedbackAvailable
+                ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
+                : "Coordinator feedback breakdown unavailable."}
             </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.pain_score)}
+              <AccountableValue
+                metric={feedbackPainMetric}
+                formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">A lower score indicates a healthier matching loop.</p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.membership_interest_rate * 100)}%
+              <AccountableValue
+                metric={feedbackMembershipMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackStats.membership_interest_count} attributed follow-through signals.
+              {feedbackAvailable
+                ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
+                : "Membership interest signals unavailable."}
             </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
             <p className="mt-2 text-lg font-semibold text-gray-900">
-              {leadAdjustment ? formatFactorName(leadAdjustment.factor) : "No adjustment yet"}
+              {leadAdjustment ? formatFactorName(leadAdjustment.factor) : feedbackAvailable ? "No adjustment yet" : "Unknown"}
             </p>
             <p className="mt-1 text-sm text-gray-600">
               {leadAdjustment
@@ -815,7 +861,9 @@ export function Dashboard() {
             <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
             {feedbackStats.trend.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                Trend data will appear once coordinators submit feedback from the React workflow.
+                {feedbackAvailable
+                  ? "Trend data will appear once coordinators submit feedback from the React workflow."
+                  : "Feedback optimizer stats are unavailable."}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
@@ -849,7 +897,9 @@ export function Dashboard() {
             <div className="space-y-3">
               {feedbackStats.recommended_adjustments.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                  No weight deltas yet. The optimizer is waiting for stronger coordinator signal.
+                  {feedbackAvailable
+                    ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
+                    : "Feedback optimizer stats are unavailable."}
                 </div>
               ) : (
                 feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
@@ -1085,61 +1135,18 @@ export function Dashboard() {
         </div>
 
         <div className="space-y-4">
-          {topMatches.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
-              Ranking data will appear here once the FastAPI backend is running with the matching endpoint.
-            </div>
-          ) : (
-            topMatches.map((match) => (
-              <div
-                key={`${match.event_name}-${match.name}`}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-[#d5e0f7] bg-gradient-to-r from-white to-[#f2f7ff] p-4 shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-gray-900">{match.name}</p>
-                    <span className="rounded-full bg-[#e6effb] px-2 py-0.5 text-xs text-[#005394]">
-                      {splitTags(match.expertise_tags)[0] || match.board_role || "Specialist"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {match.event_name} · {match.company || "IA West volunteer"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <p className="text-sm text-gray-600">Match Score</p>
-                    <p className="text-2xl font-semibold text-[#005394]">
-                      {(match.score * 100).toFixed(0)}%
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => void handleConnect(match)}
-                    disabled={workflowLoading}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-[#00477f] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    Connect
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
+            <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
+            <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
+            <p className="mt-2 text-sm leading-6">
+              Ranked recommendations and match scores stay off this dashboard until gate G1 closes.
+            </p>
+          </div>
         </div>
       </div>
 
       {/* Web Crawler Live Feed */}
       <CrawlerFeed />
-
-      {showWorkflowModal && selectedVolunteer && (
-        <OutreachWorkflowModal
-          volunteer={selectedVolunteer}
-          result={workflowResult}
-          loading={workflowLoading}
-          error={workflowError}
-          onClose={() => setShowWorkflowModal(false)}
-        />
-      )}
 
       <MetricDrilldownSheet
         open={drilldownOpen}
