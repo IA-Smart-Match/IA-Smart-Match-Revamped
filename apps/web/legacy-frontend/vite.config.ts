@@ -23,12 +23,23 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // Authenticated job/import routes and the planned domain routes use /v1.
+      // Without this the browser gets index.html back and the failure reads as
+      // a JSON parse error a long way from its cause.
+      "/v1": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   preview: {
     port: 4173,
     proxy: {
       "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+      "/v1": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
