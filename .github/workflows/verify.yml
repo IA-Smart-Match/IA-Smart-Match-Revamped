@@ -212,6 +212,33 @@ jobs:
           python -m pip install --upgrade pip pip-audit
           pip-audit --requirement requirements/runtime.txt --strict
 
+  web:
+    name: web — install, types, build, audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/web/legacy-frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@1e60f620b9541d6c8f2e6e00e1f6a879b4e9b1e9 # v4.0.4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/legacy-frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Audit dependency vulnerabilities
+        run: npm audit --audit-level=high
+
   supply-chain:
     name: security — dependency licenses and SBOM
     runs-on: ubuntu-24.04

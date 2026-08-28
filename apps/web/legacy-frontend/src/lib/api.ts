@@ -1439,7 +1439,10 @@ export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ d
     total?: number;
     source?: string;
   };
-  const data = payload.data ?? payload.events ?? [];
+  const data = (payload.data ?? payload.events ?? []).map((event) => ({
+    ...event,
+    staffing_open: event.staffing_open ?? false,
+  }));
   return {
     data,
     total: typeof payload.total === "number" ? payload.total : data.length,

@@ -30,7 +30,7 @@ const CA_BORDER: Array<[number, number]> = [
 // Refined path for a smoother look
 const CA_PATH = "M10.5,1.5 L175.5,1.5 L175.5,145.5 L395.5,365.5 L395.5,475.5 L305.5,475.5 L255.5,445.5 L155.5,405.5 L105.5,345.5 L65.5,285.5 L45.5,225.5 L10.5,145.5 Z";
 
-const HEAT_BLOBS: Array<{ cx: number; cy: number; r: number; color: string }> = [
+const HEAT_BLOBS: Array<{ x: number; y: number; r: number; color: string }> = [
   { ...toSvg(-118.25, 34.05), r: 80, color: "var(--color-primary)" }, // LA
   { ...toSvg(-117.15, 32.88), r: 60, color: "var(--color-primary)" }, // SD
   { ...toSvg(-122.4, 37.77), r: 70, color: "var(--color-primary)" },  // SF/Bay
@@ -134,8 +134,8 @@ export function CaliforniaCampusHeatmap() {
             {HEAT_BLOBS.map((blob, i) => (
               <motion.circle
                 key={i}
-                cx={blob.cx}
-                cy={blob.cy}
+                cx={blob.x}
+                cy={blob.y}
                 r={blob.r}
                 fill="url(#heat-grad)"
                 className="text-blue-400"

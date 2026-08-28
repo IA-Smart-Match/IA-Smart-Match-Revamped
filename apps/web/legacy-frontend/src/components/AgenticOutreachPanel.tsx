@@ -252,7 +252,7 @@ export function AgenticOutreachPanel({
       </div>
 
       {/* Approval section */}
-      {isApproval && phase !== "approved" && phase !== "rejected" && (
+      {isApproval && (
         <div className="space-y-5 rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
           <h3 className="text-base font-semibold text-foreground">Awaiting Your Approval</h3>
 
