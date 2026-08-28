@@ -41,6 +41,23 @@ If absent: run card A0 only (preparation), then stop and report
 - Residual defect this plan closes: portal layouts/pages still read
   `sessionStorage["iaw_session"]` with fallback identities (`stu-001`,
   `coord-001`, `shana-demarinis`). These are development-only leftovers.
+  Recon (2026-08-28) confirmed **no `setItem` writer exists** — the reads can
+  only ever yield the fallbacks — and inventoried the readers (15 files under
+  `apps/web/legacy-frontend/src/app/`): `components/StudentLayout.tsx`,
+  `components/CoordinatorPortalLayout.tsx`,
+  `components/VolunteerPortalLayout.tsx`, `pages/Dashboard.tsx` (remove-only),
+  `pages/student/StudentHome.tsx`, `pages/student/StudentEvents.tsx`,
+  `pages/student/StudentHistory.tsx`, `pages/student/StudentConnect.tsx`,
+  `pages/student/StudentRewards.tsx`, `pages/coordinator/CoordinatorHome.tsx`,
+  `pages/coordinator/CoordinatorEvents.tsx`,
+  `pages/coordinator/CoordinatorOutreach.tsx`,
+  `pages/coordinator/CoordinatorMeetings.tsx`,
+  `pages/volunteer/VolunteerHome.tsx`,
+  `pages/volunteer/VolunteerAssignments.tsx`,
+  `pages/volunteer/VolunteerProfile.tsx`. Card A0 verifies this list is still
+  current rather than re-discovering it.
+- Recon also confirmed `fetchMe()` is defined in `api.ts` but never called
+  from any component — card A2 introduces its first real caller.
 
 ## Task cards
 

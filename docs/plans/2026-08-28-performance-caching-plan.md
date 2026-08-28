@@ -29,18 +29,34 @@ Tavily/web-crawler API calls took 5–10 seconds.
 | R5 | Repeat visits skip unchanged payload transfer (HTTP revalidation) | Stage 1 API card |
 | R6 | Any server-side cached aggregate carries computed-at provenance | Stage 2/3 cards |
 
-## Verified current-state facts
+## Verified current-state facts (2026-08-28 recon)
 
 - `apps/web/legacy-frontend` uses **raw `fetch` in `useState`/`useEffect`
   hooks** (`src/app/hooks/useUnitMetrics.ts`); there is no query-cache library
   (no TanStack Query/SWR in `package.json`). Every mount refetches.
-- The dependency list is heavy (MUI 7 + full Radix set + recharts + motion +
-  react-slick + embla + masonry + react-dnd); bundle size is a first-paint
-  risk. Build is Vite 6.
-- `src/lib/api.ts` still exposes legacy `/api/*` clients (matching, crawler,
-  outreach). The new API (`contracts/openapi/smartmatch.json`) has no such
-  routes — R3's scan locks that in.
-- No `Cache-Control`/`ETag` handling exists in the frontend client.
+- Mount fetches are **already parallel** — `Dashboard.tsx` (~lines 294–429)
+  and `Pipeline.tsx` (~lines 184–195) use `Promise.allSettled` batches; no
+  A-then-B waterfalls exist on the load paths. Do not plan waterfall fixes.
+- **The revamp API implements only `/v1/*`, `/api/health`, and `/u/{token}`**
+  (`services/api/smartmatch_api/main.py` ~lines 203–209). The legacy
+  `/api/data/*`, `/api/calendar/*`, `/api/portals/*`, `/api/qr/*`,
+  `/api/feedback/*` endpoints that Dashboard, Pipeline, and portal pages call
+  on mount are **not implemented there** — against the revamp API alone these
+  mount fetches fail. Stage 0 must attribute observed lag between failing
+  legacy fetches and real endpoint latency before anything is optimized.
+- `CrawlerContext.tsx` (~lines 25–30): every IA-admin page mount starts a
+  **3-second polling loop against `/api/crawler/status`** — a legacy crawler
+  surface (archived MM-A08) generating recurring failed requests. Card F4
+  removes it.
+- `vite.config.ts` already splits vendor chunks (`vendor-react`,
+  `vendor-charts`, `vendor-ui`, `vendor-emotion`, ~lines 49–73), but
+  `routes.tsx` imports every page statically — **no route-level lazy
+  loading**. The dependency list is heavy (MUI 7 + full Radix set + recharts +
+  motion + react-slick + embla + masonry + react-dnd); Vite 6.
+- No HTTP caching exists anywhere: the only `Cache-Control` in
+  `services/api/` is `no-store` on the jobs SSE stream (`jobs.py` ~line 221);
+  the only server-side memoization is `lru_cache` on `get_settings()`. No
+  `ETag` handling exists on either side.
 
 ## Stage 0 — measure (sequential; blocks all optimization cards)
 
@@ -87,16 +103,29 @@ Tavily/web-crawler API calls took 5–10 seconds.
 - **Hard rule:** an unknown metric (`value: null`) is cached like any value —
   do not retry-hammer unknowns; do not transform them.
 
-### Lane F2 — fetch waterfall and code splitting
+### Lane F2 — route-level code splitting
 
-- **Fence:** `src/app/` router/entry files, page-level lazy imports,
-  `vite.config.ts`.
-- **Work:** (1) convert routes to `React.lazy`/dynamic imports so heavy chart
-  and portal pages are separate chunks; (2) from M1's fetch census, start
-  independent page fetches concurrently (`Promise.all` or parallel queries)
-  instead of sequentially; (3) `vite build` chunk report before/after in the
-  baseline doc.
+- **Fence:** `src/app/routes.tsx`, page-level lazy imports, `vite.config.ts`.
+- **Work:** convert routes to `React.lazy`/dynamic imports with a suspense
+  fallback so heavy chart and portal pages become separate chunks (vendor
+  `manualChunks` already exist — keep them); record the `vite build` chunk
+  report before/after in the baseline doc. Fetch parallelization is **not**
+  in scope — recon confirmed mounts already batch with `Promise.allSettled`.
 - **Guard:** typecheck + build; no route behavior change.
+
+### Lane F4 — retire the legacy crawler poll
+
+- **Fence:** `src/app/components/` `CrawlerContext.tsx` and `Layout.tsx`
+  (provider mount), plus any consumer the typecheck surfaces.
+- **Work:** remove the `CrawlerProvider` 3-second `/api/crawler/status`
+  polling loop from the admin layout. The crawler is archived (MM-A08) and
+  G3-gated (plan P6); a recurring failed poll on every admin page is both a
+  perf drag and a dishonest surface. Consumers render the truthful
+  no-crawler state, consistent with the G1/G3 gating UI.
+- **Coordination:** wholesale removal of the other legacy `/api/*` mount
+  fetches belongs to plan P8 (Opportunities/Dashboard rewiring) and the
+  frontend-migration track — do not expand this card into that; M1 records
+  their cost so P8 inherits the numbers.
 
 ### Lane F3 — HTTP revalidation on metrics API
 
@@ -115,7 +144,10 @@ Tavily/web-crawler API calls took 5–10 seconds.
 
 - **Entry condition:** baseline shows metrics endpoint wall time is dominated
   by query execution (not network/render). Otherwise skip — record the skip in
-  the baseline doc.
+  the baseline doc. Recon note: today `list_metrics` executes **one** real
+  PostgreSQL query (`pending_review_items`); the five pipeline metrics are
+  no-DB unknowns until S12. Expect this stage to be skipped until plan P8
+  lands real owning queries.
 - **Card D1:** for each slow owning query, add a precomputed read model or
   index — coordinate with plan P8 (S12 read model) via the portfolio index;
   S12's owning query must not be duplicated here. Any migration goes through
