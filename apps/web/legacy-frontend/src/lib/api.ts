@@ -321,10 +321,47 @@ async function throwApiRequestError(response: Response): Promise<never> {
   throw new ApiRequestError(message, response.status, code, details);
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+function smartmatchAuthHeaders(): Record<string, string> {
+  const envToken = import.meta.env.VITE_SMARTMATCH_BEARER_TOKEN;
+  const sessionToken =
+    typeof sessionStorage !== "undefined"
+      ? sessionStorage.getItem("smartmatch_bearer_token")
+      : null;
+  const token =
+    (typeof envToken === "string" && envToken.trim().length > 0
+      ? envToken.trim()
+      : null) ??
+    (typeof sessionToken === "string" && sessionToken.trim().length > 0
+      ? sessionToken.trim()
+      : null);
+
+  if (!token) {
+    return {};
+  }
+
+  return { Authorization: `Bearer ${token}` };
+}
+
+/** Whether a bearer token is configured for `/v1` routes. */
+export function hasSmartmatchAuth(): boolean {
+  return Object.keys(smartmatchAuthHeaders()).length > 0;
+}
+
+/** Unit scope for accountable metrics (`GET /v1/units/{unit_id}/metrics`). */
+export function getConfiguredUnitId(): string | null {
+  const unitId = import.meta.env.VITE_SMARTMATCH_UNIT_ID;
+  return typeof unitId === "string" && unitId.trim().length > 0 ? unitId.trim() : null;
+}
+
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { authenticated?: boolean },
+): Promise<T> {
   const response = await fetch(path, {
     headers: {
       "Content-Type": "application/json",
+      ...(options?.authenticated ? smartmatchAuthHeaders() : {}),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -1588,6 +1625,73 @@ export async function fetchVolunteerAssignments(
 ): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
   return requestJson<{ data: VolunteerAssignment[]; total: number; source: string }>(
     `${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}/assignments`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Identity + accountable metrics (`contracts/openapi/smartmatch.json`)
+// ---------------------------------------------------------------------------
+
+export interface MembershipResponse {
+  org_unit_path: string;
+  role: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_active: boolean;
+}
+
+export interface MeResponse {
+  user_id: string;
+  tenant_id: string;
+  email: string;
+  suspended: boolean;
+  memberships: MembershipResponse[];
+}
+
+/** `GET /v1/me` — caller identity and server-assigned memberships. */
+export async function fetchMe(): Promise<MeResponse> {
+  return requestJson<MeResponse>("/v1/me", undefined, { authenticated: true });
+}
+
+export interface MetricSummary {
+  name: string;
+  display_name: string;
+  definition: string;
+  value: number | null;
+  unknown_reason?: string | null;
+  drill_down_url: string;
+}
+
+export interface MetricsResponse {
+  unit_id: string;
+  metrics: MetricSummary[];
+}
+
+export interface MetricDrillDownResponse {
+  unit_id: string;
+  name: string;
+  definition: string;
+  aggregate_value: number | null;
+  unknown_reason?: string | null;
+  rows: Array<Record<string, unknown>>;
+}
+
+/** `GET /v1/units/{unit_id}/metrics` — all registered accountable metrics. */
+export async function fetchUnitMetrics(unitId: string): Promise<MetricsResponse> {
+  return requestJson<MetricsResponse>(`/v1/units/${encodeURIComponent(unitId)}/metrics`, undefined, {
+    authenticated: true,
+  });
+}
+
+/** `GET /v1/units/{unit_id}/metrics/{metric_name}/drill-down`. */
+export async function fetchMetricDrillDown(
+  unitId: string,
+  metricName: string,
+): Promise<MetricDrillDownResponse> {
+  return requestJson<MetricDrillDownResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/metrics/${encodeURIComponent(metricName)}/drill-down`,
+    undefined,
+    { authenticated: true },
   );
 }
 

@@ -3,11 +3,6 @@ import {
   AlertTriangle,
   Filter,
   TrendingUp,
-  Users,
-  UserPlus,
-  Briefcase,
-  CheckCircle2,
-  CalendarDays,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -38,6 +33,9 @@ import {
   type PipelineRecord,
   type QrStatsSummary,
 } from "@/lib/api";
+import { accountableDemoMetric } from "@/lib/metrics";
+import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { AccountableValue } from "@/app/components/provenance";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
 
@@ -179,6 +177,8 @@ export function Pipeline() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [qrAvailable, setQrAvailable] = useState(false);
+  const [feedbackAvailable, setFeedbackAvailable] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -208,7 +208,9 @@ export function Pipeline() {
           setPipelineRecords([]);
           setEvents([]);
           setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
           setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
           setIsMockData(false);
           setLoadFailed(true);
           setError(getErrorMessage(reason, "Failed to load pipeline data."));
@@ -225,18 +227,22 @@ export function Pipeline() {
 
         if (qrResult.status === "fulfilled") {
           setQrStats(qrResult.value.data);
+          setQrAvailable(true);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
           // QR analytics are supplementary — keep the core pipeline data and
           // surface a warning instead of fabricating QR stats.
           setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
+          setFeedbackAvailable(true);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
           setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
         }
 
         setIsMockData(anyMock);
@@ -261,7 +267,9 @@ export function Pipeline() {
           setPipelineRecords([]);
           setEvents([]);
           setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
           setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
           setIsMockData(false);
           setLoadFailed(true);
           setError(getErrorMessage(err, "Failed to load pipeline data."));
@@ -295,6 +303,83 @@ export function Pipeline() {
         });
 
   const stageSummary = summarizeStages(filteredRecords);
+  const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
+  const qrProvenance = qrAvailable ? demoProvenance : ("synthetic" as const);
+  const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+
+  const qrCodesGenerated = accountableDemoMetric(
+    "QR codes generated",
+    "Deterministic referral assets created for speaker–event pairs.",
+    qrAvailable ? qrStats.total_generated : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrTotalScans = accountableDemoMetric(
+    "QR total scans",
+    "Redirect endpoint activity attributed to referral codes.",
+    qrAvailable ? qrStats.total_scans : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrConversions = accountableDemoMetric(
+    "QR conversions",
+    "Membership-interest outcomes attributed to QR referrals.",
+    qrAvailable ? qrStats.total_conversions : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrConversionRate = accountableDemoMetric(
+    "QR scan-to-conversion rate",
+    "Conversions divided by scans across all referral codes.",
+    qrAvailable && qrStats.total_scans > 0 ? qrStats.conversion_rate : null,
+    {
+      provenance: qrProvenance,
+      unknownReason:
+        qrAvailable && qrStats.total_scans === 0
+          ? "No scans recorded yet."
+          : "QR analytics are unavailable.",
+    },
+  );
+
+  const feedbackRows = accountableDemoMetric(
+    "Feedback rows",
+    "Coordinator accept/decline submissions captured for matcher tuning.",
+    feedbackAvailable ? feedbackStats.total_feedback : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackAcceptance = accountableDemoMetric(
+    "Feedback acceptance rate",
+    "Accepted decisions divided by all coordinator feedback rows.",
+    feedbackAvailable && feedbackStats.total_feedback > 0
+      ? feedbackStats.acceptance_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackPain = accountableDemoMetric(
+    "Matcher pain score",
+    "How much correction pressure the matcher is under from recent feedback.",
+    feedbackAvailable ? feedbackStats.pain_score : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+
   const conversions = stageSummary.slice(0, -1).map((stage, index) => {
     const next = stageSummary[index + 1];
     return {
@@ -304,8 +389,6 @@ export function Pipeline() {
     };
   });
 
-  const stageCount = (stageName: string) =>
-    stageSummary.find((stage) => stage.name === stageName)?.count ?? 0;
   const qrEntries = [...qrStats.entries].sort(
     (left, right) => right.scan_count - left.scan_count || right.conversion_count - left.conversion_count,
   );
@@ -369,75 +452,7 @@ export function Pipeline() {
             <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
           ) : (
             <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Users className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Matched</p>
-                  <p className="text-2xl font-semibold text-gray-900">{stageCount("Matched")}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <CalendarDays className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Contacted</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Contacted")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Confirmed</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Confirmed")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <UserPlus className="w-5 h-5 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Attended</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Attended")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                  <Briefcase className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Member Inquiry</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Member Inquiry")}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <PipelineFunnelTiles reloadToken={reloadToken} />
 
           <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
@@ -455,23 +470,41 @@ export function Pipeline() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Codes generated</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_generated}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrCodesGenerated}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Deterministic referral assets created.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Total scans</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_scans}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrTotalScans}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Tracks the redirect endpoint activity.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Conversions</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_conversions}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrConversions}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Membership-interest outcomes attributed to QR.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Scan-to-conversion</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(qrStats.conversion_rate * 100)}%
+                  <AccountableValue
+                    metric={qrConversionRate}
+                    formatNumber={(value) => `${Math.round(value * 100)}%`}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Rollup efficiency across all referrals.</p>
               </div>
@@ -546,20 +579,31 @@ export function Pipeline() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Feedback rows</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{feedbackStats.total_feedback}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={feedbackRows}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Coordinator submissions captured so far.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Acceptance rate</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(feedbackStats.acceptance_rate * 100)}%
+                  <AccountableValue
+                    metric={feedbackAcceptance}
+                    formatNumber={(value) => `${Math.round(value * 100)}%`}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Accept vs. decline signal from the new feedback loop.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Pain score</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(feedbackStats.pain_score)}
+                  <AccountableValue
+                    metric={feedbackPain}
+                    formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Tracks how much correction pressure the matcher is under.</p>
               </div>

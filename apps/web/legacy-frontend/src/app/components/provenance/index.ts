@@ -61,3 +61,8 @@ export {
   AccountableValue,
   type AccountableValueProps,
 } from "./AccountableValue";
+
+export {
+  MetricDrilldownSheet,
+  type MetricDrilldownSheetProps,
+} from "./MetricDrilldownSheet";

@@ -52,6 +52,13 @@ import {
   type Specialist,
   type WorkflowResponse,
 } from "@/lib/api";
+import {
+  accountableMetricFromSummary,
+  unavailablePipelineMetric,
+} from "@/lib/metrics";
+import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { AccountableValue, MetricDrilldownSheet } from "@/app/components/provenance";
+import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import { OutreachWorkflowModal } from "@/components/OutreachWorkflowModal";
 import { DemoModeBadge } from "../components/ui/DemoModeBadge";
 import { Button } from "../components/ui/button";
@@ -445,19 +452,43 @@ export function Dashboard() {
     };
   }, [reloadToken]);
 
+  const {
+    metricsByName,
+    status: metricsStatus,
+    loadError: metricsLoadError,
+    metricsUnavailableReason,
+    openDrilldown,
+    drilldownOpen,
+    setDrilldownOpen,
+    drilldownLoading,
+    drilldownError,
+    drilldown,
+  } = useUnitMetrics(reloadToken);
+
+  const memberInquirySummary = metricsByName.pipeline_member_inquiry;
+  const memberInquiryMetric = memberInquirySummary
+    ? accountableMetricFromSummary(memberInquirySummary, {
+        provenance: "observed",
+        onOpenDrilldown: () => {
+          void openDrilldown("pipeline_member_inquiry");
+        },
+      })
+    : unavailablePipelineMetric(
+        "pipeline_member_inquiry",
+        metricsStatus === "unavailable"
+          ? (metricsLoadError ?? metricsUnavailableReason)
+          : "Loading registered metrics…",
+      );
+
   const funnelData = stageCounts(pipeline);
   const eventVolume = matchVolume(pipeline);
   const reachTrend = calendarReach(calendarEvents);
-  const matchedCount = funnelData.find((stage) => stage.name === "Matched")?.value ?? 0;
-  const memberInquiryCount =
+  const memberInquiryDemoCount =
     funnelData.find((stage) => stage.name === "Member Inquiry")?.value ?? 0;
   const uniqueMatchedSpeakers = new Set(pipeline.map((record) => record.speaker_name)).size;
   const utilization = specialists.length
     ? Math.round((uniqueMatchedSpeakers / specialists.length) * 100)
     : 0;
-  const conversionRate = matchedCount
-    ? `${((memberInquiryCount / matchedCount) * 100).toFixed(1)}%`
-    : "0.0%";
   const primaryMatch = topMatches[0];
   const coveredCalendarCount = calendarEvents.filter(
     (event) => event.coverage_status === "covered",
@@ -536,8 +567,13 @@ export function Dashboard() {
     },
     {
       icon: Activity,
-      title: `${matchedCount} records have moved into the match stage`,
-      detail: `${memberInquiryCount} records reached member inquiry and are ready for follow-up.`,
+      title:
+        memberInquirySummary?.value !== null && memberInquirySummary?.value !== undefined
+          ? `${memberInquirySummary.value} records reached member inquiry (registered metric)`
+          : "Pipeline funnel metrics load from the register when authenticated",
+      detail:
+        memberInquirySummary?.unknown_reason ??
+        `${memberInquiryDemoCount} demo pipeline rows are at member inquiry until S12 persistence lands.`,
       stamp: "Pipeline",
     },
     {
@@ -659,9 +695,9 @@ export function Dashboard() {
           href="/calendar"
         />
         <MetricCard
-          title="Member Inquiry Rate"
-          value={conversionRate}
-          change={`${memberInquiryCount} records at latest stage`}
+          title="Member Inquiry"
+          value={<AccountableValue metric={memberInquiryMetric} />}
+          change={memberInquirySummary?.definition ?? "Registered pipeline_member_inquiry metric"}
           changeType="positive"
           icon={TrendingUp}
           iconColor="bg-[#e6effb] text-[#005394]"
@@ -968,14 +1004,20 @@ export function Dashboard() {
         </div>
       </div>
 
+      <PipelineFunnelTiles reloadToken={reloadToken} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Pipeline Funnel</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Pipeline Funnel (demo rows)</h3>
             <Link to="/pipeline" className="text-xs font-medium text-[#005394] hover:underline">
               View pipeline →
             </Link>
           </div>
+          <p className="mb-4 text-xs text-gray-600">
+            Chart below uses legacy /api pipeline rows for layout only. KPI tiles above use the
+            registered metrics API and show Unknown until S12 persistence exists.
+          </p>
           <ResponsiveContainer width="100%" height={300}>
             <FunnelChart>
               <Tooltip />
@@ -1097,6 +1139,14 @@ export function Dashboard() {
           onClose={() => setShowWorkflowModal(false)}
         />
       )}
+
+      <MetricDrilldownSheet
+        open={drilldownOpen}
+        onOpenChange={setDrilldownOpen}
+        loading={drilldownLoading}
+        drilldown={drilldown}
+        error={drilldownError}
+      />
     </div>
   );
 }

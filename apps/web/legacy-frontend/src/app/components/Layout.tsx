@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { SyntheticDataBanner } from "./provenance";
 import { CrawlerProvider, useCrawlerStatus } from "./CrawlerContext";
 import {
   Tooltip,
@@ -200,6 +201,10 @@ export function Layout() {
 
         {/* Page content */}
         <main className="p-6 lg:p-8">
+          <SyntheticDataBanner
+            className="mb-6"
+            reason="This preview runs on copied legacy screens and fixture-backed /api routes. It is development-only and not the product."
+          />
           <Outlet />
         </main>
       </div>
