@@ -91,18 +91,35 @@ data has been imported.
 
 ## Quick start
 
-Requires Python 3.11+ and PostgreSQL 16.
+**Python 3.11 or 3.12** — `pyproject.toml` requires `>=3.11,<3.13`, so **3.13
+does not work**. CI runs 3.11 and both images are `python:3.11-slim-bookworm`,
+which makes 3.11 the version everything is actually verified against. Plus
+**PostgreSQL 16**, needed only for the integration lane and for running the app.
+
+On Debian and Ubuntu, install `python3-venv` first — it is a separate package
+there, and without it `make setup` fails on its first line with exit code 1.
 
 ```bash
-make setup          # virtualenv + dependencies
-make db-up          # local PostgreSQL + dev database
+sudo apt install -y python3-venv     # Debian/Ubuntu only
+make setup          # virtualenv + hash-verified dependencies (slow; do not interrupt)
+make db-up          # local PostgreSQL + dev database — REQUIRES ROOT
 make migrate        # apply the Foundation schema
-make check          # the seven gates that run without infrastructure
+make check          # the nine gates that run without infrastructure
 ```
 
-`make check` runs seven gates: formatting, lint, strict typing, architecture
-import boundaries, the no-database test lane, the forbidden-behavior scan, and
-the agent-memory ledger check.
+`make check` runs nine gates: formatting, lint, strict typing, architecture
+import boundaries, the no-database test lane, the forbidden-behavior scan, the
+agent-memory ledger check, the dependency-license policy, and the Terraform
+environment-isolation check.
+
+Two things bite newcomers. `make setup` is slow — the hash-verified install
+takes minutes on a native Linux filesystem and can exceed fifteen on a
+Windows-mounted path under WSL (`/mnt/c/...`); a run that looks hung is usually
+still working. And `make db-up` **requires root**: it runs `service postgresql
+start` and `su postgres`, so it fails on WSL without systemd, on macOS, and
+anywhere you cannot become `postgres`. [`CONTRIBUTING.md`](CONTRIBUTING.md)
+gives the manual database steps and a troubleshooting section keyed to the exact
+error text.
 
 **It is a subset of CI, not the whole of it, so a green `make check` does not
 mean a green CI.** Two differences matter. `make test` is
