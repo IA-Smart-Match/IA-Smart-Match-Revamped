@@ -33,6 +33,23 @@ export const PIPELINE_FUNNEL_STAGE_LABELS: Record<PipelineFunnelMetricName, stri
 export const OPPORTUNITIES_UNKNOWN_REASON =
   "No evidence source yet: S12 Pipeline persistence is not started, and the canonical opportunities metric is not registered.";
 
+/** Matches `factor_registry.REGISTRY_STATUS == "proposed"` — no scores until G1 closes. */
+export const MATCHING_UNAVAILABLE_REASON =
+  "Match scoring, ranks, and factor explanations remain blocked until gate G1 approves the factor registry and golden cases.";
+
+/** Placeholder until D1/G1 approves the factor registry and match_run exists. */
+export function unavailableMatchingMetric(
+  reason: string = MATCHING_UNAVAILABLE_REASON,
+): AccountableMetric {
+  return {
+    name: "Match score",
+    definition:
+      "Heuristic match score from an approved factor registry and match_run (pending gate G1).",
+    value: unknownValue(reason),
+    provenance: "observed",
+  };
+}
+
 /** Placeholder until S12 and the stakeholder-approved opportunities metric exist. */
 export function unavailableOpportunitiesMetric(
   reason: string = OPPORTUNITIES_UNKNOWN_REASON,
