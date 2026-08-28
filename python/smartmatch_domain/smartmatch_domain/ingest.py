@@ -106,6 +106,7 @@ def validate_columns(
     required: Iterable[str],
     optional: Iterable[str] = (),
     blank_sentinels: Iterable[str] = (),
+    blank_sentinels_by_column: Mapping[str, Iterable[str]] | None = None,
 ) -> DatasetQuality:
     """Validate that imported rows carry the expected columns.
 
@@ -126,6 +127,22 @@ def validate_columns(
             surnames and place names, and this module cannot tell a marker from
             a value. The adapter that parsed the rows can, and declares it here.
             Compared case-insensitively against the stripped cell text.
+            Applies to every column that ``blank_sentinels_by_column`` does not
+            name.
+        blank_sentinels_by_column: Sentinels for named columns, overriding
+            ``blank_sentinels`` for exactly those columns. A token is a
+            placeholder in one column and a value in the next, and one global
+            set cannot say so: declaring ``"NULL"`` to clean up a blank
+            ``metro_region`` also blanked a professional genuinely surnamed
+            ``"Null"`` — in every field on their row, since the same set was
+            applied to every column. So the set is addressable per column:
+            ``{"metro_region": ("NULL", "nan", "N/A"), "name": ()}`` declares
+            the markers where they are markers and, with the empty tuple, opts
+            the surname column out. A column named here uses *only* its own
+            set, never its own set unioned with the global one — otherwise a
+            column could not opt out of a sentinel it is given by default,
+            which is the whole point. Keys are compared after
+            :func:`normalize_header`, like every other column name.
 
     Returns:
         A :class:`DatasetQuality` describing every problem found. Findings
@@ -137,9 +154,19 @@ def validate_columns(
             column twice after normalization. That is a caller contract error,
             not a data problem: the duplicate would silently collapse and the
             column would be validated under whichever spelling won.
+
+            Also if ``blank_sentinels_by_column`` names a column twice after
+            normalization, or names one that is in neither ``required`` nor
+            ``optional``. Both are caller contract errors of the same kind: a
+            sentinel declared against a column nobody validates is a typo that
+            does nothing, and silence would let a coordinator believe they had
+            cleaned a column they had not.
     """
     required_normalized, optional_normalized = _normalize_declared(required, optional)
-    sentinels = {token.strip().lower() for token in blank_sentinels}
+    default_sentinels = _sentinel_set(blank_sentinels)
+    column_sentinels = _normalize_column_sentinels(
+        blank_sentinels_by_column, required_normalized, optional_normalized
+    )
 
     findings: list[QualityFinding] = []
 
@@ -194,9 +221,12 @@ def validate_columns(
 
     # A required column that exists but is blank in every row is as unusable as
     # a missing one; the legacy loader reported it as present and healthy.
+    # What counts as blank is resolved per column, not once for the dataset:
+    # see ``blank_sentinels_by_column``.
     for norm, original in required_normalized.items():
         if norm not in present:
             continue
+        sentinels = column_sentinels.get(norm, default_sentinels)
         if all(_is_blank(row.get(norm), sentinels) for row in normalized_rows):
             findings.append(
                 QualityFinding(
@@ -229,6 +259,49 @@ def _normalize_declared(
             seen[norm] = name
             target[norm] = name
     return required_normalized, optional_normalized
+
+
+def _sentinel_set(tokens: Iterable[str]) -> frozenset[str]:
+    """Fold declared sentinel tokens into the form :func:`_is_blank` compares."""
+    return frozenset(token.strip().lower() for token in tokens)
+
+
+def _normalize_column_sentinels(
+    declared: Mapping[str, Iterable[str]] | None,
+    required_normalized: Mapping[str, str],
+    optional_normalized: Mapping[str, str],
+) -> dict[str, frozenset[str]]:
+    """Map per-column sentinel declarations onto normalized column names.
+
+    Rejects the two ways a declaration can be quietly meaningless, on the same
+    reasoning as :func:`_normalize_declared`'s duplicate check: a column named
+    twice under two spellings would have one declaration silently overwrite the
+    other, and a column named here but declared in neither ``required`` nor
+    ``optional`` is validated by nothing, so its sentinels would never be
+    consulted. Failing loudly keeps a caller from believing a column is being
+    cleaned when it is not — the failure mode this parameter exists to end.
+    """
+    if declared is None:
+        return {}
+
+    normalized: dict[str, frozenset[str]] = {}
+    seen: dict[str, str] = {}
+    known = set(required_normalized) | set(optional_normalized)
+    for name, tokens in declared.items():
+        norm = normalize_header(name)
+        if norm in seen:
+            raise ValueError(
+                f"blank sentinels for column {name!r} duplicate those for {seen[norm]!r} "
+                "after normalization; declare each column exactly once"
+            )
+        if norm not in known:
+            raise ValueError(
+                f"blank sentinels declared for column {name!r}, which is neither required "
+                "nor optional; a sentinel for a column nobody validates has no effect"
+            )
+        seen[norm] = name
+        normalized[norm] = _sentinel_set(tokens)
+    return normalized
 
 
 def _index_rows(
@@ -337,6 +410,10 @@ def _is_blank(value: object, sentinels: Set[str]) -> bool:
     ``blank_sentinels``): the domain is handed already-parsed rows and knows
     nothing about where they came from, so it cannot decide that the text
     ``"Null"`` is an absent value rather than a coordinator's surname.
+
+    ``sentinels`` is whatever the caller declared *for this column* — the
+    resolution happens in :func:`validate_columns`, so that the same token can
+    be a marker in one column and a value in another.
     """
     if value is None:
         return True

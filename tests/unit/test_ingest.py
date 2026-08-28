@@ -256,3 +256,150 @@ def test_duplicate_declared_columns_are_a_caller_error():
             [{"full_name": "A", "metro_region": "IE"}],
             required=("full_name", "Full Name", "metro_region"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-column blank sentinels
+#
+# One sentinel set for the whole dataset could not say that "NULL" is a
+# placeholder in metro_region and a surname in the name column, so declaring it
+# for the first blanked the second — in every field on that person's row. See
+# docs/pilot-data/columns.yaml (ratified 28 Aug 2026, decision 2) and the
+# fixture professionals_null_surname_and_null_region.json it cites.
+# ---------------------------------------------------------------------------
+
+NAME_REQUIRED = ("name", "metro_region")
+
+
+def test_per_column_sentinels_apply_only_to_the_column_that_declares_them():
+    """The defect this parameter exists to fix, stated as one assertion.
+
+    Every row's ``metro_region`` is a null marker and every row's ``name`` is
+    the surname "Null". Declaring the markers for ``metro_region`` alone must
+    report that column blank and leave the surname alone.
+    """
+    rows = [
+        {"name": "Null", "metro_region": "NULL"},
+        {"name": "Null", "metro_region": "nan"},
+    ]
+    quality = validate_columns(
+        "professionals",
+        rows,
+        required=NAME_REQUIRED,
+        blank_sentinels_by_column={"metro_region": ("NULL", "nan", "N/A")},
+    )
+    assert not quality.is_usable
+    blank = [f for f in quality.findings if f.code == "required_column_entirely_blank"]
+    assert [f.columns for f in blank] == [("metro_region",)]
+
+
+def test_one_global_sentinel_set_still_blanks_every_column():
+    """The old shape, kept working and kept honest about what it does.
+
+    The same rows with the same tokens declared globally blank the surname too.
+    This is not a bug being preserved — it is what a global declaration means,
+    and it is why the pilot contract declares sentinels per column instead.
+    """
+    rows = [
+        {"name": "Null", "metro_region": "NULL"},
+        {"name": "Null", "metro_region": "nan"},
+    ]
+    quality = validate_columns(
+        "professionals",
+        rows,
+        required=NAME_REQUIRED,
+        blank_sentinels=("NULL", "nan", "N/A"),
+    )
+    blanked = {column for f in quality.findings for column in f.columns}
+    assert blanked == {"name", "metro_region"}
+
+
+def test_a_column_may_opt_out_of_the_dataset_wide_sentinels():
+    """An empty declaration is a real declaration, not an absent one.
+
+    A caller that must keep a dataset-wide set — an existing contract, say —
+    can still exempt one column from it. The per-column set replaces the
+    global set for that column rather than adding to it, so ``()`` means none.
+    """
+    rows = [{"name": "Null", "metro_region": "Inland Empire"}]
+    quality = validate_columns(
+        "professionals",
+        rows,
+        required=NAME_REQUIRED,
+        blank_sentinels=("NULL",),
+        blank_sentinels_by_column={"name": ()},
+    )
+    assert quality.is_usable
+    assert quality.findings == ()
+
+
+def test_per_column_sentinels_replace_rather_than_extend_the_global_set():
+    """Declaring one token for a column does not silently keep the others."""
+    rows = [{"name": "A. Rivera", "metro_region": "nan"}]
+    quality = validate_columns(
+        "professionals",
+        rows,
+        required=NAME_REQUIRED,
+        blank_sentinels=("nan",),
+        blank_sentinels_by_column={"metro_region": ("NULL",)},
+    )
+    assert quality.is_usable
+
+
+def test_columns_without_a_declaration_fall_back_to_the_global_set():
+    quality = validate_columns(
+        "professionals",
+        [{"name": "A. Rivera", "metro_region": "nan"}],
+        required=NAME_REQUIRED,
+        blank_sentinels=("nan",),
+        blank_sentinels_by_column={"name": ()},
+    )
+    assert not quality.is_usable
+    assert quality.errors[0].code == "required_column_entirely_blank"
+    assert quality.errors[0].columns == ("metro_region",)
+
+
+def test_per_column_sentinel_keys_are_normalized_like_every_other_header():
+    quality = validate_columns(
+        "professionals",
+        [{"name": "A. Rivera", "  Metro-Region ": "NULL"}],
+        required=NAME_REQUIRED,
+        blank_sentinels_by_column={"Metro Region": ("null",)},
+    )
+    assert not quality.is_usable
+    assert quality.errors[0].code == "required_column_entirely_blank"
+
+
+def test_sentinels_for_an_undeclared_column_are_a_caller_error():
+    """A declaration nothing consults would leave a caller falsely reassured."""
+    with pytest.raises(ValueError, match="neither required nor optional"):
+        validate_columns(
+            "professionals",
+            [{"name": "A. Rivera", "metro_region": "IE"}],
+            required=NAME_REQUIRED,
+            blank_sentinels_by_column={"mtro_region": ("NULL",)},
+        )
+
+
+def test_two_spellings_of_one_column_in_the_sentinel_map_are_a_caller_error():
+    """One declaration would overwrite the other; which one wins is not a policy."""
+    with pytest.raises(ValueError, match="after normalization"):
+        validate_columns(
+            "professionals",
+            [{"name": "A. Rivera", "metro_region": "IE"}],
+            required=NAME_REQUIRED,
+            blank_sentinels_by_column={"metro_region": ("NULL",), "Metro Region": ()},
+        )
+
+
+def test_omitting_the_new_parameter_leaves_existing_callers_unchanged():
+    """The parameter is additive: the old call shape must behave identically.
+
+    ``smartmatch_worker.handlers`` calls ``validate_columns`` without it.
+    """
+    rows = [{"full_name": "Null", "metro_region": "NULL"}]
+    without = validate_columns("professionals", rows, required=REQUIRED)
+    explicit_none = validate_columns(
+        "professionals", rows, required=REQUIRED, blank_sentinels_by_column=None
+    )
+    assert without.findings == explicit_none.findings == ()

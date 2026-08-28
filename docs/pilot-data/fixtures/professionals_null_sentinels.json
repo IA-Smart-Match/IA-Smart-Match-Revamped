@@ -1,18 +1,18 @@
 [
   {
-    "full_name": "Rosalind Achterberg",
+    "name": "Rosalind Achterberg",
     "metro_region": "NULL"
   },
   {
-    "full_name": "Desmond Achike",
+    "name": "Desmond Achike",
     "metro_region": "nan"
   },
   {
-    "full_name": "Marisol Okonjo",
+    "name": "Marisol Okonjo",
     "metro_region": "N/A"
   },
   {
-    "full_name": "Trevor Whitfield",
+    "name": "Trevor Whitfield",
     "metro_region": "NULL"
   }
 ]

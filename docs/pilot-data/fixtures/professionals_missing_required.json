@@ -1,21 +1,21 @@
 [
   {
-    "full_name": "Marguerite Achterberg",
+    "name": "Marguerite Achterberg",
     "company": "Pomona Ridge Analytics",
     "title": "Data Analyst"
   },
   {
-    "full_name": "Osric Villanueva",
+    "name": "Osric Villanueva",
     "company": "Irvine Meridian Labs",
     "title": "Product Manager"
   },
   {
-    "full_name": "Perpetua Nakagawa",
+    "name": "Perpetua Nakagawa",
     "company": "Whittier Civic Analytics",
     "title": "Program Coordinator"
   },
   {
-    "full_name": "Bartholomew Achike",
+    "name": "Bartholomew Achike",
     "company": "Fullerton Bridge Consulting",
     "title": "Engineering Lead"
   }

@@ -1,6 +1,6 @@
 [
   {
-    "full_name": "Rosalind Achebe",
+    "name": "Rosalind Achebe",
     "metro_region": "San Gabriel Valley",
     "company": "Pomona Ridge Analytics",
     "title": "Director of Data Science",
@@ -9,7 +9,7 @@
     "initials": "RA"
   },
   {
-    "full_name": "Desmond Okafor",
+    "name": "Desmond Okafor",
     "metro_region": "Orange County",
     "company": "Tustin Harbor Consulting",
     "title": "Principal Software Engineer",
@@ -18,7 +18,7 @@
     "initials": "DO"
   },
   {
-    "full_name": "Marisol Quintanilla",
+    "name": "Marisol Quintanilla",
     "metro_region": "Los Angeles - East",
     "company": "Whittier Civic Analytics",
     "title": "VP Community Programs",
@@ -27,7 +27,7 @@
     "initials": "MQ"
   },
   {
-    "full_name": "Trevor Bramwell",
+    "name": "Trevor Bramwell",
     "metro_region": "Long Beach",
     "company": "Harbor Line Robotics",
     "title": "Lead Robotics Engineer",
@@ -36,7 +36,7 @@
     "initials": "TB"
   },
   {
-    "full_name": "Anaya Ferreira",
+    "name": "Anaya Ferreira",
     "metro_region": "Los Angeles - Central",
     "company": "Broncoline Health Tech",
     "title": "Chief Product Officer",
@@ -45,7 +45,7 @@
     "initials": "AF"
   },
   {
-    "full_name": "Julius Vandermeer",
+    "name": "Julius Vandermeer",
     "metro_region": "San Fernando Valley",
     "company": "Valleycrest Ventures",
     "title": "Managing Partner",
@@ -54,7 +54,7 @@
     "initials": "JV"
   },
   {
-    "full_name": "Priyanka Deshmukh",
+    "name": "Priyanka Deshmukh",
     "metro_region": "Orange County",
     "company": "Irvine Meridian Labs",
     "title": "Data Engineering Manager",
@@ -63,7 +63,7 @@
     "initials": "PD"
   },
   {
-    "full_name": "Cormac Whitfield",
+    "name": "Cormac Whitfield",
     "metro_region": "Los Angeles - West",
     "company": "Westline Cyber Group",
     "title": "Chief Information Security Officer",
@@ -72,7 +72,7 @@
     "initials": "CW"
   },
   {
-    "full_name": "Ines Barreto",
+    "name": "Ines Barreto",
     "metro_region": "San Gabriel Valley",
     "company": "Diamond Bar Design Studio",
     "title": "VP Product Design",
@@ -81,7 +81,7 @@
     "initials": "IB"
   },
   {
-    "full_name": "Solomon Achterberg",
+    "name": "Solomon Achterberg",
     "metro_region": "Los Angeles - South",
     "company": "Southgate Analytics Group",
     "title": "Senior Data Scientist",
@@ -90,7 +90,7 @@
     "initials": "SA"
   },
   {
-    "full_name": "Chidinma Obiora",
+    "name": "Chidinma Obiora",
     "metro_region": "Orange County",
     "company": "Fullerton Bridge Consulting",
     "title": "Director of Engineering",
@@ -99,7 +99,7 @@
     "initials": "CO"
   },
   {
-    "full_name": "Bartholomew Kessler",
+    "name": "Bartholomew Kessler",
     "metro_region": "Long Beach",
     "company": "Shoreline Fintech Partners",
     "title": "Head of Product",
@@ -108,7 +108,7 @@
     "initials": "BK"
   },
   {
-    "full_name": "Nadia Okonjo",
+    "name": "Nadia Okonjo",
     "metro_region": "Los Angeles - Central",
     "company": "Central Line AI",
     "title": "Founder & CEO",
@@ -117,7 +117,7 @@
     "initials": "NO"
   },
   {
-    "full_name": "Felix Draper",
+    "name": "Felix Draper",
     "metro_region": "San Fernando Valley",
     "company": "Valley Forge Media Tech",
     "title": "VP Marketing",
@@ -126,7 +126,7 @@
     "initials": "FD"
   },
   {
-    "full_name": "Winona Standing Bear",
+    "name": "Winona Standing Bear",
     "metro_region": "San Gabriel Valley",
     "company": "Rowland Heights Analytics",
     "title": "Principal Data Scientist",
@@ -135,7 +135,7 @@
     "initials": "WS"
   },
   {
-    "full_name": "Reginald Achterhof",
+    "name": "Reginald Achterhof",
     "metro_region": "Los Angeles - West",
     "company": "Westgate Robotics Lab",
     "title": "Research Scientist",
@@ -144,7 +144,7 @@
     "initials": "RA"
   },
   {
-    "full_name": "Simone Beaulieu",
+    "name": "Simone Beaulieu",
     "metro_region": "Orange County",
     "company": "Anaheim Grove Ventures",
     "title": "VP Community Engagement",
@@ -153,7 +153,7 @@
     "initials": "SB"
   },
   {
-    "full_name": "Tobias Marchetti",
+    "name": "Tobias Marchetti",
     "metro_region": "Los Angeles - East",
     "company": "East Valley Cyber Defense",
     "title": "Security Architect",
@@ -162,7 +162,7 @@
     "initials": "TM"
   },
   {
-    "full_name": "Adaeze Nwachukwu",
+    "name": "Adaeze Nwachukwu",
     "metro_region": "Long Beach",
     "company": "Long Beach Data Collective",
     "title": "Data Science Lead",
@@ -171,7 +171,7 @@
     "initials": "AN"
   },
   {
-    "full_name": "Percival Oyelaran",
+    "name": "Percival Oyelaran",
     "metro_region": "San Fernando Valley",
     "company": "Encino Startup Studio",
     "title": "Managing Director",
@@ -180,7 +180,7 @@
     "initials": "PO"
   },
   {
-    "full_name": "Gwendolyn Achterberg",
+    "name": "Gwendolyn Achterberg",
     "metro_region": "Los Angeles - South",
     "company": "South Bay Health Analytics",
     "title": "Chief AI Officer",
@@ -189,7 +189,7 @@
     "initials": "GA"
   },
   {
-    "full_name": "Mateus Villalobos",
+    "name": "Mateus Villalobos",
     "metro_region": "Orange County",
     "company": "Santa Ana River Consulting",
     "title": "Principal Engineer",
@@ -198,7 +198,7 @@
     "initials": "MV"
   },
   {
-    "full_name": "Ottoline Faraday",
+    "name": "Ottoline Faraday",
     "metro_region": "San Gabriel Valley",
     "company": "Pomona Bronco Ventures",
     "title": "Director of Innovation",
@@ -207,7 +207,7 @@
     "initials": "OF"
   },
   {
-    "full_name": "Elias Nakashima",
+    "name": "Elias Nakashima",
     "metro_region": "Los Angeles - West",
     "company": "Westside Quant Labs",
     "title": "Head of Data Science",
@@ -216,7 +216,7 @@
     "initials": "EN"
   },
   {
-    "full_name": "Beatrix Onyekachi",
+    "name": "Beatrix Onyekachi",
     "metro_region": "Los Angeles - Central",
     "company": "Central Analytics Guild",
     "title": "VP Diversity Programs",
@@ -225,7 +225,7 @@
     "initials": "BO"
   },
   {
-    "full_name": "Auberon Castellano",
+    "name": "Auberon Castellano",
     "metro_region": "Long Beach",
     "company": "Portside Robotics Ventures",
     "title": "CTO",
@@ -234,7 +234,7 @@
     "initials": "AC"
   },
   {
-    "full_name": "Thandiwe Achebe-Ross",
+    "name": "Thandiwe Achebe-Ross",
     "metro_region": "San Fernando Valley",
     "company": "Sherman Oaks Product Lab",
     "title": "VP Product",
@@ -243,7 +243,7 @@
     "initials": "TA"
   },
   {
-    "full_name": "Cassius Whitmore",
+    "name": "Cassius Whitmore",
     "metro_region": "Orange County",
     "company": "Costa Mesa Cyber Solutions",
     "title": "CISO",
@@ -252,7 +252,7 @@
     "initials": "CW"
   },
   {
-    "full_name": "Yolanda Achterhuis",
+    "name": "Yolanda Achterhuis",
     "metro_region": "Los Angeles - East",
     "company": "Montebello Data Works",
     "title": "Data Engineering Director",
@@ -261,7 +261,7 @@
     "initials": "YA"
   },
   {
-    "full_name": "Wendell Null",
+    "name": "Wendell Null",
     "metro_region": "San Gabriel Valley",
     "company": "Claremont Analytics Partners",
     "title": "Senior Software Engineer",
