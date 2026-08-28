@@ -1342,37 +1342,9 @@ export interface RetentionNudge {
   source?: string;
 }
 
-export interface MockLoginResponse {
-  role: string;
-  user: Record<string, unknown>;
-  redirect_path: string;
-  available_roles: Array<{ role: string; email: string; name: string; id: string }>;
-}
 
 const API_BASE = "/api";
 
-export async function mockLogin(email: string, role?: string): Promise<MockLoginResponse> {
-  const res = await fetch(`${API_BASE}/portals/auth/mock-login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, role }),
-  });
-  if (!res.ok) {
-    let detail = res.statusText || String(res.status);
-    try {
-      const errBody = (await res.json()) as { detail?: unknown };
-      if (typeof errBody.detail === "string") {
-        detail = errBody.detail;
-      } else if (Array.isArray(errBody.detail)) {
-        detail = JSON.stringify(errBody.detail);
-      }
-    } catch {
-      /* ignore non-JSON error bodies */
-    }
-    throw new Error(`Login failed (${res.status}): ${detail}`);
-  }
-  return res.json();
-}
 
 export async function fetchStudentProfile(studentId: string): Promise<StudentProfile & { source: string }> {
   const res = await fetch(`${API_BASE}/portals/students/${studentId}`);

@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { motion } from "motion/react";
 import { GraduationCap, Building, ShieldCheck, Briefcase } from "lucide-react";
-import { mockLogin } from "../../lib/api";
 
 const panelReveal = {
   initial: { opacity: 0, y: 24 },
@@ -53,23 +52,21 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleLogin(email: string, role: string) {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await mockLogin(email, role);
-      sessionStorage.setItem("iaw_session", JSON.stringify({ user: response.user, role: response.role }));
-      navigate(response.redirect_path);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  // Sign-in is not connected. The archived route let the caller name their own
+  // role (Fix #7); identity must come from a verified token, which arrives with
+  // GET /v1/me. Until then this reports the truth rather than opening a session
+  // no server agreed to -- a login that appears to succeed is worse than one
+  // that plainly does not.
+  function handleLogin(_email: string, _role: string) {
+    setLoading(false);
+    setError(
+      "Sign-in is not connected yet. Accounts and server-assigned roles arrive with the new API.",
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await handleLogin(email, selectedRole);
+    handleLogin(email, selectedRole);
   }
 
   return (
