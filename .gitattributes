@@ -1,0 +1,16 @@
+# The repository is LF throughout. Contributors work on WSL and Windows, where
+# an editor writing CRLF would otherwise commit a whole-file diff that hides
+# the one line that actually changed.
+* text=auto eol=lf
+
+# Binary. Never normalized, never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
