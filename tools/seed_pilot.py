@@ -9,22 +9,46 @@ stable subject, then the database supplies account and membership facts.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from smartmatch_api.config import Settings
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_db_engine
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch"
+# A dev-only one-shot tool may serialize globally. PostgreSQL releases this
+# advisory lock at transaction end, including rollback, so a failed seed cannot
+# leave later seed attempts blocked.
+SEED_PILOT_ADVISORY_LOCK_KEY = 0x534D50494C4F54
 
 
 class SeedConflictError(RuntimeError):
     """Existing data disagrees with the requested pilot identity."""
+
+
+class SeedConfigurationError(RuntimeError):
+    """The seed command was invoked outside its explicitly local-pilot scope."""
+
+
+def require_development_fixture_settings(settings: Settings) -> Settings:
+    """Refuse to seed unless validated settings describe the local fixture pilot."""
+    if settings.edition.value != "dev" or not settings.use_fixture_providers:
+        raise SeedConfigurationError(
+            "seed-pilot requires SMARTMATCH_EDITION=dev and SMARTMATCH_USE_FIXTURE_PROVIDERS=true."
+        )
+    return settings
+
+
+def acquire_seed_lock(connection: Connection) -> None:
+    """Serialize the complete select/insert sequence inside this transaction."""
+    connection.execute(
+        sa.text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": SEED_PILOT_ADVISORY_LOCK_KEY},
+    )
 
 
 def _existing_or_insert_tenant(
@@ -197,19 +221,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--unit-path", default="pilot", help="ltree path receiving the membership")
     parser.add_argument("--unit-type", default="program", help="Org-unit type")
     parser.add_argument("--unit-name", default="Synthetic Pilot Unit", help="Org-unit display name")
-    parser.add_argument(
-        "--database-url",
-        default=os.getenv("SMARTMATCH_DATABASE_URL", DEFAULT_DATABASE_URL),
-        help="Migrated PostgreSQL SQLAlchemy URL (defaults to SMARTMATCH_DATABASE_URL)",
-    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    engine = create_db_engine(args.database_url)
+    try:
+        settings = require_development_fixture_settings(Settings())
+    except SeedConfigurationError as exc:
+        print(f"seed-pilot: configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    engine = create_db_engine(settings.database_url)
     try:
         with engine.begin() as connection:
+            acquire_seed_lock(connection)
             seed_pilot(
                 connection,
                 tenant_slug=args.tenant_slug,
@@ -221,7 +247,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 email=args.email,
                 role=args.role,
             )
-    except SeedConflictError as exc:
+    except (SeedConflictError, SeedConfigurationError) as exc:
         print(f"seed-pilot: conflict: {exc}", file=sys.stderr)
         return 2
     except SQLAlchemyError as exc:

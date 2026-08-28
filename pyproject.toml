@@ -80,6 +80,8 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
+    # The repository root, so tests can import the single-file tools/ scripts.
+    ".",
     "python/smartmatch_domain",
     "python/smartmatch_authz",
     "python/smartmatch_providers",

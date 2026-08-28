@@ -62,6 +62,26 @@ def test_direct_factory_rejects_fixture_principals_without_fixture_mode():
         )
 
 
+@pytest.mark.parametrize(
+    ("token", "subject"),
+    [
+        ("", "pilot-subject"),
+        ("   ", "pilot-subject"),
+        ("pilot-token", ""),
+        ("pilot-token", "\t"),
+        (1, "pilot-subject"),
+        ("pilot-token", 1),
+    ],
+)
+def test_direct_factory_rejects_blank_or_non_string_principals(token: object, subject: object):
+    with pytest.raises(ProviderConfigurationError, match="non-blank strings"):
+        build_token_verifier(
+            Edition.DEV,
+            use_fixture=True,
+            fixture_principals={token: subject},  # type: ignore[arg-type]
+        )
+
+
 @pytest.mark.parametrize("edition", ["staging", "classroom", "production"])
 def test_development_principals_are_rejected_outside_dev(edition: str):
     with pytest.raises(ValidationError, match="dev_principals"):
