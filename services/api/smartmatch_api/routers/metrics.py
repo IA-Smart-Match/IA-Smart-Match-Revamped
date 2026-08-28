@@ -145,7 +145,13 @@ def _authorize_unit_read(
     principal: CurrentPrincipal,
     unit_id: uuid.UUID,
 ) -> None:
-    """Load and authorize the unit exactly as the imports router does."""
+    """Load the unit and authorize org-unit access without a role gate.
+
+    Mirrors ``imports.py``'s unit load and ``assert_allowed`` resource shape, but
+    unlike that router it passes no ``required_roles``. Any active membership at
+    the unit may read metrics and drill into rows — see
+    ``tests/authz/test_policy_matrix.py`` (:data:`INTENTIONALLY_UNGATED_OPERATIONS`).
+    """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
         principal.principal,
