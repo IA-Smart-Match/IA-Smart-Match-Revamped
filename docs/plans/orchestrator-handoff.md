@@ -1,225 +1,244 @@
 # Orchestrator handoff
 
 **For:** the next orchestrating session (Opus 5, high effort)
-**From:** the session that ran Wave A and launched Wave B
-**Branch:** `claude/smart-match-v1-migration-sp1t49` in both
-`BrooklynD23/IA-Smart-Match-Revamped` and
-`BrooklynD23/Nebiux-Team-IA-West-SmartMatch`
-**State at handoff:** Wave A committed and pushed through `a0a3e29`; Wave B in
-flight.
+**From:** the session that closed the Wave 0 HIGH defects and built Waves 1–3D
+**Date:** 2026-08-28
+**Repo (absolute):** `/mnt/c/Users/DangT/Documents/GitHub/IA-Smart-Match-Revamped`
+**Branch:** `friday-deliverable-828` — 19 commits ahead of `main`
+**Working tree:** clean, everything committed
+**Not pushed.** Nothing has reached CI. That is the next action.
 
-Read this before reading the plan file. It records what is *true now*, what is
-*in motion*, and the traps that have already cost time. The approved plan lives
-at `/root/.claude/plans/idempotent-conjuring-crayon.md`; the authoritative
-backlog is `docs/plans/remaining-foundation-r1-work.md`.
+> This file supersedes the previous handoff (Wave A/B of the
+> `claude/smart-match-v1-migration-sp1t49` migration). That content remains in
+> git history.
+
+The approved plan for this session is at
+`/home/danny/.claude/plans/given-these-updates-from-eager-kahn.md`.
 
 ---
 
-## Standing constraints — these are not negotiable
+## Standing constraints
 
-From the migration orchestrator contract supplied by the user:
+Carried forward from the previous handoff. **They referenced a different branch
+and contract — confirm with the user that they still bind before relying on
+them.**
 
 - `ALLOW_REMOTE_PUSH=false`, `ALLOW_CLOUD_DEPLOY=false`,
   `ALLOW_LIVE_PROVIDERS=false`, `ALLOW_LIVE_DATA=false`.
-- **One recorded deviation:** the session-level branch instruction requires
-  pushing to `claude/smart-match-v1-migration-sp1t49`, which overrides
-  `ALLOW_REMOTE_PUSH=false` **for that feature branch only**. No other remote
-  write is authorized.
-- The legacy repository at `/home/user/Nebiux-Team-IA-West-SmartMatch`
-  (`bdce024de1a9bf488c6bd9a7c24a3c87e03ffa42`) is **read-only evidence**. Never
-  modify it. Verify with `git status --porcelain` after any work that reads it.
 - No production credentials, no live PII, no live provider calls.
 - **Never declare production readiness.** Nothing is deployed.
 - **Do not open a pull request** unless the user explicitly asks.
-- §6 of the contract: an agent may not approve its own port.
+- An agent may not approve its own port.
+
+This session did **not** push and did **not** open a PR — the user asked only to
+commit and hand off.
 
 ---
 
-## Where the work actually stands
+## Local gate at handoff
 
-### Landed and pushed
+`make check` passes in full: format, lint, `mypy --strict`, 4 import contracts,
+**880 passed / 1 skipped**, forbidden-behaviour scan clean (331 files),
+agent-memory ledger clean (3 records), license policy clean (43 allowed, 4
+recorded exceptions), environment isolation clean (4 environments, 40
+identifiers, none shared).
 
-| Commit | What |
-|---|---|
-| `bde3f71` | ADR-0004..0007 |
-| `703a36b` | Three defects that made failure states invisible |
-| `ed47376` | Containerization, with CI asserting on the built image |
-| `a0a3e29` | Independent port review; one entry of four approved |
+`make openapi-check` reports the committed document current.
 
-Gates at `a0a3e29`: ruff format + check, `mypy --strict` (38 files), 4 import
-contracts, **323 passed / 1 skipped**, forbidden-behavior scan clean (110
-files), OpenAPI current.
+---
 
-### In flight at handoff
+## What landed (8 commits)
 
-Three background agents were running. **Verify their state before assuming
-anything** — two earlier waves were killed mid-flight by an account spend limit,
-once leaving a 669-line file that did not parse.
-
-| Agent | Task | Owns |
+| Commit | Wave | Summary |
 |---|---|---|
-| Defect planner | `docs/plans/defect-remediation.md` | that file only; read-only elsewhere |
-| B1 | Worker execution + OIDC (J6/J7) | `services/worker/**`, `tests/integration/test_worker_execution.py`, `tests/contract/test_worker_boundary.py` |
-| B2 | Re-drive command (J4) | `persistence/redrive.py`, `persistence/__init__.py`, `api/routers/redrive.py`, one line of `api/main.py`, `tests/integration/test_redrive.py` |
+| `c03eb43` | 0 | Worker seam — both HIGH merge blockers |
+| `8f24e41` | 1E | `resolved_date()` resolves in the event's own timezone |
+| `51c291f` | 1F | Column contract, per-column blank sentinels |
+| `6baf40e` | 1A+2B | Metric register (domain) + metrics routes (ADR-0011) |
+| `d55fa02` | 1G | Engagement schema, migration `0009` |
+| `9edeea3` | 2H | Body-size middleware, authz matcher, `/v1/me` suspension, OpenAPI `oneOf` |
+| `dccea8d` | 3D | Web portal calls onto the request seam, `mockData` retired |
+| `ad273f2` | — | OpenAPI regenerated once, after both API-surface changes |
 
-**First actions on picking this up:** `git status --porcelain`, then
-`git log --oneline -6`, then run the full gate set. If an agent died mid-write,
-**reject the partial output and re-task it** rather than repairing it — that
-rule is in the plan for a reason.
+### Wave 0 — verified in source, not taken on trust
 
-### Landed since this handoff
+Both HIGH defects closed. One root cause: the handler owned a session it should
+not have.
 
-Both of the items this section originally listed as "not started" are done.
-
-- **F7 — widen the schema drift test.** Landed in `f6980ef`. It now compares
-  foreign key columns/targets/delete actions, nullability, dialect-compiled
-  column types, and primary key / unique / CHECK constraint names, with unique
-  constraints also compared by columns; four load-bearing constraints are
-  additionally asserted absolutely against the database. The tenant-anchoring
-  check now enumerates tables from the database rather than from `schema.py`.
-  ADR-0004 has an amendment. See `docs/plans/remaining-foundation-r1-work.md`
-  (F7, now struck through) and `docs/plans/defect-remediation.md` §6.
-
-- **Wave C — identity model.** Landed in `a6a8ce5`. Migration `0003` makes
-  `user_account.external_subject` globally unique
-  (`uq_user_account_external_subject`), refuses to run against duplicate
-  subjects rather than deduplicating them, and names the offenders when it
-  finds any. `uq_user_account_tenant_subject` is kept as now-redundant
-  contract-phase work. `schema.py` mirrors the new constraint,
-  `principals.py`'s docstring records why the constraint is what makes
-  `.one_or_none()` sound, and `tests/integration/test_principal_identity.py` is
-  new. Integration subjects now route through `conftest.unique_subject` for a
-  per-session token, since the constraint is now global rather than
-  per-tenant. Recorded as ADR-0008 and as backlog item A1c (it had no backlog
-  number before this).
-
-  > **Correction to an earlier version of this document — now resolved.** It
-  > said the drift test would catch the new constraint if it were not mirrored
-  > in `schema.py`. **That was false when written, and relying on it would have
-  > been a silent gap** — at the time, the drift test compared column *name
-  > sets* and three specifically-named unique constraints, nothing compared
-  > unique constraints as a set, and Wave C's migration adds no column. F7
-  > landed first, exactly as this correction recommended ("do F7 before Wave
-  > C"), and closed the gap it named: the drift test now compares unique
-  > constraints as a set (and primary key and CHECK names too), so
-  > `uq_user_account_external_subject` would have failed the build in both
-  > directions had it been left unmirrored. The sequencing risk this correction
-  > flagged no longer exists.
-  **Why the defect mattered:** `PrincipalRepository.load_by_subject` filters on
-  `external_subject` alone and calls `.one_or_none()`, while the only
-  constraint before `0003` was `(tenant_id, external_subject)` — so one IdP
-  subject with accounts in two tenants raised `MultipleResultsFound` and 500s
-  every authenticated request.
-
-### Not started
-
-- **The defect backlog** — F8, F9 (29 port findings), A5, and the smaller items
-  F7's own work surfaced: F10 (behavioural tests for six name-only CHECK
-  constraints), F11 (`transaction_per_migration` decision before `0004`), F12
-  (drop the now-redundant `uq_user_account_tenant_subject` at contract phase).
-  See `docs/plans/remaining-foundation-r1-work.md`.
+- `_review_session_factory` and its undisposed second engine are **gone** from
+  `handlers.py`. The only remaining `lru_cache` is `get_settings` in
+  `config.py`, which is correct.
+- `CommandContext.session` carries the executor-owned transaction.
+- `execution.py::_finish` — transition applied → `append_event` + one
+  `commit()`; not applied → `session.rollback()` (discarding the handler's
+  staged review items) then a **fresh** session for the `job.outcome_discarded`
+  event. Failure paths roll back before writing the terminal event.
+- `_emit` deliberately keeps its own separate session. **Do not "fix" this** —
+  progress must be visible mid-run and survive a rollback.
 
 ---
 
-## The user's process requirements
+## Blockers
 
-These were given explicitly and must carry forward:
+### 1. No PostgreSQL locally — integration proof exists only on CI *(environmental)*
 
-1. **Staged commits.** One coherent stage per commit, with a message that
-   explains *why*.
-2. **An audit before every commit.** Run the `code-review` skill at `high` on
-   the staged diff. **Verify each finding against the code before acting on
-   it** — reviews err in both directions.
-3. **A documentation agent at the end of every wave** — Sonnet, low effort —
-   to update documentation, design decisions, known bugs, and architecture
-   diagrams so they reflect the repository as it actually is.
-4. **Hand off to a fresh Opus 5 high orchestrator** when context gets long.
+No `postgres` user, no package, no systemd unit, no root for `apt-get`, and
+Docker Desktop's daemon is not running. `make db-up`, `make migrate-check` and
+`make test-integration` **cannot run here**.
 
-### On the audit gate
+This matters: the Wave 0 fix — the reason PR #7 was blocked — is proven by
+integration tests, and migration `0009` has ~20 unrun behavioural constraint
+tests.
 
-`code-review` **is** available as a skill. An earlier check with `ListSkills`
-returned nothing and led to a wrong conclusion that it was absent — `ListSkills`
-returns only claude.ai skills, not local ones. Invoke it with
-`Skill(skill="code-review", args="high")`.
+**CI covers it.** `.github/workflows/verify.yml` runs a `postgres:16` service,
+`cd db && alembic upgrade head` from empty (line 92), and `pytest tests/` with
+**no marker exclusion** (line 95).
 
-It earned its place: at high effort it found **five real defects in work that
-had already passed all six gates**, including one where a fix had recreated the
-original bug's shape one layer down. Do not skip it, and do not substitute your
-own read for it.
+To verify locally: start Docker Desktop, then
+`make db-up && make migrate && make test-integration`.
 
----
+### 2. Metrics routes are ungated — a decision, not a bug. **Needs a call.**
 
-## Traps that have already cost time
+`services/api/smartmatch_api/routers/metrics.py::_authorize_unit_read` calls
+`assert_allowed` with **no `required_roles`**. The imports router its docstring
+claims to mirror "exactly" (`routers/imports.py:232-241`) passes
+`required_roles=_IMPORT_ROLES`. That docstring is inaccurate, and **any active
+membership at the unit, of any role, can read unit metrics and drill into the
+underlying rows.**
 
-- **PostgreSQL and Docker do not survive** an agent dying or a daemon restart.
-  Re-run `make db-up` and restart `dockerd` before trusting a test count. A run
-  reporting *"216 passed, 107 skipped"* means the database is down and the
-  integration suite silently skipped — **not** that things pass.
-- **`curl` to `127.0.0.1` goes through the agent proxy** and fails with exit 56.
-  Use `curl --noproxy '*'`. Never disable TLS verification or unset
-  `HTTPS_PROXY`.
-- **`docker manifest inspect` fails against Docker Hub here** even for valid
-  digests. Check `docker images --digests` against the local mirror instead.
-  A digest that looks fabricated may be fine — verify before accusing.
-- **`git add -A` before scanning, not after.** `tools/scan_forbidden.py` reads
-  tracked *and* untracked-not-ignored files; scanning first is how a violation
-  once shipped past a locally-clean run.
-- **Ruff reformats between edits**, so multi-line edit anchors go stale. Match
-  one distinctive line, or rewrite the whole function.
-- **`Row.count` is the tuple method, not the column.** Label ambiguous columns
-  in `RETURNING`. Strict typing caught this; nothing else did.
-- **`IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` re-executes** in PostgreSQL
-  and claims every row. Use a CTE. Observed here: a `limit=2` claim took all 5.
-- **`sa.func.make_interval(secs=…)` does not work** — SQLAlchemy's generic
-  `func` emits no named arguments. Compute intervals in Python.
-- **`str(engine.url)` masks the password** as `***`. Use
-  `render_as_string(hide_password=False)`.
-- **Do not assert controls that do not exist.** A test asserting unit-scoped job
-  reads had to be corrected: `job` carries no owning unit (that is backlog A5).
-- **Stray wheels.** 28 MB of pandas/numpy wheels were once downloaded into the
-  repository root by tooling run from the wrong directory. `*.whl` and
-  `*.tar.gz` are now gitignored; if you see them again, something is running
-  with the wrong cwd.
+Drill-down returns the actual rows behind an aggregate, and ADR-0014 is a
+minimum-disclosure decision. This may be right for a metrics surface, or too
+open for drill-down specifically — but it should be chosen, not inherited by
+accident from a helper copied without its role gate.
 
----
+Recorded honestly rather than papered over: `tests/authz/test_policy_matrix.py`
+gained `INTENTIONALLY_UNGATED_OPERATIONS`, and every universal property scoped
+out for these operations has an explicit positive counterpart test asserting the
+actual ungated behaviour. **If these should be gated, add `required_roles` in
+`metrics.py`; the matrix rows follow from it.**
 
-## What I would not trust without re-checking
+### 3. `npm ci` cannot complete on the `/mnt/c` mount *(environmental)*
 
-Stated plainly, because a handoff that only lists successes is not useful:
+Three attempts failed with `ENOTEMPTY: rmdir node_modules/date-fns/docs` and
+`ENOENT: mkdir node_modules/tar` — Windows holds directory handles on DrvFs. The
+identical install succeeds in **13 seconds** on the WSL-native filesystem.
 
-- **Four ADRs were committed as `bde3f71` outside my visible actions.** Contents
-  verified clean (exactly the four files, correctly ordered before the fix
-  commit), but I did not issue that commit and cannot account for it. If
-  something similar appears, inspect before building on it.
-- **F-29 in `port-verification.md`** reports 5 pre-existing dispatcher test
-  failures against a 295-test baseline. Those were an artifact of reading the
-  file while another agent was mid-edit; the suite is green now (26 dispatcher
-  tests pass). The finding is stale, not wrong at the time.
-- **The `/u/{token}` 200 response** now advertises `application/json` alongside
-  `text/html`. The seven error responses are correct (JSON only), which was the
-  harmful half; the success response carries a cosmetic extra media type. Fix it
-  properly if you touch that route.
-- **The port review's severity ratings are its own.** Where the remediation plan
-  disagrees with them, the plan was asked to argue the case — read the argument,
-  do not defer to either automatically.
-- **ADR-0004 understates the schema divergence.** It names `org_unit.tenant_id`
-  as the example of a `schema.py` foreign key missing the migration's
-  `ondelete`. In fact **all seven** tenant-parent foreign keys in `schema.py`
-  carry no `ondelete`, while the migrations deliberately specify `RESTRICT` for
-  some and `CASCADE` for others — so the hand-written mirror cannot represent a
-  distinction the database is actually making. Verified by count. The ADR is not
-  wrong, it is narrower than the truth; widen it when F7 lands.
+`apps/web/legacy-frontend/node_modules` is currently a **symlink** to
+`/home/danny/lf-nodemodules/node_modules`. Because `.gitignore` matches
+directories, the symlink appeared as untracked and is excluded via
+`.git/info/exclude` (local only — tracked `.gitignore` untouched).
+
+To rebuild web deps:
+
+```bash
+mkdir -p ~/lf-nodemodules && cd ~/lf-nodemodules
+cp /mnt/c/Users/DangT/Documents/GitHub/IA-Smart-Match-Revamped/apps/web/legacy-frontend/package.json .
+cp /mnt/c/Users/DangT/Documents/GitHub/IA-Smart-Match-Revamped/apps/web/legacy-frontend/package-lock.json .
+npm ci
+ln -sfn ~/lf-nodemodules/node_modules \
+  /mnt/c/Users/DangT/Documents/GitHub/IA-Smart-Match-Revamped/apps/web/legacy-frontend/node_modules
+```
+
+### 4. Wave 3D verified by typecheck only, never `vite build`
+
+`tsc --noEmit` passes clean against the migrated `api.ts` (run natively) — the
+gate that catches a caller depending on a changed error shape. `vite build` was
+not run locally. **The web app has no test runner and zero test files**; CI's web
+job is `install → typecheck → build → audit`, so bundling is verified there and
+nowhere else. Standing up Vitest remains the obvious follow-up.
+
+### 5. Orphaned Codex sandbox, PID `509944`
+
+Still alive with **write access to the repo** after its job
+(`task-mtd3d4on-ahus64`) ended `failed`. `codex-companion cancel` reports no such
+job, so it cannot be cancelled cleanly. It is idle; left alone rather than
+killing a user process. It left a stale `.git/index.lock` that blocked
+committing until cleared. **If commits fail with `index.lock` again, this is
+why.**
 
 ---
 
-## The shape that has worked
+## Remaining work, in order
 
-Waves of agents with **strictly disjoint file ownership**, an explicit allowlist
-per agent, agents that never commit, and an orchestrator that verifies every
-claim before staging. Every rule in that list was earned by a failure.
+### Immediate — push and confirm CI
 
-The single highest-value habit: **verify the agent's claim against the code
-before acting on it.** In this session that caught a fabricated-looking digest
-that was real, a real digest verification that failed for proxy reasons, a
-"green" test run that was silently skipping the database, a CI gate that could
-never have passed, and a test that could not fail.
+```bash
+cd /mnt/c/Users/DangT/Documents/GitHub/IA-Smart-Match-Revamped
+git push -u origin friday-deliverable-828
+gh pr checks 7 --watch
+```
+
+CI is where the Wave 0 fix and migration `0009` actually get proven. **Do not
+merge before those are green** — local `make check` deliberately excludes
+integration tests. Confirm the user wants a push first (see standing
+constraints).
+
+### Wave 3C — provenance wiring (last planned wave, not started)
+
+Fence: `apps/web/legacy-frontend/src/app/pages/**` only.
+
+The ADR-0011 primitives at `src/app/components/provenance/` are complete,
+exported, type-safe, and **imported by nothing**. Wire `AccountableValue`,
+`MetricValueDisplay`, `MetricDrilldownTrigger` and `SyntheticDataBanner` into the
+metric-bearing pages — `Pipeline.tsx` first, since ADR-0011 names it.
+
+Every number gets a definition, a provenance badge, and a drill-down. Unknown
+renders as *unknown*, never 0. The synthetic-data banner goes site-wide, which is
+what keeps this consistent with `docs/decisions/pilot-decisions.md` §D-0,
+recording the copied frontend as development-only and not the product.
+
+The typed metrics client was deliberately **not** added to `lib/api.ts` this
+session because the route shape was unsettled. It is settled now (`ad273f2`); add
+it as part of 3C.
+
+### Backlog surfaced this session
+
+- **`attendance_record.event_id` has no foreign key** — no `event` table exists
+  yet, gated behind ADR-0012's tag vocabulary. Whoever builds `event` must add
+  the FK back. Documented at length in migration `0009`.
+- **`tests/integration/test_check_constraints.py` is a shared registry** with a
+  completeness meta-test over all CHECK constraints. Any future schema wave
+  adding constraints must register there — concurrent waves will collide on it.
+- **Pipeline funnel metrics resolve to unknown** because S12's persistence is not
+  started. That is intended and *is* the ADR-0011 demonstration. Do not "fix" it
+  by fabricating a data source.
+
+---
+
+## What Dr. Wang can and cannot be shown
+
+**Can:** a server-assigned identity; a live import that quarantines dirty rows
+into a durable review queue; a column contract with fixtures that each provoke a
+named finding; a metrics surface that admits when it does not know a number *and
+says why*, with a definition and drill-down behind the one number it does know;
+and a rewards schema that refuses to hold an unowned reward.
+
+**Cannot:** matching or scoring — `assert_registry_approved()` fails closed at
+`factor_registry.py:256` until gate G1 is approved, which is a stakeholder
+workshop, not code. Nor the crawler-fed event pipeline (S4/S5), behind gate G3's
+threat model. Nor a shippable rewards catalog, which needs D6's named budget
+owner.
+
+None of those three is limited by engineering capacity.
+
+---
+
+## Process notes worth carrying forward
+
+- **Drive Codex from Bash directly**, not through the `codex:codex-rescue`
+  wrapper:
+  `node /home/danny/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs task --background --write "<prompt>"`,
+  then `status <id>` / `result <id>`. Costs the orchestrator no context.
+- **Leave `--model` unset.** The account's configured model is `gpt-5.6-sol`;
+  passing plain `gpt-5.6` (what `/codex 5.6` sends) is rejected by this
+  ChatGPT-account plan.
+- **A route's policy-matrix row must travel with the route.** Fencing Codex out
+  of `test_policy_matrix.py` to avoid a collision meant it could not add its own
+  row, and the completeness control failed. Give whoever writes a route the
+  matrix file, or hand the row off explicitly.
+- **Anchor status-poll greps to the status column.** Matching bare
+  `completed|failed` against full output matches text echoed inside the job's own
+  summary and fires early.
+- Codex stopping to ask rather than implementing was correct twice this session
+  (the ADR-0011 data-source blocker; the suite that appeared hung at 17%). Read
+  its result before assuming a run failed.
