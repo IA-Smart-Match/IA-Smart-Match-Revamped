@@ -1443,15 +1443,13 @@ const API_BASE = "/api";
 
 
 export async function fetchStudentProfile(studentId: string): Promise<StudentProfile & { source: string }> {
-  const res = await fetch(`${API_BASE}/portals/students/${studentId}`);
-  if (!res.ok) throw new Error(`Student not found: ${studentId}`);
-  return res.json();
+  return requestJson<StudentProfile & { source: string }>(`${API_BASE}/portals/students/${studentId}`);
 }
 
 export async function fetchStudentRegistrations(studentId: string): Promise<{ data: StudentRegistration[]; total: number; source: string }> {
-  const res = await fetch(`${API_BASE}/portals/students/${studentId}/registrations`);
-  if (!res.ok) throw new Error(`Registrations not found`);
-  return res.json();
+  return requestJson<{ data: StudentRegistration[]; total: number; source: string }>(
+    `${API_BASE}/portals/students/${studentId}/registrations`,
+  );
 }
 
 export async function fetchStudentConnectionSuggestions(
@@ -1464,18 +1462,16 @@ export async function fetchStudentConnectionSuggestions(
   ];
 
   for (const endpoint of endpoints) {
-    const res = await fetch(endpoint);
-    if (res.ok) {
-      return res.json();
+    try {
+      return await requestJson<StudentConnectionSuggestionsResponse>(endpoint);
+    } catch (err) {
+      // During local development it is common to have a stale backend process;
+      // if one route is missing, try the compatibility endpoint before failing.
+      if (err instanceof ApiRequestError && err.status === 404) {
+        continue;
+      }
+      throw err;
     }
-
-    // During local development it is common to have a stale backend process;
-    // if one route is missing, try the compatibility endpoint before failing.
-    if (res.status === 404) {
-      continue;
-    }
-
-    throw new Error(`Connection suggestions failed: ${res.status}`);
   }
 
   return {
@@ -1488,53 +1484,51 @@ export async function fetchStudentConnectionSuggestions(
 }
 
 export async function fetchStudentRecommendations(studentId: string): Promise<{ recommendations: (CalendarEventSummary & { is_recommended: boolean })[]; source: string }> {
-  const res = await fetch(`${API_BASE}/portals/students/${studentId}/recommendations`);
-  if (!res.ok) throw new Error(`Recommendations failed`);
-  return res.json();
+  return requestJson<{ recommendations: (CalendarEventSummary & { is_recommended: boolean })[]; source: string }>(
+    `${API_BASE}/portals/students/${studentId}/recommendations`,
+  );
 }
 
 export async function fetchStudentNudge(
   studentId: string,
 ): Promise<(RetentionNudge & { source: string }) | null> {
-  const res = await fetch(`${API_BASE}/portals/students/${studentId}/nudge`);
-  if (res.status === 404) {
-    return null;
+  try {
+    return await requestJson<RetentionNudge & { source: string }>(
+      `${API_BASE}/portals/students/${studentId}/nudge`,
+    );
+  } catch (err) {
+    if (err instanceof ApiRequestError && err.status === 404) {
+      return null;
+    }
+    throw err;
   }
-  if (!res.ok) {
-    throw new Error(`Nudge failed: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function fetchCoordinatorProfile(coordinatorId: string): Promise<EventCoordinator & { source: string }> {
-  const res = await fetch(`${API_BASE}/portals/event-coordinators/${coordinatorId}`);
-  if (!res.ok) throw new Error(`Coordinator not found`);
-  return res.json();
+  return requestJson<EventCoordinator & { source: string }>(
+    `${API_BASE}/portals/event-coordinators/${coordinatorId}`,
+  );
 }
 
 export async function fetchCoordinatorThreads(coordinatorId: string): Promise<{ data: OutreachThread[]; total: number; source: string }> {
-  const res = await fetch(`${API_BASE}/portals/event-coordinators/${coordinatorId}/threads`);
-  if (!res.ok) throw new Error(`Threads failed`);
-  return res.json();
+  return requestJson<{ data: OutreachThread[]; total: number; source: string }>(
+    `${API_BASE}/portals/event-coordinators/${coordinatorId}/threads`,
+  );
 }
 
 export async function fetchCoordinatorMeetings(coordinatorId: string): Promise<{ data: MeetingBooking[]; total: number; source: string }> {
-  const res = await fetch(`${API_BASE}/portals/event-coordinators/${coordinatorId}/meetings`);
-  if (!res.ok) throw new Error(`Meetings failed`);
-  return res.json();
+  return requestJson<{ data: MeetingBooking[]; total: number; source: string }>(
+    `${API_BASE}/portals/event-coordinators/${coordinatorId}/meetings`,
+  );
 }
 
 export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ data: (CalendarEventSummary & { staffing_open: boolean })[]; total: number; source: string }> {
-  const res = await fetch(`${API_BASE}/portals/event-coordinators/${coordinatorId}/events`);
-  if (!res.ok) {
-    throw new Error(`Coordinator events failed: ${res.status}`);
-  }
-  const payload = (await res.json()) as {
+  const payload = await requestJson<{
     data?: (CalendarEventSummary & { staffing_open?: boolean })[];
     events?: (CalendarEventSummary & { staffing_open?: boolean })[];
     total?: number;
     source?: string;
-  };
+  }>(`${API_BASE}/portals/event-coordinators/${coordinatorId}/events`);
   const data = (payload.data ?? payload.events ?? []).map((event) => ({
     ...event,
     staffing_open: event.staffing_open ?? false,
@@ -1584,19 +1578,17 @@ export interface VolunteerAssignment {
 export async function fetchVolunteerProfile(
   volunteerId: string,
 ): Promise<VolunteerProfile & { source: string }> {
-  const res = await fetch(`${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}`);
-  if (!res.ok) throw new Error(`Volunteer not found: ${volunteerId}`);
-  return res.json();
+  return requestJson<VolunteerProfile & { source: string }>(
+    `${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}`,
+  );
 }
 
 export async function fetchVolunteerAssignments(
   volunteerId: string,
 ): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
-  const res = await fetch(
+  return requestJson<{ data: VolunteerAssignment[]; total: number; source: string }>(
     `${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}/assignments`,
   );
-  if (!res.ok) throw new Error(`Assignments not found for volunteer: ${volunteerId}`);
-  return res.json();
 }
 
 export interface AgentStepEvent {
