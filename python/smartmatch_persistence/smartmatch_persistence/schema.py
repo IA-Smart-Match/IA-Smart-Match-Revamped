@@ -40,6 +40,7 @@ from sqlalchemy.dialects import postgresql
 
 __all__ = [
     "METADATA",
+    "attendance_record",
     "concurrency_lease",
     "idempotency_record",
     "import_batch",
@@ -48,10 +49,12 @@ __all__ = [
     "membership",
     "org_unit",
     "outbox_record",
+    "point_ledger_entry",
     "rate_limit_counter",
     "redrive_record",
     "resource_grant",
     "review_item",
+    "reward_item",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -395,6 +398,113 @@ concurrency_lease = sa.Table(
     sa.Column("holder", sa.Text, nullable=False),
     sa.Column("expires_at", _TS, nullable=False),
     sa.PrimaryKeyConstraint("id", name="concurrency_lease_pkey"),
+)
+
+
+# ADR-0013, backlog S6/S7/S8 (migration 0009). Three of the five tables
+# docs/architecture/engagement-model.md §1 describes — event, redemption, and
+# disclosure_consent are each deferred behind a gate this migration cannot
+# settle. See 0009_engagement_schema.py's module docstring for the full
+# rationale on every choice below; only what a reader of this mirror needs is
+# repeated here.
+
+attendance_record = sa.Table(
+    "attendance_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as job.owning_unit_id and import_batch.owning_unit_id.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The student who attended.
+    sa.Column("subject_id", _UUID, nullable=False),
+    # No foreign key: no event table exists yet in this schema. Whichever
+    # migration adds one should also add this constraint.
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("method", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="attendance_record_pkey"),
+    # What point_ledger_entry's composite foreign key below references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_attendance_record_tenant_id"),
+    # Attendance is the only input to points (ADR-0013); a duplicate row for
+    # the same student at the same event is an unearned second credit.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_id", "event_id", name="uq_attendance_record_subject_event"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "method IN ('qr_scan','coordinator_entry','import')",
+        name="ck_attendance_record_method",
+    ),
+)
+
+
+point_ledger_entry = sa.Table(
+    "point_ledger_entry",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # Signed: a reversal is a negative entry naming the same source and a
+    # reason that explains it (ADR-0013: "a reversal is a compensating entry,
+    # never a delete"). No balance column exists on this table, or anywhere
+    # else in this schema — a balance is a fold over this ledger, computed
+    # server-side, never stored.
+    sa.Column("amount", sa.Integer, nullable=False),
+    # The attendance record this entry derives from — ADR-0013's "source".
+    sa.Column("source_attendance_id", _UUID, nullable=False),
+    sa.Column("reason", sa.Text, nullable=False),
+    # Nullable, no foreign key: mirrors job.actor_id. Automatic derivation
+    # from attendance — the ordinary case — has no human actor to name.
+    sa.Column("actor_id", _UUID, nullable=True),
+    sa.Column("occurred_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="point_ledger_entry_pkey"),
+    # RESTRICT: the attendance record an entry derives from must not
+    # disappear out from under the entry that cites it as its source.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "source_attendance_id"],
+        ["attendance_record.tenant_id", "attendance_record.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("amount <> 0", name="ck_point_ledger_entry_amount_nonzero"),
+)
+
+
+reward_item = sa.Table(
+    "reward_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("points_cost", sa.Integer, nullable=False),
+    sa.Column("fulfilment_cost", sa.Numeric(12, 4), nullable=False),
+    # D6 (docs/decisions/pilot-decisions.md): "a named human budget owner.
+    # Without one, the rewards catalog is not shippable." NOT NULL, no server
+    # default — every insert must name a real owner in this tenant. Composite,
+    # not a bare id: a single-column key would accept an owner from another
+    # tenant.
+    sa.Column("budget_owner_id", _UUID, nullable=False),
+    # NOT NULL alongside budget_owner_id — this pair is the structural form of
+    # D6's requirement (ADR-0013), and neither is softened to nullable "for
+    # flexibility": that would let an unowned, unfunded reward be written,
+    # reproducing the legacy defect (Fix #15) at the schema layer.
+    sa.Column("funded", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="reward_item_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "budget_owner_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("points_cost > 0", name="ck_reward_item_points_cost_positive"),
+    sa.CheckConstraint("fulfilment_cost >= 0", name="ck_reward_item_fulfilment_cost_non_negative"),
 )
 
 

@@ -74,6 +74,9 @@ pytestmark = pytest.mark.integration
 #: changed the normalisation would fail this test, and reviewing that diff on
 #: purpose is the intended behaviour rather than a cost.
 CHECK_CONSTRAINT_DEFINITIONS = {
+    ("attendance_record", "ck_attendance_record_method"): (
+        "CHECK ((method = ANY (ARRAY['qr_scan'::text, 'coordinator_entry'::text, 'import'::text])))"
+    ),
     ("job", "ck_job_status"): (
         "CHECK ((status = ANY (ARRAY['queued'::text, 'dispatched'::text, "
         "'running'::text, 'succeeded'::text, 'partial'::text, "
@@ -88,6 +91,7 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((status = ANY (ARRAY['pending'::text, 'leased'::text, "
         "'dispatched'::text, 'failed'::text])))"
     ),
+    ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): "CHECK ((amount <> 0))",
     ("rate_limit_counter", "ck_rate_limit_count_non_negative"): "CHECK ((count >= 0))",
     ("redrive_record", "ck_redrive_authorship_complete"): (
         "CHECK (((redriven_at IS NULL) = (redriven_by IS NULL)))"
@@ -97,6 +101,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ),
     ("review_item", "ck_review_item_status"): (
         "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
+    ),
+    ("reward_item", "ck_reward_item_points_cost_positive"): "CHECK ((points_cost > 0))",
+    ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
+        "CHECK ((fulfilment_cost >= (0)::numeric))"
     ),
     ("tenant_budget", "ck_budget_ceiling_non_negative"): "CHECK ((ceiling >= (0)::numeric))",
     ("tenant_budget", "ck_budget_non_negative"): (
@@ -114,6 +122,14 @@ BEHAVIOURAL_COVERAGE = {
         "catalogue and compares it to JobState both directions, and inserts one "
         "job per legal state; test_tenant_isolation.py::"
         "test_job_status_check_rejects_an_unknown_state for the refusal"
+    ),
+    ("attendance_record", "ck_attendance_record_method"): "test_engagement_schema_constraints.py",
+    ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): (
+        "test_engagement_schema_constraints.py"
+    ),
+    ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
+    ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
+        "test_engagement_schema_constraints.py"
     ),
     ("tenant_budget", "ck_budget_ceiling_non_negative"): "this file",
     ("membership", "ck_membership_valid_window"): "this file",
