@@ -54,6 +54,8 @@ import {
 } from "@/lib/api";
 import {
   accountableMetricFromSummary,
+  OPPORTUNITIES_UNKNOWN_REASON,
+  unavailableOpportunitiesMetric,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
@@ -283,7 +285,6 @@ export function Dashboard() {
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>(
     [],
   );
-  const [eventCount, setEventCount] = useState(0);
   const [topMatches, setTopMatches] = useState<RankedMatch[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
@@ -309,7 +310,6 @@ export function Dashboard() {
       setSpecialists([]);
       setPipeline([]);
       setCalendarEvents([]);
-      setEventCount(0);
       setCalendarAssignments([]);
       setFeedbackStats(emptyFeedbackStatsSummary());
       setTopMatches([]);
@@ -377,7 +377,6 @@ export function Dashboard() {
         if (calendarResult.value.isMockData) anyMock = true;
 
         setSpecialists(specialistRows);
-        setEventCount(eventRows.length);
         setPipeline(pipelineRows);
         setCalendarEvents(calendarRows);
 
@@ -479,6 +478,8 @@ export function Dashboard() {
           ? (metricsLoadError ?? metricsUnavailableReason)
           : "Loading registered metrics…",
       );
+
+  const opportunitiesMetric = unavailableOpportunitiesMetric();
 
   const funnelData = stageCounts(pipeline);
   const eventVolume = matchVolume(pipeline);
@@ -614,7 +615,7 @@ export function Dashboard() {
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
             <p className="mt-1 text-gray-600">
-              Live summary of the specialist roster, active opportunities, and pipeline movement.
+              Live summary of the specialist roster, pipeline movement, and registered metrics.
             </p>
           </div>
           <button
@@ -644,7 +645,7 @@ export function Dashboard() {
             Dashboard{isMockData && <DemoModeBadge />}
           </h1>
           <p className="mt-1 text-gray-600">
-            Live summary of the specialist roster, active opportunities, and pipeline movement.
+            Live summary of the specialist roster, pipeline movement, and registered metrics.
           </p>
         </div>
         <button
@@ -668,9 +669,9 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          title="Active Opportunities"
-          value={eventCount}
-          change="Loaded from CPP events"
+          title="Opportunities"
+          value={<AccountableValue metric={opportunitiesMetric} />}
+          change={OPPORTUNITIES_UNKNOWN_REASON}
           changeType="neutral"
           icon={Briefcase}
           iconColor="bg-[#e6effb] text-[#005394]"

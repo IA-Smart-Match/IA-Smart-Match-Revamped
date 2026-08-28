@@ -29,6 +29,23 @@ export const PIPELINE_FUNNEL_STAGE_LABELS: Record<PipelineFunnelMetricName, stri
   pipeline_member_inquiry: "Member Inquiry",
 };
 
+/** Matches backend `PIPELINE_UNKNOWN_REASON` plus the missing opportunities definition. */
+export const OPPORTUNITIES_UNKNOWN_REASON =
+  "No evidence source yet: S12 Pipeline persistence is not started, and the canonical opportunities metric is not registered.";
+
+/** Placeholder until S12 and the stakeholder-approved opportunities metric exist. */
+export function unavailableOpportunitiesMetric(
+  reason: string = OPPORTUNITIES_UNKNOWN_REASON,
+): AccountableMetric {
+  return {
+    name: "Opportunities",
+    definition:
+      "Events eligible for coordinator outreach under the approved opportunities metric definition (pending stakeholder workshop).",
+    value: unknownValue(reason),
+    provenance: "observed",
+  };
+}
+
 /** Converts one API summary into a discriminated {@link MetricValue}. */
 export function metricValueFromSummary(summary: MetricSummary): MetricValue {
   if (summary.value === null) {
