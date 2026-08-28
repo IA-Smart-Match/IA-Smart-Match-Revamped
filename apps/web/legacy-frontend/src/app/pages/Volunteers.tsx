@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Briefcase,
   Check,
   Clock,
   MapPin,
   QrCode,
+  RefreshCw,
   Search,
   TrendingUp,
   Users,
@@ -26,14 +28,53 @@ import {
   type QrStatsSummary,
   type Specialist,
 } from "@/lib/api";
-import {
-  MOCK_CALENDAR_ASSIGNMENTS,
-  MOCK_PIPELINE,
-  MOCK_QR_STATS,
-  MOCK_SPECIALISTS,
-} from "@/lib/mockData";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
 import { QRCodeCard } from "@/components/QRCodeCard";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function VolunteerSkeleton() {
   return (
@@ -240,9 +281,14 @@ export function Volunteers() {
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
 
     Promise.allSettled([
       fetchSpecialists(),
@@ -254,12 +300,22 @@ export function Volunteers() {
         if (!active) {
           return;
         }
+        // The volunteer roster and pipeline are the core data this page
+        // shows. If either failed to load, report the failure instead of
+        // substituting fixture volunteers.
         if (specialistResult.status !== "fulfilled" || pipelineResult.status !== "fulfilled") {
-          throw (
+          const reason =
             specialistResult.status === "rejected"
               ? specialistResult.reason
-              : (pipelineResult as PromiseRejectedResult).reason
-          );
+              : (pipelineResult as PromiseRejectedResult).reason;
+          setVolunteers([]);
+          setPipeline([]);
+          setAssignments([]);
+          setQrStats(emptyQrStatsSummary());
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load volunteers."));
+          return;
         }
 
         let anyMock = false;
@@ -274,16 +330,16 @@ export function Volunteers() {
           setAssignments(assignmentResult.value.data);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
-          setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          anyMock = true;
+          // Assignment overlays are supplementary — keep the real roster
+          // and surface a warning instead of fabricating overlay rows.
+          setAssignments([]);
         }
 
         if (qrResult.status === "fulfilled") {
           setQrStats(qrResult.value.data);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
-          setQrStats(MOCK_QR_STATS);
-          anyMock = true;
+          setQrStats(emptyQrStatsSummary());
         }
 
         setIsMockData(anyMock);
@@ -291,16 +347,12 @@ export function Volunteers() {
         const warnings = [];
         if (assignmentResult.status === "rejected") {
           warnings.push(
-            assignmentResult.reason instanceof Error
-              ? `Assignment overlays are unavailable: ${assignmentResult.reason.message}`
-              : "Assignment overlays are unavailable.",
+            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
         if (qrResult.status === "rejected") {
           warnings.push(
-            qrResult.reason instanceof Error
-              ? `QR analytics are unavailable: ${qrResult.reason.message}`
-              : "QR analytics are unavailable.",
+            `QR analytics are unavailable: ${getErrorMessage(qrResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -309,13 +361,15 @@ export function Volunteers() {
         if (!active) {
           return;
         }
-        // Backend unreachable — use Layer-3 mock constants
-        setVolunteers(MOCK_SPECIALISTS);
-        setPipeline(MOCK_PIPELINE);
-        setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-        setQrStats(MOCK_QR_STATS);
-        setIsMockData(true);
-        setError(err instanceof Error ? err.message : "Failed to load volunteers.");
+        // Unexpected failure — report it honestly rather than substituting
+        // fixture data.
+        setVolunteers([]);
+        setPipeline([]);
+        setAssignments([]);
+        setQrStats(emptyQrStatsSummary());
+        setIsMockData(false);
+        setLoadFailed(true);
+        setError(getErrorMessage(err, "Failed to load volunteers."));
       })
       .finally(() => {
         if (active) {
@@ -326,7 +380,7 @@ export function Volunteers() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const filteredVolunteers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -395,16 +449,32 @@ export function Volunteers() {
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          {error}
-        </div>
+      {!loadFailed && error ? (
+        <FailureState
+          title="Some volunteer data is unavailable"
+          message={error}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {loading
-          ? Array.from({ length: 6 }, (_, index) => <VolunteerSkeleton key={index} />)
-          : filteredVolunteers.map((volunteer) => {
+      {loadFailed ? (
+        <FailureState
+          title="Volunteer profiles could not be loaded"
+          message={error ?? "Failed to load volunteers."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {loading ? (
+            Array.from({ length: 6 }, (_, index) => <VolunteerSkeleton key={index} />)
+          ) : filteredVolunteers.length === 0 ? (
+            <div className="col-span-full rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
+              {searchQuery
+                ? "No volunteers match your search."
+                : "No volunteer profiles are available yet."}
+            </div>
+          ) : (
+            filteredVolunteers.map((volunteer) => {
               const expertise = splitTags(volunteer.expertise_tags);
               const profile = summarizeVolunteer(volunteer, pipeline, assignments);
 
@@ -522,14 +592,10 @@ export function Volunteers() {
                   </div>
                 </button>
               );
-            })}
-      </div>
-
-      {!loading && !error && filteredVolunteers.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
-          No volunteers matched that search.
+            })
+          )}
         </div>
-      ) : null}
+      )}
 
       {selectedVol && selectedInsights ? (
         <div

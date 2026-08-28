@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  AlertTriangle,
   Filter,
   TrendingUp,
   Users,
@@ -7,6 +8,7 @@ import {
   Briefcase,
   CheckCircle2,
   CalendarDays,
+  RefreshCw,
 } from "lucide-react";
 import {
   Bar,
@@ -36,13 +38,52 @@ import {
   type PipelineRecord,
   type QrStatsSummary,
 } from "@/lib/api";
-import {
-  MOCK_EVENTS,
-  MOCK_FEEDBACK_STATS,
-  MOCK_PIPELINE,
-  MOCK_QR_STATS,
-} from "@/lib/mockData";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 const stagePalette = ["#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
 
@@ -137,9 +178,14 @@ export function Pipeline() {
   const [selectedUniversity, setSelectedUniversity] = useState("All Hosts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
 
     Promise.allSettled([
       fetchPipeline(),
@@ -151,12 +197,22 @@ export function Pipeline() {
         if (!active) {
           return;
         }
+        // Pipeline records and events are the core data this page tracks.
+        // If either failed to load, show a failure state instead of
+        // substituting fixture data.
         if (pipelineResult.status !== "fulfilled" || eventResult.status !== "fulfilled") {
-          throw (
+          const reason =
             pipelineResult.status === "rejected"
               ? pipelineResult.reason
-              : (eventResult as PromiseRejectedResult).reason
-          );
+              : (eventResult as PromiseRejectedResult).reason;
+          setPipelineRecords([]);
+          setEvents([]);
+          setQrStats(emptyQrStatsSummary());
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load pipeline data."));
+          return;
         }
 
         let anyMock = false;
@@ -171,16 +227,16 @@ export function Pipeline() {
           setQrStats(qrResult.value.data);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
-          setQrStats(MOCK_QR_STATS);
-          anyMock = true;
+          // QR analytics are supplementary — keep the core pipeline data and
+          // surface a warning instead of fabricating QR stats.
+          setQrStats(emptyQrStatsSummary());
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          anyMock = true;
+          setFeedbackStats(emptyFeedbackStatsSummary());
         }
 
         setIsMockData(anyMock);
@@ -188,29 +244,27 @@ export function Pipeline() {
         const warnings = [];
         if (qrResult.status === "rejected") {
           warnings.push(
-            qrResult.reason instanceof Error
-              ? `QR analytics are unavailable: ${qrResult.reason.message}`
-              : "QR analytics are unavailable.",
+            `QR analytics are unavailable: ${getErrorMessage(qrResult.reason, "Request failed.")}`,
           );
         }
         if (feedbackResult.status === "rejected") {
           warnings.push(
-            feedbackResult.reason instanceof Error
-              ? `Feedback optimizer stats are unavailable: ${feedbackResult.reason.message}`
-              : "Feedback optimizer stats are unavailable.",
+            `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
       })
       .catch((err: unknown) => {
         if (active) {
-          // Backend unreachable — use Layer-3 mock constants
-          setPipelineRecords(MOCK_PIPELINE);
-          setEvents(MOCK_EVENTS);
-          setQrStats(MOCK_QR_STATS);
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          setIsMockData(true);
-          setError(err instanceof Error ? err.message : "Failed to load pipeline data.");
+          // Unexpected failure — report it honestly rather than
+          // substituting fixture data.
+          setPipelineRecords([]);
+          setEvents([]);
+          setQrStats(emptyQrStatsSummary());
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(err, "Failed to load pipeline data."));
         }
       })
       .finally(() => {
@@ -222,7 +276,7 @@ export function Pipeline() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const breakdown = buildUniversityBreakdown(pipelineRecords, events);
   const hosts = ["All Hosts", ...breakdown.map((row) => row.name)];
@@ -295,16 +349,26 @@ export function Pipeline() {
         </div>
       </div>
 
-      {error ? (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 text-center">
-          {error}
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
+      {loadFailed ? (
+        <FailureState
+          title="Pipeline data could not be loaded"
+          message={error ?? "Failed to load pipeline data."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : (
         <>
+          {error ? (
+            <FailureState
+              title="Some pipeline data is unavailable"
+              message={error}
+              onRetry={() => setReloadToken((token) => token + 1)}
+            />
+          ) : null}
+
+          {loading ? (
+            <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
+          ) : (
+            <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
               <div className="flex items-center gap-3 mb-2">
@@ -676,6 +740,8 @@ export function Pipeline() {
               </table>
             </div>
           </div>
+        </>
+      )}
         </>
       )}
     </div>

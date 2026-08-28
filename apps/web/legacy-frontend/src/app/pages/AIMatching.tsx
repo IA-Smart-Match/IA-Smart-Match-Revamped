@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   BookOpen,
   Calendar,
@@ -9,6 +10,7 @@ import {
   Mail,
   MapPin,
   MessageSquareHeart,
+  RefreshCw,
   Sparkles,
   Target,
   Users,
@@ -33,11 +35,56 @@ import {
   type RankedMatch,
   type WorkflowResponse,
 } from "@/lib/api";
-import { MOCK_EVENTS, MOCK_RANKED_MATCHES } from "@/lib/mockData";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
 import { FeedbackForm } from "@/components/FeedbackForm";
 import { OutreachWorkflowModal } from "@/components/OutreachWorkflowModal";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/app/components/ui/dialog";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError
+ * (which is itself an Error but may still change shape while this file is
+ * being edited), and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 const factorLabels: Record<string, string> = {
   topic_relevance: "Topic Relevance",
@@ -307,6 +354,9 @@ export function AIMatching() {
   const [loading, setLoading] = useState(true);
   const [ranking, setRanking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventsReloadToken, setEventsReloadToken] = useState(0);
+  const [rankReloadToken, setRankReloadToken] = useState(0);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [showWorkflowModal, setShowWorkflowModal] = useState(false);
   const [selectedVolunteer, setSelectedVolunteer] = useState<RankedMatch | null>(null);
@@ -321,6 +371,8 @@ export function AIMatching() {
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setEventsError(null);
 
     fetchEvents()
       .then((result) => {
@@ -340,14 +392,11 @@ export function AIMatching() {
       })
       .catch((err: unknown) => {
         if (active) {
-          // Backend unreachable — use Layer-3 mock constants
-          setEvents(MOCK_EVENTS);
-          if (!preselectedEventName) {
-            setSelectedEventName(MOCK_EVENTS[0]?.["Event / Program"] ?? "");
-          }
-          setMatches(MOCK_RANKED_MATCHES);
-          setIsMockData(true);
-          setError(err instanceof Error ? err.message : "Failed to load events.");
+          // The backend could not answer — do not fabricate events or matches.
+          // Report the failure honestly instead of substituting fixture data.
+          setEvents([]);
+          setMatches([]);
+          setEventsError(getErrorMessage(err, "Failed to load events."));
         }
       })
       .finally(() => {
@@ -359,7 +408,7 @@ export function AIMatching() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [eventsReloadToken]);
 
   useEffect(() => {
     let active = true;
@@ -479,10 +528,10 @@ export function AIMatching() {
       })
       .catch((err: unknown) => {
         if (active) {
-          setError(err instanceof Error ? err.message : "Failed to rank speakers.");
-          if (matchMode === "events") {
-            setMatches(isMockData ? MOCK_RANKED_MATCHES : []);
-          }
+          // Ranking failed — leave the results empty rather than substituting
+          // fixture matches for real ones.
+          setMatches([]);
+          setError(getErrorMessage(err, "Failed to rank speakers."));
         }
       })
       .finally(() => {
@@ -494,7 +543,7 @@ export function AIMatching() {
     return () => {
       active = false;
     };
-  }, [matchMode, selectedEventName, selectedCourseKey, feedbackStats.current_weights]);
+  }, [matchMode, selectedEventName, selectedCourseKey, feedbackStats.current_weights, rankReloadToken]);
 
   const selectedEvent =
     events.find((event) => event["Event / Program"] === selectedEventName) ?? null;
@@ -578,7 +627,13 @@ export function AIMatching() {
         </button>
       </div>
 
-      {matchMode === "events" ? (
+      {matchMode === "events" && eventsError ? (
+        <FailureState
+          title="Events could not be loaded"
+          message={eventsError}
+          onRetry={() => setEventsReloadToken((token) => token + 1)}
+        />
+      ) : matchMode === "events" ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <label className="mb-2 block text-sm font-medium text-slate-700">Select event</label>
           <select
@@ -737,12 +792,6 @@ export function AIMatching() {
         </div>
       ) : null}
 
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          {error}
-        </div>
-      ) : null}
-
       {contextWarning ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           {contextWarning}
@@ -764,6 +813,12 @@ export function AIMatching() {
           <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
             Loading ranking results...
           </div>
+        ) : error ? (
+          <FailureState
+            title="Rankings could not be generated"
+            message={error}
+            onRetry={() => setRankReloadToken((token) => token + 1)}
+          />
         ) : topFiveContext.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
             No match results are available for the selected event yet.

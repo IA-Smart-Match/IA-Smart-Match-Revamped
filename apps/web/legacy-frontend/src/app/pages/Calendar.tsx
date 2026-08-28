@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  AlertTriangle,
   Building2,
   CalendarDays,
   CalendarRange,
@@ -7,6 +8,7 @@ import {
   ChevronRight,
   Clock3,
   MapPin,
+  RefreshCw,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -18,8 +20,52 @@ import {
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
 } from "@/lib/api";
-import { MOCK_CALENDAR_ASSIGNMENTS, MOCK_CALENDAR_EVENTS } from "@/lib/mockData";
 import { DemoModeBadge } from "../components/ui/DemoModeBadge";
+import { Button } from "../components/ui/button";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-rose-100">
+        <AlertTriangle className="h-5 w-5 text-rose-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-rose-800">{title}</p>
+      <p className="mt-1 text-sm text-rose-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 type CalendarView = "month" | "week" | "day";
 type CoverageFilter = "all" | "covered" | "open";
@@ -153,10 +199,15 @@ export function Calendar() {
   const [assignments, setAssignments] = useState<CalendarAssignmentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
 
     Promise.allSettled([fetchCalendarEvents(), fetchCalendarAssignments()])
       .then(([eventResult, assignmentResult]) => {
@@ -171,8 +222,15 @@ export function Calendar() {
           setEvents(data);
           if (isMockData) anyMock = true;
         } else {
-          setEvents(MOCK_CALENDAR_EVENTS);
-          anyMock = true;
+          // Events are the calendar's core data — without them there is
+          // nothing honest to render, so surface a failure state instead of
+          // substituting fixture events.
+          setEvents([]);
+          setAssignments([]);
+          setLoadFailed(true);
+          setError(getErrorMessage(eventResult.reason, "Failed to load the calendar."));
+          setIsMockData(false);
+          return;
         }
 
         if (assignmentResult.status === "fulfilled") {
@@ -180,12 +238,12 @@ export function Calendar() {
           setAssignments(data);
           if (isMockData) anyMock = true;
         } else {
-          setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          anyMock = true;
+          // Assignment overlays are supplementary — keep showing the real
+          // events and surface a non-blocking warning instead of fabricating
+          // overlay rows.
+          setAssignments([]);
           setError(
-            assignmentResult.reason instanceof Error
-              ? `Assignment overlays are unavailable: ${assignmentResult.reason.message}`
-              : "Assignment overlays are unavailable.",
+            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
 
@@ -195,10 +253,11 @@ export function Calendar() {
         if (!active) {
           return;
         }
-        setEvents(MOCK_CALENDAR_EVENTS);
-        setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-        setIsMockData(true);
-        setError(err instanceof Error ? err.message : "Failed to load calendar.");
+        setEvents([]);
+        setAssignments([]);
+        setLoadFailed(true);
+        setIsMockData(false);
+        setError(getErrorMessage(err, "Failed to load calendar."));
       })
       .finally(() => {
         if (active) {
@@ -209,7 +268,7 @@ export function Calendar() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const monthCells = buildMonthCells(focusDate);
   const weekStart = startOfWeek(focusDate);
@@ -287,6 +346,24 @@ export function Calendar() {
         <div className="h-10 w-64 animate-pulse rounded bg-slate-200" />
         <div className="h-24 animate-pulse rounded-3xl border border-slate-200 bg-white shadow-sm" />
         <div className="h-[540px] animate-pulse rounded-3xl border border-slate-200 bg-white shadow-sm" />
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="space-y-2">
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+            Master calendar
+          </p>
+          <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
+        </div>
+        <FailureState
+          title="The calendar could not be loaded"
+          message={error ?? "Failed to load calendar."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       </div>
     );
   }
@@ -432,9 +509,11 @@ export function Calendar() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center text-rose-700">
-          {error}
-        </div>
+        <FailureState
+          title="Some calendar data is unavailable"
+          message={error}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : null}
 
       {view === "month" ? (

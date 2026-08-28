@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   BellRing,
   Briefcase,
@@ -10,6 +11,7 @@ import {
   Mail,
   MapPinned,
   MessageSquareHeart,
+  RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -51,17 +53,55 @@ import {
   type WorkflowResponse,
 } from "@/lib/api";
 import { OutreachWorkflowModal } from "@/components/OutreachWorkflowModal";
-import {
-  MOCK_CALENDAR_ASSIGNMENTS,
-  MOCK_CALENDAR_EVENTS,
-  MOCK_FEEDBACK_STATS,
-  MOCK_PIPELINE,
-  MOCK_SPECIALISTS,
-} from "@/lib/mockData";
 import { DemoModeBadge } from "../components/ui/DemoModeBadge";
+import { Button } from "../components/ui/button";
 
 import { MetricCard } from "../components/MetricCard";
 import { CrawlerFeed } from "@/components/CrawlerFeed";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 const funnelPalette = ["#005394", "#1f6fb2", "#2b87d1", "#56a4e4", "#a2c9ff"];
 
@@ -244,6 +284,8 @@ export function Dashboard() {
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [showWorkflowModal, setShowWorkflowModal] = useState(false);
   const [selectedVolunteer, setSelectedVolunteer] = useState<RankedMatch | null>(null);
   const [workflowResult, setWorkflowResult] = useState<WorkflowResponse | null>(null);
@@ -252,6 +294,20 @@ export function Dashboard() {
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
+
+    function resetToEmpty() {
+      setSpecialists([]);
+      setPipeline([]);
+      setCalendarEvents([]);
+      setEventCount(0);
+      setCalendarAssignments([]);
+      setFeedbackStats(emptyFeedbackStatsSummary());
+      setTopMatches([]);
+      setIsMockData(false);
+    }
 
     async function load() {
       try {
@@ -272,24 +328,31 @@ export function Dashboard() {
           feedbackResult,
         ] = results;
 
+        if (!active) {
+          return;
+        }
+
+        // Specialists, events, pipeline, and calendar windows are the
+        // dashboard's core data. If any of them failed to load, the
+        // dashboard cannot honestly render — show a failure state instead
+        // of discarding whatever did succeed and substituting fixtures.
         if (
           specialistResult.status !== "fulfilled" ||
           eventResult.status !== "fulfilled" ||
           pipelineResult.status !== "fulfilled" ||
           calendarResult.status !== "fulfilled"
         ) {
-          throw (
+          const reason =
             specialistResult.status === "rejected"
               ? specialistResult.reason
               : eventResult.status === "rejected"
                 ? eventResult.reason
                 : pipelineResult.status === "rejected"
                   ? pipelineResult.reason
-                  : (calendarResult as PromiseRejectedResult).reason
-          );
-        }
-
-        if (!active) {
+                  : (calendarResult as PromiseRejectedResult).reason;
+          resetToEmpty();
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load dashboard data."));
           return;
         }
 
@@ -315,16 +378,16 @@ export function Dashboard() {
           setCalendarAssignments(assignmentResult.value.data);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
-          setCalendarAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          anyMock = true;
+          // Assignment overlays are supplementary — keep the core dashboard
+          // honest and surface a warning instead of fabricating overlays.
+          setCalendarAssignments([]);
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          anyMock = true;
+          setFeedbackStats(emptyFeedbackStatsSummary());
         }
 
         setIsMockData(anyMock);
@@ -332,16 +395,12 @@ export function Dashboard() {
         const warnings = [];
         if (assignmentResult.status === "rejected") {
           warnings.push(
-            assignmentResult.reason instanceof Error
-              ? `Assignment overlays are unavailable: ${assignmentResult.reason.message}`
-              : "Assignment overlays are unavailable.",
+            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
         if (feedbackResult.status === "rejected") {
           warnings.push(
-            feedbackResult.reason instanceof Error
-              ? `Feedback optimizer stats are unavailable: ${feedbackResult.reason.message}`
-              : "Feedback optimizer stats are unavailable.",
+            `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -366,14 +425,11 @@ export function Dashboard() {
         }
       } catch (err: unknown) {
         if (active) {
-          // Backend unreachable — use Layer-3 mock constants
-          setSpecialists(MOCK_SPECIALISTS);
-          setPipeline(MOCK_PIPELINE);
-          setCalendarEvents(MOCK_CALENDAR_EVENTS);
-          setCalendarAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          setIsMockData(true);
-          setError(null); // Demo Mode badge already signals the fallback state
+          // Unexpected failure — report it honestly rather than
+          // substituting fixture data for the whole dashboard.
+          resetToEmpty();
+          setLoadFailed(true);
+          setError(getErrorMessage(err, "Failed to load dashboard data."));
         }
       } finally {
         if (active) {
@@ -387,7 +443,7 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const funnelData = stageCounts(pipeline);
   const eventVolume = matchVolume(pipeline);
@@ -515,6 +571,35 @@ export function Dashboard() {
     );
   }
 
+  if (loadFailed) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
+            <p className="mt-1 text-gray-600">
+              Live summary of the specialist roster, active opportunities, and pipeline movement.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            aria-label="Log out and return to portal login"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
+          >
+            <LogOut className="h-4 w-4" aria-hidden />
+            Log out
+          </button>
+        </div>
+        <FailureState
+          title="The dashboard could not be loaded"
+          message={error ?? "Failed to load dashboard data."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -538,9 +623,11 @@ export function Dashboard() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          {error}
-        </div>
+        <FailureState
+          title="Some dashboard data is unavailable"
+          message={error}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
