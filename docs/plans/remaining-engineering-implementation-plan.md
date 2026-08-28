@@ -177,8 +177,8 @@ CI remains the clean install/build proof.
 - No role cards, role dropdown, demo email, or role-specific login query remains.
 - The browser cannot submit tenant, user, or role as authentication input.
 - No click reports successful sign-in without server agreement.
-- Existing backend 404/contract tests for the archived mock-login route remain
-  green.
+- Existing backend 404/contract tests for the archived MM-A01 caller-selected
+  identity route remain green.
 - A1b is still visibly open; the change does not claim full authentication is
   complete.
 

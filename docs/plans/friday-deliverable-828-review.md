@@ -33,9 +33,9 @@ and 5 failed. One failure is repository content, not the unpinned local Python
 environment:
 
 - `docs/plans/remaining-engineering-brief.md:435` contains the forbidden
-  `POST /auth/mock-login` literal.
+  caller-selected identity route literal (`POST /auth/MM-A01`).
 - `docs/plans/remaining-engineering-implementation-plan.md:180` contains the
-  forbidden `mock-login` literal.
+  forbidden MM-A01 route name literal.
 
 `tests/unit/test_forbidden_scanner.py::test_repository_scan_is_clean` therefore
 fails. These documents are among the ten local-only commits, so PR #7 does not

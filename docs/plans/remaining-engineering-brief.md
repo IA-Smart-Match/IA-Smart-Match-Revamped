@@ -431,8 +431,8 @@ correct behaviour.
 
 **Backend (done):**
 
-- MM-A01 archived — `tests/integration/test_command_path.py` asserts
-  `POST /auth/mock-login` → **404**
+- MM-A01 archived — `tests/integration/test_command_path.py` asserts the
+  caller-selected identity route (`POST /auth/MM-A01`) → **404**
 - `tests/contract/test_me.py` — caller cannot pick tenant/user/role
 - `tests/unit/test_forbidden_scanner.py` — scans for forbidden patterns
 
