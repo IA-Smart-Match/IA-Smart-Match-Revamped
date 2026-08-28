@@ -95,6 +95,9 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("resource_grant", "ck_resource_grant_effect"): (
         "CHECK ((effect = ANY (ARRAY['allow'::text, 'deny'::text])))"
     ),
+    ("review_item", "ck_review_item_status"): (
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
+    ),
     ("tenant_budget", "ck_budget_ceiling_non_negative"): "CHECK ((ceiling >= (0)::numeric))",
     ("tenant_budget", "ck_budget_non_negative"): (
         "CHECK (((spent >= (0)::numeric) AND (reserved >= (0)::numeric)))"
@@ -118,6 +121,7 @@ BEHAVIOURAL_COVERAGE = {
     ("rate_limit_counter", "ck_rate_limit_count_non_negative"): "this file",
     ("redrive_record", "ck_redrive_authorship_complete"): "this file",
     ("resource_grant", "ck_resource_grant_effect"): "this file",
+    ("review_item", "ck_review_item_status"): "test_import_review_constraints.py",
     ("tenant_budget", "ck_budget_non_negative"): "this file",
 }
 

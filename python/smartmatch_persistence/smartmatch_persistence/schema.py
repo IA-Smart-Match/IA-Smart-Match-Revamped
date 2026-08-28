@@ -42,6 +42,7 @@ __all__ = [
     "METADATA",
     "concurrency_lease",
     "idempotency_record",
+    "import_batch",
     "job",
     "job_event",
     "membership",
@@ -50,6 +51,7 @@ __all__ = [
     "rate_limit_counter",
     "redrive_record",
     "resource_grant",
+    "review_item",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -393,4 +395,75 @@ concurrency_lease = sa.Table(
     sa.Column("holder", sa.Text, nullable=False),
     sa.Column("expires_at", _TS, nullable=False),
     sa.PrimaryKeyConstraint("id", name="concurrency_lease_pkey"),
+)
+
+
+import_batch = sa.Table(
+    "import_batch",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped (migration 0006): the unit this import landed in, the thing
+    # every authorization decision about its review items is scoped against.
+    # Composite FK below, not a bare id — see that constraint's comment.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The durable command job that produced this batch (v1.1 §1.6).
+    sa.Column("job_id", _UUID, nullable=False),
+    sa.Column("dataset", sa.Text, nullable=False),
+    sa.Column("row_count", sa.Integer, nullable=False),
+    sa.Column("dry_run", sa.Boolean, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="import_batch_pkey"),
+    # What review_item's composite foreign key below references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_import_batch_tenant_id"),
+    # CASCADE: a batch is a thing a job's execution produced, the same
+    # relationship job_event/outbox_record/redrive_record already have to job
+    # — not an independent entity that happens to name one.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"], ["job.tenant_id", "job.id"], ondelete="CASCADE"
+    ),
+    # RESTRICT: reorganizing a unit must not silently delete the pending
+    # review work submitted into it, the same intent job.owning_unit_id
+    # carries against org_unit (migration 0006). A single-column key to
+    # org_unit.id would accept a batch in one tenant naming a unit in
+    # another, so the reference is composite.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+)
+
+
+review_item = sa.Table(
+    "review_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("import_batch_id", _UUID, nullable=False),
+    # This row's position in the submitted batch, so a coordinator can find
+    # it in their source file.
+    sa.Column("row_index", sa.Integer, nullable=False),
+    # The normalized row itself — validate_columns's per-row output, not the
+    # raw submission.
+    sa.Column("row_data", postgresql.JSONB, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="pending"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="review_item_pkey"),
+    # CASCADE: a review item cannot outlive the batch that quarantined it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "import_batch_id"],
+        ["import_batch.tenant_id", "import_batch.id"],
+        ondelete="CASCADE",
+    ),
+    # Mirrors uq_job_event_sequence: a monotonic position within one parent,
+    # and the parent id alone is already globally unique, so no tenant_id is
+    # needed alongside it here.
+    sa.UniqueConstraint("import_batch_id", "row_index", name="uq_review_item_batch_row"),
+    # v1.1 §1.5's quarantine-and-review vocabulary: a review item is
+    # quarantined (pending) and a human resolves it one way or the other.
+    sa.CheckConstraint(
+        "status IN ('pending','accepted','rejected')",
+        name="ck_review_item_status",
+    ),
 )
