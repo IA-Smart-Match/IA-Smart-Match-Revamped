@@ -21,9 +21,9 @@ function toSvg(lon: number, lat: number): { x: number; y: number } {
 
 /** More detailed California boundary. */
 const CA_BORDER: Array<[number, number]> = [
-  [42.0, -124.35], [42.0, -120.0], [39.0, -120.0], [35.0, -114.6], 
-  [32.5, -114.7], [32.5, -117.1], [33.5, -118.2], [34.5, -120.6], 
-  [36.5, -121.9], [37.8, -122.5], [38.5, -123.0], [40.0, -124.3], 
+  [42.0, -124.35], [42.0, -120.0], [39.0, -120.0], [35.0, -114.6],
+  [32.5, -114.7], [32.5, -117.1], [33.5, -118.2], [34.5, -120.6],
+  [36.5, -121.9], [37.8, -122.5], [38.5, -123.0], [40.0, -124.3],
   [42.0, -124.35]
 ];
 
@@ -172,7 +172,7 @@ export function CaliforniaCampusHeatmap() {
                 whileHover={{ scale: 1.2, zIndex: 50 }}
               >
                 <title>{`${m.name} (${style.label})`}</title>
-                
+
                 {/* Glow effect for events */}
                 {m.kind === "event" && (
                   <motion.circle
@@ -221,7 +221,7 @@ export function CaliforniaCampusHeatmap() {
 
         {/* Floating Stats or Labels could go here if needed */}
       </div>
-      
+
       <div className="bg-slate-50/80 px-6 py-4 text-center border-t border-border/40">
         <p className="text-[11px] font-medium text-slate-400 uppercase tracking-widest">
           IA West Chapter • Operational Signal Density
