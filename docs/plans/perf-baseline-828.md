@@ -208,16 +208,47 @@ plan's recon. No card in this plan does waterfall work.
 
 ## 6. `vite build` chunk report
 
-Card M1 item (3). Recorded in §6a/§6b as the measurement becomes available; see
-§8 for anything blocked.
+Card M1 item (3). MEASURED. Command, run from
+`apps/web/legacy-frontend`:
 
-### 6a. Before Lane F2
+```
+npm run typecheck   # tsc --noEmit
+npm run build       # npm run typecheck && vite build
+```
 
-_Pending — see §8._
+Note on where the modules live: `/mnt/c`'s drvfs mount corrupted two npm
+installs outright, so `node_modules` is a symlink to an ext4 tree at
+`/home/danny/nm-perf/node_modules`. That affects install and build *duration*
+only — the emitted chunk bytes below are a property of the code and the Vite
+config, not of the filesystem.
+
+### 6a. Before Lane F2 — MEASURED
+
+`tsc --noEmit` exit 0; `vite build` exit 0, `✓ 2751 modules transformed`,
+`✓ built in 7.26s`.
+
+| Artifact | Raw | gzip |
+|---|---|---|
+| `dist/index.html` | 0.69 kB | 0.35 kB |
+| `dist/assets/index-*.css` | 135.22 kB | 21.44 kB |
+| `dist/assets/vendor-ui-*.js` | 50.31 kB | 16.71 kB |
+| `dist/assets/vendor-react-*.js` | 276.46 kB | 92.28 kB |
+| `dist/assets/vendor-charts-*.js` | 412.19 kB | 114.51 kB |
+| **`dist/assets/index-*.js`** (the single application chunk) | **448.39 kB** | **112.40 kB** |
+| **Total JS** | **1187.35 kB** | **335.90 kB** |
+
+The number Lane F2 targets is the **448.39 kB / 112.40 kB gzip single
+application chunk**: `routes.tsx` imports all 21 page components statically, so
+every route's code — student portal, coordinator portal, volunteer portal,
+admin pages — is in the one chunk downloaded before any route renders.
+
+Note that the `vendor-emotion` chunk configured in `vite.config.ts` does not
+appear in the output; Emotion is currently landing inside another chunk. That
+is an observation about today's `manualChunks` behaviour, not a Lane F2 target.
 
 ### 6b. After Lane F2
 
-_Pending — see §8._
+_Recorded when Lane F2 lands, from the same command on the same machine._
 
 ---
 
