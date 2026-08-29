@@ -83,10 +83,12 @@ export interface CalendarAssignmentSummary {
   stage: string;
   coverage_status: CoverageStatus;
   coverage_label: string;
-  volunteer_fatigue: number;
+  /** null when the source record carried no fatigue/recovery signal — ADR-0011: absent evidence, not a measured zero. */
+  volunteer_fatigue: number | null;
   recovery_status: RecoveryStatus;
   recovery_label: string;
-  recent_assignment_count: number;
+  /** null when the source record omitted this count — ADR-0011: absent evidence, not a measured zero. */
+  recent_assignment_count: number | null;
   days_since_last_assignment: number | null;
   travel_burden: number;
   event_cadence: number;
@@ -166,9 +168,10 @@ export interface QrCodeAsset {
   generated_at: string;
   destination_url: string;
   scan_url: string;
-  scan_count: number;
-  conversion_count: number;
-  conversion_rate: number;
+  /** null when the QR analytics endpoint reported no count for this code — ADR-0011: absent evidence, not a measured zero. */
+  scan_count: number | null;
+  conversion_count: number | null;
+  conversion_rate: number | null;
   last_scanned_at: string;
   qr_svg: string;
   qr_svg_data_url: string;
@@ -178,10 +181,11 @@ export interface QrCodeAsset {
 }
 
 export interface QrStatsSummary {
-  total_generated: number;
-  total_scans: number;
-  total_conversions: number;
-  conversion_rate: number;
+  /** null when the QR analytics endpoint reported no total — ADR-0011: absent evidence, not a measured zero. */
+  total_generated: number | null;
+  total_scans: number | null;
+  total_conversions: number | null;
+  conversion_rate: number | null;
   entries: QrCodeAsset[];
 }
 
@@ -216,17 +220,18 @@ export interface FeedbackWeightSnapshot {
 }
 
 export interface FeedbackStatsSummary {
-  total_feedback: number;
-  accepted: number;
-  declined: number;
-  acceptance_rate: number;
-  attended_count: number;
-  membership_interest_count: number;
-  membership_interest_rate: number;
+  /** null when the feedback-stats endpoint reported no total — ADR-0011: absent evidence, not a measured zero. */
+  total_feedback: number | null;
+  accepted: number | null;
+  declined: number | null;
+  acceptance_rate: number | null;
+  attended_count: number | null;
+  membership_interest_count: number | null;
+  membership_interest_rate: number | null;
   average_coordinator_rating: number | null;
-  average_match_score_accepted: number;
-  average_match_score_declined: number;
-  pain_score: number;
+  average_match_score_accepted: number | null;
+  average_match_score_declined: number | null;
+  pain_score: number | null;
   decline_reasons: Array<{ reason: string; count: number }>;
   event_outcomes: Array<{ outcome: string; count: number }>;
   trend: FeedbackTrendPoint[];
@@ -472,6 +477,20 @@ function parseNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * ADR-0011 seam: parses a numeric field but returns `null` — never a
+ * fabricated zero — when the source value is absent or unparsable. Use this
+ * (not `parseNumber`) for any field a UI surface renders as a measurement
+ * (metric tile, rate, count, progress bar, score).
+ */
+function parseNumberOrNull(value: unknown): number | null {
+  if (value == null) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function parseStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((entry) => parseString(entry).trim()).filter(Boolean);
@@ -592,6 +611,21 @@ function normalizeFatigue(value: unknown, fallback = 0): number {
   return clamp(parsed, 0, 1);
 }
 
+/**
+ * ADR-0011 seam: like `normalizeFatigue`, but returns `null` — never a
+ * fabricated zero — when no fatigue/recovery signal is present at all.
+ */
+function normalizeFatigueOrNull(value: unknown): number | null {
+  const parsed = parseNumberOrNull(value);
+  if (parsed === null) {
+    return null;
+  }
+  if (parsed > 1) {
+    return clamp(parsed / 100, 0, 1);
+  }
+  return clamp(parsed, 0, 1);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -645,10 +679,13 @@ function normalizeCalendarEvent(record: Record<string, unknown>, index: number):
 }
 
 function normalizeCalendarAssignment(record: Record<string, unknown>, index: number): CalendarAssignmentSummary {
-  const volunteerFatigue = normalizeFatigue(
+  const volunteerFatigue = normalizeFatigueOrNull(
     record.volunteer_fatigue ?? record.fatigue_score ?? record.fatigue ?? record.recovery_score,
   );
-  const recoveryStatus = normalizeRecoveryStatus(record.recovery_status ?? record.recoveryState, volunteerFatigue);
+  const recoveryStatus = normalizeRecoveryStatus(
+    record.recovery_status ?? record.recoveryState,
+    volunteerFatigue ?? undefined,
+  );
   const coverageStatus = normalizeCoverageStatus(
     record.coverage_status ?? record.assignment_status ?? record.status ?? record.coverage,
   );
@@ -668,7 +705,9 @@ function normalizeCalendarAssignment(record: Record<string, unknown>, index: num
     volunteer_fatigue: volunteerFatigue,
     recovery_status: recoveryStatus,
     recovery_label: parseString(record.recovery_label ?? record.recoveryLabel, recoveryLabel(recoveryStatus)),
-    recent_assignment_count: parseNumber(record.recent_assignment_count ?? record.recentAssignments ?? record.assignment_count ?? 0, 0),
+    recent_assignment_count: parseNumberOrNull(
+      record.recent_assignment_count ?? record.recentAssignments ?? record.assignment_count,
+    ),
     days_since_last_assignment:
       record.days_since_last_assignment == null && record.daysSinceLastAssignment == null
         ? null
@@ -689,8 +728,17 @@ function normalizeVolunteerRecovery(record: Record<string, unknown>, assignments
     .filter(Boolean)
     .sort();
   const lastEventDate = latestEventDate[latestEventDate.length - 1] ?? "";
-  const volunteerFatigue = volunteerAssignments.length
-    ? volunteerAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) / volunteerAssignments.length
+  // VolunteerRecoverySummary is not currently rendered by any page (see the
+  // Z1 inventory); this field keeps its plain-number shape, but the average
+  // below must still ignore assignments with no fatigue evidence rather than
+  // silently treating a missing value as 0.
+  const knownFatigueAssignments = volunteerAssignments.filter(
+    (assignment): assignment is CalendarAssignmentSummary & { volunteer_fatigue: number } =>
+      assignment.volunteer_fatigue !== null,
+  );
+  const volunteerFatigue = knownFatigueAssignments.length
+    ? knownFatigueAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) /
+      knownFatigueAssignments.length
     : normalizeFatigue(record.volunteer_fatigue ?? record.fatigue_score ?? 0);
   const recoveryStatus = normalizeRecoveryStatus(
     record.recovery_status ?? record.recoveryState ?? volunteerAssignments[0]?.recovery_status,
@@ -760,25 +808,28 @@ function normalizeRankedMatch(payload: Partial<RankedMatch> & Record<string, unk
 
 function normalizeQrCodeAsset(payload: unknown, index = 0): QrCodeAsset {
   const record = extractRecord(payload);
-  const conversionCount = Math.max(
-    parseNumber(
-      record.conversion_count ??
-        record.conversions ??
-        record.member_inquiry_count ??
-        record.membership_interest_count,
-      0,
-    ),
-    0,
+  const conversionCountRaw = parseNumberOrNull(
+    record.conversion_count ??
+      record.conversions ??
+      record.member_inquiry_count ??
+      record.membership_interest_count,
   );
-  const scanCount = Math.max(parseNumber(record.scan_count ?? record.scans ?? record.total_scans, 0), 0);
-  const conversionRateValue = parseNumber(
+  const conversionCount = conversionCountRaw === null ? null : Math.max(conversionCountRaw, 0);
+  const scanCountRaw = parseNumberOrNull(record.scan_count ?? record.scans ?? record.total_scans);
+  const scanCount = scanCountRaw === null ? null : Math.max(scanCountRaw, 0);
+  const conversionRateValue = parseNumberOrNull(
     record.conversion_rate ?? record.conversionRate ?? record.roi_rate,
-    Number.NaN,
   );
-  const derivedConversionRate = scanCount > 0 ? conversionCount / scanCount : 0;
-  const normalizedConversionRate = Number.isFinite(conversionRateValue)
-    ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
-    : clamp(derivedConversionRate, 0, 1);
+  // A rate needs a denominator: with no scans (real or unknown), there is no
+  // ratio to report, so the derived rate is null rather than a fabricated 0.
+  const derivedConversionRate =
+    scanCount !== null && scanCount > 0 && conversionCount !== null ? conversionCount / scanCount : null;
+  const normalizedConversionRate =
+    conversionRateValue !== null
+      ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
+      : derivedConversionRate !== null
+        ? clamp(derivedConversionRate, 0, 1)
+        : null;
 
   return {
     referral_code: parseString(
@@ -824,39 +875,57 @@ function normalizeQrStats(payload: unknown): QrStatsSummary {
       const rightTime = Date.parse(right.last_scanned_at || right.generated_at || "");
       return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
     });
-  const totalGenerated = parseNumber(
-    source.total_generated ??
-      source.generated_count ??
-      source.codes_generated ??
-      source.referral_count ??
-      source.total_codes,
-    entries.length,
-  );
-  const totalScans = parseNumber(
-    source.total_scans ?? source.scan_count ?? source.scans ?? source.total_visits,
-    entries.reduce((sum, entry) => sum + entry.scan_count, 0),
-  );
-  const totalConversions = parseNumber(
-    source.total_conversions ??
-      source.conversion_count ??
-      source.conversions ??
-      source.total_inquiries ??
-      source.membership_interest_count,
-    entries.reduce((sum, entry) => sum + entry.conversion_count, 0),
-  );
-  const conversionRateValue = parseNumber(
+  // Entries carry their own null-safe counts (see normalizeQrCodeAsset); a
+  // derived sum is only meaningful once every entry actually reports one.
+  const entryScanCounts = entries.map((entry) => entry.scan_count);
+  const entryConversionCounts = entries.map((entry) => entry.conversion_count);
+  const allEntryScansKnown = entries.length > 0 && entryScanCounts.every((value) => value !== null);
+  const allEntryConversionsKnown = entries.length > 0 && entryConversionCounts.every((value) => value !== null);
+
+  const totalGenerated =
+    parseNumberOrNull(
+      source.total_generated ??
+        source.generated_count ??
+        source.codes_generated ??
+        source.referral_count ??
+        source.total_codes,
+    ) ?? (entries.length > 0 ? entries.length : null);
+  const totalScans =
+    parseNumberOrNull(source.total_scans ?? source.scan_count ?? source.scans ?? source.total_visits) ??
+    (allEntryScansKnown
+      ? (entryScanCounts as number[]).reduce((sum, value) => sum + value, 0)
+      : null);
+  const totalConversions =
+    parseNumberOrNull(
+      source.total_conversions ??
+        source.conversion_count ??
+        source.conversions ??
+        source.total_inquiries ??
+        source.membership_interest_count,
+    ) ??
+    (allEntryConversionsKnown
+      ? (entryConversionCounts as number[]).reduce((sum, value) => sum + value, 0)
+      : null);
+  const conversionRateValue = parseNumberOrNull(
     source.conversion_rate ?? source.conversionRate ?? source.roi_rate,
-    Number.NaN,
   );
-  const derivedConversionRate = totalScans > 0 ? totalConversions / totalScans : 0;
+  // No scans (real or unknown) means no ratio to report — null, not a
+  // fabricated 0.
+  const derivedConversionRate =
+    totalScans !== null && totalScans > 0 && totalConversions !== null
+      ? totalConversions / totalScans
+      : null;
 
   return {
     total_generated: totalGenerated,
     total_scans: totalScans,
     total_conversions: totalConversions,
-    conversion_rate: Number.isFinite(conversionRateValue)
-      ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
-      : clamp(derivedConversionRate, 0, 1),
+    conversion_rate:
+      conversionRateValue !== null
+        ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
+        : derivedConversionRate !== null
+          ? clamp(derivedConversionRate, 0, 1)
+          : null,
     entries,
   };
 }
@@ -918,28 +987,26 @@ function normalizeFeedbackStats(payload: unknown): FeedbackStatsSummary {
     normalizeFeedbackAdjustment,
   );
 
+  const acceptanceRateRaw = parseNumberOrNull(record.acceptance_rate);
+  const membershipInterestRateRaw = parseNumberOrNull(
+    record.membership_interest_rate ?? record.conversion_rate,
+  );
+
   return {
-    total_feedback: parseNumber(record.total_feedback ?? record.total ?? 0, 0),
-    accepted: parseNumber(record.accepted ?? 0, 0),
-    declined: parseNumber(record.declined ?? 0, 0),
-    acceptance_rate: clamp(parseNumber(record.acceptance_rate ?? 0, 0), 0, 1),
-    attended_count: parseNumber(record.attended_count ?? 0, 0),
-    membership_interest_count: parseNumber(
-      record.membership_interest_count ?? record.total_conversions ?? 0,
-      0,
+    total_feedback: parseNumberOrNull(record.total_feedback ?? record.total),
+    accepted: parseNumberOrNull(record.accepted),
+    declined: parseNumberOrNull(record.declined),
+    acceptance_rate: acceptanceRateRaw === null ? null : clamp(acceptanceRateRaw, 0, 1),
+    attended_count: parseNumberOrNull(record.attended_count),
+    membership_interest_count: parseNumberOrNull(
+      record.membership_interest_count ?? record.total_conversions,
     ),
-    membership_interest_rate: clamp(
-      parseNumber(record.membership_interest_rate ?? record.conversion_rate ?? 0, 0),
-      0,
-      1,
-    ),
-    average_coordinator_rating:
-      record.average_coordinator_rating == null
-        ? null
-        : parseNumber(record.average_coordinator_rating, 0),
-    average_match_score_accepted: parseNumber(record.average_match_score_accepted ?? 0, 0),
-    average_match_score_declined: parseNumber(record.average_match_score_declined ?? 0, 0),
-    pain_score: parseNumber(record.pain_score ?? 0, 0),
+    membership_interest_rate:
+      membershipInterestRateRaw === null ? null : clamp(membershipInterestRateRaw, 0, 1),
+    average_coordinator_rating: parseNumberOrNull(record.average_coordinator_rating),
+    average_match_score_accepted: parseNumberOrNull(record.average_match_score_accepted),
+    average_match_score_declined: parseNumberOrNull(record.average_match_score_declined),
+    pain_score: parseNumberOrNull(record.pain_score),
     decline_reasons: declineReasons,
     event_outcomes: eventOutcomes,
     trend,
@@ -1039,29 +1106,36 @@ export async function fetchContacts(): Promise<PocContact[]> {
   return requestJson<PocContact[]>("/api/data/contacts");
 }
 
+/**
+ * Placeholder used before the first fetch resolves or after a failed fetch.
+ * All numeric fields are `null` — ADR-0011: this is "no evidence yet," never
+ * a measured zero. Callers gate rendering on an `*Available` flag rather than
+ * inferring availability from these values.
+ */
 export function emptyQrStatsSummary(): QrStatsSummary {
   return {
-    total_generated: 0,
-    total_scans: 0,
-    total_conversions: 0,
-    conversion_rate: 0,
+    total_generated: null,
+    total_scans: null,
+    total_conversions: null,
+    conversion_rate: null,
     entries: [],
   };
 }
 
+/** See `emptyQrStatsSummary` — same "no evidence yet" contract. */
 export function emptyFeedbackStatsSummary(): FeedbackStatsSummary {
   return {
-    total_feedback: 0,
-    accepted: 0,
-    declined: 0,
-    acceptance_rate: 0,
-    attended_count: 0,
-    membership_interest_count: 0,
-    membership_interest_rate: 0,
+    total_feedback: null,
+    accepted: null,
+    declined: null,
+    acceptance_rate: null,
+    attended_count: null,
+    membership_interest_count: null,
+    membership_interest_rate: null,
     average_coordinator_rating: null,
-    average_match_score_accepted: 0,
-    average_match_score_declined: 0,
-    pain_score: 0,
+    average_match_score_accepted: null,
+    average_match_score_declined: null,
+    pain_score: null,
     decline_reasons: [],
     event_outcomes: [],
     trend: [],
