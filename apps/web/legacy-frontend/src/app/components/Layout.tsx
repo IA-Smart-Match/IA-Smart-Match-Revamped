@@ -9,12 +9,10 @@ import {
   Mail,
   Menu,
   X,
-  Loader2,
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
 import { SyntheticDataBanner } from "./provenance";
-import { CrawlerProvider, useCrawlerStatus } from "./CrawlerContext";
 import {
   Tooltip,
   TooltipTrigger,
@@ -36,26 +34,12 @@ const navigationSections = [
     items: [
       { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
       { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank specialists against open opportunities" },
-      { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate emails, QR assets, and crawler feed" },
+      { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
     ],
   },
 ];
 
 const allNavItems = navigationSections.flatMap((s) => s.items);
-
-function CrawlBanner() {
-  const { status } = useCrawlerStatus();
-  if (status?.state !== "running") return null;
-  return (
-    <div className="flex items-center gap-2 bg-blue-600 px-4 py-1.5 text-sm text-white">
-      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      <span>Web crawl in progress…</span>
-      <Link to="/outreach" className="ml-auto underline underline-offset-2 hover:no-underline">
-        View feed
-      </Link>
-    </div>
-  );
-}
 
 export function Layout() {
   const location = useLocation();
@@ -68,7 +52,6 @@ export function Layout() {
   );
 
   return (
-    <CrawlerProvider>
     <div className="min-h-screen bg-background">
       <ScrollToTop />
       {/* Mobile sidebar backdrop */}
@@ -170,7 +153,6 @@ export function Layout() {
 
       {/* Main content */}
       <div className="lg:pl-64">
-        <CrawlBanner />
         {/* Mobile header */}
         <header className="sticky top-0 z-30 border-b border-sidebar-border bg-sidebar px-4 py-3 lg:hidden">
           <div className="flex items-center justify-between">
@@ -209,6 +191,5 @@ export function Layout() {
         </main>
       </div>
     </div>
-    </CrawlerProvider>
   );
 }

@@ -8,13 +8,15 @@ no separate COUNT query whose filters can drift from the row query.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Request, Response, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.metrics import METRIC_REGISTER, MetricDefinition, get_metric
@@ -194,17 +196,88 @@ def _summary(
     )
 
 
+_NOT_MODIFIED_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
+    status.HTTP_304_NOT_MODIFIED: {
+        "description": (
+            "Not Modified: the payload named by If-None-Match is still current. "
+            "The body is empty; Cache-Control and ETag repeat the values a "
+            "matching 200 would have carried."
+        ),
+    },
+}
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """Weakly compare an ``If-None-Match`` header against ``etag`` (RFC 9110 §8.8.3.2).
+
+    ``If-None-Match`` may carry a comma-separated list of entity tags, any of
+    which may be marked weak (``W/"..."``), or the literal ``*`` which matches
+    any current representation. Weak comparison only requires the opaque tags
+    to be equal, so the ``W/`` prefix is stripped from both sides before
+    comparing -- this endpoint only ever issues weak tags (the payload is
+    derived from row contents, not verified byte-for-byte across requests).
+    """
+    if if_none_match is None:
+        return False
+    if if_none_match.strip() == "*":
+        return True
+    candidate = etag.removeprefix("W/")
+    for raw_tag in if_none_match.split(","):
+        tag = raw_tag.strip().removeprefix("W/")
+        if tag == candidate:
+            return True
+    return False
+
+
+def _conditional_json_response(payload_model: BaseModel, request: Request) -> Response:
+    """Serve ``payload_model`` with revalidation headers, honoring If-None-Match.
+
+    The ETag is a weak hash of the exact bytes returned, computed by
+    serializing ``payload_model`` deterministically (sorted keys, no
+    incidental whitespace) and hashing that serialization -- never a separate
+    representation than the one sent, so a client's cached copy can never
+    drift from what this handler would compute for the same data.
+
+    ``Cache-Control`` is fixed at ``private, max-age=0, must-revalidate``.
+    ``private`` is mandatory, not a default: every metrics payload is scoped to
+    one authorized principal's view of one unit (ADR-0011's accountable
+    numbers are meaningless outside that authorization context), so this
+    response must never be eligible for a shared cache -- a proxy or CDN
+    serving it to a second principal would leak one tenant's counts to
+    another. ``max-age=0, must-revalidate`` forces a revalidation round trip on
+    every use, so a client can skip re-transferring an unchanged body but can
+    never present a stale value as live.
+    """
+    payload = payload_model.model_dump(mode="json")
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    etag = f'W/"{hashlib.sha256(body).hexdigest()}"'
+    headers = {
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "ETag": etag,
+    }
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
 @router.get(
     "/{unit_id}/metrics",
     response_model=MetricsResponse,
+    responses=_NOT_MODIFIED_RESPONSE,
     summary="List accountable metrics for a unit",
 )
 def list_metrics(
     principal: CurrentPrincipal,
     session: DbSession,
+    request: Request,
     unit_id: Annotated[uuid.UUID, Path()],
-) -> MetricsResponse:
-    """Return registered metrics, preserving unknown values as null."""
+) -> Response:
+    """Return registered metrics, preserving unknown values as null.
+
+    Authorization runs before any conditional-request handling: an
+    ``If-None-Match`` header must never let an unauthorized or unknown caller
+    learn that a 304-eligible representation exists.
+    """
     _authorize_unit_read(session, principal, unit_id)
     metrics = [
         _summary(
@@ -214,21 +287,30 @@ def list_metrics(
         )
         for metric in METRIC_REGISTER
     ]
-    return MetricsResponse(unit_id=unit_id, metrics=metrics)
+    response_model = MetricsResponse(unit_id=unit_id, metrics=metrics)
+    return _conditional_json_response(response_model, request)
 
 
 @router.get(
     "/{unit_id}/metrics/{metric_name}/drill-down",
     response_model=MetricDrillDownResponse,
+    responses=_NOT_MODIFIED_RESPONSE,
     summary="Drill into an accountable metric",
 )
 def metric_drill_down(
     principal: CurrentPrincipal,
     session: DbSession,
+    request: Request,
     unit_id: Annotated[uuid.UUID, Path()],
     metric_name: Annotated[str, Path(min_length=1)],
-) -> MetricDrillDownResponse:
-    """Return exactly the rows the named metric's aggregate counted."""
+) -> Response:
+    """Return exactly the rows the named metric's aggregate counted.
+
+    Authorization and the metric-not-found check both run before any
+    conditional-request handling, for the same reason as ``list_metrics``: a
+    404 must never be short-circuited into a 304 by a caller replaying an
+    ETag it never legitimately received.
+    """
     _authorize_unit_read(session, principal, unit_id)
     metric = get_metric(metric_name)
     if metric is None:
@@ -239,7 +321,7 @@ def metric_drill_down(
         )
 
     evidence = _evidence_for(session, principal.tenant_id, unit_id, metric)
-    return MetricDrillDownResponse(
+    response_model = MetricDrillDownResponse(
         unit_id=unit_id,
         name=metric.canonical_name,
         definition=metric.definition,
@@ -247,3 +329,4 @@ def metric_drill_down(
         unknown_reason=evidence.unknown_reason,
         rows=list(evidence.rows),
     )
+    return _conditional_json_response(response_model, request)
