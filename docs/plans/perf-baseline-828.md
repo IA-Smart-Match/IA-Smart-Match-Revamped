@@ -246,9 +246,79 @@ Note that the `vendor-emotion` chunk configured in `vite.config.ts` does not
 appear in the output; Emotion is currently landing inside another chunk. That
 is an observation about today's `manualChunks` behaviour, not a Lane F2 target.
 
-### 6b. After Lane F2
+### 6b. After Lane F2 — MEASURED
 
-_Recorded when Lane F2 lands, from the same command on the same machine._
+Same command, same machine, after route-level code splitting. `tsc --noEmit`
+exit 0; `vite build` exit 0, `✓ 2752 modules transformed`, `✓ built in 14.05s`.
+The output is now ~35 route chunks; the entries that changed or matter:
+
+| Artifact | Before | After |
+|---|---|---|
+| `dist/assets/index-*.js` (application chunk) | 448.39 kB / 112.40 kB gzip | **197.49 kB / 59.88 kB gzip** |
+| `dist/assets/vendor-react-*.js` | 276.46 kB / 92.28 kB | 276.46 kB / 92.28 kB (identical) |
+| `dist/assets/vendor-charts-*.js` | 412.19 kB / 114.51 kB | 412.19 kB / 114.51 kB (identical) |
+| `dist/assets/vendor-ui-*.js` | 50.31 kB / 16.71 kB | 50.31 kB / 16.71 kB (identical) |
+| `dist/assets/index-*.css` | 135.22 kB / 21.44 kB | 134.48 kB / 21.29 kB |
+| per-route chunks | none | ~35, e.g. `Dashboard` 32.22 kB / 8.29 kB, `Calendar` 23.06 kB / 5.29 kB, `Volunteers` 22.26 kB / 5.64 kB, `Pipeline` 19.63 kB / 5.18 kB |
+
+**Delta on the eagerly-loaded application chunk: −250.90 kB raw, −52.52 kB
+gzip (−46.7%).** The three vendor chunks are byte-identical, which confirms the
+existing `manualChunks` configuration was neither changed nor disturbed.
+
+What this figure does and does not say, stated plainly: it is a **measured
+reduction in bytes downloaded before the first route can render**. It is *not*
+a time-to-interactive measurement, and this document does not convert it into
+one — see §2. Whether it moves R1 can only be judged on hardware with a browser.
+
+The build also emits a pre-existing circular-dependency warning about
+`Dashboard.tsx` importing `MetricDrilldownSheet` through the `provenance`
+barrel. It is a warning, not a failure, it predates this lane, and both files
+belong to another plan's fence. Recorded, not fixed.
+
+---
+
+## 6c. Lane F3 — HTTP revalidation, verified live
+
+Measured against a running API carrying the Lane F3 change (same database,
+same host, same method as §3).
+
+Response headers on a 200, verbatim from `curl -D -`:
+
+```
+HTTP/1.1 200 OK
+cache-control: private, max-age=0, must-revalidate
+etag: W/"b85e2c83bc31ecbf220d41a3bad8ea5afa31cf2adf36b83b390c5f6cf10111a1"
+```
+
+Replaying that ETag as `If-None-Match`:
+
+```
+HTTP/1.1 304 Not Modified
+cache-control: private, max-age=0, must-revalidate
+etag: W/"b85e2c83bc31ecbf220d41a3bad8ea5afa31cf2adf36b83b390c5f6cf10111a1"
+```
+
+**R5 — payload transfer skipped on an unchanged repeat visit (measured):**
+
+| Request | Bytes downloaded | p50 wall time (n=25) |
+|---|---|---|
+| Drill-down `200` (5,000 rows) | **1,686,898** | 0.0591 s |
+| Drill-down `304` (same data) | **0** | 0.0467 s |
+| Metrics `200` | 2,088 | 0.0362 s |
+| Metrics `304` | 0 | 0.0347 s |
+
+Read this honestly: the **transfer** saving is total and real (1.69 MB → 0 B).
+The **wall-time** saving is modest (0.0591 s → 0.0467 s p50 on loopback, where
+transfer is nearly free) because the server still executes the owning query and
+serializes the payload in order to compute the ETag — a 304 skips sending the
+body, not producing it. On a real network the transfer saving dominates; on
+this loopback it does not, and this document does not pretend otherwise.
+Eliminating the server-side recomputation is what Stage 2/3 would address, and
+§7 records why neither is entered.
+
+ADR-0011 through the new layer, verified on the live endpoint: an unknown
+metric still returns `"aggregate_value": null` with its `unknown_reason`
+intact. The cache layer does not coerce unknown to zero.
 
 ---
 
@@ -281,6 +351,33 @@ metrics stop being no-DB unknowns.
 
 ---
 
+## 7b. Stage 3 entry-condition evaluation (Redis; ADR-0016)
+
+**Entry condition (from the plan):** *"post-Stage-1/2 measurement still misses
+R1, and the gap is attributable to repeated server-side computation a process
+cache cannot hold."*
+
+**Evaluation.** The condition has two conjuncts and the first cannot be
+established here. §2 records that R1 is a time-to-interactive requirement and
+that no browser or Lighthouse exists on this host, so the post-Stage-1
+measurement does not miss R1 — it **cannot judge R1 at all**. "Not verifiable"
+is not "missed", and treating it as a miss would be exactly the kind of
+invented conclusion this document exists to prevent.
+
+The second conjunct also has no supporting evidence. §3c and §6c measure the
+server-side computation directly: the whole metrics endpoint is 43 ms p50 at
+5,000 rows, of which 12 ms is PostgreSQL. There is no repeated server-side
+computation of a size that would justify a new infrastructure dependency.
+
+**Decision: Stage 3 is NOT entered, and ADR-0016 is NOT written.** Writing a
+Redis proposal now would mean proposing infrastructure on the strength of a
+number this environment cannot produce. If a run on demo hardware with a real
+browser shows R1 missed, this evaluation should be revisited **with that
+measurement in hand** — and even then only if the gap is attributable to
+server-side recomputation rather than to page weight or render.
+
+---
+
 ## 8. What was not measured, and why
 
 | Item | Status |
@@ -299,5 +396,10 @@ targets, and any row that cannot be measured on this machine says so.
 
 | Requirement | Target | Before | After | Method |
 |---|---|---|---|---|
-| R1 | ≤ 1.5 s interactive | not verifiable here (§2) | not verifiable here (§2) | needs a browser on demo hardware |
-| R5 | skip unchanged payload transfer | no `Cache-Control` and no `ETag` on any `/v1` metrics response (confirmed by reading `services/api/smartmatch_api/routers/metrics.py`: the only `Cache-Control` anywhere in `services/api/` is `no-store` on the jobs SSE stream) | — | Lane F3 contract tests |
+| R1 | ≤ 1.5 s interactive | not verifiable here (§2) | not verifiable here (§2) | needs a browser on demo hardware; no browser or Lighthouse on this host |
+| R2 | panels never block first paint; pending shows loading; unknown shows unknown | metrics fetched in an independent effect, not blocking the mount batch (§5) | unchanged for first paint; route suspense fallback is a plain spinner with no fabricated values | source review + typecheck |
+| R3 | no crawl/LLM/external call on any request path | no executable guard existed | two structural guards, both passing (card C1) | `pytest tests/unit/test_no_external_calls_on_request_path.py` |
+| R4 | repeat navigation re-renders without refetch-blocking | every mount refetched; raw `fetch` in `useEffect`, no query cache (plan recon, confirmed in §5) | see Lane F1 | account-switch isolation test + typecheck |
+| R5 | skip unchanged payload transfer | no `Cache-Control` and no `ETag` on any `/v1` metrics response (confirmed by reading `services/api/smartmatch_api/routers/metrics.py`: the only `Cache-Control` anywhere in `services/api/` was `no-store` on the jobs SSE stream) | drill-down repeat visit transfers **0 bytes** instead of **1,686,898** (§6c) | live `curl` with `If-None-Match`, plus contract tests |
+| R6 | server-side cached aggregates carry computed-at provenance | no server-side cached aggregate exists | still none — Stage 2 skipped (§7), Stage 3 not entered | entry-condition evaluation, §7 |
+| eager JS bytes | reduce pre-route download | 448.39 kB / 112.40 kB gzip (§6a) | 197.49 kB / 59.88 kB gzip (§6b) | `npm run build` |
