@@ -270,6 +270,26 @@ reduction in bytes downloaded before the first route can render**. It is *not*
 a time-to-interactive measurement, and this document does not convert it into
 one — see §2. Whether it moves R1 can only be judged on hardware with a browser.
 
+### 6d. After Lane F1 — MEASURED (the honest net figure)
+
+Lane F1 adds TanStack Query, which lands in the eagerly loaded chunk. The
+final `npm run build` on this branch, with F1, F2 and F4 all in:
+`✓ 2800 modules transformed`, `✓ built in 27.70s`.
+
+| Artifact | Before P4 (§6a) | After F2 (§6b) | After F1 (final) |
+|---|---|---|---|
+| `dist/assets/index-*.js` | 448.39 kB / 112.40 kB gzip | 197.49 kB / 59.88 kB gzip | **243.50 kB / 73.31 kB gzip** |
+| `vendor-react-*.js` | 276.46 / 92.28 | 276.46 / 92.28 | 276.46 / 92.28 |
+| `vendor-charts-*.js` | 412.19 / 114.51 | 412.19 / 114.51 | 412.19 / 114.51 |
+| `vendor-ui-*.js` | 50.31 / 16.71 | 50.31 / 16.71 | 50.31 / 16.71 |
+
+Stated plainly, both directions: route splitting removed 250.90 kB raw /
+52.52 kB gzip from the eager chunk, and **the query cache added 46.01 kB raw /
+13.43 kB gzip back**. The net across this plan is **−204.89 kB raw /
+−39.09 kB gzip (−34.8% gzip)** on the bytes downloaded before the first route
+can render. F1's cost is recorded rather than netted away silently — it buys
+R4, and R4 has a byte price.
+
 The build also emits a pre-existing circular-dependency warning about
 `Dashboard.tsx` importing `MetricDrilldownSheet` through the `provenance`
 barrel. It is a warning, not a failure, it predates this lane, and both files
@@ -399,7 +419,7 @@ targets, and any row that cannot be measured on this machine says so.
 | R1 | ≤ 1.5 s interactive | not verifiable here (§2) | not verifiable here (§2) | needs a browser on demo hardware; no browser or Lighthouse on this host |
 | R2 | panels never block first paint; pending shows loading; unknown shows unknown | metrics fetched in an independent effect, not blocking the mount batch (§5) | unchanged for first paint; route suspense fallback is a plain spinner with no fabricated values | source review + typecheck |
 | R3 | no crawl/LLM/external call on any request path | no executable guard existed | two structural guards, both passing (card C1) | `pytest tests/unit/test_no_external_calls_on_request_path.py` |
-| R4 | repeat navigation re-renders without refetch-blocking | every mount refetched; raw `fetch` in `useEffect`, no query cache (plan recon, confirmed in §5) | see Lane F1 | account-switch isolation test + typecheck |
+| R4 | repeat navigation re-renders without refetch-blocking | every mount refetched; raw `fetch` in `useEffect`, no query cache (plan recon, confirmed in §5) | TanStack Query, `staleTime` 30 s, `refetchOnWindowFocus` off; principal-scoped keys with clear-on-identity-change | `npm test` — 8/8 pass, including the account-switch isolation test; `npm run typecheck` clean |
 | R5 | skip unchanged payload transfer | no `Cache-Control` and no `ETag` on any `/v1` metrics response (confirmed by reading `services/api/smartmatch_api/routers/metrics.py`: the only `Cache-Control` anywhere in `services/api/` was `no-store` on the jobs SSE stream) | drill-down repeat visit transfers **0 bytes** instead of **1,686,898** (§6c) | live `curl` with `If-None-Match`, plus contract tests |
 | R6 | server-side cached aggregates carry computed-at provenance | no server-side cached aggregate exists | still none — Stage 2 skipped (§7), Stage 3 not entered | entry-condition evaluation, §7 |
-| eager JS bytes | reduce pre-route download | 448.39 kB / 112.40 kB gzip (§6a) | 197.49 kB / 59.88 kB gzip (§6b) | `npm run build` |
+| eager JS bytes | reduce pre-route download | 448.39 kB / 112.40 kB gzip (§6a) | 243.50 kB / 73.31 kB gzip (§6d — F2 removed 52.52 kB gzip, F1 added 13.43 kB back) | `npm run build` |
