@@ -28,7 +28,7 @@ interface AgentState {
   duration_ms?: number;
 }
 
-type WorkflowPhase = "idle" | "streaming" | "approval" | "approved" | "rejected";
+type WorkflowPhase = "idle" | "streaming" | "approval";
 
 const AGENT_ORDER = ["scout", "copywriter", "scheduler", "planner", "pipeline"];
 
@@ -41,7 +41,6 @@ export function AgenticOutreachPanel({
 }: AgenticOutreachPanelProps) {
   const [phase, setPhase] = useState<WorkflowPhase>("idle");
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
-  const [rejectReason, setRejectReason] = useState("");
   const [selectedSlot, setSelectedSlot] = useState<string>("");
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -173,10 +172,6 @@ export function AgenticOutreachPanel({
                 </span>
               ) : phase === "approval" ? (
                 "Awaiting your approval"
-              ) : phase === "approved" ? (
-                "Outreach sent ✓"
-              ) : phase === "rejected" ? (
-                "Workflow cancelled"
               ) : (
                 "Ready"
               )}
@@ -328,56 +323,10 @@ export function AgenticOutreachPanel({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex gap-3 pt-1">
-            <button
-              onClick={() => setPhase("approved")}
-              className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-            >
-              Approve &amp; Send
-            </button>
-            <button
-              onClick={() => setPhase("rejected")}
-              className="flex-1 rounded-xl border border-border/70 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Approved state */}
-      {phase === "approved" && (
-        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
-          <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
-          <p className="text-sm font-medium text-green-700">
-            Outreach sent ✓ Pipeline updated — Speaker contacted successfully.
+          {/* Send-path notice */}
+          <p className="pt-1 text-xs text-muted-foreground">
+            Draft only. No send path exists — outreach cannot be dispatched from this panel.
           </p>
-        </div>
-      )}
-
-      {/* Rejected state */}
-      {phase === "rejected" && (
-        <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="text-sm font-medium text-foreground">Workflow cancelled.</p>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Reason (optional)
-            </label>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={2}
-              placeholder="e.g. Speaker unavailable for this event"
-              className="w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-border/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
-          >
-            Cancel
-          </button>
         </div>
       )}
     </div>
