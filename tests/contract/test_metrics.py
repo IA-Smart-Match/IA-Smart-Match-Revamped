@@ -198,3 +198,132 @@ def test_pipeline_unknown_is_null_with_an_empty_drill_down(metric_context) -> No
     assert drill_down["aggregate_value"] is None
     assert drill_down["rows"] == []
     assert "S12" in drill_down["unknown_reason"]
+
+
+def _insert_pending_review_item(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> None:
+    """Add one more pending review row under ``unit_id``'s existing batch."""
+    with engine.begin() as conn:
+        batch_id = conn.execute(
+            text("SELECT id FROM import_batch WHERE tenant_id = :tid AND owning_unit_id = :unit"),
+            {"tid": tenant_id, "unit": unit_id},
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO review_item "
+                "(id, tenant_id, import_batch_id, row_index, row_data, status) "
+                "VALUES (:id, :tid, :batch, :idx, CAST(:data AS jsonb), 'pending')"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "batch": batch_id,
+                "idx": 99,
+                "data": '{"full_name": "Extra Person"}',
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_200_carries_private_revalidation_headers(metric_context, path_suffix: str) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+
+    response = _get(client, f"/v1/units/{unit_id}/{path_suffix}", token)
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, max-age=0, must-revalidate"
+    etag = response.headers["ETag"]
+    assert etag.startswith('W/"')
+    assert etag.endswith('"')
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_matching_if_none_match_yields_304_with_empty_body(
+    metric_context, path_suffix: str
+) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+    path = f"/v1/units/{unit_id}/{path_suffix}"
+
+    first = _get(client, path, token)
+    etag = first.headers["ETag"]
+
+    second = client.get(
+        path,
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": etag},
+    )
+
+    assert second.status_code == 304
+    assert second.content == b""
+    assert second.headers["ETag"] == etag
+    assert second.headers["Cache-Control"] == "private, max-age=0, must-revalidate"
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_stale_if_none_match_yields_fresh_200_with_new_etag(
+    metric_context, engine: Engine, path_suffix: str
+) -> None:
+    client, unit_id, token, tenant_id = metric_context
+    path = f"/v1/units/{unit_id}/{path_suffix}"
+
+    first = _get(client, path, token)
+    old_etag = first.headers["ETag"]
+
+    _insert_pending_review_item(engine, tenant_id, unit_id)
+
+    second = client.get(
+        path,
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": old_etag},
+    )
+
+    assert second.status_code == 200
+    assert second.headers["ETag"] != old_etag
+    if path_suffix == "metrics":
+        by_name = {item["name"]: item for item in second.json()["metrics"]}
+        assert by_name["pending_review_items"]["value"] == 3
+    else:
+        assert second.json()["aggregate_value"] == 3
+
+
+def test_unauthorized_unit_never_short_circuits_to_304(metric_context) -> None:
+    client, _unit_id, token, _tenant_id = metric_context
+    bogus_unit_id = uuid.uuid4()
+
+    first = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first.status_code == 404
+
+    replay = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": '"anything"'},
+    )
+    assert replay.status_code == 404
+
+    wildcard_replay = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": "*"},
+    )
+    assert wildcard_replay.status_code == 404
+
+
+def test_unknown_metric_stays_null_through_the_cache_layer(metric_context) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+
+    response = _get(client, f"/v1/units/{unit_id}/metrics", token)
+    assert response.status_code == 200
+    by_name = {item["name"]: item for item in response.json()["metrics"]}
+    matched = by_name["pipeline_matched"]
+
+    assert matched["value"] is None
+    assert matched["value"] != 0
+    assert matched["unknown_reason"] is not None
+    assert "S12" in matched["unknown_reason"]

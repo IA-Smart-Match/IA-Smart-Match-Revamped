@@ -1618,7 +1618,7 @@
     },
     "/v1/units/{unit_id}/metrics": {
       "get": {
-        "description": "Return registered metrics, preserving unknown values as null.",
+        "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists.",
         "operationId": "list_metrics_v1_units__unit_id__metrics_get",
         "parameters": [
           {
@@ -1658,6 +1658,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "304": {
+            "description": "Not Modified: the payload named by If-None-Match is still current. The body is empty; Cache-Control and ETag repeat the values a matching 200 would have carried."
           },
           "400": {
             "content": {
@@ -1748,7 +1751,7 @@
     },
     "/v1/units/{unit_id}/metrics/{metric_name}/drill-down": {
       "get": {
-        "description": "Return exactly the rows the named metric's aggregate counted.",
+        "description": "Return exactly the rows the named metric's aggregate counted.\n\nAuthorization and the metric-not-found check both run before any\nconditional-request handling, for the same reason as ``list_metrics``: a\n404 must never be short-circuited into a 304 by a caller replaying an\nETag it never legitimately received.",
         "operationId": "metric_drill_down_v1_units__unit_id__metrics__metric_name__drill_down_get",
         "parameters": [
           {
@@ -1798,6 +1801,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "304": {
+            "description": "Not Modified: the payload named by If-None-Match is still current. The body is empty; Cache-Control and ETag repeat the values a matching 200 would have carried."
           },
           "400": {
             "content": {
