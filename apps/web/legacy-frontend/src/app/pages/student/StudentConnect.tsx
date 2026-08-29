@@ -1,10 +1,8 @@
-import { useMemo, useState, useEffect } from "react";
-import { AlertTriangle, MessageCircle, SendHorizonal, UserPlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { AlertTriangle, UserPlus } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AppIcon } from "../../../components/AppIcon";
-import { Button } from "../../components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   fetchPipeline,
   fetchSpecialists,
@@ -49,9 +47,6 @@ export function StudentConnect() {
   const [error, setError] = useState<string | null>(null);
   const [requested, setRequested] = useState<Set<string>>(new Set());
   const [speakerRequested, setSpeakerRequested] = useState<Set<string>>(new Set());
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [draftMessage, setDraftMessage] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -84,49 +79,6 @@ export function StudentConnect() {
 
   const suggestions = payload?.suggestions ?? [];
 
-  const connectedPeers = useMemo(() => {
-    return suggestions.filter((s) => isAlreadyConnected(studentId, s.peer_student_id));
-  }, [studentId, suggestions]);
-
-  const inboxThreads = useMemo(() => {
-    const studentThreads = connectedPeers.map((peer) => {
-      const threadId = `peer:${peer.peer_student_id}`;
-      return {
-        threadId,
-        name: peer.name,
-        subtitle: peer.school,
-        avatarSeed: peer.peer_student_id || peer.name,
-        sharedEvents: peer.shared_events.map((e) => e.event_name),
-        messages: makeMockThreadMessages({
-          currentStudentId: studentId,
-          otherName: peer.name,
-          sharedEvent: peer.shared_events[0]?.event_name ?? "an IA West event",
-        }),
-      };
-    });
-
-    const speakerThreads = speakerSuggestions
-      .filter((s) => isAlreadyConnected(studentId, s.speaker_name))
-      .slice(0, 2)
-      .map((speaker) => {
-        const threadId = `speaker:${speaker.speaker_name}`;
-        return {
-          threadId,
-          name: speaker.speaker_name,
-          subtitle: `${speaker.speaker_title} · ${speaker.speaker_company}`,
-          avatarSeed: `${speaker.speaker_name}-${speaker.speaker_company}`,
-          sharedEvents: speaker.shared_events.map((e) => e.event_name),
-          messages: makeMockThreadMessages({
-            currentStudentId: studentId,
-            otherName: speaker.speaker_name,
-            sharedEvent: speaker.shared_events[0]?.event_name ?? "a chapter event",
-          }),
-        };
-      });
-
-    return [...studentThreads, ...speakerThreads];
-  }, [connectedPeers, speakerSuggestions, studentId]);
-
   if (loading) {
     return (
       <div className="space-y-4">
@@ -153,8 +105,6 @@ export function StudentConnect() {
   const serviceUnavailable = payload.source === "unavailable";
   const focusInterests = String((session.user as Record<string, unknown> | undefined)?.interests ?? "");
 
-  const activeThread = inboxThreads.find((t) => t.threadId === activeThreadId) ?? inboxThreads[0];
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -162,24 +112,6 @@ export function StudentConnect() {
           <h1 className="text-2xl font-semibold text-foreground">Connect</h1>
           {payload.source === "demo" && <DemoModeBadge />}
         </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setInboxOpen(true);
-            setActiveThreadId((prev) => prev ?? inboxThreads[0]?.threadId ?? null);
-          }}
-          className="relative inline-flex items-center justify-center rounded-xl border border-border/70 bg-card px-3 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-accent"
-          title="Open chats"
-          aria-label="Open chats"
-        >
-          <MessageCircle className="h-4 w-4" aria-hidden />
-          {inboxThreads.length > 0 && (
-            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">
-              {Math.min(inboxThreads.length, 9)}
-            </span>
-          )}
-        </button>
       </div>
 
       <p className="max-w-3xl text-muted-foreground">
@@ -250,7 +182,6 @@ export function StudentConnect() {
               focusInterests && conn.interests ? getSharedInterests(focusInterests, conn.interests) : [];
             const isRequested = requested.has(conn.peer_student_id);
             const isConnected = isAlreadyConnected(studentId, conn.peer_student_id);
-            const threadId = `peer:${conn.peer_student_id}`;
 
             return (
               <div
@@ -342,20 +273,6 @@ export function StudentConnect() {
                       <UserPlus className="h-4 w-4" aria-hidden />
                       {isConnected ? "Connected" : isRequested ? "Request sent!" : "Connect"}
                     </button>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!isConnected}
-                      onClick={() => {
-                        setInboxOpen(true);
-                        setActiveThreadId(threadId);
-                      }}
-                      title={isConnected ? "Open chat" : "Connect first to chat"}
-                    >
-                      <MessageCircle className="h-4 w-4" aria-hidden />
-                      Chat
-                    </Button>
                   </div>
                 </div>
               </div>
@@ -385,7 +302,6 @@ export function StudentConnect() {
               const speakerId = `${speaker.speaker_name}-${speaker.speaker_company}`;
               const isRequested = speakerRequested.has(speakerId);
               const isConnected = isAlreadyConnected(studentId, speaker.speaker_name);
-              const threadId = `speaker:${speaker.speaker_name}`;
               return (
                 <div
                   key={speakerId}
@@ -459,19 +375,6 @@ export function StudentConnect() {
                         <UserPlus className="h-4 w-4" aria-hidden />
                         {isConnected ? "Connected" : isRequested ? "Request sent!" : "Connect with speaker"}
                       </button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!isConnected}
-                        onClick={() => {
-                          setInboxOpen(true);
-                          setActiveThreadId(threadId);
-                        }}
-                        title={isConnected ? "Open chat" : "Connect first to chat"}
-                      >
-                        <MessageCircle className="h-4 w-4" aria-hidden />
-                        Chat
-                      </Button>
                     </div>
                   </div>
                 </div>
@@ -480,114 +383,6 @@ export function StudentConnect() {
           </div>
         )}
       </div>
-
-      <Sheet open={inboxOpen} onOpenChange={setInboxOpen}>
-        <SheetContent className="min-h-0 overflow-hidden p-0 gap-0 h-dvh max-h-dvh w-full max-w-full border-l sm:max-w-xl md:max-w-2xl lg:max-w-4xl xl:max-w-[min(56rem,92vw)] 2xl:max-w-[min(64rem,88vw)]">
-          <SheetHeader className="border-b">
-            <SheetTitle className="px-4 pt-4">Chats</SheetTitle>
-            <p className="px-4 pb-4 text-sm text-muted-foreground">
-              Mock messages about shared events and professional topics.
-            </p>
-          </SheetHeader>
-
-          {inboxThreads.length === 0 ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              No chats yet. Some connections will appear here after you connect.
-            </div>
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 border-b sm:grid-cols-[minmax(12rem,18rem)_1fr] md:grid-cols-[minmax(14rem,20rem)_1fr] sm:min-h-0">
-                <div className="max-h-[min(40vh,18rem)] shrink-0 overflow-auto border-b sm:max-h-none sm:h-full sm:border-b-0 sm:border-r">
-                  {inboxThreads.map((t) => {
-                    const isActive = (activeThread?.threadId ?? "") === t.threadId;
-                    return (
-                      <button
-                        key={t.threadId}
-                        type="button"
-                        onClick={() => setActiveThreadId(t.threadId)}
-                        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${
-                          isActive ? "bg-accent" : "hover:bg-accent/50"
-                        }`}
-                      >
-                        <div className="h-10 w-10 overflow-hidden rounded-full border border-border/70 bg-primary/5">
-                          <img
-                            src={getMockProfilePhoto(t.avatarSeed)}
-                            alt={`${t.name} profile`}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate text-sm font-semibold text-foreground">{t.name}</div>
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-                              Connected
-                            </span>
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground">{t.subtitle}</div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {t.messages[t.messages.length - 1]?.text ?? ""}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="flex min-h-[min(52dvh,28rem)] min-w-0 flex-1 flex-col sm:min-h-0">
-                  <div className="border-b px-4 py-3">
-                    <div className="text-sm font-semibold text-foreground">
-                      {activeThread?.name ?? "Chat"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {activeThread?.sharedEvents?.[0] ? `About: ${activeThread.sharedEvents[0]}` : "Shared event"}
-                    </div>
-                  </div>
-
-                  <div className="flex-1 space-y-2 overflow-auto px-4 py-3">
-                    {(activeThread?.messages ?? []).map((m, idx) => (
-                      <div
-                        key={`${m.at}-${idx}`}
-                        className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                          m.from === "me"
-                            ? "ml-auto bg-primary text-primary-foreground"
-                            : "bg-muted text-foreground"
-                        }`}
-                      >
-                        <div className="text-[11px] opacity-80">{m.at}</div>
-                        <div>{m.text}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="border-t p-4">
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={draftMessage}
-                        onChange={(e) => setDraftMessage(e.target.value)}
-                        placeholder="Type a message (mock)"
-                        className="h-10 flex-1 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                      />
-                      <Button
-                        onClick={() => setDraftMessage("")}
-                        disabled={!draftMessage.trim()}
-                        className="rounded-xl"
-                      >
-                        <SendHorizonal className="h-4 w-4" aria-hidden />
-                        Send
-                      </Button>
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      Demo-only: messages are not persisted.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
@@ -605,39 +400,6 @@ function isAlreadyConnected(currentStudentId: string, otherId: string): boolean 
   // Deterministic “half already connected” rule for the demo.
   const key = `${currentStudentId}::${otherId}`.toLowerCase();
   return stableHash(key) % 2 === 0;
-}
-
-function makeMockThreadMessages(input: {
-  currentStudentId: string;
-  otherName: string;
-  sharedEvent: string;
-}): Array<{ from: "me" | "them"; text: string; at: string }> {
-  const seed = stableHash(`${input.currentStudentId}:${input.otherName}:${input.sharedEvent}`);
-  const topicVariants = [
-    "career paths in analytics",
-    "how to break into product research",
-    "AI ethics in student projects",
-    "how to prepare for a case competition",
-    "what makes a great networking follow-up",
-  ];
-  const topic = topicVariants[seed % topicVariants.length] ?? "professional growth";
-  return [
-    {
-      from: "them",
-      at: "Yesterday",
-      text: `Hey! Great seeing you at ${input.sharedEvent}. What did you think of the panel?`,
-    },
-    {
-      from: "me",
-      at: "Yesterday",
-      text: `Same — it was super useful. I’m especially thinking about ${topic}.`,
-    },
-    {
-      from: "them",
-      at: "Today",
-      text: `Totally. If you want, I can share a couple resources and how I approached it.`,
-    },
-  ];
 }
 
 function buildSpeakerSuggestions(
