@@ -462,19 +462,23 @@ export function Dashboard() {
   const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
 
+  const knownFatigueAssignments = calendarAssignments
+    .map((assignment) => assignment.volunteer_fatigue)
+    .filter((value): value is number => value !== null);
   const averageFatigueMetric = accountableDemoMetric(
     "Average volunteer fatigue",
     "Mean fatigue score from calendar assignment overlays.",
-    assignmentsAvailable && calendarAssignments.length > 0
-      ? calendarAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) /
-          calendarAssignments.length
+    assignmentsAvailable && knownFatigueAssignments.length > 0
+      ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) / knownFatigueAssignments.length
       : null,
     {
       provenance: assignmentProvenance,
       unknownReason:
         assignmentsAvailable && calendarAssignments.length === 0
           ? "No assignment overlays recorded yet."
-          : "Assignment overlays are unavailable.",
+          : assignmentsAvailable
+            ? "No overlay in this batch reported a fatigue signal."
+            : "Assignment overlays are unavailable.",
     },
   );
   const restRecommendedMetric = accountableDemoMetric(
@@ -502,7 +506,7 @@ export function Dashboard() {
   const feedbackAcceptanceMetric = accountableDemoMetric(
     "Feedback acceptance rate",
     "Accepted decisions divided by all coordinator feedback rows.",
-    feedbackAvailable && feedbackStats.total_feedback > 0
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.acceptance_rate
       : null,
     {
@@ -525,7 +529,7 @@ export function Dashboard() {
   const feedbackMembershipMetric = accountableDemoMetric(
     "Membership interest rate",
     "Follow-through signals attributed to coordinator feedback.",
-    feedbackAvailable && feedbackStats.total_feedback > 0
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.membership_interest_rate
       : null,
     {
@@ -814,7 +818,7 @@ export function Dashboard() {
               />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable
+              {feedbackAvailable && feedbackStats.accepted !== null && feedbackStats.declined !== null
                 ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
                 : "Coordinator feedback breakdown unavailable."}
             </p>
@@ -838,7 +842,7 @@ export function Dashboard() {
               />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable
+              {feedbackAvailable && feedbackStats.membership_interest_count !== null
                 ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
                 : "Membership interest signals unavailable."}
             </p>

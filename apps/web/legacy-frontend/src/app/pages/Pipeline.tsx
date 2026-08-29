@@ -337,7 +337,7 @@ export function Pipeline() {
   const qrConversionRate = accountableDemoMetric(
     "QR scan-to-conversion rate",
     "Conversions divided by scans across all referral codes.",
-    qrAvailable && qrStats.total_scans > 0 ? qrStats.conversion_rate : null,
+    qrAvailable && qrStats.total_scans !== null && qrStats.total_scans > 0 ? qrStats.conversion_rate : null,
     {
       provenance: qrProvenance,
       unknownReason:
@@ -359,7 +359,7 @@ export function Pipeline() {
   const feedbackAcceptance = accountableDemoMetric(
     "Feedback acceptance rate",
     "Accepted decisions divided by all coordinator feedback rows.",
-    feedbackAvailable && feedbackStats.total_feedback > 0
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.acceptance_rate
       : null,
     {
@@ -389,9 +389,19 @@ export function Pipeline() {
     };
   });
 
-  const qrEntries = [...qrStats.entries].sort(
-    (left, right) => right.scan_count - left.scan_count || right.conversion_count - left.conversion_count,
-  );
+  // Unknown counts (null) sort after known counts of any value, including 0 —
+  // they are not treated as lower measurements, just unranked.
+  const qrEntries = [...qrStats.entries].sort((left, right) => {
+    if (left.scan_count !== right.scan_count) {
+      if (left.scan_count === null) return 1;
+      if (right.scan_count === null) return -1;
+      return right.scan_count - left.scan_count;
+    }
+    if (left.conversion_count === right.conversion_count) return 0;
+    if (left.conversion_count === null) return 1;
+    if (right.conversion_count === null) return -1;
+    return right.conversion_count - left.conversion_count;
+  });
   const qrTopEntries = qrEntries.slice(0, 3);
   const leadAdjustment = feedbackStats.recommended_adjustments[0] ?? null;
 
@@ -463,7 +473,7 @@ export function Pipeline() {
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {qrStats.total_generated > 0 ? "Live referrals" : "Awaiting QR data"}
+                {(qrStats.total_generated ?? 0) > 0 ? "Live referrals" : "Awaiting QR data"}
               </span>
             </div>
 
@@ -534,8 +544,12 @@ export function Pipeline() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-gray-900">{entry.scan_count} scans</p>
-                          <p className="text-xs text-gray-500">{entry.conversion_count} conversions</p>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {entry.conversion_count === null ? "Unknown" : entry.conversion_count} conversions
+                          </p>
                         </div>
                       </div>
                     ))
@@ -572,7 +586,7 @@ export function Pipeline() {
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {feedbackStats.total_feedback > 0 ? "Optimizer active" : "Awaiting feedback"}
+                {(feedbackStats.total_feedback ?? 0) > 0 ? "Optimizer active" : "Awaiting feedback"}
               </span>
             </div>
 

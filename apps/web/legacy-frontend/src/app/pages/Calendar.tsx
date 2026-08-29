@@ -171,16 +171,25 @@ function recoveryFill(status: CalendarAssignmentSummary["recovery_status"]) {
   }
 }
 
-function formatPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
+// ADR-0011: a null fatigue/count means no evidence, not a measured zero — it
+// renders as "Unknown", never as "0%" or "0".
+function formatPercent(value: number | null) {
+  return value === null ? "Unknown" : `${Math.round(value * 100)}%`;
+}
+
+function formatCount(value: number | null) {
+  return value === null ? "Unknown" : `${value}`;
 }
 
 function summaryCounts(events: CalendarEventSummary[], assignments: CalendarAssignmentSummary[]) {
   const covered = events.filter((event) => event.coverage_status === "covered").length;
   const needsCoverage = events.filter((event) => event.coverage_status === "needs_coverage").length;
-  const averageFatigue = assignments.length
-    ? assignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) / assignments.length
-    : 0;
+  const knownFatigue = assignments
+    .map((assignment) => assignment.volunteer_fatigue)
+    .filter((value): value is number => value !== null);
+  const averageFatigue = knownFatigue.length
+    ? knownFatigue.reduce((sum, value) => sum + value, 0) / knownFatigue.length
+    : null;
   const cooldownCount = assignments.filter((assignment) => assignment.recovery_status === "Rest Recommended").length;
 
   return {
@@ -829,7 +838,7 @@ export function Calendar() {
                             Recent
                           </p>
                           <p className="mt-1 text-sm font-semibold text-slate-900">
-                            {assignment.recent_assignment_count}
+                            {formatCount(assignment.recent_assignment_count)}
                           </p>
                         </div>
                         <div className="rounded-xl bg-white px-3 py-2">
