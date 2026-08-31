@@ -1,0 +1,11 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
+BEGIN:VEVENT
+UID:synthetic-0004@example.edu
+DTSTART;VALUE=DATE:20261101
+SUMMARY:Career Panel: Analytics\, Data\; and You
+DESCRIPTION:First line\nSecond line with a backslash \\\\ and a comma\, too.
+LOCATION:Bronco Student Center\, Ursa Major
+END:VEVENT
+END:VCALENDAR

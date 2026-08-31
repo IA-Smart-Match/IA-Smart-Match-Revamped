@@ -1,0 +1,14 @@
+[
+  {
+    "@context": "https://evil.example",
+    "@type": "https://evil.example/Event",
+    "name": "Spoofed IRI Event",
+    "startDate": "2026-09-20T12:00:00-07:00"
+  },
+  {
+    "@context": "https://evil.example",
+    "@type": "evil:Event",
+    "name": "Spoofed Prefix Event",
+    "startDate": "2026-09-21T12:00:00-07:00"
+  }
+]
