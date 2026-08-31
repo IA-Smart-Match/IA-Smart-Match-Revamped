@@ -41,8 +41,8 @@ def test_symptom_fixtures_have_required_shape(path: Path):
 
 @pytest.mark.golden
 def test_all_three_stakeholder_symptoms_have_input_fixtures():
-    ids = { _load_json(p)["id"] for p in _symptom_files() }
-    assert REQUIRED_SYMPTOM_IDS <= ids
+    ids = {_load_json(p)["id"] for p in _symptom_files()}
+    assert ids >= REQUIRED_SYMPTOM_IDS
 
 
 @pytest.mark.golden

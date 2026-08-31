@@ -13,9 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-API_TS = (
-    REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib" / "api.ts"
-)
+API_TS = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib" / "api.ts"
 VOLUNTEERS_TSX = (
     REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "Volunteers.tsx"
 )
