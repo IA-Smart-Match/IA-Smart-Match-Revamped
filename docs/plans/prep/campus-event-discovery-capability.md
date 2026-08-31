@@ -763,6 +763,13 @@ route:
   work with no transport, so it does not need G3 — but it should still be
   **confirmed as in-scope with the P6 owner** before starting, because P6's
   stop-gate says S3/S4 need explicit human authorization to start early.
+  **Status:** landed 2026-08-30 —
+  `python/smartmatch_domain/smartmatch_domain/{ical_parser,jsonld_parser}.py`,
+  against fixtures under `tests/fixtures/event_sources/`. Fixture-only: no
+  transport, no route, no migration; neither parser is exported from the
+  package or imported by anything but its own tests. Whether the P6-owner
+  confirmation named above was actually obtained before the work started is
+  not recorded anywhere this document can see.
 - **§4 schema review.** Circulate the field table above, especially the
   unknown-allowed column, and get the contact-field group decided.
 - **Eligibility rubric drafting.** §5.1's exclusion list, lead-time threshold, and
