@@ -110,6 +110,28 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("tenant_budget", "ck_budget_non_negative"): (
         "CHECK (((spent >= (0)::numeric) AND (reserved >= (0)::numeric)))"
     ),
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_type"): (
+        "CHECK ((bucket_type = ANY (ARRAY['job'::text, 'tenant_day'::text, 'tenant_month'::text])))"
+    ),
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_non_negative"): (
+        "CHECK (((reserved >= (0)::numeric) AND (spent >= (0)::numeric)))"
+    ),
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_ceiling_non_negative"): (
+        "CHECK ((ceiling >= (0)::numeric))"
+    ),
+    ("spend_reservation", "ck_spend_reservation_estimate_non_negative"): (
+        "CHECK ((estimate >= (0)::numeric))"
+    ),
+    ("spend_reservation", "ck_spend_reservation_actual_non_negative"): (
+        "CHECK (((actual_cost IS NULL) OR (actual_cost >= (0)::numeric)))"
+    ),
+    ("spend_reservation", "ck_spend_reservation_state"): (
+        "CHECK ((state = ANY (ARRAY['reserved'::text, 'reconciled'::text, "
+        "'expired_spent'::text, 'released'::text])))"
+    ),
+    ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): (
+        "CHECK (((state = 'reserved'::text) = (lease_token IS NOT NULL)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -139,6 +161,13 @@ BEHAVIOURAL_COVERAGE = {
     ("resource_grant", "ck_resource_grant_effect"): "this file",
     ("review_item", "ck_review_item_status"): "test_import_review_constraints.py",
     ("tenant_budget", "ck_budget_non_negative"): "this file",
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_type"): "this file",
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_non_negative"): "this file",
+    ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_ceiling_non_negative"): "this file",
+    ("spend_reservation", "ck_spend_reservation_estimate_non_negative"): "this file",
+    ("spend_reservation", "ck_spend_reservation_actual_non_negative"): "this file",
+    ("spend_reservation", "ck_spend_reservation_state"): "this file",
+    ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): "this file",
 }
 
 
@@ -608,6 +637,160 @@ def test_rate_limit_count_rejects_going_negative_on_update(engine: Engine, tenan
             text("UPDATE rate_limit_counter SET count = count - 5 WHERE tenant_id = :tid"),
             {"tid": tenant_id},
         )
+
+
+# ---------------------------------------------------------------------------
+# Migration 0010 spend constraints
+# ---------------------------------------------------------------------------
+
+
+def _insert_spend_bucket(
+    conn, tenant_id, *, bucket_type: str = "job", ceiling="100", reserved="0", spent="0"
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO spend_ceiling_bucket "
+            "(tenant_id, bucket_type, bucket_key, ceiling, reserved, spent) "
+            "VALUES (:tenant_id, :bucket_type, :bucket_key, :ceiling, :reserved, :spent)"
+        ),
+        {
+            "tenant_id": tenant_id,
+            "bucket_type": bucket_type,
+            "bucket_key": f"test:{uuid.uuid4()}",
+            "ceiling": ceiling,
+            "reserved": reserved,
+            "spent": spent,
+        },
+    )
+
+
+def _insert_spend_reservation(
+    conn,
+    tenant_id,
+    *,
+    estimate="1",
+    actual_cost=None,
+    state: str = "reserved",
+    lease_token: uuid.UUID | None = _ACTOR,
+) -> None:
+    row_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO spend_reservation "
+            "(id, tenant_id, work_key, job_bucket_key, tenant_day_bucket_key, "
+            "tenant_month_bucket_key, estimate, actual_cost, state, lease_token, "
+            "lease_expires_at) VALUES "
+            "(:id, :tenant_id, :work_key, :job_key, :day_key, :month_key, "
+            ":estimate, :actual_cost, :state, :lease_token, now())"
+        ),
+        {
+            "id": row_id,
+            "tenant_id": tenant_id,
+            "work_key": f"test:{row_id}",
+            "job_key": f"job:{row_id}",
+            "day_key": f"tenant-day:{tenant_id}:2026-01-01",
+            "month_key": f"tenant-month:{tenant_id}:2026-01",
+            "estimate": estimate,
+            "actual_cost": actual_cost,
+            "state": state,
+            "lease_token": lease_token,
+        },
+    )
+
+
+def test_spend_bucket_type_rejects_unknown_vocabulary(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_spend_ceiling_bucket_type"),
+        engine.begin() as conn,
+    ):
+        _insert_spend_bucket(conn, tenant_id, bucket_type="tenant_week")
+
+
+@pytest.mark.parametrize("bucket_type", ["job", "tenant_day", "tenant_month"])
+def test_spend_bucket_type_accepts_every_supported_scope(
+    engine: Engine, tenant_id, bucket_type: str
+) -> None:
+    with engine.begin() as conn:
+        _insert_spend_bucket(conn, tenant_id, bucket_type=bucket_type)
+
+
+@pytest.mark.parametrize(
+    ("column", "constraint"),
+    [
+        ("reserved", "ck_spend_ceiling_bucket_non_negative"),
+        ("spent", "ck_spend_ceiling_bucket_non_negative"),
+        ("ceiling", "ck_spend_ceiling_bucket_ceiling_non_negative"),
+    ],
+)
+def test_spend_bucket_amounts_reject_the_smallest_negative_value(
+    engine: Engine, tenant_id, column: str, constraint: str
+) -> None:
+    values = {"ceiling": "100", "reserved": "0", "spent": "0", column: "-0.0001"}
+    with pytest.raises(IntegrityError, match=constraint), engine.begin() as conn:
+        _insert_spend_bucket(conn, tenant_id, **values)
+
+
+def test_spend_bucket_amounts_accept_zero_and_recorded_overage(engine: Engine, tenant_id) -> None:
+    """A genuine overage may make spent exceed ceiling; only negativity is forbidden."""
+    with engine.begin() as conn:
+        _insert_spend_bucket(conn, tenant_id, ceiling="0", reserved="0", spent="0")
+        _insert_spend_bucket(conn, tenant_id, ceiling="10", reserved="5", spent="11")
+
+
+def test_spend_reservation_estimate_rejects_a_negative_value(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_spend_reservation_estimate_non_negative"),
+        engine.begin() as conn,
+    ):
+        _insert_spend_reservation(conn, tenant_id, estimate="-0.0001")
+
+
+@pytest.mark.parametrize("actual_cost", [None, "0", "3.2500"])
+def test_spend_reservation_accepts_absent_or_non_negative_actual_cost(
+    engine: Engine, tenant_id, actual_cost
+) -> None:
+    with engine.begin() as conn:
+        _insert_spend_reservation(conn, tenant_id, estimate="0", actual_cost=actual_cost)
+
+
+def test_spend_reservation_rejects_a_negative_actual_cost(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_spend_reservation_actual_non_negative"),
+        engine.begin() as conn,
+    ):
+        _insert_spend_reservation(conn, tenant_id, actual_cost="-0.0001")
+
+
+def test_spend_reservation_rejects_an_unknown_state(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_spend_reservation_state"),
+        engine.begin() as conn,
+    ):
+        _insert_spend_reservation(conn, tenant_id, state="cancelled", lease_token=None)
+
+
+@pytest.mark.parametrize("state", ["reconciled", "expired_spent", "released"])
+def test_spend_reservation_accepts_every_terminal_state(
+    engine: Engine, tenant_id, state: str
+) -> None:
+    with engine.begin() as conn:
+        _insert_spend_reservation(conn, tenant_id, state=state, lease_token=None)
+
+
+@pytest.mark.parametrize(("state", "lease_token"), [("reserved", None), ("reconciled", _ACTOR)])
+def test_spend_reservation_rejects_lease_token_state_mismatches(
+    engine: Engine, tenant_id, state: str, lease_token
+) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_spend_reservation_lease_token_iff_reserved"),
+        engine.begin() as conn,
+    ):
+        _insert_spend_reservation(conn, tenant_id, state=state, lease_token=lease_token)
+
+
+def test_spend_reservation_accepts_reserved_with_a_lease_token(engine: Engine, tenant_id) -> None:
+    with engine.begin() as conn:
+        _insert_spend_reservation(conn, tenant_id)
 
 
 # ---------------------------------------------------------------------------

@@ -457,8 +457,8 @@ def test_more_than_the_byte_bound_is_rejected(client, unit_id, coordinator):
     response = _post_import(
         client, unit_id, coordinator, key="too-many-bytes", body=_rows_body(rows, dry_run=True)
     )
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "import_rows_too_large"
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_body_too_large"
 
 
 def test_no_job_is_created_for_a_rejected_row_submission(client, engine, unit_id, coordinator):

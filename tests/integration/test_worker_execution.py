@@ -557,7 +557,8 @@ def test_injected_session_factory_owns_live_import_writes(
         reject_global_factory,
         raising=False,
     )
-    owning_unit_id = ensure_owning_unit(engine, tenant_id)
+    with engine.begin() as conn:
+        owning_unit_id = ensure_owning_unit(conn, tenant_id)
     payload = import_payload(
         unit_id=str(owning_unit_id),
         source_reference=None,
@@ -647,7 +648,8 @@ def test_worker_lifespan_creates_and_disposes_one_engine(
         tracked_factory,
         raising=False,
     )
-    owning_unit_id = ensure_owning_unit(engine, tenant_id)
+    with engine.begin() as conn:
+        owning_unit_id = ensure_owning_unit(conn, tenant_id)
     job_id = accept_command(
         session_factory,
         jobs,
