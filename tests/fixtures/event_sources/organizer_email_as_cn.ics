@@ -1,0 +1,14 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
+BEGIN:VEVENT
+UID:synthetic-0009@example.edu
+DTSTART;TZID=America/Los_Angeles:20260415T090000
+SUMMARY:Advising Drop-In with alice@example.edu
+LOCATION:Building 8\, Room 241 - questions to advising@example.edu
+ORGANIZER;CN=alice@example.edu:mailto:alice@example.edu
+DESCRIPTION:Call Alice at 909-555-0100 or email alice@example.edu to confirm.
+CATEGORIES:Advising,Contact 909-555-0142
+URL:https://example.edu/events/advising?contact=alice@example.edu
+END:VEVENT
+END:VCALENDAR

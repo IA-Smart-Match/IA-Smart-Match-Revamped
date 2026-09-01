@@ -1,225 +1,232 @@
-# Orchestrator handoff
+# Session handoff (28 Aug 2026)
 
-**For:** the next orchestrating session (Opus 5, high effort)
-**From:** the session that ran Wave A and launched Wave B
-**Branch:** `claude/smart-match-v1-migration-sp1t49` in both
-`BrooklynD23/IA-Smart-Match-Revamped` and
-`BrooklynD23/Nebiux-Team-IA-West-SmartMatch`
-**State at handoff:** Wave A committed and pushed through `a0a3e29`; Wave B in
-flight.
-
-Read this before reading the plan file. It records what is *true now*, what is
-*in motion*, and the traps that have already cost time. The approved plan lives
-at `/root/.claude/plans/idempotent-conjuring-crayon.md`; the authoritative
-backlog is `docs/plans/remaining-foundation-r1-work.md`.
+**Repo:** `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped`  
+**Branch:** `friday-deliverable-828`  
+**For:** the next orchestrating session  
+**From:** the session that closed the Friday-deliverable review blockers and refreshed this handoff
 
 ---
 
-## Standing constraints — these are not negotiable
+## Branch / git
 
-From the migration orchestrator contract supplied by the user:
+| Item | Value |
+|---|---|
+| **HEAD** | `69611b2` — `fix(matching): enforce G1 fail-closed UI on legacy matching surfaces` |
+| **Ahead of `main`** | 36 commits (`git log main..HEAD --oneline`) |
+| **Working tree** | Clean except untracked `.claude/` |
+| **Remote tracking** | `origin/friday-deliverable-828` at `69611b2` — branch **is pushed** and up to date |
+| **PR #7 head** | `69611b2` (verified via `git fetch origin pull/7/head` → `origin/pr-7-head`). **Not** still at `6fcb03a`; the fifteen post-handoff commits are on the PR branch. |
+| **PR #7 checks / title / state** | **Not verified** — `gh` is not installed in this Windows shell. Use GitHub UI or install `gh` before claiming CI green. |
+| **PR URL** | <https://github.com/IA-Smart-Match/IA-Smart-Match-Revamped/pull/7> |
 
-- `ALLOW_REMOTE_PUSH=false`, `ALLOW_CLOUD_DEPLOY=false`,
-  `ALLOW_LIVE_PROVIDERS=false`, `ALLOW_LIVE_DATA=false`.
-- **One recorded deviation:** the session-level branch instruction requires
-  pushing to `claude/smart-match-v1-migration-sp1t49`, which overrides
-  `ALLOW_REMOTE_PUSH=false` **for that feature branch only**. No other remote
-  write is authorized.
-- The legacy repository at `/home/user/Nebiux-Team-IA-West-SmartMatch`
-  (`bdce024de1a9bf488c6bd9a7c24a3c87e03ffa42`) is **read-only evidence**. Never
-  modify it. Verify with `git status --porcelain` after any work that reads it.
+Recent commit history (`git log -20 --format="%h %s"`):
+
+```
+69611b2 fix(matching): enforce G1 fail-closed UI on legacy matching surfaces
+db0eb09 fix(dashboard): render unavailable supplementary metrics as unknown
+5ad3f51 docs: reword planning notes to pass forbidden scanner
+366de6d Add gate decision artifact validation tests for prep packets.
+aec4845 Strengthen fail-closed contract tests for G1, G3, and D6.
+d15d3a0 docs: record friday deliverable review
+17fb0d9 docs: add G1 G3 D6 remedy plan
+04ef53c docs: add stakeholder prep packets for blocked engineering items
+b570025 test(matching): lock fail-closed gate until G1 approval
+839017c docs(matching): add G1 workshop packet and golden input schema
+df4e218 fix(web): stop fabricating opportunities until S12
+169b95d fix(web): remove caller-chosen login roles (Fix #7A)
+9ce64ff docs: plan remaining engineering delivery
+0784a7d docs: add remaining engineering brief for follow-on planning
+aea10e6 docs: align pilot-data README and metrics authz docstring with ratified state
+4edcec2 feat(web): wire legacy portal to accountable metrics API (Wave 3C)
+6fcb03a docs: replace the orchestrator handoff with the 828 deliverable state
+ad273f2 chore(contracts): regenerate OpenAPI for metrics, body bound and suspension
+dccea8d refactor(web): route portal calls through the request seam, retire mockData
+9edeea3 fix(api): enforce the body bound before parsing, and close an authz blind spot
+```
+
+Standing constraints (confirm with user before overriding):
+
+- `ALLOW_REMOTE_PUSH=false`, `ALLOW_CLOUD_DEPLOY=false`, `ALLOW_LIVE_PROVIDERS=false`, `ALLOW_LIVE_DATA=false` (carried from prior handoff).
 - No production credentials, no live PII, no live provider calls.
 - **Never declare production readiness.** Nothing is deployed.
-- **Do not open a pull request** unless the user explicitly asks.
-- §6 of the contract: an agent may not approve its own port.
+- **Do not open a pull request** unless the user explicitly asks (PR #7 already exists).
+- An agent may not approve its own port.
 
 ---
 
-## Where the work actually stands
+## Absolute paths of all planning docs
 
-### Landed and pushed
+### `docs/plans/**`
 
-| Commit | What |
-|---|---|
-| `bde3f71` | ADR-0004..0007 |
-| `703a36b` | Three defects that made failure states invisible |
-| `ed47376` | Containerization, with CI asserting on the built image |
-| `a0a3e29` | Independent port review; one entry of four approved |
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-authorization.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-legacy-pii.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-matching-gate.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-plans.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-port-rereview.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\critical-path-pr1-merge.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\defect-remediation.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\friday-deliverable-828-review.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\frontend-broken-buttons.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\frontend-migration.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\g1-g3-d6-remedy-plan.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\opportunities-metric-inventory.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\orchestrator-handoff.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\pr1-blockers-handoff.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\pr3-verification-evidence.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\remaining-engineering-brief.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\remaining-engineering-implementation-plan.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\remaining-foundation-r1-work.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\stakeholder-audit-integration.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\transaction-boundary-defects.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\prep\s3-s5-event-persistence-design.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\prep\s8-s9-engagement-api-contract.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\plans\workshops\g1-factor-registry-workshop-packet.md`
 
-Gates at `a0a3e29`: ruff format + check, `mypy --strict` (38 files), 4 import
-contracts, **323 passed / 1 skipped**, forbidden-behavior scan clean (110
-files), OpenAPI current.
+### ADR-relevant decision / prep artifacts (outside `docs/plans/`)
 
-### In flight at handoff
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0001-monorepo.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0002-package-boundaries.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0003-no-agents-in-foundation.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0004-hand-written-schema-and-ltree.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0005-transactional-outbox-and-cte-claim.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0006-fixed-window-rate-limiting-in-postgresql.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0007-deterministic-task-names.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0008-globally-unique-external-subject.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0009-transaction-per-migration.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0010-event-temporal-model.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0011-accountable-numbers.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0012-event-identity-and-tag-vocabulary.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0013-attendance-derived-engagement.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0014-disclosure-consent.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\architecture\decisions\ADR-0015-charge-quota-before-refusal.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\decisions\metrics-authorization-decision-draft.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\decisions\pilot-decisions.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\pilot-data\board-role-decision-prep.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\pilot-data\event-contact-fields-decision-prep.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\pilot-data\rewards-catalog-worksheet.md`
+- `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped\docs\security\crawler-threat-model-draft.md`
 
-Three background agents were running. **Verify their state before assuming
-anything** — two earlier waves were killed mid-flight by an account spend limit,
-once leaving a 669-line file that did not parse.
+Primary reading order for the next orchestrator:
 
-| Agent | Task | Owns |
+1. `friday-deliverable-828-review.md` — what was blocking and what was fixed
+2. `g1-g3-d6-remedy-plan.md` — intentional fail-closed surfaces
+3. `remaining-engineering-implementation-plan.md` — sequenced waves after Wave 3C
+
+---
+
+## What this session committed (hash + one line + what it closed)
+
+Fifteen commits landed after the prior handoff at `6fcb03a`. Grouped by outcome:
+
+| Commit | One line | Closed / delivered |
 |---|---|---|
-| Defect planner | `docs/plans/defect-remediation.md` | that file only; read-only elsewhere |
-| B1 | Worker execution + OIDC (J6/J7) | `services/worker/**`, `tests/integration/test_worker_execution.py`, `tests/contract/test_worker_boundary.py` |
-| B2 | Re-drive command (J4) | `persistence/redrive.py`, `persistence/__init__.py`, `api/routers/redrive.py`, one line of `api/main.py`, `tests/integration/test_redrive.py` |
+| `4edcec2` | Wire legacy portal to accountable metrics API (Wave 3C) | Wave 3C provenance/metrics wiring |
+| `aea10e6` | Align pilot-data README and metrics authz docstring | Doc accuracy for ratified authz state |
+| `0784a7d` | Add remaining engineering brief | Planning baseline for follow-on work |
+| `9ce64ff` | Plan remaining engineering delivery | Sequenced implementation plan |
+| `169b95d` | Remove caller-chosen login roles (Fix #7A) | Review blocker: misleading role-picker login |
+| `df4e218` | Stop fabricating opportunities until S12 | Review item: opportunities show unknown, not fake rows |
+| `839017c` | G1 workshop packet and golden input schema | G1 workshop prep (not approval) |
+| `b570025` | Lock fail-closed gate until G1 approval | Executable OpenAPI/registry guard |
+| `04ef53c` | Stakeholder prep packets for blocked items | G3 threat model, D6 worksheet, S3/S5/S8/S9 prep, metrics-authz draft |
+| `17fb0d9` | G1/G3/D6 remedy plan | Diagnosis that fail-closed is intentional |
+| `d15d3a0` | Record friday deliverable review | Written review verdict and CI checklist |
+| `aec4845` | Strengthen fail-closed contract tests for G1, G3, D6 | Broader guard coverage |
+| `366de6d` | Gate decision artifact validation tests | Prep packets must be structurally complete |
+| `5ad3f51` | Reword planning notes to pass forbidden scanner | Review blocker: forbidden literal in planning docs |
+| `db0eb09` | Render unavailable supplementary metrics as unknown | Review blocker: dashboard zero-on-failure |
+| `69611b2` | Enforce G1 fail-closed UI on legacy matching surfaces | Review blocker: mounted `/ai-matching` scoring UI |
 
-**First actions on picking this up:** `git status --porcelain`, then
-`git log --oneline -6`, then run the full gate set. If an agent died mid-write,
-**reject the partial output and re-task it** rather than repairing it — that
-rule is in the plan for a reason.
-
-### Landed since this handoff
-
-Both of the items this section originally listed as "not started" are done.
-
-- **F7 — widen the schema drift test.** Landed in `f6980ef`. It now compares
-  foreign key columns/targets/delete actions, nullability, dialect-compiled
-  column types, and primary key / unique / CHECK constraint names, with unique
-  constraints also compared by columns; four load-bearing constraints are
-  additionally asserted absolutely against the database. The tenant-anchoring
-  check now enumerates tables from the database rather than from `schema.py`.
-  ADR-0004 has an amendment. See `docs/plans/remaining-foundation-r1-work.md`
-  (F7, now struck through) and `docs/plans/defect-remediation.md` §6.
-
-- **Wave C — identity model.** Landed in `a6a8ce5`. Migration `0003` makes
-  `user_account.external_subject` globally unique
-  (`uq_user_account_external_subject`), refuses to run against duplicate
-  subjects rather than deduplicating them, and names the offenders when it
-  finds any. `uq_user_account_tenant_subject` is kept as now-redundant
-  contract-phase work. `schema.py` mirrors the new constraint,
-  `principals.py`'s docstring records why the constraint is what makes
-  `.one_or_none()` sound, and `tests/integration/test_principal_identity.py` is
-  new. Integration subjects now route through `conftest.unique_subject` for a
-  per-session token, since the constraint is now global rather than
-  per-tenant. Recorded as ADR-0008 and as backlog item A1c (it had no backlog
-  number before this).
-
-  > **Correction to an earlier version of this document — now resolved.** It
-  > said the drift test would catch the new constraint if it were not mirrored
-  > in `schema.py`. **That was false when written, and relying on it would have
-  > been a silent gap** — at the time, the drift test compared column *name
-  > sets* and three specifically-named unique constraints, nothing compared
-  > unique constraints as a set, and Wave C's migration adds no column. F7
-  > landed first, exactly as this correction recommended ("do F7 before Wave
-  > C"), and closed the gap it named: the drift test now compares unique
-  > constraints as a set (and primary key and CHECK names too), so
-  > `uq_user_account_external_subject` would have failed the build in both
-  > directions had it been left unmirrored. The sequencing risk this correction
-  > flagged no longer exists.
-  **Why the defect mattered:** `PrincipalRepository.load_by_subject` filters on
-  `external_subject` alone and calls `.one_or_none()`, while the only
-  constraint before `0003` was `(tenant_id, external_subject)` — so one IdP
-  subject with accounts in two tenants raised `MultipleResultsFound` and 500s
-  every authenticated request.
-
-### Not started
-
-- **The defect backlog** — F8, F9 (29 port findings), A5, and the smaller items
-  F7's own work surfaced: F10 (behavioural tests for six name-only CHECK
-  constraints), F11 (`transaction_per_migration` decision before `0004`), F12
-  (drop the now-redundant `uq_user_account_tenant_subject` at contract phase).
-  See `docs/plans/remaining-foundation-r1-work.md`.
+Earlier branch history (still on PR #7, predates this slice) includes Wave 0 worker transaction fix (`c03eb43`), metrics routes (`6baf40e`), engagement schema (`d55fa02`), body-bound/authz (`9edeea3`), portal request seam (`dccea8d`), and OpenAPI regen (`ad273f2`). See `6fcb03a` handoff in git history for that detail.
 
 ---
 
-## The user's process requirements
+## What tests actually passed
 
-These were given explicitly and must carry forward:
+**Only claim what was run in this Windows environment.** Global Python 3.13 (not the repo venv); GNU Make and the pinned venv were **not** available.
 
-1. **Staged commits.** One coherent stage per commit, with a message that
-   explains *why*.
-2. **An audit before every commit.** Run the `code-review` skill at `high` on
-   the staged diff. **Verify each finding against the code before acting on
-   it** — reviews err in both directions.
-3. **A documentation agent at the end of every wave** — Sonnet, low effort —
-   to update documentation, design decisions, known bugs, and architecture
-   diagrams so they reflect the repository as it actually is.
-4. **Hand off to a fresh Opus 5 high orchestrator** when context gets long.
+| Command | Result |
+|---|---|
+| `python -m pytest tests/unit/test_forbidden_scanner.py tests/unit/test_matching_fail_closed.py tests/unit/test_factor_registry.py -q` | **45 passed, 1 skipped** |
+| `python -m pytest tests/unit/test_gate_decision_artifacts.py tests/authz/test_policy_matrix.py -q` | **All passed** (155 tests) |
+| `python -m pytest tests -m "not integration" --tb=no` | **907 passed, 2 skipped, 4 failed** |
 
-### On the audit gate
+The four failures are **environmental**, not branch regressions:
 
-`code-review` **is** available as a skill. An earlier check with `ListSkills`
-returned nothing and led to a wrong conclusion that it was absent — `ListSkills`
-returns only claude.ai skills, not local ones. Invoke it with
-`Skill(skill="code-review", args="high")`.
+1. `tests/unit/test_migration_transactions.py` (3 tests) — `No module named alembic` (Alembic not installed in global Python).
+2. `tests/unit/test_supply_chain.py::test_repository_license_policy_is_clean` — lock pins vs mismatched/uninstalled global packages.
 
-It earned its place: at high effort it found **five real defects in work that
-had already passed all six gates**, including one where a fix had recreated the
-original bug's shape one layer down. Do not skip it, and do not substitute your
-own read for it.
+**Not run locally (do not claim green):**
 
----
+- `make check` (format, lint, mypy, import contracts, full isolation gate in pinned env)
+- `make openapi-check`
+- `make db-up`, `make migrate`, `make test-integration` (no local PostgreSQL / Docker verified here)
+- `npm ci`, `tsc --noEmit`, `vite build` in `apps/web/legacy-frontend` (Windows `node_modules` / DrvFs issues documented in prior handoff)
+- PR #7 CI status rollup (`gh` unavailable)
 
-## Traps that have already cost time
-
-- **PostgreSQL and Docker do not survive** an agent dying or a daemon restart.
-  Re-run `make db-up` and restart `dockerd` before trusting a test count. A run
-  reporting *"216 passed, 107 skipped"* means the database is down and the
-  integration suite silently skipped — **not** that things pass.
-- **`curl` to `127.0.0.1` goes through the agent proxy** and fails with exit 56.
-  Use `curl --noproxy '*'`. Never disable TLS verification or unset
-  `HTTPS_PROXY`.
-- **`docker manifest inspect` fails against Docker Hub here** even for valid
-  digests. Check `docker images --digests` against the local mirror instead.
-  A digest that looks fabricated may be fine — verify before accusing.
-- **`git add -A` before scanning, not after.** `tools/scan_forbidden.py` reads
-  tracked *and* untracked-not-ignored files; scanning first is how a violation
-  once shipped past a locally-clean run.
-- **Ruff reformats between edits**, so multi-line edit anchors go stale. Match
-  one distinctive line, or rewrite the whole function.
-- **`Row.count` is the tuple method, not the column.** Label ambiguous columns
-  in `RETURNING`. Strict typing caught this; nothing else did.
-- **`IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` re-executes** in PostgreSQL
-  and claims every row. Use a CTE. Observed here: a `limit=2` claim took all 5.
-- **`sa.func.make_interval(secs=…)` does not work** — SQLAlchemy's generic
-  `func` emits no named arguments. Compute intervals in Python.
-- **`str(engine.url)` masks the password** as `***`. Use
-  `render_as_string(hide_password=False)`.
-- **Do not assert controls that do not exist.** A test asserting unit-scoped job
-  reads had to be corrected: `job` carries no owning unit (that is backlog A5).
-- **Stray wheels.** 28 MB of pandas/numpy wheels were once downloaded into the
-  repository root by tooling run from the wrong directory. `*.whl` and
-  `*.tar.gz` are now gitignored; if you see them again, something is running
-  with the wrong cwd.
+The forbidden-behavior scanner **did** pass in the focused run after `5ad3f51` (planning-doc reword).
 
 ---
 
-## What I would not trust without re-checking
+## Remaining blockers
 
-Stated plainly, because a handoff that only lists successes is not useful:
+### Engineering (can code, but needs decisions or CI proof)
 
-- **Four ADRs were committed as `bde3f71` outside my visible actions.** Contents
-  verified clean (exactly the four files, correctly ordered before the fix
-  commit), but I did not issue that commit and cannot account for it. If
-  something similar appears, inspect before building on it.
-- **F-29 in `port-verification.md`** reports 5 pre-existing dispatcher test
-  failures against a 295-test baseline. Those were an artifact of reading the
-  file while another agent was mid-edit; the suite is green now (26 dispatcher
-  tests pass). The finding is stale, not wrong at the time.
-- **The `/u/{token}` 200 response** now advertises `application/json` alongside
-  `text/html`. The seven error responses are correct (JSON only), which was the
-  harmful half; the success response carries a cosmetic extra media type. Fix it
-  properly if you touch that route.
-- **The port review's severity ratings are its own.** Where the remediation plan
-  disagrees with them, the plan was asked to argue the case — read the argument,
-  do not defer to either automatically.
-- **ADR-0004 understates the schema divergence.** It names `org_unit.tenant_id`
-  as the example of a `schema.py` foreign key missing the migration's
-  `ondelete`. In fact **all seven** tenant-parent foreign keys in `schema.py`
-  carry no `ondelete`, while the migrations deliberately specify `RESTRICT` for
-  some and `CASCADE` for others — so the hand-written mirror cannot represent a
-  distinction the database is actually making. Verified by count. The ADR is not
-  wrong, it is narrower than the truth; widen it when F7 lands.
+- **CI evidence missing locally** — PostgreSQL integration (migrations `0008`/`0009`, executor transaction, constraints), OpenAPI regen under pinned deps, and web `npm ci → tsc → vite build → audit` must be confirmed on GitHub Actions. Do not merge on local global-Python evidence alone.
+- **Metrics route authorization** — `metrics.py` is intentionally ungated for any active unit membership; drill-down returns underlying rows. Product/security must choose aggregate vs row-level roles under ADR-0014 before changing `required_roles`. See `metrics-authorization-decision-draft.md`.
+- **Residual ADR-0011 debt** — legacy frontend still coerces some missing values to zero in the request seam (predates the review fixes). Not closed by Wave 3C or `db0eb09`.
+- **A1b identity** — Fix #7A removed caller-chosen roles, but direct portal pages still read `sessionStorage["iaw_session"]` with fallback identities. Real IdP integration is a separate slice.
+- **Migration `0009` non-blocking notes** — `point_ledger_entry` append-only is comment-only; `reward_item.funded` has server default `false`. See `friday-deliverable-828-review.md` §Non-blocking.
+
+### Human / workshop (intentional fail-closed — not bugs)
+
+Per `g1-g3-d6-remedy-plan.md`, these are **correct** closed surfaces:
+
+- **G1 matching/scoring** — `REGISTRY_STATUS == "proposed"`; no match/score/rank in OpenAPI; legacy engine must not be ported (0.90 max score). Needs named program owner, approved factors/weights, golden outputs (`g1-factor-registry-workshop-packet.md`).
+- **G3 crawler/event pipeline** — no crawl/discovery routes or persistence; needs threat model, allowlist, eval set, vocabulary owner (`crawler-threat-model-draft.md`, `s3-s5-event-persistence-design.md`).
+- **D6 shippable rewards** — schema refuses unowned/unfunded rewards; no catalog/list routes; needs budget owner and D7 calibration N (`rewards-catalog-worksheet.md`).
+- **Opportunities metric** — canonical definition and S12 owning query still open (`opportunities-metric-inventory.md`).
+- **Pilot columns** — `board_role`, public URL, published contacts need Dr. Wang decisions (`board-role-decision-prep.md`, `event-contact-fields-decision-prep.md`).
+
+### CI / environment
+
+- `gh` not installed on this Windows host.
+- No repo venv / `make` on PATH for the pinned gate.
+- Global Python lacks Alembic and pinned package versions.
+- Local PostgreSQL and Docker not verified; integration proof is CI-only unless the user starts Docker Desktop and runs `make db-up && make migrate && make test-integration`.
+- `npm ci` on the Windows repo mount may hit `EACCES`/`ENOTEMPTY`; WSL-native `node_modules` symlink workaround documented in git history at `6fcb03a`.
 
 ---
 
-## The shape that has worked
+## Explicit do-not
 
-Waves of agents with **strictly disjoint file ownership**, an explicit allowlist
-per agent, agents that never commit, and an orchestrator that verifies every
-claim before staging. Every rule in that list was earned by a failure.
+- **Do not port or characterize the legacy scoring engine** (0.90 maximum; G1 gate).
+- **Do not expose user-visible match scores, ranks, or matching runs** before G1 written approval — UI is now gated at `69611b2`, but any new surface must call `assert_registry_approved()`.
+- **Do not launch crawling, event ingestion, or rewards catalog** before G3/D6 workshops produce committed decision artifacts.
+- **Do not turn missing evidence into zero** — ADR-0011; pipeline funnel metrics correctly resolve to unknown until S12.
+- **Do not "fix" `_emit`'s separate session** in the worker — progress must survive rollback.
+- **Do not declare production readiness** or enable live providers/data/deploy without explicit user override of standing constraints.
+- **Do not merge PR #7** until CI is green on `69611b2` and the user confirms.
+- **Do not push** unless the user explicitly asks (branch is already at remote HEAD).
+- **Do not invent `make check` green** — it was not run here.
 
-The single highest-value habit: **verify the agent's claim against the code
-before acting on it.** In this session that caught a fabricated-looking digest
-that was real, a real digest verification that failed for proxy reasons, a
-"green" test run that was silently skipping the database, a CI gate that could
-never have passed, and a test that could not fail.
+---
+
+## Recommended next orchestration slices
+
+1. **Verify PR #7 CI** — Install `gh` or use GitHub UI; confirm isolation (forbidden scan), PostgreSQL integration, OpenAPI, and web jobs on `69611b2`. Block merge until green.
+2. **Metrics authorization decision** — Run workshop using `metrics-authorization-decision-draft.md`; if gated, add `required_roles` in `metrics.py` and update policy matrix (rows must travel with the route).
+3. **G1 workshop** — `workshops/g1-factor-registry-workshop-packet.md`; output is a committed approval artifact, not code.
+4. **G3 + D6 workshops in parallel** — `crawler-threat-model-draft.md`, `rewards-catalog-worksheet.md`, `prep/s3-s5-event-persistence-design.md`.
+5. **Residual ADR-0011 frontend cleanup** — Audit `apps/web/legacy-frontend` for `?? 0` / `Number(x) \|\| 0` on metric-bearing paths; fence to changed files only.
+6. **A1b institutional sign-in** — After identity decision; replaces truthful unavailable-login state from Fix #7A.
+7. **Opportunities definition workshop** — Unblocks S12 and the single canonical opportunities query.
+8. **After gates close** — Follow Wave D in `remaining-engineering-implementation-plan.md` (M1–M10 matching, S3–S5 events, S6–S9 rewards).
+
+---
+
+## What Dr. Wang can and cannot be shown
+
+**Can:** server-assigned identity path; live import with quarantined review queue; column contract with named findings; accountable metrics that admit unknown with reason; engagement schema that refuses unowned rewards; fail-closed matching UI that explains the gate.
+
+**Cannot:** matching scores (G1), crawler-fed events (G3), shippable rewards catalog (D6), or canonical opportunity counts (S12 definition). None of those is limited by engineering capacity alone.

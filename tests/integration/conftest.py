@@ -74,6 +74,8 @@ _TENANT_SCOPED_TABLES = (
     "user_account",
     "org_unit",
     "tenant_budget",
+    "spend_reservation",
+    "spend_ceiling_bucket",
     "concurrency_lease",
     "idempotency_record",
     # Belt and braces rather than a leak fixed: this table's tenant foreign key

@@ -1,36 +1,40 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { fetchCrawlerStatus, type CrawlerStatusResponse } from "@/lib/api";
+import { createContext, useContext, type ReactNode } from "react";
+
+/**
+ * The legacy web-crawler surface is retired. It is archived under MM-A08 and
+ * gated behind G3 (see plan P6) — there is no crawler running, so there is
+ * nothing to poll and nothing to report. This is the only truthful state:
+ * we do not model a fake "idle" or "done" crawl in its place.
+ */
+interface CrawlerRetiredStatus {
+  availability: "retired";
+  reason: string;
+}
 
 interface CrawlerContextValue {
-  status: CrawlerStatusResponse | null;
+  status: CrawlerRetiredStatus;
+  /**
+   * No-op. Kept only so existing consumers that call `refresh()` still
+   * typecheck. There is no crawler to refresh: the surface is retired
+   * (MM-A08) and gated (G3), so this never issues network requests.
+   */
   refresh: () => void;
 }
 
+const RETIRED_STATUS: CrawlerRetiredStatus = {
+  availability: "retired",
+  reason:
+    "The web-crawler surface is archived (MM-A08) and gated behind G3; no crawler runs in this build.",
+};
+
 const CrawlerContext = createContext<CrawlerContextValue>({
-  status: null,
+  status: RETIRED_STATUS,
   refresh: () => {},
 });
 
 export function CrawlerProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<CrawlerStatusResponse | null>(null);
-
-  // Stable reference — must not change on re-renders so SSE effects in consumers
-  // don't teardown/reconnect every 3 s when this provider re-renders from the poll.
-  const refresh = useCallback(() => {
-    fetchCrawlerStatus()
-      .then(setStatus)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    // Poll every 3 s — stops being meaningful once state=done but cost is negligible
-    const id = setInterval(refresh, 3000);
-    return () => clearInterval(id);
-  }, [refresh]);
-
   return (
-    <CrawlerContext.Provider value={{ status, refresh }}>
+    <CrawlerContext.Provider value={{ status: RETIRED_STATUS, refresh: () => {} }}>
       {children}
     </CrawlerContext.Provider>
   );

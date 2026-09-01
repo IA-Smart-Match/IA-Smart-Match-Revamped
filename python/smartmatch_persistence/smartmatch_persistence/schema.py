@@ -40,16 +40,23 @@ from sqlalchemy.dialects import postgresql
 
 __all__ = [
     "METADATA",
+    "attendance_record",
     "concurrency_lease",
     "idempotency_record",
+    "import_batch",
     "job",
     "job_event",
     "membership",
     "org_unit",
     "outbox_record",
+    "point_ledger_entry",
     "rate_limit_counter",
     "redrive_record",
     "resource_grant",
+    "review_item",
+    "reward_item",
+    "spend_ceiling_bucket",
+    "spend_reservation",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -393,4 +400,280 @@ concurrency_lease = sa.Table(
     sa.Column("holder", sa.Text, nullable=False),
     sa.Column("expires_at", _TS, nullable=False),
     sa.PrimaryKeyConstraint("id", name="concurrency_lease_pkey"),
+)
+
+
+# ADR-0013, backlog S6/S7/S8 (migration 0009). Three of the five tables
+# docs/architecture/engagement-model.md §1 describes — event, redemption, and
+# disclosure_consent are each deferred behind a gate this migration cannot
+# settle. See 0009_engagement_schema.py's module docstring for the full
+# rationale on every choice below; only what a reader of this mirror needs is
+# repeated here.
+
+attendance_record = sa.Table(
+    "attendance_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as job.owning_unit_id and import_batch.owning_unit_id.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The student who attended.
+    sa.Column("subject_id", _UUID, nullable=False),
+    # No foreign key: no event table exists yet in this schema. Whichever
+    # migration adds one should also add this constraint.
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("method", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="attendance_record_pkey"),
+    # What point_ledger_entry's composite foreign key below references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_attendance_record_tenant_id"),
+    # Attendance is the only input to points (ADR-0013); a duplicate row for
+    # the same student at the same event is an unearned second credit.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_id", "event_id", name="uq_attendance_record_subject_event"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "method IN ('qr_scan','coordinator_entry','import')",
+        name="ck_attendance_record_method",
+    ),
+)
+
+
+point_ledger_entry = sa.Table(
+    "point_ledger_entry",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # Signed: a reversal is a negative entry naming the same source and a
+    # reason that explains it (ADR-0013: "a reversal is a compensating entry,
+    # never a delete"). No balance column exists on this table, or anywhere
+    # else in this schema — a balance is a fold over this ledger, computed
+    # server-side, never stored.
+    sa.Column("amount", sa.Integer, nullable=False),
+    # The attendance record this entry derives from — ADR-0013's "source".
+    sa.Column("source_attendance_id", _UUID, nullable=False),
+    sa.Column("reason", sa.Text, nullable=False),
+    # Nullable, no foreign key: mirrors job.actor_id. Automatic derivation
+    # from attendance — the ordinary case — has no human actor to name.
+    sa.Column("actor_id", _UUID, nullable=True),
+    sa.Column("occurred_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="point_ledger_entry_pkey"),
+    # RESTRICT: the attendance record an entry derives from must not
+    # disappear out from under the entry that cites it as its source.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "source_attendance_id"],
+        ["attendance_record.tenant_id", "attendance_record.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("amount <> 0", name="ck_point_ledger_entry_amount_nonzero"),
+)
+
+
+reward_item = sa.Table(
+    "reward_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("points_cost", sa.Integer, nullable=False),
+    sa.Column("fulfilment_cost", sa.Numeric(12, 4), nullable=False),
+    # D6 (docs/decisions/pilot-decisions.md): "a named human budget owner.
+    # Without one, the rewards catalog is not shippable." NOT NULL, no server
+    # default — every insert must name a real owner in this tenant. Composite,
+    # not a bare id: a single-column key would accept an owner from another
+    # tenant.
+    sa.Column("budget_owner_id", _UUID, nullable=False),
+    # NOT NULL alongside budget_owner_id — this pair is the structural form of
+    # D6's requirement (ADR-0013), and neither is softened to nullable "for
+    # flexibility": that would let an unowned, unfunded reward be written,
+    # reproducing the legacy defect (Fix #15) at the schema layer.
+    sa.Column("funded", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="reward_item_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "budget_owner_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("points_cost > 0", name="ck_reward_item_points_cost_positive"),
+    sa.CheckConstraint("fulfilment_cost >= 0", name="ck_reward_item_fulfilment_cost_non_negative"),
+)
+
+
+import_batch = sa.Table(
+    "import_batch",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped (migration 0006): the unit this import landed in, the thing
+    # every authorization decision about its review items is scoped against.
+    # Composite FK below, not a bare id — see that constraint's comment.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The durable command job that produced this batch (v1.1 §1.6).
+    sa.Column("job_id", _UUID, nullable=False),
+    sa.Column("dataset", sa.Text, nullable=False),
+    sa.Column("row_count", sa.Integer, nullable=False),
+    sa.Column("dry_run", sa.Boolean, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="import_batch_pkey"),
+    # What review_item's composite foreign key below references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_import_batch_tenant_id"),
+    # CASCADE: a batch is a thing a job's execution produced, the same
+    # relationship job_event/outbox_record/redrive_record already have to job
+    # — not an independent entity that happens to name one.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"], ["job.tenant_id", "job.id"], ondelete="CASCADE"
+    ),
+    # RESTRICT: reorganizing a unit must not silently delete the pending
+    # review work submitted into it, the same intent job.owning_unit_id
+    # carries against org_unit (migration 0006). A single-column key to
+    # org_unit.id would accept a batch in one tenant naming a unit in
+    # another, so the reference is composite.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+)
+
+
+review_item = sa.Table(
+    "review_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("import_batch_id", _UUID, nullable=False),
+    # This row's position in the submitted batch, so a coordinator can find
+    # it in their source file.
+    sa.Column("row_index", sa.Integer, nullable=False),
+    # The normalized row itself — validate_columns's per-row output, not the
+    # raw submission.
+    sa.Column("row_data", postgresql.JSONB, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="pending"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="review_item_pkey"),
+    # CASCADE: a review item cannot outlive the batch that quarantined it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "import_batch_id"],
+        ["import_batch.tenant_id", "import_batch.id"],
+        ondelete="CASCADE",
+    ),
+    # Mirrors uq_job_event_sequence: a monotonic position within one parent,
+    # and the parent id alone is already globally unique, so no tenant_id is
+    # needed alongside it here.
+    sa.UniqueConstraint("import_batch_id", "row_index", name="uq_review_item_batch_row"),
+    # v1.1 §1.5's quarantine-and-review vocabulary: a review item is
+    # quarantined (pending) and a human resolves it one way or the other.
+    sa.CheckConstraint(
+        "status IN ('pending','accepted','rejected')",
+        name="ck_review_item_status",
+    ),
+)
+
+
+# ADR-0015 Amendment A1 (migration 0010). Reserve-before-paid-call monetary
+# spend semantics — the counting-quota rule ADR-0015's own body states is
+# structurally wrong for money, because a dollar paid to a provider is an
+# external side effect no ROLLBACK reaches. Full rationale lives in the
+# migration's module docstring; only what a reader of this mirror needs is
+# repeated here.
+
+spend_ceiling_bucket = sa.Table(
+    "spend_ceiling_bucket",
+    METADATA,
+    sa.Column(
+        "tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), primary_key=True
+    ),
+    # 'job' | 'tenant_day' | 'tenant_month' — the three ceilings A1's
+    # obligation 1 debits atomically, in that fixed order
+    # (smartmatch_domain.spend.BUCKET_LOCK_ORDER).
+    sa.Column("bucket_type", sa.Text, primary_key=True),
+    # job:<job_id>, tenant-day:<tenant_id>:<date>,
+    # tenant-month:<tenant_id>:<year>-<month> — derived by
+    # smartmatch_domain.spend, never constructed here.
+    sa.Column("bucket_key", sa.Text, primary_key=True),
+    # Fixed at first write for this bucket; never rewritten by a later
+    # reservation against the same key.
+    sa.Column("ceiling", sa.Numeric(12, 4), nullable=False),
+    sa.Column("reserved", sa.Numeric(12, 4), nullable=False, server_default="0"),
+    sa.Column("spent", sa.Numeric(12, 4), nullable=False, server_default="0"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Named because smartmatch_persistence.spend passes this name to
+    # ON CONFLICT DO UPDATE, the same reason pk_rate_limit_counter is named.
+    sa.PrimaryKeyConstraint(
+        "tenant_id", "bucket_type", "bucket_key", name="pk_spend_ceiling_bucket"
+    ),
+    sa.CheckConstraint(
+        "bucket_type IN ('job','tenant_day','tenant_month')",
+        name="ck_spend_ceiling_bucket_type",
+    ),
+    # Mirrors ck_budget_non_negative / ck_budget_ceiling_non_negative
+    # (tenant_budget). Deliberately no "reserved + spent <= ceiling" — A1
+    # requires a genuine overage be recorded, never truncated to fit the
+    # ceiling, so a reconciliation can legitimately push spent past ceiling.
+    sa.CheckConstraint("reserved >= 0 AND spent >= 0", name="ck_spend_ceiling_bucket_non_negative"),
+    sa.CheckConstraint("ceiling >= 0", name="ck_spend_ceiling_bucket_ceiling_non_negative"),
+)
+
+
+spend_reservation = sa.Table(
+    "spend_reservation",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), nullable=False),
+    # Deterministic (smartmatch_domain.spend.derive_work_key), globally
+    # unique so a retry or redelivery of the same unit of work finds this row
+    # instead of reserving a second time — mirrors uq_outbox_task_name.
+    sa.Column("work_key", sa.Text, nullable=False),
+    sa.Column("job_bucket_key", sa.Text, nullable=False),
+    sa.Column("tenant_day_bucket_key", sa.Text, nullable=False),
+    sa.Column("tenant_month_bucket_key", sa.Text, nullable=False),
+    # The reserved maximum. NUMERIC(12,4) — never FLOAT (A1).
+    sa.Column("estimate", sa.Numeric(12, 4), nullable=False),
+    # NULL until reconciled, timed out, or swept.
+    sa.Column("actual_cost", sa.Numeric(12, 4), nullable=True),
+    # True when actual_cost is the reserved maximum written by a timeout or
+    # the sweep, not a real reported cost. A1: "an estimated dollar amount
+    # must never be recorded, displayed, or reported as an actual one."
+    sa.Column("actual_is_estimated", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("state", sa.Text, nullable=False, server_default="reserved"),
+    # Present exactly while reserved; cleared on every terminal transition —
+    # the same discipline J17 established for outbox_record.lease_token, which
+    # is likewise nullable. Enforced by the biconditional check below, not by
+    # NOT NULL: a NOT NULL column could never be cleared.
+    sa.Column("lease_token", _UUID, nullable=True),
+    sa.Column("lease_expires_at", _TS, nullable=False),
+    # T-08's dedup marker: at most one review finding is ever emitted for a
+    # given reservation, guarded by "UPDATE ... WHERE review_flagged_at IS
+    # NULL". No discovery_review_item table exists yet in this schema.
+    sa.Column("review_flagged_at", _TS, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Set on any reserved -> {reconciled, expired_spent, released} transition.
+    sa.Column("settled_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="spend_reservation_pkey"),
+    sa.UniqueConstraint("work_key", name="uq_spend_reservation_work_key"),
+    sa.CheckConstraint("estimate >= 0", name="ck_spend_reservation_estimate_non_negative"),
+    sa.CheckConstraint(
+        "actual_cost IS NULL OR actual_cost >= 0",
+        name="ck_spend_reservation_actual_non_negative",
+    ),
+    # Mirrors smartmatch_domain.spend.SpendReservationState.
+    sa.CheckConstraint(
+        "state IN ('reserved','reconciled','expired_spent','released')",
+        name="ck_spend_reservation_state",
+    ),
+    sa.CheckConstraint(
+        "(state = 'reserved') = (lease_token IS NOT NULL)",
+        name="ck_spend_reservation_lease_token_iff_reserved",
+    ),
 )

@@ -2,14 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   BellRing,
   Briefcase,
   CalendarDays,
   LogOut,
-  Mail,
   MapPinned,
   MessageSquareHeart,
+  RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -39,29 +40,72 @@ import {
   fetchFeedbackStats,
   fetchPipeline,
   fetchSpecialists,
-  initiateWorkflow,
-  rankSpeakers,
-  splitTags,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
   type PipelineRecord,
-  type RankedMatch,
   type Specialist,
-  type WorkflowResponse,
 } from "@/lib/api";
-import { OutreachWorkflowModal } from "@/components/OutreachWorkflowModal";
 import {
-  MOCK_CALENDAR_ASSIGNMENTS,
-  MOCK_CALENDAR_EVENTS,
-  MOCK_FEEDBACK_STATS,
-  MOCK_PIPELINE,
-  MOCK_SPECIALISTS,
-} from "@/lib/mockData";
+  accountableDemoMetric,
+  accountableMetricFromSummary,
+  MATCHING_UNAVAILABLE_REASON,
+  OPPORTUNITIES_UNKNOWN_REASON,
+  unavailableOpportunitiesMetric,
+  unavailablePipelineMetric,
+} from "@/lib/metrics";
+import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { AccountableValue, MetricDrilldownSheet } from "@/app/components/provenance";
+import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import { DemoModeBadge } from "../components/ui/DemoModeBadge";
+import { Button } from "../components/ui/button";
 
 import { MetricCard } from "../components/MetricCard";
 import { CrawlerFeed } from "@/components/CrawlerFeed";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 const funnelPalette = ["#005394", "#1f6fb2", "#2b87d1", "#56a4e4", "#a2c9ff"];
 
@@ -236,22 +280,33 @@ export function Dashboard() {
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>(
     [],
   );
-  const [eventCount, setEventCount] = useState(0);
-  const [topMatches, setTopMatches] = useState<RankedMatch[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
+  const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
+  const [feedbackAvailable, setFeedbackAvailable] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showWorkflowModal, setShowWorkflowModal] = useState(false);
-  const [selectedVolunteer, setSelectedVolunteer] = useState<RankedMatch | null>(null);
-  const [workflowResult, setWorkflowResult] = useState<WorkflowResponse | null>(null);
-  const [workflowLoading, setWorkflowLoading] = useState(false);
-  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
+
+    function resetToEmpty() {
+      setSpecialists([]);
+      setPipeline([]);
+      setCalendarEvents([]);
+      setCalendarAssignments([]);
+      setFeedbackStats(emptyFeedbackStatsSummary());
+      setAssignmentsAvailable(false);
+      setFeedbackAvailable(false);
+      setIsMockData(false);
+    }
 
     async function load() {
       try {
@@ -272,24 +327,31 @@ export function Dashboard() {
           feedbackResult,
         ] = results;
 
+        if (!active) {
+          return;
+        }
+
+        // Specialists, events, pipeline, and calendar windows are the
+        // dashboard's core data. If any of them failed to load, the
+        // dashboard cannot honestly render — show a failure state instead
+        // of discarding whatever did succeed and substituting fixtures.
         if (
           specialistResult.status !== "fulfilled" ||
           eventResult.status !== "fulfilled" ||
           pipelineResult.status !== "fulfilled" ||
           calendarResult.status !== "fulfilled"
         ) {
-          throw (
+          const reason =
             specialistResult.status === "rejected"
               ? specialistResult.reason
               : eventResult.status === "rejected"
                 ? eventResult.reason
                 : pipelineResult.status === "rejected"
                   ? pipelineResult.reason
-                  : (calendarResult as PromiseRejectedResult).reason
-          );
-        }
-
-        if (!active) {
+                  : (calendarResult as PromiseRejectedResult).reason;
+          resetToEmpty();
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load dashboard data."));
           return;
         }
 
@@ -307,24 +369,27 @@ export function Dashboard() {
         if (calendarResult.value.isMockData) anyMock = true;
 
         setSpecialists(specialistRows);
-        setEventCount(eventRows.length);
         setPipeline(pipelineRows);
         setCalendarEvents(calendarRows);
 
         if (assignmentResult.status === "fulfilled") {
           setCalendarAssignments(assignmentResult.value.data);
+          setAssignmentsAvailable(true);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
-          setCalendarAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          anyMock = true;
+          // Assignment overlays are supplementary — keep the core dashboard
+          // honest and surface a warning instead of fabricating overlays.
+          setCalendarAssignments([]);
+          setAssignmentsAvailable(false);
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
+          setFeedbackAvailable(true);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          anyMock = true;
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
         }
 
         setIsMockData(anyMock);
@@ -332,48 +397,22 @@ export function Dashboard() {
         const warnings = [];
         if (assignmentResult.status === "rejected") {
           warnings.push(
-            assignmentResult.reason instanceof Error
-              ? `Assignment overlays are unavailable: ${assignmentResult.reason.message}`
-              : "Assignment overlays are unavailable.",
+            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
         if (feedbackResult.status === "rejected") {
           warnings.push(
-            feedbackResult.reason instanceof Error
-              ? `Feedback optimizer stats are unavailable: ${feedbackResult.reason.message}`
-              : "Feedback optimizer stats are unavailable.",
+            `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
-
-        const firstEventName = eventRows[0]?.["Event / Program"];
-        if (firstEventName) {
-          try {
-            const feedbackWeights =
-              feedbackResult.status === "fulfilled" &&
-              Object.keys(feedbackResult.value.data.current_weights).length > 0
-                ? feedbackResult.value.data.current_weights
-                : undefined;
-            const ranked = await rankSpeakers(firstEventName, 4, feedbackWeights);
-            if (active) {
-              setTopMatches(ranked);
-            }
-          } catch {
-            if (active) {
-              setTopMatches([]);
-            }
-          }
-        }
       } catch (err: unknown) {
         if (active) {
-          // Backend unreachable — use Layer-3 mock constants
-          setSpecialists(MOCK_SPECIALISTS);
-          setPipeline(MOCK_PIPELINE);
-          setCalendarEvents(MOCK_CALENDAR_EVENTS);
-          setCalendarAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          setIsMockData(true);
-          setError(null); // Demo Mode badge already signals the fallback state
+          // Unexpected failure — report it honestly rather than
+          // substituting fixture data for the whole dashboard.
+          resetToEmpty();
+          setLoadFailed(true);
+          setError(getErrorMessage(err, "Failed to load dashboard data."));
         }
       } finally {
         if (active) {
@@ -387,39 +426,137 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
+
+  const {
+    metricsByName,
+    status: metricsStatus,
+    loadError: metricsLoadError,
+    metricsUnavailableReason,
+    openDrilldown,
+    drilldownOpen,
+    setDrilldownOpen,
+    drilldownLoading,
+    drilldownError,
+    drilldown,
+  } = useUnitMetrics(reloadToken);
+
+  const memberInquirySummary = metricsByName.pipeline_member_inquiry;
+  const memberInquiryMetric = memberInquirySummary
+    ? accountableMetricFromSummary(memberInquirySummary, {
+        provenance: "observed",
+        onOpenDrilldown: () => {
+          void openDrilldown("pipeline_member_inquiry");
+        },
+      })
+    : unavailablePipelineMetric(
+        "pipeline_member_inquiry",
+        metricsStatus === "unavailable"
+          ? (metricsLoadError ?? metricsUnavailableReason)
+          : "Loading registered metrics…",
+      );
+
+  const opportunitiesMetric = unavailableOpportunitiesMetric();
+
+  const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
+  const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
+  const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+
+  const knownFatigueAssignments = calendarAssignments
+    .map((assignment) => assignment.volunteer_fatigue)
+    .filter((value): value is number => value !== null);
+  const averageFatigueMetric = accountableDemoMetric(
+    "Average volunteer fatigue",
+    "Mean fatigue score from calendar assignment overlays.",
+    assignmentsAvailable && knownFatigueAssignments.length > 0
+      ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) / knownFatigueAssignments.length
+      : null,
+    {
+      provenance: assignmentProvenance,
+      unknownReason:
+        assignmentsAvailable && calendarAssignments.length === 0
+          ? "No assignment overlays recorded yet."
+          : assignmentsAvailable
+            ? "No overlay in this batch reported a fatigue signal."
+            : "Assignment overlays are unavailable.",
+    },
+  );
+  const restRecommendedMetric = accountableDemoMetric(
+    "Rest recommended count",
+    "Volunteers flagged for recovery in assignment overlays.",
+    assignmentsAvailable
+      ? calendarAssignments.filter(
+          (assignment) => assignment.recovery_status === "Rest Recommended",
+        ).length
+      : null,
+    {
+      provenance: assignmentProvenance,
+      unknownReason: "Assignment overlays are unavailable.",
+    },
+  );
+  const feedbackRowsMetric = accountableDemoMetric(
+    "Feedback rows",
+    "Coordinator accept/decline submissions captured for matcher tuning.",
+    feedbackAvailable ? feedbackStats.total_feedback : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackAcceptanceMetric = accountableDemoMetric(
+    "Feedback acceptance rate",
+    "Accepted decisions divided by all coordinator feedback rows.",
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
+      ? feedbackStats.acceptance_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackPainMetric = accountableDemoMetric(
+    "Matcher pain score",
+    "How much correction pressure the matcher is under from recent feedback.",
+    feedbackAvailable ? feedbackStats.pain_score : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackMembershipMetric = accountableDemoMetric(
+    "Membership interest rate",
+    "Follow-through signals attributed to coordinator feedback.",
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
+      ? feedbackStats.membership_interest_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
 
   const funnelData = stageCounts(pipeline);
   const eventVolume = matchVolume(pipeline);
   const reachTrend = calendarReach(calendarEvents);
-  const matchedCount = funnelData.find((stage) => stage.name === "Matched")?.value ?? 0;
-  const memberInquiryCount =
+  const memberInquiryDemoCount =
     funnelData.find((stage) => stage.name === "Member Inquiry")?.value ?? 0;
   const uniqueMatchedSpeakers = new Set(pipeline.map((record) => record.speaker_name)).size;
   const utilization = specialists.length
     ? Math.round((uniqueMatchedSpeakers / specialists.length) * 100)
     : 0;
-  const conversionRate = matchedCount
-    ? `${((memberInquiryCount / matchedCount) * 100).toFixed(1)}%`
-    : "0.0%";
-  const primaryMatch = topMatches[0];
   const coveredCalendarCount = calendarEvents.filter(
     (event) => event.coverage_status === "covered",
   ).length;
   const openCalendarCount = calendarEvents.filter(
     (event) => event.coverage_status !== "covered",
   ).length;
-  const averageFatigue = calendarAssignments.length
-    ? Math.round(
-        (calendarAssignments.reduce((sum, assignment) => sum + assignment.volunteer_fatigue, 0) /
-          calendarAssignments.length) *
-          100,
-      )
-    : 0;
-  const cooldownCount = calendarAssignments.filter(
-    (assignment) => assignment.recovery_status === "Rest Recommended",
-  ).length;
-  const leadAdjustment = feedbackStats.recommended_adjustments[0] ?? null;
+  const leadAdjustment = feedbackAvailable ? feedbackStats.recommended_adjustments[0] ?? null : null;
   const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments, pipeline);
   const regionNeedingCoverage =
     regionalPulse
@@ -439,34 +576,12 @@ export function Dashboard() {
       .filter((row) => row.memberInquiryCount > 0)
       .sort((left, right) => right.memberInquiryCount - left.memberInquiryCount)[0] ?? null;
 
-  const handleConnect = async (match: RankedMatch) => {
-    setSelectedVolunteer(match);
-    setShowWorkflowModal(true);
-    setWorkflowLoading(true);
-    setWorkflowError(null);
-    setWorkflowResult(null);
-    try {
-      const result = await initiateWorkflow(match.name, match.event_name);
-      setWorkflowResult(result);
-    } catch (err: unknown) {
-      setWorkflowError(err instanceof Error ? err.message : "Workflow failed.");
-    } finally {
-      setWorkflowLoading(false);
-    }
-  };
-
   const discoveryFeed = [
     {
       icon: BellRing,
-      title: primaryMatch
-        ? `Lead match ready: ${primaryMatch.name}`
-        : "Lead match queue ready",
-      detail: primaryMatch
-        ? `${primaryMatch.event_name} is sitting at ${(primaryMatch.score * 100).toFixed(
-            0,
-          )}% confidence and can be reviewed now.`
-        : "Run the matcher to populate the top recommendation feed.",
-      stamp: primaryMatch ? "Top recommendation" : "Awaiting data",
+      title: "Matching recommendations unavailable",
+      detail: MATCHING_UNAVAILABLE_REASON,
+      stamp: "Gate G1",
     },
     {
       icon: MapPinned,
@@ -480,8 +595,13 @@ export function Dashboard() {
     },
     {
       icon: Activity,
-      title: `${matchedCount} records have moved into the match stage`,
-      detail: `${memberInquiryCount} records reached member inquiry and are ready for follow-up.`,
+      title:
+        memberInquirySummary?.value !== null && memberInquirySummary?.value !== undefined
+          ? `${memberInquirySummary.value} records reached member inquiry (registered metric)`
+          : "Pipeline funnel metrics load from the register when authenticated",
+      detail:
+        memberInquirySummary?.unknown_reason ??
+        `${memberInquiryDemoCount} demo pipeline rows are at member inquiry until S12 persistence lands.`,
       stamp: "Pipeline",
     },
     {
@@ -515,6 +635,35 @@ export function Dashboard() {
     );
   }
 
+  if (loadFailed) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
+            <p className="mt-1 text-gray-600">
+              Live summary of the specialist roster, pipeline movement, and registered metrics.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            aria-label="Log out and return to portal login"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
+          >
+            <LogOut className="h-4 w-4" aria-hidden />
+            Log out
+          </button>
+        </div>
+        <FailureState
+          title="The dashboard could not be loaded"
+          message={error ?? "Failed to load dashboard data."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -523,7 +672,7 @@ export function Dashboard() {
             Dashboard{isMockData && <DemoModeBadge />}
           </h1>
           <p className="mt-1 text-gray-600">
-            Live summary of the specialist roster, active opportunities, and pipeline movement.
+            Live summary of the specialist roster, pipeline movement, and registered metrics.
           </p>
         </div>
         <button
@@ -538,16 +687,18 @@ export function Dashboard() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          {error}
-        </div>
+        <FailureState
+          title="Some dashboard data is unavailable"
+          message={error}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          title="Active Opportunities"
-          value={eventCount}
-          change="Loaded from CPP events"
+          title="Opportunities"
+          value={<AccountableValue metric={opportunitiesMetric} />}
+          change={OPPORTUNITIES_UNKNOWN_REASON}
           changeType="neutral"
           icon={Briefcase}
           iconColor="bg-[#e6effb] text-[#005394]"
@@ -572,9 +723,9 @@ export function Dashboard() {
           href="/calendar"
         />
         <MetricCard
-          title="Member Inquiry Rate"
-          value={conversionRate}
-          change={`${memberInquiryCount} records at latest stage`}
+          title="Member Inquiry"
+          value={<AccountableValue metric={memberInquiryMetric} />}
+          change={memberInquirySummary?.definition ?? "Registered pipeline_member_inquiry metric"}
           changeType="positive"
           icon={TrendingUp}
           iconColor="bg-[#e6effb] text-[#005394]"
@@ -615,12 +766,19 @@ export function Dashboard() {
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Avg fatigue</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{averageFatigue}%</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue
+                metric={averageFatigueMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
+            </p>
             <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{cooldownCount}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue metric={restRecommendedMetric} />
+            </p>
             <p className="mt-1 text-sm text-gray-600">Volunteers the matcher should avoid</p>
           </div>
         </div>
@@ -639,7 +797,10 @@ export function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-full border border-[#d5e0f7] bg-[#f7f9fc] px-3 py-1 text-xs font-medium text-[#005394]">
-              {feedbackStats.total_feedback} feedback rows
+              <AccountableValue
+                metric={feedbackRowsMetric}
+                formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
+              />
             </div>
             <Link to="/ai-matching" className="text-xs font-medium text-[#005394] hover:underline">
               View matches →
@@ -651,32 +812,45 @@ export function Dashboard() {
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.acceptance_rate * 100)}%
+              <AccountableValue
+                metric={feedbackAcceptanceMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackStats.accepted} accepted / {feedbackStats.declined} declined
+              {feedbackAvailable && feedbackStats.accepted !== null && feedbackStats.declined !== null
+                ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
+                : "Coordinator feedback breakdown unavailable."}
             </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.pain_score)}
+              <AccountableValue
+                metric={feedbackPainMetric}
+                formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">A lower score indicates a healthier matching loop.</p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {Math.round(feedbackStats.membership_interest_rate * 100)}%
+              <AccountableValue
+                metric={feedbackMembershipMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}%`}
+              />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackStats.membership_interest_count} attributed follow-through signals.
+              {feedbackAvailable && feedbackStats.membership_interest_count !== null
+                ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
+                : "Membership interest signals unavailable."}
             </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
             <p className="mt-2 text-lg font-semibold text-gray-900">
-              {leadAdjustment ? formatFactorName(leadAdjustment.factor) : "No adjustment yet"}
+              {leadAdjustment ? formatFactorName(leadAdjustment.factor) : feedbackAvailable ? "No adjustment yet" : "Unknown"}
             </p>
             <p className="mt-1 text-sm text-gray-600">
               {leadAdjustment
@@ -691,7 +865,9 @@ export function Dashboard() {
             <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
             {feedbackStats.trend.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                Trend data will appear once coordinators submit feedback from the React workflow.
+                {feedbackAvailable
+                  ? "Trend data will appear once coordinators submit feedback from the React workflow."
+                  : "Feedback optimizer stats are unavailable."}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
@@ -725,7 +901,9 @@ export function Dashboard() {
             <div className="space-y-3">
               {feedbackStats.recommended_adjustments.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                  No weight deltas yet. The optimizer is waiting for stronger coordinator signal.
+                  {feedbackAvailable
+                    ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
+                    : "Feedback optimizer stats are unavailable."}
                 </div>
               ) : (
                 feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
@@ -881,14 +1059,20 @@ export function Dashboard() {
         </div>
       </div>
 
+      <PipelineFunnelTiles reloadToken={reloadToken} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Pipeline Funnel</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Pipeline Funnel (demo rows)</h3>
             <Link to="/pipeline" className="text-xs font-medium text-[#005394] hover:underline">
               View pipeline →
             </Link>
           </div>
+          <p className="mb-4 text-xs text-gray-600">
+            Chart below uses legacy /api pipeline rows for layout only. KPI tiles above use the
+            registered metrics API and show Unknown until S12 persistence exists.
+          </p>
           <ResponsiveContainer width="100%" height={300}>
             <FunnelChart>
               <Tooltip />
@@ -955,61 +1139,26 @@ export function Dashboard() {
         </div>
 
         <div className="space-y-4">
-          {topMatches.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
-              Ranking data will appear here once the FastAPI backend is running with the matching endpoint.
-            </div>
-          ) : (
-            topMatches.map((match) => (
-              <div
-                key={`${match.event_name}-${match.name}`}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-[#d5e0f7] bg-gradient-to-r from-white to-[#f2f7ff] p-4 shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-gray-900">{match.name}</p>
-                    <span className="rounded-full bg-[#e6effb] px-2 py-0.5 text-xs text-[#005394]">
-                      {splitTags(match.expertise_tags)[0] || match.board_role || "Specialist"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {match.event_name} · {match.company || "IA West volunteer"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <p className="text-sm text-gray-600">Match Score</p>
-                    <p className="text-2xl font-semibold text-[#005394]">
-                      {(match.score * 100).toFixed(0)}%
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => void handleConnect(match)}
-                    disabled={workflowLoading}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-[#00477f] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    Connect
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
+            <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
+            <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
+            <p className="mt-2 text-sm leading-6">
+              Ranked recommendations and match scores stay off this dashboard until gate G1 closes.
+            </p>
+          </div>
         </div>
       </div>
 
       {/* Web Crawler Live Feed */}
       <CrawlerFeed />
 
-      {showWorkflowModal && selectedVolunteer && (
-        <OutreachWorkflowModal
-          volunteer={selectedVolunteer}
-          result={workflowResult}
-          loading={workflowLoading}
-          error={workflowError}
-          onClose={() => setShowWorkflowModal(false)}
-        />
-      )}
+      <MetricDrilldownSheet
+        open={drilldownOpen}
+        onOpenChange={setDrilldownOpen}
+        loading={drilldownLoading}
+        drilldown={drilldown}
+        error={drilldownError}
+      />
     </div>
   );
 }

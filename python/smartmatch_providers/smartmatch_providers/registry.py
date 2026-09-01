@@ -211,6 +211,16 @@ def build_token_verifier(
             "fixture principals may only be registered for edition='dev' with "
             "use_fixture=true; local pilot tokens must never reach a deployed edition."
         )
+    if any(
+        not isinstance(token, str)
+        or not isinstance(subject, str)
+        or not token.strip()
+        or not subject.strip()
+        for token, subject in principals.items()
+    ):
+        raise ProviderConfigurationError(
+            "fixture principal tokens and subjects must be non-blank strings."
+        )
 
     if use_fixture or edition in _FIXTURE_ONLY_EDITIONS:
         verifier = FixtureTokenVerifier()

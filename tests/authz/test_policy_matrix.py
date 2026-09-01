@@ -27,7 +27,10 @@ files:
    every row names a route that exists. A route that is *not* authenticated must
    be declared in :data:`UNAUTHENTICATED_ROUTES` with a reason, so a handler that
    silently loses its ``CurrentPrincipal`` parameter fails here rather than
-   passing quietly.
+   passing quietly. A route that authenticates but authorizes nothing has no
+   honest row to write — a row must name an authorizer the route really calls —
+   so it is declared in :data:`AUTHENTICATED_ONLY_ROUTES` instead, and held to
+   that claim: gaining an authorizer moves it back into the matrix.
 2. **The row describes the code.** The authorizer the row names is the one the
    route actually calls, and the role set the row states is the constant the
    authorizer actually reads — compared against the live object, so widening
@@ -53,20 +56,30 @@ the part worth keeping.
 
 ## S-007 — which roles a bare ``resource_grant`` conveys
 
-**Decision: keep the current fail-closed behaviour and pin it.** A
-:class:`~smartmatch_authz.ResourceGrant` carries a resource type, a resource id,
-and an effect. It carries no role, so there is no engineering answer to "which
-roles does it convey" — any mapping would be invented here rather than derived
-from anything, and inventing one is the single change on this surface that turns
-a denial into a permit. Conveying a role would need the *grant* to name one,
-which is a ``resource_grant`` schema change and a product decision about what a
-guest reviewer's access lets them do — not a decision this file can make.
+**Decision: keep the current fail-closed behaviour and pin it, for every
+*role-gated* operation.** A :class:`~smartmatch_authz.ResourceGrant` carries a
+resource type, a resource id, and an effect. It carries no role, so there is
+no engineering answer to "which roles does it convey" — any mapping would be
+invented here rather than derived from anything, and inventing one is the
+single change on this surface that turns a denial into a permit. Conveying a
+role would need the *grant* to name one, which is a ``resource_grant`` schema
+change and a product decision about what a guest reviewer's access lets them
+do — not a decision this file can make.
 
-So the rule is stated as a rule and tested as one, on every operation
-(:func:`test_a_bare_resource_grant_never_satisfies_a_role_gated_operation`), and
-:func:`test_resource_grant_carries_no_role_field` fails the day someone adds a
-role-carrying field to the type — which is the moment the product decision has to
-be made deliberately rather than arriving as a side effect of a new column.
+So the rule is stated as a rule and tested as one, on every role-gated
+operation (:func:`test_a_bare_resource_grant_never_satisfies_a_role_gated_operation`),
+and :func:`test_resource_grant_carries_no_role_field` fails the day someone
+adds a role-carrying field to the type — which is the moment the product
+decision has to be made deliberately rather than arriving as a side effect of
+a new column.
+
+That decision has a second half, reached rather than merely hypothesised as of
+``metrics.read``/``metrics.drill_down``: an operation that names *no* required
+roles at all asks nothing of a grant that its plain "you may address this
+resource" does not already answer, so ``evaluate`` permits it —
+:data:`INTENTIONALLY_UNGATED_OPERATIONS` and
+:func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`
+are that half, pinned just as explicitly as the fail-closed one.
 """
 
 from __future__ import annotations
@@ -91,6 +104,7 @@ from smartmatch_authz import (
     Resource,
     ResourceGrant,
     assert_allowed,
+    evaluate,
 )
 from smartmatch_persistence.principals import ResolvedPrincipal
 
@@ -233,15 +247,55 @@ def _routes_in_source(source: str, module: str) -> list[Route]:
     return routes
 
 
+def _is_authorizer_name(name: str) -> bool:
+    """Whether ``name`` is one of the policy's own entry points or an ``_authorize*`` helper."""
+    return name in _POLICY_ENTRY_POINTS or name.startswith(_AUTHORIZER_PREFIXES)
+
+
+def _referenced_name(expr: ast.expr) -> str | None:
+    """The bare or attribute name an expression names, or ``None`` for anything else.
+
+    ``assert_allowed`` (imported by name) and ``authz.assert_allowed`` (imported
+    by module, then called through it) name the same function two different
+    ways in the AST — the first is an :class:`ast.Name`, the second an
+    :class:`ast.Attribute` whose ``.attr`` is what matters, not the module it
+    hangs off of. Matching only the first is what let a route that imported its
+    authorizer's module rather than the function itself pass this file as
+    exempt while calling no authorizer at all.
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        return expr.attr
+    return None
+
+
 def _authorizer_calls(node: ast.AST) -> set[str]:
-    """Names of authorization calls made anywhere inside a function."""
+    """Names of authorization calls made anywhere inside a function.
+
+    Two shapes count as "calls this authorizer": calling it directly —
+    ``assert_allowed(...)`` or ``authz.assert_allowed(...)``, the bare-name and
+    attribute forms :func:`_referenced_name` normalises — and naming it as a
+    FastAPI dependency — ``Depends(assert_allowed)`` or
+    ``Depends(authz.assert_allowed)``. The dependency form is not a call to the
+    authorizer *in the handler's own body*; FastAPI calls it during dependency
+    resolution before the handler runs. Missing it would let a route wrap its
+    authorization in ``Depends(...)`` and pass this file as exempt while
+    genuinely authorizing nothing the matrix ever executes.
+    """
     found: set[str] = set()
     for child in ast.walk(node):
-        if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)):
+        if not isinstance(child, ast.Call):
             continue
-        name = child.func.id
-        if name in _POLICY_ENTRY_POINTS or name.startswith(_AUTHORIZER_PREFIXES):
+        name = _referenced_name(child.func)
+        if name is not None and _is_authorizer_name(name):
             found.add(name)
+            continue
+        if isinstance(child.func, ast.Name) and child.func.id == "Depends":
+            for arg in child.args:
+                arg_name = _referenced_name(arg)
+                if arg_name is not None and _is_authorizer_name(arg_name):
+                    found.add(arg_name)
     return found
 
 
@@ -298,6 +352,33 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
 }
 
 
+#: Routes that authenticate and then authorize *nothing*, and why that is
+#: correct. This is a third category, not a loophole. ``OPERATIONS`` rows are
+#: required to name an authorizer the route really calls
+#: (:func:`test_the_route_calls_the_authorizer_the_matrix_names`), so a route
+#: with no authorization has no honest row to write — and before this table
+#: existed the only ways to land it were to invent an authorizer it does not
+#: call, or to drop its ``CurrentPrincipal`` and declare it public. Both are
+#: worse than saying plainly that authentication is the whole gate.
+#:
+#: The entry is held to that claim in both directions by
+#: :func:`test_authentication_only_routes_really_authorize_nothing`: the route
+#: must exist, must take a principal, and must call no authorizer. Adding an
+#: authorization call to one of these routes therefore fails this file until
+#: the route is moved into ``OPERATIONS`` and characterised properly.
+AUTHENTICATED_ONLY_ROUTES: dict[tuple[str, str], str] = {
+    ("GET", "/v1/me"): (
+        "Identity echo. Every field is keyed by the caller's own verified "
+        "subject, so there is no resource to authorize against that is not a "
+        "roundabout 'are you you' — the token already settled that. It reports "
+        "the memberships the server assigned; it never accepts a role from the "
+        "caller, which is the defect Fix #7 named. A suspended account is "
+        "deliberately still allowed to read it, so a suspended caller can see "
+        "that it is suspended rather than receive a second flavour of 401."
+    ),
+}
+
+
 # ---------------------------------------------------------------------------
 # The operations
 # ---------------------------------------------------------------------------
@@ -314,8 +395,13 @@ class Operation:
     #: The call in the code that decides this operation. Checked against the
     #: source, so swapping a strict authorizer for a weaker one fails.
     authorizer: str
-    #: The module-level constant the authorizer reads its role set from.
-    roles_constant: str
+    #: The module-level constant the authorizer reads its role set from, or
+    #: ``None`` for an operation that is *intentionally* ungated — it names no
+    #: required roles at all, so there is no constant to name either. ``None``
+    #: is only honest when :data:`required_roles` is empty and the operation's
+    #: key appears in :data:`INTENTIONALLY_UNGATED_OPERATIONS`; both are
+    #: checked, not merely declared (see the two tests this field changes).
+    roles_constant: str | None
     #: Where :data:`authorizer` and :data:`roles_constant` are *defined*, when
     #: that is not the module the route lives in. The four job operations are
     #: authorized by :mod:`smartmatch_api.job_authz` rather than by a helper in
@@ -409,7 +495,57 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="job",
         unit_scoped=True,
     ),
+    # ``metrics.read`` and ``metrics.drill_down`` share one authorizer,
+    # ``routers/metrics.py::_authorize_unit_read`` — a private helper matching
+    # the ``_authorize*`` naming convention, deliberately mirroring
+    # ``import.create``'s own shape: load the unit, then call
+    # ``smartmatch_authz.assert_allowed`` against an ``org_unit`` Resource
+    # built from it. Where it genuinely differs from every operation above:
+    # its call to ``assert_allowed`` passes no ``required_roles`` at all. That
+    # is read off the source, not assumed — see ``_authorize_unit_read`` in
+    # ``routers/metrics.py`` — and it means these two are the first operations
+    # to actually reach ``evaluate``'s ungated grant path (S-007), which is
+    # why they are also the first two keys in
+    # :data:`INTENTIONALLY_UNGATED_OPERATIONS`. ``roles_constant=None``
+    # follows from that: there is no module-level roles constant to name
+    # because the code names none either.
+    Operation(
+        key="metrics.read",
+        method="GET",
+        path="/v1/units/{unit_id}/metrics",
+        module="smartmatch_api.routers.metrics",
+        authorizer="_authorize_unit_read",
+        roles_constant=None,
+        authorizer_module=None,
+        required_roles=frozenset(),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="metrics.drill_down",
+        method="GET",
+        path="/v1/units/{unit_id}/metrics/{metric_name}/drill-down",
+        module="smartmatch_api.routers.metrics",
+        authorizer="_authorize_unit_read",
+        roles_constant=None,
+        authorizer_module=None,
+        required_roles=frozenset(),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
+
+#: Operations that intentionally reach the policy's ungated grant path — S-007
+#: is answered "yes" for exactly these, and only these. Landing an operation
+#: that names no required roles used to fail this file outright
+#: (:func:`test_every_ungated_operation_is_declared_intentional`'s predecessor
+#: named this as the moment that confirmation would have to happen). It has: reading
+#: an accountable metric is exactly the "guest reviewer" shape S-007's own
+#: reasoning anticipated, and the route's authorizer already calls
+#: ``assert_allowed`` with no ``required_roles`` — this table records that as
+#: a decision, checked in both directions below, rather than leaving it to be
+#: discovered as an accident the day someone widens a role set by mistake.
+INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset({"metrics.read", "metrics.drill_down"})
 
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
@@ -789,6 +925,109 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
     },
+    # Both metrics rows are identical in content, deliberately: `metric_name`
+    # plays no part in what `_authorize_unit_read` decides — only `unit_id`
+    # does — so the two routes share not just an authorizer but its outcome
+    # on every shape, the same way `job.read` and `job.events.read` do.
+    "metrics.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "unit scoping is a path question, not a role question — it still "
+                "applies with no required_roles at all, exactly as it does on "
+                "every gated operation above"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "the cell that would deny on every operation above and does not "
+                "here: `required_roles` is empty, so `evaluate`'s role filter "
+                "(`if required_roles and membership.role not in required_roles`) "
+                "never triggers — an active membership at the right unit is "
+                "enough on its own, whichever role it carries. This is S-007 "
+                "landing for real, not a defect: reading an accountable metric "
+                "is exactly the operation this policy's ungated path exists for."
+            ),
+        ),
+        "member_with_no_memberships": deny(
+            "no_grant",
+            why=(
+                "ungated is not unauthenticated — some membership or grant on "
+                "the unit is still required"
+            ),
+        ),
+        "resource_grant_only": permit(
+            why=(
+                "the other half of S-007 landing: with no required role to lack, "
+                "`evaluate`'s Path 2 (`if required_roles: return ...lacks_required_role"
+                "; return allowed=True`) permits a bare explicit grant outright, "
+                "reason `explicit_resource_allow` rather than the "
+                "`resource_grant_lacks_required_role` every gated operation answers"
+            ),
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="checked before either grant path runs, regardless of required_roles",
+        ),
+        "expired_coordinator_at_owning_unit": deny(
+            "no_grant",
+            why="`is_active_at` is applied before the role filter is ever reached",
+        ),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="the first check in `evaluate`, ahead of required_roles being empty or not",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a metric read has no actor path — the shape degenerates to a "
+                "role-less member, and a role-less member still needs a "
+                "membership or grant on the unit even when no role is required"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half of the shape is inert here; the deny on the unit beats inheritance",
+        ),
+    },
+    "metrics.drill_down": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="unit scoping is a path question, not a role question — see metrics.read",
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "ungated: an active membership at the unit is enough regardless "
+                "of role — see metrics.read"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": permit(
+            why="S-007 landing for this operation too — see metrics.read",
+        ),
+        "admin_with_explicit_deny": deny("explicit_resource_deny"),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny("principal_suspended"),
+        "cross_tenant_coordinator": deny("tenant_mismatch"),
+        "job_actor_without_role": deny("no_grant"),
+        "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -845,7 +1084,21 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     """
     resolved = _resolved(operation, shape)
 
-    if operation.authorizer == "assert_allowed":
+    # `import.create`'s handler calls `assert_allowed` directly; `metrics.py`'s
+    # two routes call it through `_authorize_unit_read`, a private helper that
+    # first loads the unit from the database and then makes exactly this same
+    # call against it (`routers/metrics.py`, around its `_authorize_unit_read`
+    # definition) — the DB load is plumbing that produces `unit.path`, not a
+    # second policy decision. Both names dispatch here rather than one being
+    # given its own near-identical branch: the load is out of scope for this
+    # no-database file the same way it already is for `import.create` (see the
+    # comment on `owning_unit_path` below), and `required_roles` is what
+    # actually varies between the operations that reach this branch —
+    # `metrics.read`/`metrics.drill_down` pass `frozenset()`, matching
+    # `_authorize_unit_read` not naming `required_roles` in its own call at
+    # all, which is the whole reason those two are the first entries in
+    # INTENTIONALLY_UNGATED_OPERATIONS.
+    if operation.authorizer in ("assert_allowed", "_authorize_unit_read"):
         assert_allowed(
             resolved.principal,
             Resource(
@@ -904,6 +1157,7 @@ def _observe(operation: Operation, shape: Shape) -> Cell:
 def _missing_rows(routes: dict[tuple[str, str], Route]) -> list[tuple[str, str]]:
     """Authenticated routes with no matrix row. The failure this file exists for."""
     covered = {(operation.method, operation.path) for operation in OPERATIONS}
+    covered |= set(AUTHENTICATED_ONLY_ROUTES)
     return sorted(
         key for key, route in routes.items() if route.authenticated and key not in covered
     )
@@ -960,6 +1214,48 @@ def test_every_route_is_either_authenticated_or_declared_public() -> None:
     )
 
 
+def test_authentication_only_routes_really_authorize_nothing() -> None:
+    """The claim in :data:`AUTHENTICATED_ONLY_ROUTES` is checked, not trusted.
+
+    Exempting a route from the matrix is exactly the shape of change that could
+    hide a missing authorization, so the exemption is only honoured while the
+    route still matches what the table says about it: it exists, it takes a
+    principal, and it calls no authorizer at all. The last clause is the one
+    that matters. The moment someone adds an ``assert_allowed`` to one of these
+    handlers, the route has a policy worth characterising and belongs in
+    ``OPERATIONS`` with a row describing it — so this fails until it is moved,
+    rather than leaving it exempt with authorization nobody ever exercised.
+    """
+    routes = _declared_routes()
+
+    missing = sorted(key for key in AUTHENTICATED_ONLY_ROUTES if key not in routes)
+    assert not missing, "AUTHENTICATED_ONLY_ROUTES lists routes that do not exist: " + ", ".join(
+        f"{method} {path}" for method, path in missing
+    )
+
+    unauthenticated = sorted(
+        key for key in AUTHENTICATED_ONLY_ROUTES if not routes[key].authenticated
+    )
+    assert not unauthenticated, (
+        "AUTHENTICATED_ONLY_ROUTES lists routes that take no principal; they are "
+        "public, and belong in UNAUTHENTICATED_ROUTES: "
+        + ", ".join(f"{method} {path}" for method, path in unauthenticated)
+    )
+
+    now_authorizing = sorted(
+        (key, routes[key].authorizers)
+        for key in AUTHENTICATED_ONLY_ROUTES
+        if routes[key].authorizers
+    )
+    assert not now_authorizing, (
+        "these routes are declared as authenticating and authorizing nothing, but "
+        "now call an authorizer; give each a row in OPERATIONS instead: "
+        + ", ".join(
+            f"{method} {path} calls {', '.join(names)}" for (method, path), names in now_authorizing
+        )
+    )
+
+
 @pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
 def test_the_route_calls_the_authorizer_the_matrix_names(operation: Operation) -> None:
     """A row that names a strict authorizer the route no longer calls is a lie."""
@@ -985,7 +1281,32 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
 
     The comparison is against the live object, so this is not a text match on a
     docstring: adding ``"student"`` to ``JOB_OVERSIGHT_ROLES`` breaks it.
+
+    ``roles_constant is None`` is the intentionally-ungated case
+    (:data:`INTENTIONALLY_UNGATED_OPERATIONS`): there is no constant to read
+    when the code names no required roles at all, so what is checked instead
+    is that the row is honest about *that* — empty ``required_roles`` and
+    membership in the table, both directions, so an operation cannot claim the
+    exemption without also being declared, or vice versa.
     """
+    if operation.roles_constant is None:
+        assert operation.required_roles == frozenset(), (
+            f"{operation.key} names no roles_constant, which only makes sense "
+            f"for an intentionally ungated operation; MATRIX states "
+            f"required_roles={sorted(operation.required_roles)}"
+        )
+        assert operation.key in INTENTIONALLY_UNGATED_OPERATIONS, (
+            f"{operation.key} names no roles_constant but is not listed in "
+            f"INTENTIONALLY_UNGATED_OPERATIONS — add it there with a reason, "
+            f"or give it a real roles_constant"
+        )
+        return
+
+    assert operation.key not in INTENTIONALLY_UNGATED_OPERATIONS, (
+        f"{operation.key} is listed in INTENTIONALLY_UNGATED_OPERATIONS but "
+        f"names a real roles_constant ({operation.roles_constant!r}); remove "
+        f"it from that table"
+    )
     module = importlib.import_module(operation.authz_module)
     declared = getattr(module, operation.roles_constant, None)
     assert declared is not None, (
@@ -998,19 +1319,15 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
     )
 
 
-@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
-def test_the_authorizer_reads_the_role_constant_the_matrix_names(operation: Operation) -> None:
-    """The constant must be the one this operation's decision actually reads.
+def _authorizer_function_node(operation: Operation) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    """The function whose body should carry the role decision this operation names.
 
-    Without this, ``JOB_OVERSIGHT_ROLES`` could keep its value while the authorizer
-    started reading a different, wider set, and the check above would still pass
-    against a constant nothing uses.
+    When the operation names a dedicated authorizer, that function is where the
+    role set has to be read; when it calls the policy directly, the handler is.
+    ``authz_module`` is where to look for the former, which for the four job
+    operations is the shared module rather than their own router.
     """
     route = _declared_routes()[(operation.method, operation.path)]
-    # When the operation names a dedicated authorizer, that function is where the
-    # role set has to be read; when it calls the policy directly, the handler is.
-    # ``authz_module`` is where to look for the former, which for the four job
-    # operations is the shared module rather than their own router.
     target = (
         operation.authorizer
         if operation.authorizer.startswith(_AUTHORIZER_PREFIXES)
@@ -1025,9 +1342,57 @@ def test_the_authorizer_reads_the_role_constant_the_matrix_names(operation: Oper
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == target
     ]
     assert len(functions) == 1, f"expected exactly one {target} in {operation.authz_module}"
-    names = {node.id for node in ast.walk(functions[0]) if isinstance(node, ast.Name)}
+    return functions[0]
+
+
+def _passes_required_roles_keyword(function_node: ast.AST) -> bool:
+    """Whether a call to a policy entry point inside ``function_node`` names ``required_roles``.
+
+    Used only for the intentionally-ungated case: the row claims the code
+    passes no ``required_roles`` at all (rather than an empty constant), and
+    this is what checks that claim against the source instead of trusting it.
+    """
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Call):
+            continue
+        name = _referenced_name(child.func)
+        if name not in _POLICY_ENTRY_POINTS:
+            continue
+        if any(keyword.arg == "required_roles" for keyword in child.keywords):
+            return True
+    return False
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_the_authorizer_reads_the_role_constant_the_matrix_names(operation: Operation) -> None:
+    """The constant must be the one this operation's decision actually reads.
+
+    Without this, ``JOB_OVERSIGHT_ROLES`` could keep its value while the authorizer
+    started reading a different, wider set, and the check above would still pass
+    against a constant nothing uses.
+
+    For an intentionally-ungated operation (``roles_constant is None``) there is
+    no constant to find, so what is checked instead is the other direction of
+    the same drift: that the authorizing function still passes no
+    ``required_roles`` to ``assert_allowed``/``evaluate`` at all. If it started
+    passing one, the row's claim of "ungated" would be stale — this is what
+    catches that instead of leaving :data:`INTENTIONALLY_UNGATED_OPERATIONS`
+    to go silently wrong.
+    """
+    function_node = _authorizer_function_node(operation)
+
+    if operation.roles_constant is None:
+        assert not _passes_required_roles_keyword(function_node), (
+            f"{operation.authz_module} now passes required_roles to its policy "
+            f"call, but MATRIX records {operation.key} as intentionally ungated "
+            f"(roles_constant=None); give it a real roles_constant and remove it "
+            f"from INTENTIONALLY_UNGATED_OPERATIONS"
+        )
+        return
+
+    names = {node.id for node in ast.walk(function_node) if isinstance(node, ast.Name)}
     assert operation.roles_constant in names, (
-        f"{operation.authz_module}.{target} does not reference {operation.roles_constant}, "
+        f"{operation.authz_module} does not reference {operation.roles_constant}, "
         f"which MATRIX says is where {operation.key} gets its role set"
     )
 
@@ -1116,14 +1481,53 @@ def test_every_operation_denies_a_principal_without_its_role(operation: Operatio
     every operation has at least one cell where a principal holding an active,
     covering membership is refused for holding the wrong role, and at least one
     where a principal holding nothing is refused.
+
+    The "wrong role" half is skipped for :data:`INTENTIONALLY_UNGATED_OPERATIONS`
+    — there is no wrong role to hold when the operation names none, by design
+    (S-007); :func:`test_an_intentionally_ungated_operation_admits_any_active_membership`
+    is that property's positive counterpart, asserted rather than merely
+    unassert-ed here. "Holding nothing is refused" still applies to every
+    operation without exception: ungated is not unauthenticated.
     """
     row = MATRIX[operation.key]
-    wrong_role = row["student_at_owning_unit"]
-    assert not wrong_role.permit and wrong_role.reason == "no_grant", (
-        f"{operation.key} admits an active membership carrying no required role"
-    )
+    if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS:
+        wrong_role = row["student_at_owning_unit"]
+        assert not wrong_role.permit and wrong_role.reason == "no_grant", (
+            f"{operation.key} admits an active membership carrying no required role"
+        )
     nothing = row["member_with_no_memberships"]
     assert not nothing.permit, f"{operation.key} admits a principal holding nothing"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [op for op in OPERATIONS if op.key in INTENTIONALLY_UNGATED_OPERATIONS],
+    ids=lambda op: op.key,
+)
+def test_an_intentionally_ungated_operation_admits_any_active_membership(
+    operation: Operation,
+) -> None:
+    """The positive half of ungating: *any* role at the unit is enough, not none.
+
+    Ungating an operation is not "no check at all" — unit scoping (path
+    containment), tenant isolation, and suspension all still apply, as the
+    other cells in the same row prove. What specifically falls away is the
+    role filter: :func:`smartmatch_authz.evaluate` skips it entirely when
+    ``required_roles`` is empty, so an active membership holding a role this
+    operation never named — ``student``, in the shape below — is exactly as
+    good as any other for reaching a resource it already covers. Asserted
+    against the real authorizer, not only against the recorded cell, so a
+    regression here fails on the code rather than only on the matrix agreeing
+    with itself.
+    """
+    cell = MATRIX[operation.key]["student_at_owning_unit"]
+    assert cell.permit, (
+        f"{operation.key} is recorded in INTENTIONALLY_UNGATED_OPERATIONS but "
+        f"denies an active membership at the owning unit anyway; if it is now "
+        f"role-gated, remove it from that table and give it real required_roles"
+    )
+    observed = _observe(operation, SHAPES_BY_NAME["student_at_owning_unit"])
+    assert observed.permit
 
 
 @pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
@@ -1140,22 +1544,38 @@ def test_every_operation_denies_a_suspended_principal(operation: Operation) -> N
     assert not observed.permit and observed.reason == "principal_suspended"
 
 
-def test_every_operation_is_role_gated_today() -> None:
-    """No operation currently reaches the policy's ungated grant path.
+def test_every_ungated_operation_is_declared_intentional() -> None:
+    """Every operation that reaches the policy's ungated grant path says so on purpose.
 
     :func:`smartmatch_authz.evaluate` allows a bare resource grant when an
     operation names no roles — the guest-reviewer case the policy is designed
-    for. No route uses it yet. That matters for S-007: the fail-closed rule
-    below costs nothing today because nothing depends on the path it closes.
+    for. This test used to assert that *no* operation reached that path at
+    all, and its own docstring named the day that changed as "the right
+    moment to confirm deliberately that a grant alone is meant to be enough
+    for it." ``metrics.read`` and ``metrics.drill_down`` are that day:
+    reading an accountable metric is exactly the guest-reviewer shape S-007
+    was written for, and their authorizer already calls ``assert_allowed``
+    with no ``required_roles`` at all.
 
-    When the first ungated operation lands this fails, which is the right moment
-    to confirm deliberately that a grant alone is meant to be enough for it.
+    So the confirmation is now a table, not a blanket denial —
+    :data:`INTENTIONALLY_UNGATED_OPERATIONS` — and this checks both
+    directions: an operation cannot be ungated in the code without being
+    declared here (an *undeclared* new hole still fails, which is what keeps
+    this from being a weakening), and the table cannot name an operation that
+    is not actually ungated in the code.
     """
-    ungated = [operation.key for operation in OPERATIONS if not operation.required_roles]
-    assert not ungated, (
+    ungated = {operation.key for operation in OPERATIONS if not operation.required_roles}
+    undeclared = ungated - INTENTIONALLY_UNGATED_OPERATIONS
+    assert not undeclared, (
         f"these operations name no required roles, so a bare resource grant now "
-        f"suffices for them: {ungated}. Confirm that is intended (S-007) and "
-        f"update this test and the matrix together."
+        f"suffices for them, and they are not recorded in "
+        f"INTENTIONALLY_UNGATED_OPERATIONS: {sorted(undeclared)}. Confirm that is "
+        f"intended (S-007) and add them there with a reason."
+    )
+    stale = INTENTIONALLY_UNGATED_OPERATIONS - ungated
+    assert not stale, (
+        f"INTENTIONALLY_UNGATED_OPERATIONS names operations that are actually "
+        f"role-gated in the code: {sorted(stale)}. Remove them from the table."
     )
 
 
@@ -1164,11 +1584,16 @@ def test_every_operation_is_role_gated_today() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+_ROLE_GATED_OPERATIONS = tuple(
+    operation for operation in OPERATIONS if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS
+)
+
+
+@pytest.mark.parametrize("operation", _ROLE_GATED_OPERATIONS, ids=lambda op: op.key)
 def test_a_bare_resource_grant_never_satisfies_a_role_gated_operation(
     operation: Operation,
 ) -> None:
-    """The S-007 rule, pinned on every operation rather than on one.
+    """The S-007 rule, pinned on every *role-gated* operation rather than on one.
 
     **A resource grant conveys reach, not authority.** It says "you may address
     this resource"; ``required_roles`` says "this action needs a coordinator".
@@ -1182,6 +1607,13 @@ def test_a_bare_resource_grant_never_satisfies_a_role_gated_operation(
     one — a ``resource_grant`` schema change and a product decision about what a
     guest reviewer may do — so this is pinned, not decided, and the pin is what
     makes the next person decide it on purpose.
+
+    Scoped to :data:`_ROLE_GATED_OPERATIONS` rather than every operation: for
+    an *intentionally* ungated one there is no required role for the grant to
+    lack, so ``evaluate`` correctly permits it — that is the rule answered the
+    other way on purpose, not this rule broken. See
+    :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`
+    for that side, asserted just as explicitly.
     """
     cell = MATRIX[operation.key]["resource_grant_only"]
     assert not cell.permit, (
@@ -1191,6 +1623,52 @@ def test_a_bare_resource_grant_never_satisfies_a_role_gated_operation(
     )
     observed = _observe(operation, SHAPES_BY_NAME["resource_grant_only"])
     assert not observed.permit
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [op for op in OPERATIONS if op.key in INTENTIONALLY_UNGATED_OPERATIONS],
+    ids=lambda op: op.key,
+)
+def test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation(
+    operation: Operation,
+) -> None:
+    """S-007 answered "yes", the other direction: this is the case the rule exists for.
+
+    A resource grant conveys reach, not authority — but when an operation asks
+    for no authority beyond reach (no ``required_roles`` at all), reach is
+    exactly enough. This is the guest-reviewer shape the policy's ungated path
+    was designed for, landing on a real operation for the first time, and the
+    reason code (``explicit_resource_allow``, not the gated operations'
+    ``resource_grant_lacks_required_role``) is what the audit trail uses to
+    tell the two populations apart.
+    """
+    cell = MATRIX[operation.key]["resource_grant_only"]
+    assert cell.permit, (
+        f"{operation.key} is recorded in INTENTIONALLY_UNGATED_OPERATIONS but "
+        f"denies a bare resource grant anyway; if it is now role-gated, remove "
+        f"it from that table and give it real required_roles"
+    )
+    observed = _observe(operation, SHAPES_BY_NAME["resource_grant_only"])
+    assert observed.permit
+
+    # `_observe` records a reason only for denials (permit cells carry
+    # `reason=None` by construction — see `Cell`), so the specific allow
+    # reason is checked directly against `evaluate`, the same function
+    # `assert_allowed` wraps, rather than through that shortcut.
+    resolved = _resolved(operation, SHAPES_BY_NAME["resource_grant_only"])
+    decision = evaluate(
+        resolved.principal,
+        Resource(
+            resource_type=operation.resource_type,
+            resource_id=operation.resource_id,
+            tenant_id=str(resolved.tenant_id),
+            owning_unit_path=OrgPath.parse(OWNING_UNIT),
+        ),
+        at=NOW,
+        required_roles=operation.required_roles,
+    )
+    assert decision.allowed and decision.reason == "explicit_resource_allow"
 
 
 def test_resource_grant_carries_no_role_field() -> None:
@@ -1211,20 +1689,25 @@ def test_resource_grant_carries_no_role_field() -> None:
 
 
 def test_the_distinct_denial_reason_survives() -> None:
-    """The reason code is the audit trail's record that S-007 is still open.
+    """The reason code is the audit trail's record that S-007 is still open — for gated operations.
 
     ``resource_grant_lacks_required_role`` is not interchangeable with
     ``no_grant``: it says the principal held a grant that conveyed nothing,
     which is the population that would be affected the day the rule changes.
     Collapsing it into ``no_grant`` would make that population unmeasurable.
 
-    Every operation, not the three that used to manage it. ``job.read`` and
-    ``job.events.read`` answered ``no_grant`` here because the old read path
-    consulted no grants at all — a refusal in the right direction that recorded
-    the wrong thing, so a grant-holder and a stranger were indistinguishable in
-    the audit trail. Listing all five is what stops the exception coming back.
+    Every *role-gated* operation, not the three that used to manage it.
+    ``job.read`` and ``job.events.read`` answered ``no_grant`` here because the
+    old read path consulted no grants at all — a refusal in the right
+    direction that recorded the wrong thing, so a grant-holder and a stranger
+    were indistinguishable in the audit trail. Listing all of
+    :data:`_ROLE_GATED_OPERATIONS` is what stops the exception coming back.
+    Scoped away from :data:`INTENTIONALLY_UNGATED_OPERATIONS`: those answer
+    ``explicit_resource_allow`` instead, which is S-007 decided the other way
+    on purpose — see
+    :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`.
     """
-    for operation in OPERATIONS:
+    for operation in _ROLE_GATED_OPERATIONS:
         cell = MATRIX[operation.key]["resource_grant_only"]
         assert cell.reason == "resource_grant_lacks_required_role", (
             f"{operation.key} no longer distinguishes a conveying-nothing grant "
@@ -1386,6 +1869,68 @@ def test_the_derivation_finds_routes_and_their_authorizers() -> None:
     public = routes[("GET", "/v1/units/public-thing")]
     assert not public.authenticated
     assert public.authorizers == ()
+
+
+#: A router that authorizes two routes without ever writing a bare
+#: ``assert_allowed(...)`` call — the two escape hatches this file's
+#: ``_authorize_calls`` used to miss entirely, each isolated on its own route
+#: so a regression in either detector fails on a specific, named path rather
+#: than on "some cell somewhere".
+_SYNTHETIC_ROUTER_INDIRECT_AUTHZ = '''
+from fastapi import APIRouter, Depends
+import smartmatch_authz as authz
+
+router = APIRouter(prefix="/v1/units", tags=["synthetic"])
+
+
+@router.post("/{unit_id}/attribute-call")
+def create_via_attribute(principal: CurrentPrincipal, session: DbSession) -> None:
+    """Authorizes through the module, not the bare imported name."""
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    authz.assert_allowed(principal.principal, unit, at=utc_now(), required_roles=_ROLES)
+
+
+@router.post("/{unit_id}/depends-call")
+def create_via_depends(
+    principal: CurrentPrincipal,
+    _authorized: None = Depends(assert_allowed),
+) -> None:
+    """Authorizes by naming the authorizer as a FastAPI dependency."""
+    return None
+'''
+
+
+def test_the_derivation_recognises_an_attribute_call_as_authorizing() -> None:
+    """``authz.assert_allowed(...)`` is not invisible just because it is qualified.
+
+    Before ``_authorizer_calls`` also walked :class:`ast.Attribute` calls, a
+    route that imported its authorizer's *module* rather than the bare
+    name — entirely ordinary Python — authorized every request it handled and
+    still reported no authorizer here, which is indistinguishable from a route
+    that genuinely authorizes nothing.
+    """
+    routes = {
+        route.key: route
+        for route in _routes_in_source(_SYNTHETIC_ROUTER_INDIRECT_AUTHZ, "synthetic")
+    }
+    route = routes[("POST", "/v1/units/{unit_id}/attribute-call")]
+    assert route.authorizers == ("assert_allowed",)
+
+
+def test_the_derivation_recognises_an_authorizer_named_via_depends() -> None:
+    """``Depends(assert_allowed)`` authorizes the request; it must not look exempt.
+
+    FastAPI calls a ``Depends(...)`` argument during dependency resolution,
+    before the handler body ever runs — so an authorizer named this way is
+    never a direct call inside the handler's own AST. This is the second
+    escape hatch named in the finding this file's fix closes.
+    """
+    routes = {
+        route.key: route
+        for route in _routes_in_source(_SYNTHETIC_ROUTER_INDIRECT_AUTHZ, "synthetic")
+    }
+    route = routes[("POST", "/v1/units/{unit_id}/depends-call")]
+    assert route.authorizers == ("assert_allowed",)
 
 
 def test_the_completeness_check_reports_an_operation_with_no_row() -> None:

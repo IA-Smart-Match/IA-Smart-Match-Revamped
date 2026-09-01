@@ -1,0 +1,14 @@
+{
+  "id": "G1-GC-003",
+  "symptom_class": "depth_zero",
+  "description": "Match Depth 0 — stakeholder test log symptom. Workshop must classify depth zero as measured_zero or unknown per ADR-0011 before M1.",
+  "stakeholder_reference": "ADR-0011 Fix #8; MM-002 golden case",
+  "inputs": {
+    "professional": {
+      "note": "PLACEHOLDER — professional record after workshop"
+    },
+    "event_need": {
+      "note": "PLACEHOLDER — event_need after workshop"
+    }
+  }
+}

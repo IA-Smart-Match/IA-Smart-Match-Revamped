@@ -1,9 +1,10 @@
 import { Link } from "react-router";
 import { ArrowRight, LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface MetricCardProps {
   title: string;
-  value: string | number;
+  value: string | number | ReactNode;
   change?: string;
   changeType?: "positive" | "negative" | "neutral";
   icon: LucideIcon;

@@ -49,14 +49,23 @@ anyone who reaches the queue can dictate.
 an empty command and must not be executed as one — see
 :func:`handle_import_create`.
 
-## Handlers do not get a session
+## Business writes belong to the executor's outcome transaction
 
-A handler receives its job and an :attr:`CommandContext.emit` callable, and
-nothing else. Emitting commits immediately, so a client watching the SSE stream
-sees progress while the work is still running rather than only at the end.
-Business writes will need a session when there is business data to write; until
-then, handing one out would be handing out the ability to write anything at all
-from code whose transaction boundaries nobody has thought about yet.
+A handler receives the executor-owned :attr:`CommandContext.session` for every
+durable business write. It may stage work there, but it must never commit or
+roll it back: the executor conditionally moves the job out of ``running`` in
+that same transaction, and only an applied terminal transition makes the
+handler's work durable. If cancellation or J9's stalled-job sweep wins first,
+the executor rolls the session back before recording ``job.outcome_discarded``.
+That keeps the review queue from containing work attributed to a job whose
+success was refused by the state machine.
+
+:attr:`CommandContext.emit` deliberately remains different. Progress commits
+immediately in its own transaction so an SSE client can see it while the work
+is running, and so a rollback of business work does not erase the evidence that
+the handler was active. The split is therefore by meaning, not convenience:
+business work is atomic with the terminal outcome; progress is independently
+durable and renews the job lease (J9).
 """
 
 from __future__ import annotations
@@ -66,8 +75,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
+from smartmatch_domain.ingest import QualityFinding, validate_columns
+from smartmatch_domain.ingest import normalize_header as _normalize_header
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRecord
+from smartmatch_persistence.review import ReviewRepository
+from sqlalchemy.orm import Session
 
 __all__ = [
     "BudgetFailure",
@@ -158,10 +171,16 @@ class CommandContext:
         emit: Records one job event immediately, in its own transaction, and
             returns its sequence number. Progress a client can see while the
             work is still running.
+        session: The executor-owned transaction for durable business writes.
+            A handler may flush or query through it when needed, but must not
+            commit or roll it back. The executor commits it only with an
+            applied terminal transition, or rolls it back when the job left
+            ``running`` before the outcome could be recorded.
     """
 
     job: JobRecord
     emit: Callable[[dict[str, Any]], int]
+    session: Session
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,12 +283,20 @@ class ImportCommand:
     handler works against values whose shape has already been established: the
     payload is read from the database, and a row can predate this code, be
     written by an older release, or be edited by hand in an incident.
+
+    ``source_reference`` and ``rows`` are mutually exclusive, and exactly one is
+    always set. The router (``smartmatch_api.routers.imports``) enforces that
+    before the command is ever persisted, and :func:`_read_import_command`
+    re-checks it rather than trusting the row — the same reason every other
+    field here is re-validated rather than trusted: a row can predate the check,
+    or be edited by hand.
     """
 
     unit_id: uuid.UUID
-    source_reference: str
     dataset: str
     dry_run: bool
+    source_reference: str | None
+    rows: tuple[Mapping[str, Any], ...] | None
 
 
 def _read_import_command(payload: Mapping[str, Any]) -> ImportCommand:
@@ -289,9 +316,10 @@ def _read_import_command(payload: Mapping[str, Any]) -> ImportCommand:
     """
     problems: list[str] = []
     unit_id: uuid.UUID | None = None
-    source_reference: str | None = None
     dataset: str | None = None
     dry_run: bool | None = None
+    source_reference: str | None = None
+    rows: tuple[Mapping[str, Any], ...] | None = None
 
     raw_unit = payload.get("unit_id")
     if not isinstance(raw_unit, str) or not raw_unit.strip():
@@ -301,12 +329,6 @@ def _read_import_command(payload: Mapping[str, Any]) -> ImportCommand:
             unit_id = uuid.UUID(raw_unit)
         except ValueError:
             problems.append(f"unit_id {raw_unit!r} is not a UUID")
-
-    raw_source = payload.get("source_reference")
-    if isinstance(raw_source, str) and raw_source.strip():
-        source_reference = raw_source.strip()
-    else:
-        problems.append("source_reference is missing, is not a string, or is blank")
 
     raw_dataset = payload.get("dataset")
     if isinstance(raw_dataset, str) and raw_dataset.strip():
@@ -326,15 +348,41 @@ def _read_import_command(payload: Mapping[str, Any]) -> ImportCommand:
     else:
         problems.append(f"dry_run must be a boolean, got {type(raw_dry_run).__name__}")
 
-    # The four `is None` tests are redundant — every path that leaves one unset
-    # appended a problem — and are written out anyway so the narrowing below is
-    # the type checker's conclusion rather than a comment's promise.
+    raw_source = payload.get("source_reference")
+    raw_rows = payload.get("rows")
+    has_source = raw_source is not None
+    has_rows = raw_rows is not None
+
+    if has_source == has_rows:
+        # Covers both "neither" (a row from before rows existed, or one that
+        # lost both fields to hand-editing) and "both" — the router refuses to
+        # persist either shape, but this handler trusts nothing about how a row
+        # came to exist by the time it is executed.
+        problems.append(
+            "exactly one of source_reference or rows must be present, and this "
+            f"payload has {'both' if has_source else 'neither'}"
+        )
+    elif has_source:
+        if isinstance(raw_source, str) and raw_source.strip():
+            source_reference = raw_source.strip()
+        else:
+            problems.append("source_reference is present but is not a non-blank string")
+    else:
+        if isinstance(raw_rows, list) and all(isinstance(row, Mapping) for row in raw_rows):
+            rows = tuple(raw_rows)
+        else:
+            problems.append("rows is present but is not a list of objects")
+
+    # The checks below are redundant with the problem list — every path that
+    # leaves a field unset appended a problem — and are written out anyway so
+    # the narrowing is the type checker's conclusion rather than a comment's
+    # promise.
     if (
         problems
         or unit_id is None
-        or source_reference is None
         or dataset is None
         or dry_run is None
+        or (source_reference is None and rows is None)
     ):
         raise PolicyFailure(
             "the persisted import payload cannot be read: "
@@ -344,9 +392,10 @@ def _read_import_command(payload: Mapping[str, Any]) -> ImportCommand:
 
     return ImportCommand(
         unit_id=unit_id,
-        source_reference=source_reference,
         dataset=dataset,
         dry_run=dry_run,
+        source_reference=source_reference,
+        rows=rows,
     )
 
 
@@ -360,39 +409,65 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
     is what changed; the parameters are now as durable as the intent, and this
     handler reads them off the job row it was given.
 
-    What it does, exactly
+    Two shapes, one gate
     ---------------------
-    It validates the command — that the payload is present, that it names a
-    unit, a source reference and a dataset, and that ``dry_run`` is a boolean
-    someone actually set — and, for a **dry run**, completes as ``succeeded``
-    reporting what it validated.
+    A submission names its content one of two mutually exclusive ways —
+    ``source_reference`` or ``rows`` — and this handler treats them
+    differently, honestly, because they are not equally capable:
 
-    **What it does not do, and the terminal event says so in the same words.**
-    It does not read the content named by ``source_reference``. That is not an
-    oversight to be tidied up later; it is the boundary this service is built
-    around. Fetching it means an object-storage client in the worker, and the
-    domain package that owns import validation
-    (:func:`smartmatch_domain.ingest.validate_columns`) is forbidden every
-    module that could reach one — four import-linter contracts, no filesystem,
-    no network, not even ``os``. The adapter that reads the bytes and hands
-    already-parsed rows to the domain is a component that does not exist yet.
-    So a dry run's success here is a statement about the **command**, not about
-    the caller's data, and ``summary`` says exactly that rather than leaving a
-    coordinator to infer that their file validated.
+    * **``source_reference``** names content in object storage, and this
+      release still cannot read it. Fetching it needs an object-storage client
+      in the worker, and the domain package that owns import validation
+      (:func:`smartmatch_domain.ingest.validate_columns`) is forbidden every
+      module that could reach one — four import-linter contracts, no
+      filesystem, no network, not even ``os``. The adapter that would read
+      those bytes and hand already-parsed rows to the domain does not exist
+      yet. A **dry run** still completes as ``succeeded``, reporting that the
+      *command* validated — that it names a unit, a dataset, and a reference —
+      which says nothing about the referenced data, and the summary says so.
+      A **live import** (``dry_run=false``) is refused with
+      ``import_content_unavailable``, exactly as before: there is no adapter to
+      read the content with, so refusing is the only honest outcome, and
+      ``failed_policy`` rather than ``failed_provider`` because a re-drive
+      replays the same payload into the same missing adapter and nothing about
+      the job can change that.
 
-    A live import — ``dry_run=false`` — is refused for the same reason, and is
-    refused rather than quietly downgraded to a dry run: it would have to read
-    that content and then write review items into the quarantine-and-review path
-    (v1.1 §1.5), and there is no ``review_item`` table for them to go in.
-    ``failed_policy`` rather than ``failed_provider`` because nothing about the
-    job can change its outcome — a re-drive replays the same payload into the
-    same missing adapter — and a re-drivable state would send an operator to
-    press a button that cannot work.
+    * **``rows``** carries the content already parsed, in the request body
+      itself. There is no missing adapter here — the data is already in hand —
+      so both a dry run and a live import validate it with
+      :func:`~smartmatch_domain.ingest.validate_columns`. A dry run always
+      completes as ``succeeded`` and never writes anything, reporting whether
+      the data is usable and every finding, which is what makes it a safe
+      default rather than a smaller version of the live path. A live import
+      that is **not usable** — any ``ERROR`` finding — fails closed as
+      ``dataset_not_usable``, with the findings on the event stream, rather
+      than writing partial or garbage review items. A live import that **is**
+      usable writes one ``import_batch`` row and one ``review_item`` per row
+      (v1.1 §1.5, migration ``0008``) through
+      :class:`~smartmatch_persistence.review.ReviewRepository`, and completes
+      as ``succeeded`` naming the batch and how many items it produced.
+
+    No dataset in this codebase declares which columns it requires. The only
+    per-dataset column names anywhere in this repository are a test fixture in
+    ``tests/unit/test_ingest.py`` (illustrative, not a contract), and
+    ``docs/migration/migration-manifest.yaml``'s own F-28 finding records that
+    the specification section that would define one (v1.1 §1.5) has not been
+    read into this repository. Asserting a business schema here — "the
+    'professionals' dataset requires `full_name` and `metro_region`" — would be
+    inventing exactly the kind of contract nobody has written down, so
+    ``validate_columns`` is called with no required or optional columns
+    declared. It still performs every check that does not depend on knowing the
+    schema: an empty dataset is still an error, ragged rows and colliding
+    headers are still reported, and once a dataset's real column contract is
+    decided it belongs in a small per-``dataset`` declaration this handler
+    reads — not fabricated here.
 
     Raises:
         PolicyFailure: ``command_payload_missing`` when the job carries no
             payload, ``invalid_command_payload`` when it carries one that cannot
-            be read, and ``import_content_unavailable`` for a live import.
+            be read, ``import_content_unavailable`` for a live import against a
+            ``source_reference``, and ``dataset_not_usable`` for a live import
+            over ``rows`` that failed validation.
     """
     payload = context.job.payload
     if payload is None:
@@ -418,12 +493,29 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
 
     command = _read_import_command(payload)
 
+    if command.rows is not None:
+        return _execute_inline_rows_import(context, command, command.rows)
+
+    assert command.source_reference is not None  # enforced by _read_import_command
+    return _execute_source_reference_import(context, command, command.source_reference)
+
+
+def _execute_source_reference_import(
+    context: CommandContext, command: ImportCommand, source_reference: str
+) -> HandlerResult:
+    """Handle an ``import.create`` naming a ``source_reference``.
+
+    Unchanged behavior: this release has no adapter that can read
+    object-storage content, so a dry run validates the command's shape only —
+    never the referenced data — and a live import is refused. See
+    :func:`handle_import_create`'s docstring for the full argument.
+    """
     context.emit(
         {
             "type": "progress",
             "detail": (
                 f"import command validated for dataset {command.dataset!r} in unit "
-                f"{command.unit_id}; the content at {command.source_reference!r} "
+                f"{command.unit_id}; the content at {source_reference!r} "
                 "has not been read"
             ),
             "dry_run": command.dry_run,
@@ -433,11 +525,13 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
     if not command.dry_run:
         raise PolicyFailure(
             "a live import cannot be executed: reading the content named by "
-            f"source_reference ({command.source_reference!r}) needs an object-storage "
-            "adapter this worker does not have, and the review items a live import "
-            "produces have no table to go in. The command itself is valid — "
-            "resubmitting it with dry_run=true validates it and reports, which is "
-            "everything this release can honestly do.",
+            f"source_reference ({source_reference!r}) needs an object-storage "
+            "adapter this worker does not have, and this command did not submit "
+            "its rows inline. Submit rows directly in the request body instead — "
+            "POST /v1/units/{unit_id}/imports accepts a `rows` field mutually "
+            "exclusive with source_reference and a live import over it can "
+            "succeed — or resubmit this command with dry_run=true, which "
+            "validates it and reports.",
             reason="import_content_unavailable",
         )
 
@@ -447,7 +541,7 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
             "mode": "dry_run",
             "unit_id": str(command.unit_id),
             "dataset": command.dataset,
-            "source_reference": command.source_reference,
+            "source_reference": source_reference,
             "validated": "command payload",
             "rows_examined": 0,
             "review_items_created": 0,
@@ -459,6 +553,141 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
             ),
         },
     )
+
+
+def _execute_inline_rows_import(
+    context: CommandContext,
+    command: ImportCommand,
+    rows: tuple[Mapping[str, Any], ...],
+) -> HandlerResult:
+    """Handle an ``import.create`` carrying already-parsed ``rows``.
+
+    See :func:`handle_import_create`'s docstring for why ``validate_columns``
+    runs with no required or optional columns declared, why a dry run always
+    validates the data (not merely the command) and never writes, and why an
+    unusable live import fails closed.
+    """
+    quality = validate_columns(command.dataset, rows, required=(), optional=())
+    findings_payload = [_finding_payload(finding) for finding in quality.findings]
+
+    context.emit(
+        {
+            "type": "progress",
+            "detail": (
+                f"validated {quality.row_count} inline row(s) for dataset "
+                f"{command.dataset!r} in unit {command.unit_id}; usable="
+                f"{quality.is_usable}"
+            ),
+            "dry_run": command.dry_run,
+            "usable": quality.is_usable,
+            "findings": findings_payload,
+        }
+    )
+
+    if command.dry_run:
+        # Dry run's contract, honored the same way for both content shapes:
+        # always validate, always report, never write. Unlike the
+        # source_reference path there is no missing adapter here — the rows are
+        # already in hand — so this genuinely validates the caller's data, not
+        # merely the command's shape, and can say so.
+        return HandlerResult(
+            state=JobState.SUCCEEDED,
+            summary={
+                "mode": "dry_run",
+                "unit_id": str(command.unit_id),
+                "dataset": command.dataset,
+                "rows_examined": quality.row_count,
+                "review_items_created": 0,
+                "content_validated": True,
+                "usable": quality.is_usable,
+                "findings": findings_payload,
+                "detail": (
+                    "the submitted rows were validated; dry_run=true means no "
+                    "review items were created"
+                ),
+            },
+        )
+
+    if not quality.is_usable:
+        raise PolicyFailure(
+            "the submitted dataset failed validation and no review items were "
+            "created: " + "; ".join(f"{f.code}: {f.message}" for f in quality.errors),
+            reason="dataset_not_usable",
+        )
+
+    normalized_rows = [_normalize_row(row) for row in rows]
+    batch = _reviews.create_batch_with_items(
+        context.session,
+        tenant_id=context.job.tenant_id,
+        owning_unit_id=context.job.owning_unit_id,
+        job_id=context.job.id,
+        dataset=command.dataset,
+        rows=normalized_rows,
+    )
+
+    return HandlerResult(
+        state=JobState.SUCCEEDED,
+        summary={
+            "mode": "live",
+            "unit_id": str(command.unit_id),
+            "dataset": command.dataset,
+            "import_batch_id": str(batch.id),
+            "rows_examined": quality.row_count,
+            "review_items_created": batch.review_item_count,
+            "content_validated": True,
+            "usable": True,
+            "findings": findings_payload,
+            "detail": (
+                f"{batch.review_item_count} review item(s) were created in import "
+                f"batch {batch.id} and are pending a coordinator's review (v1.1 §1.5)"
+            ),
+        },
+    )
+
+
+def _normalize_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize one row's keys the way ``validate_columns`` compares them.
+
+    ``validate_columns`` normalizes headers internally to decide which columns
+    are present, but hands back only the aggregate
+    :class:`~smartmatch_domain.ingest.DatasetQuality` — never the normalized
+    rows themselves. This calls the same public
+    :func:`~smartmatch_domain.ingest.normalize_header` the domain exports for
+    exactly this comparison, and resolves an in-row collision the same way the
+    domain's own internal indexing does: first occurrence wins. That collision
+    is already reported as a ``colliding_headers`` finding by
+    ``validate_columns`` itself, so a caller who acted on this row without
+    reading that finding learns nothing new from this repeating the same
+    choice — it is consistency with an existing finding, not a second policy.
+    """
+    normalized: dict[str, Any] = {}
+    for key, value in row.items():
+        header = _normalize_header(str(key))
+        if header in normalized:
+            continue
+        normalized[header] = value
+    return normalized
+
+
+def _finding_payload(finding: QualityFinding) -> dict[str, Any]:
+    """Render one :class:`~smartmatch_domain.ingest.QualityFinding` for an event.
+
+    Job events are plain JSON (``job_event.payload``), and a
+    :class:`~smartmatch_domain.ingest.Severity` is an enum, not a JSON value —
+    this is the one place that boundary is crossed for import findings.
+    """
+    return {
+        "severity": finding.severity.value,
+        "code": finding.code,
+        "message": finding.message,
+        "columns": list(finding.columns),
+    }
+
+
+#: Module-level, like every other repository instance in this codebase
+#: (``commands.py``'s ``_jobs``/``_outbox``, ``redrive.py``'s own ``_jobs``):
+#: stateless, so one instance safely serves every call.
+_reviews: Final[ReviewRepository] = ReviewRepository()
 
 
 # Built by a function rather than exposed as a module-level constant, so that no

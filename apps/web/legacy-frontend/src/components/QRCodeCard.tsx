@@ -232,23 +232,35 @@ export function QRCodeCard({
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Scans</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{asset.scan_count}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {asset.scan_count === null ? "Unknown" : asset.scan_count}
+                </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Conversions</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{asset.conversion_count}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {asset.conversion_count === null ? "Unknown" : asset.conversion_count}
+                </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2">
                 <p className="text-xs uppercase tracking-wide text-slate-500">ROI</p>
                 <div className="mt-2 flex items-center gap-3">
                   <div className="h-2 flex-1 rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
-                      style={{ width: `${Math.round(asset.conversion_rate * 100)}%` }}
-                    />
+                    {asset.conversion_rate === null ? (
+                      <div
+                        className="h-2 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
+                        style={{ width: "100%" }}
+                        aria-label="Conversion rate unknown"
+                      />
+                    ) : (
+                      <div
+                        className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
+                        style={{ width: `${Math.round(asset.conversion_rate * 100)}%` }}
+                      />
+                    )}
                   </div>
                   <span className="text-sm font-semibold text-slate-900">
-                    {Math.round(asset.conversion_rate * 100)}%
+                    {asset.conversion_rate === null ? "Unknown" : `${Math.round(asset.conversion_rate * 100)}%`}
                   </span>
                 </div>
               </div>

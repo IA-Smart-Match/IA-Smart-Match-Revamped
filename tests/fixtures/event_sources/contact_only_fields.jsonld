@@ -1,0 +1,13 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Event",
+  "name": "Alice alice@example.edu",
+  "startDate": "2026-09-21T13:00:00-07:00",
+  "url": "mailto:alice@example.edu",
+  "location": "Bldg 9 - call 909-555-0142",
+  "organizer": {
+    "@type": "Person",
+    "name": "alice@example.edu"
+  },
+  "keywords": ["alice@example.edu", "Advising"]
+}

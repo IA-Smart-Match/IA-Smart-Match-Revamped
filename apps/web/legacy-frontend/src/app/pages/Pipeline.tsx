@@ -1,12 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  AlertTriangle,
   Filter,
   TrendingUp,
-  Users,
-  UserPlus,
-  Briefcase,
-  CheckCircle2,
-  CalendarDays,
+  RefreshCw,
 } from "lucide-react";
 import {
   Bar,
@@ -36,13 +33,55 @@ import {
   type PipelineRecord,
   type QrStatsSummary,
 } from "@/lib/api";
-import {
-  MOCK_EVENTS,
-  MOCK_FEEDBACK_STATS,
-  MOCK_PIPELINE,
-  MOCK_QR_STATS,
-} from "@/lib/mockData";
+import { accountableDemoMetric } from "@/lib/metrics";
+import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { AccountableValue } from "@/app/components/provenance";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 const stagePalette = ["#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
 
@@ -137,9 +176,16 @@ export function Pipeline() {
   const [selectedUniversity, setSelectedUniversity] = useState("All Hosts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [qrAvailable, setQrAvailable] = useState(false);
+  const [feedbackAvailable, setFeedbackAvailable] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
 
     Promise.allSettled([
       fetchPipeline(),
@@ -151,12 +197,24 @@ export function Pipeline() {
         if (!active) {
           return;
         }
+        // Pipeline records and events are the core data this page tracks.
+        // If either failed to load, show a failure state instead of
+        // substituting fixture data.
         if (pipelineResult.status !== "fulfilled" || eventResult.status !== "fulfilled") {
-          throw (
+          const reason =
             pipelineResult.status === "rejected"
               ? pipelineResult.reason
-              : (eventResult as PromiseRejectedResult).reason
-          );
+              : (eventResult as PromiseRejectedResult).reason;
+          setPipelineRecords([]);
+          setEvents([]);
+          setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load pipeline data."));
+          return;
         }
 
         let anyMock = false;
@@ -169,18 +227,22 @@ export function Pipeline() {
 
         if (qrResult.status === "fulfilled") {
           setQrStats(qrResult.value.data);
+          setQrAvailable(true);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
-          setQrStats(MOCK_QR_STATS);
-          anyMock = true;
+          // QR analytics are supplementary — keep the core pipeline data and
+          // surface a warning instead of fabricating QR stats.
+          setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
         }
 
         if (feedbackResult.status === "fulfilled") {
           setFeedbackStats(feedbackResult.value.data);
+          setFeedbackAvailable(true);
           if (feedbackResult.value.isMockData) anyMock = true;
         } else {
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          anyMock = true;
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
         }
 
         setIsMockData(anyMock);
@@ -188,29 +250,29 @@ export function Pipeline() {
         const warnings = [];
         if (qrResult.status === "rejected") {
           warnings.push(
-            qrResult.reason instanceof Error
-              ? `QR analytics are unavailable: ${qrResult.reason.message}`
-              : "QR analytics are unavailable.",
+            `QR analytics are unavailable: ${getErrorMessage(qrResult.reason, "Request failed.")}`,
           );
         }
         if (feedbackResult.status === "rejected") {
           warnings.push(
-            feedbackResult.reason instanceof Error
-              ? `Feedback optimizer stats are unavailable: ${feedbackResult.reason.message}`
-              : "Feedback optimizer stats are unavailable.",
+            `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
       })
       .catch((err: unknown) => {
         if (active) {
-          // Backend unreachable — use Layer-3 mock constants
-          setPipelineRecords(MOCK_PIPELINE);
-          setEvents(MOCK_EVENTS);
-          setQrStats(MOCK_QR_STATS);
-          setFeedbackStats(MOCK_FEEDBACK_STATS);
-          setIsMockData(true);
-          setError(err instanceof Error ? err.message : "Failed to load pipeline data.");
+          // Unexpected failure — report it honestly rather than
+          // substituting fixture data.
+          setPipelineRecords([]);
+          setEvents([]);
+          setQrStats(emptyQrStatsSummary());
+          setQrAvailable(false);
+          setFeedbackStats(emptyFeedbackStatsSummary());
+          setFeedbackAvailable(false);
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(err, "Failed to load pipeline data."));
         }
       })
       .finally(() => {
@@ -222,7 +284,7 @@ export function Pipeline() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const breakdown = buildUniversityBreakdown(pipelineRecords, events);
   const hosts = ["All Hosts", ...breakdown.map((row) => row.name)];
@@ -241,6 +303,83 @@ export function Pipeline() {
         });
 
   const stageSummary = summarizeStages(filteredRecords);
+  const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
+  const qrProvenance = qrAvailable ? demoProvenance : ("synthetic" as const);
+  const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+
+  const qrCodesGenerated = accountableDemoMetric(
+    "QR codes generated",
+    "Deterministic referral assets created for speaker–event pairs.",
+    qrAvailable ? qrStats.total_generated : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrTotalScans = accountableDemoMetric(
+    "QR total scans",
+    "Redirect endpoint activity attributed to referral codes.",
+    qrAvailable ? qrStats.total_scans : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrConversions = accountableDemoMetric(
+    "QR conversions",
+    "Membership-interest outcomes attributed to QR referrals.",
+    qrAvailable ? qrStats.total_conversions : null,
+    {
+      provenance: qrProvenance,
+      unknownReason: "QR analytics are unavailable.",
+    },
+  );
+  const qrConversionRate = accountableDemoMetric(
+    "QR scan-to-conversion rate",
+    "Conversions divided by scans across all referral codes.",
+    qrAvailable && qrStats.total_scans !== null && qrStats.total_scans > 0 ? qrStats.conversion_rate : null,
+    {
+      provenance: qrProvenance,
+      unknownReason:
+        qrAvailable && qrStats.total_scans === 0
+          ? "No scans recorded yet."
+          : "QR analytics are unavailable.",
+    },
+  );
+
+  const feedbackRows = accountableDemoMetric(
+    "Feedback rows",
+    "Coordinator accept/decline submissions captured for matcher tuning.",
+    feedbackAvailable ? feedbackStats.total_feedback : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackAcceptance = accountableDemoMetric(
+    "Feedback acceptance rate",
+    "Accepted decisions divided by all coordinator feedback rows.",
+    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
+      ? feedbackStats.acceptance_rate
+      : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason:
+        feedbackAvailable && feedbackStats.total_feedback === 0
+          ? "No coordinator feedback submitted yet."
+          : "Feedback optimizer stats are unavailable.",
+    },
+  );
+  const feedbackPain = accountableDemoMetric(
+    "Matcher pain score",
+    "How much correction pressure the matcher is under from recent feedback.",
+    feedbackAvailable ? feedbackStats.pain_score : null,
+    {
+      provenance: feedbackProvenance,
+      unknownReason: "Feedback optimizer stats are unavailable.",
+    },
+  );
+
   const conversions = stageSummary.slice(0, -1).map((stage, index) => {
     const next = stageSummary[index + 1];
     return {
@@ -250,11 +389,19 @@ export function Pipeline() {
     };
   });
 
-  const stageCount = (stageName: string) =>
-    stageSummary.find((stage) => stage.name === stageName)?.count ?? 0;
-  const qrEntries = [...qrStats.entries].sort(
-    (left, right) => right.scan_count - left.scan_count || right.conversion_count - left.conversion_count,
-  );
+  // Unknown counts (null) sort after known counts of any value, including 0 —
+  // they are not treated as lower measurements, just unranked.
+  const qrEntries = [...qrStats.entries].sort((left, right) => {
+    if (left.scan_count !== right.scan_count) {
+      if (left.scan_count === null) return 1;
+      if (right.scan_count === null) return -1;
+      return right.scan_count - left.scan_count;
+    }
+    if (left.conversion_count === right.conversion_count) return 0;
+    if (left.conversion_count === null) return 1;
+    if (right.conversion_count === null) return -1;
+    return right.conversion_count - left.conversion_count;
+  });
   const qrTopEntries = qrEntries.slice(0, 3);
   const leadAdjustment = feedbackStats.recommended_adjustments[0] ?? null;
 
@@ -295,85 +442,27 @@ export function Pipeline() {
         </div>
       </div>
 
-      {error ? (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 text-center">
-          {error}
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
+      {loadFailed ? (
+        <FailureState
+          title="Pipeline data could not be loaded"
+          message={error ?? "Failed to load pipeline data."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Users className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Matched</p>
-                  <p className="text-2xl font-semibold text-gray-900">{stageCount("Matched")}</p>
-                </div>
-              </div>
-            </div>
+          {error ? (
+            <FailureState
+              title="Some pipeline data is unavailable"
+              message={error}
+              onRetry={() => setReloadToken((token) => token + 1)}
+            />
+          ) : null}
 
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <CalendarDays className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Contacted</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Contacted")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Confirmed</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Confirmed")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <UserPlus className="w-5 h-5 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Attended</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Attended")}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                  <Briefcase className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Member Inquiry</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {stageCount("Member Inquiry")}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          {loading ? (
+            <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
+          ) : (
+            <>
+          <PipelineFunnelTiles reloadToken={reloadToken} />
 
           <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
@@ -384,30 +473,48 @@ export function Pipeline() {
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {qrStats.total_generated > 0 ? "Live referrals" : "Awaiting QR data"}
+                {(qrStats.total_generated ?? 0) > 0 ? "Live referrals" : "Awaiting QR data"}
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Codes generated</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_generated}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrCodesGenerated}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Deterministic referral assets created.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Total scans</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_scans}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrTotalScans}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Tracks the redirect endpoint activity.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Conversions</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{qrStats.total_conversions}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={qrConversions}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Membership-interest outcomes attributed to QR.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Scan-to-conversion</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(qrStats.conversion_rate * 100)}%
+                  <AccountableValue
+                    metric={qrConversionRate}
+                    formatNumber={(value) => `${Math.round(value * 100)}%`}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Rollup efficiency across all referrals.</p>
               </div>
@@ -437,8 +544,12 @@ export function Pipeline() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-gray-900">{entry.scan_count} scans</p>
-                          <p className="text-xs text-gray-500">{entry.conversion_count} conversions</p>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {entry.conversion_count === null ? "Unknown" : entry.conversion_count} conversions
+                          </p>
                         </div>
                       </div>
                     ))
@@ -475,27 +586,38 @@ export function Pipeline() {
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {feedbackStats.total_feedback > 0 ? "Optimizer active" : "Awaiting feedback"}
+                {(feedbackStats.total_feedback ?? 0) > 0 ? "Optimizer active" : "Awaiting feedback"}
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Feedback rows</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">{feedbackStats.total_feedback}</p>
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  <AccountableValue
+                    metric={feedbackRows}
+                    formatNumber={(value) => value.toLocaleString("en-US")}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-gray-600">Coordinator submissions captured so far.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Acceptance rate</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(feedbackStats.acceptance_rate * 100)}%
+                  <AccountableValue
+                    metric={feedbackAcceptance}
+                    formatNumber={(value) => `${Math.round(value * 100)}%`}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Accept vs. decline signal from the new feedback loop.</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Pain score</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
-                  {Math.round(feedbackStats.pain_score)}
+                  <AccountableValue
+                    metric={feedbackPain}
+                    formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
+                  />
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Tracks how much correction pressure the matcher is under.</p>
               </div>
@@ -676,6 +798,8 @@ export function Pipeline() {
               </table>
             </div>
           </div>
+        </>
+      )}
         </>
       )}
     </div>

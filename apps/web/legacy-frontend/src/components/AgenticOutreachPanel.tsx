@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Sparkles, X } from "lucide-react";
+import { openAgenticOutreachWorkflowStream } from "@/lib/api";
 
 export interface AgenticOutreachPanelProps {
   speakerName: string;
@@ -27,7 +28,7 @@ interface AgentState {
   duration_ms?: number;
 }
 
-type WorkflowPhase = "idle" | "streaming" | "approval" | "approved" | "rejected";
+type WorkflowPhase = "idle" | "streaming" | "approval";
 
 const AGENT_ORDER = ["scout", "copywriter", "scheduler", "planner", "pipeline"];
 
@@ -40,34 +41,30 @@ export function AgenticOutreachPanel({
 }: AgenticOutreachPanelProps) {
   const [phase, setPhase] = useState<WorkflowPhase>("idle");
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
-  const [rejectReason, setRejectReason] = useState("");
   const [selectedSlot, setSelectedSlot] = useState<string>("");
+  const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setPhase("streaming");
+    setStreamError(null);
 
     (async () => {
       try {
-        const res = await fetch("/api/outreach/agentic-workflow/stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const reader = await openAgenticOutreachWorkflowStream(
+          {
             speaker_name: speakerName,
             event_name: eventName,
             coordinator_id: coordinatorId,
             event_date: eventDate,
             request_source: "coordinator_portal",
             voice: "school_coordinator",
-          }),
-          signal: ctrl.signal,
-        });
+          },
+          ctrl.signal,
+        );
 
-        if (!res.body) return;
-
-        const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -133,7 +130,10 @@ export function AgenticOutreachPanel({
           }
         }
       } catch (err) {
-        if ((err as Error).name !== "AbortError") {
+        const isAbort = err instanceof Error && err.name === "AbortError";
+        if (!isAbort) {
+          const message = err instanceof Error ? err.message : "The outreach workflow could not be started.";
+          setStreamError(message);
           setPhase("approval");
         }
       }
@@ -172,10 +172,6 @@ export function AgenticOutreachPanel({
                 </span>
               ) : phase === "approval" ? (
                 "Awaiting your approval"
-              ) : phase === "approved" ? (
-                "Outreach sent ✓"
-              ) : phase === "rejected" ? (
-                "Workflow cancelled"
               ) : (
                 "Ready"
               )}
@@ -192,6 +188,14 @@ export function AgenticOutreachPanel({
           </button>
         )}
       </div>
+
+      {/* Stream error banner */}
+      {streamError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{streamError}</span>
+        </div>
+      )}
 
       {/* Agent rows */}
       <div className="space-y-2">
@@ -319,56 +323,10 @@ export function AgenticOutreachPanel({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex gap-3 pt-1">
-            <button
-              onClick={() => setPhase("approved")}
-              className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-            >
-              Approve &amp; Send
-            </button>
-            <button
-              onClick={() => setPhase("rejected")}
-              className="flex-1 rounded-xl border border-border/70 py-2.5 text-sm font-medium text-foreground transition hover:bg-accent"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Approved state */}
-      {phase === "approved" && (
-        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
-          <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
-          <p className="text-sm font-medium text-green-700">
-            Outreach sent ✓ Pipeline updated — Speaker contacted successfully.
+          {/* Send-path notice */}
+          <p className="pt-1 text-xs text-muted-foreground">
+            Draft only. No send path exists — outreach cannot be dispatched from this panel.
           </p>
-        </div>
-      )}
-
-      {/* Rejected state */}
-      {phase === "rejected" && (
-        <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="text-sm font-medium text-foreground">Workflow cancelled.</p>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Reason (optional)
-            </label>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={2}
-              placeholder="e.g. Speaker unavailable for this event"
-              className="w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-border/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
-          >
-            Cancel
-          </button>
         </div>
       )}
     </div>

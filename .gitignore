@@ -70,3 +70,9 @@ apps/web/.vite/
 # findings themselves belong in docs/plans/, in text a reviewer can diff.
 # A binary spreadsheet in git is a file nobody can review a change to.
 *.xlsx
+
+# Codex CLI debris. `codex exec` writes an error.log into the working directory
+# on startup; it carries the account identifier the CLI authenticated with, and
+# it is a transcript of a tool run rather than anything about this project.
+# Ignored rather than deleted-and-forgotten so a future run cannot stage it.
+error.log

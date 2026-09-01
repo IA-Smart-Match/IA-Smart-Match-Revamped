@@ -34,12 +34,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import smartmatch_worker.handlers as handler_module
+import smartmatch_worker.main as worker_main
 from conftest import ensure_owning_unit
 from fastapi.testclient import TestClient
 from smartmatch_domain.jobs import JobState
+from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import JobRepository
 from smartmatch_persistence.outbox import OutboxRepository
 from smartmatch_providers.tasks import FixtureTaskQueue
+from smartmatch_worker.config import WorkerSettings
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.handlers import (
     BudgetFailure,
@@ -58,6 +62,7 @@ from smartmatch_worker.identity import (
     UnconfiguredTaskVerifier,
 )
 from smartmatch_worker.main import create_app
+from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
 
@@ -520,6 +525,157 @@ def test_the_import_command_executes_the_payload_it_was_submitted_with(
     # true claim and a broad false one.
     assert completed["summary"]["content_validated"] is False
     assert completed["summary"]["rows_examined"] == 0
+
+
+def test_injected_session_factory_owns_live_import_writes(
+    engine,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    verifier,
+    monkeypatch,
+):
+    """``create_app(session_factory=X)`` makes X authoritative for handlers too.
+
+    Reading process-global settings from the handler would bypass the
+    application's injection seam and could send business rows to a different
+    database. The sentinel is deliberately installed at that forbidden
+    construction boundary; the observable result still comes from the injected
+    database, where both the job and its review rows must live.
+    """
+    factory_builds = 0
+
+    def reject_global_factory(_database_url: str):
+        nonlocal factory_builds
+        factory_builds += 1
+        raise AssertionError("a handler must not build a process-global session factory")
+
+    monkeypatch.setattr(
+        handler_module,
+        "create_session_factory",
+        reject_global_factory,
+        raising=False,
+    )
+    with engine.begin() as conn:
+        owning_unit_id = ensure_owning_unit(conn, tenant_id)
+    payload = import_payload(
+        unit_id=str(owning_unit_id),
+        source_reference=None,
+        rows=[{"full_name": "A. Rivera"}],
+        dry_run=False,
+    )
+    job_id = accept_command(
+        session_factory,
+        jobs,
+        outbox,
+        tenant_id,
+        "import.create",
+        payload=payload,
+    )
+    dispatch_everything(session_factory)
+    client = TestClient(
+        create_app(
+            session_factory=session_factory,
+            task_verifier=verifier,
+            registry=default_registry(),
+        )
+    )
+
+    response = deliver(client, tenant_id, job_id)
+
+    assert response.status_code == 200
+    assert response.json()["state"] == JobState.SUCCEEDED.value
+    assert factory_builds == 0
+    with engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM import_batch WHERE job_id = :job_id"),
+                {"job_id": job_id},
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM review_item ri "
+                    "JOIN import_batch ib ON ib.id = ri.import_batch_id "
+                    "WHERE ib.job_id = :job_id"
+                ),
+                {"job_id": job_id},
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_worker_lifespan_creates_and_disposes_one_engine(
+    engine,
+    session_factory,
+    jobs,
+    outbox,
+    tenant_id,
+    verifier,
+    monkeypatch,
+):
+    """One worker process owns one pool, including handler business writes.
+
+    The lifespan is the resource owner. A handler-created pool is not merely an
+    avoidable duplicate: it is invisible to lifespan teardown and doubles the
+    instance's configured connection ceiling. Running a real live import while
+    the lifespan is active proves both the count and disposal at the boundary
+    where the leak used to occur.
+    """
+    created_engines = []
+    disposed_engines = []
+
+    def tracked_factory(database_url: str):
+        factory = create_session_factory(database_url)
+        created_engine = factory.kw["bind"]
+        original_dispose = created_engine.dispose
+
+        def tracked_dispose() -> None:
+            disposed_engines.append(created_engine)
+            original_dispose()
+
+        monkeypatch.setattr(created_engine, "dispose", tracked_dispose)
+        created_engines.append(created_engine)
+        return factory
+
+    monkeypatch.setattr(worker_main, "create_session_factory", tracked_factory)
+    monkeypatch.setattr(
+        handler_module,
+        "create_session_factory",
+        tracked_factory,
+        raising=False,
+    )
+    with engine.begin() as conn:
+        owning_unit_id = ensure_owning_unit(conn, tenant_id)
+    job_id = accept_command(
+        session_factory,
+        jobs,
+        outbox,
+        tenant_id,
+        "import.create",
+        payload=import_payload(
+            unit_id=str(owning_unit_id),
+            source_reference=None,
+            rows=[{"full_name": "A. Rivera"}],
+            dry_run=False,
+        ),
+    )
+    dispatch_everything(session_factory)
+    settings = WorkerSettings(
+        database_url=engine.url.render_as_string(hide_password=False),
+    )
+    app = create_app(settings=settings, task_verifier=verifier, registry=default_registry())
+
+    with TestClient(app) as client:
+        response = deliver(client, tenant_id, job_id)
+        assert response.status_code == 200
+        assert response.json()["state"] == JobState.SUCCEEDED.value
+
+    assert len(created_engines) == 1
+    assert disposed_engines == created_engines
 
 
 def test_an_import_with_no_persisted_payload_fails_rather_than_inventing_one(

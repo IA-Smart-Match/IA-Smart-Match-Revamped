@@ -3,16 +3,30 @@
 Ported from Nebiux-Team-IA-West-SmartMatch@bdce024:src/feedback/acceptance.py
 under migration manifest entry MM-005.
 
-Retained: the decline-reason vocabulary, the reason-to-factor mapping, and the
-aggregation that turns accept/decline decisions into a weight-adjustment
-proposal. That is the useful core of the legacy "governed feedback loop".
+Retained: the *shape* of the loop — aggregation of accept/decline decisions into
+counts, and a bounded per-factor weight-delta proposal computed as
+min(MAX_FACTOR_DELTA, PER_REASON_BUMP * count), with both constants carried
+forward unchanged (0.08 and 0.03, from the legacy src/config.py:125-129
+env-var defaults).
+
+Replaced, not retained: the decline-reason vocabulary (finding F-18) and the
+reason-to-factor mapping (finding F-19). The legacy vocabulary was five prose
+strings; ``DeclineReason`` here is a seven-member enum of snake_case codes.
+The legacy contained *two* reason-to-factor maps that contradict each other —
+"Speaker already committed" maps to historical_conversion in acceptance.py and
+to volunteer_fatigue in service.py — so there was no single mapping to carry
+forward. The closed-enum redesign is defensible, but it is a replacement;
+calling it retention hid the decision. See MM-005 ``behavior_replaced``.
 
 Rejected: the Streamlit imports and ``render_*`` functions (presentation in a
 domain module); ``st.session_state`` as authoritative storage; the CSV/JSONL
 append in ``_persist_to_csv`` (business writes to repository-local files are
 prohibited — PostgreSQL is the system of record); and the demo-fixture fallback
-in ``aggregate_feedback``, which returned fabricated aggregates when no real
-feedback existed.
+in ``render_feedback_sidebar`` (src/feedback/acceptance.py:299-311), which
+served fabricated aggregates when ``demo_mode`` was set in session state.
+(Finding F-22: this was previously attributed here to ``aggregate_feedback``.
+It is not there — ``aggregate_feedback`` returns an explicit all-zero dict on
+an empty log and never loads a fixture.)
 
 Architecture v1.1 Appendix B requires this loop stay **shadow-mode**: it
 proposes weight deltas, and a human approves them. Generative AI never chooses

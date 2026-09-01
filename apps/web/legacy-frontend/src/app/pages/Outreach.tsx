@@ -4,8 +4,6 @@ import {
   Download,
   Edit,
   Mail,
-  Plus,
-  Save,
   Send,
   Sparkles,
   User,
@@ -81,7 +79,6 @@ export function Outreach() {
   const [editMode, setEditMode] = useState(false);
   const [subject, setSubject] = useState(templates[0].subject);
   const [body, setBody] = useState(templates[0].body);
-  const [showNewTemplate, setShowNewTemplate] = useState(false);
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [events, setEvents] = useState<CppEvent[]>([]);
   const [selectedSpeaker, setSelectedSpeaker] = useState("");
@@ -141,12 +138,6 @@ export function Outreach() {
     setSubject(template.subject);
     setBody(template.body);
     setEditMode(false);
-  };
-
-  const handleAIEnhance = () => {
-    setBody((current) =>
-      `${current}\n\n[Enhanced note] Add a precise CTA and mention the host's published audience.`,
-    );
   };
 
   const handleGenerateEmail = async () => {
@@ -258,13 +249,6 @@ export function Outreach() {
           <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-gray-900">Templates</h3>
-              <button
-                onClick={() => setShowNewTemplate(true)}
-                className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                aria-label="Add new template"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
             </div>
 
             <div className="space-y-2">
@@ -408,15 +392,6 @@ export function Outreach() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700">Message:</label>
-                {editMode ? (
-                  <button
-                    onClick={handleAIEnhance}
-                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    AI Enhance
-                  </button>
-                ) : null}
               </div>
               {editMode ? (
                 <textarea
@@ -460,10 +435,6 @@ export function Outreach() {
                 <Send className="w-5 h-5" />
                 {busy ? "Working..." : "Generate / Refresh"}
               </button>
-              <button className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium flex items-center gap-2">
-                <Save className="w-5 h-5" />
-                Save Draft
-              </button>
               <button
                 onClick={() => void handleDownloadIcs()}
                 disabled={busy || loading}
@@ -505,49 +476,6 @@ export function Outreach() {
           )}
         </div>
       </div>
-
-      {showNewTemplate ? (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowNewTemplate(false)}
-          onKeyDown={(event) => { if (event.key === "Escape") setShowNewTemplate(false); }}
-          role="presentation"
-        >
-          <div
-            className="bg-white rounded-xl p-8 max-w-2xl w-full"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="new-template-title"
-          >
-            <h2 id="new-template-title" className="text-2xl font-semibold text-gray-900 mb-6">Create New Template</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Template Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Event Confirmation"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setShowNewTemplate(false)}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
-                >
-                  Create Template
-                </button>
-                <button
-                  onClick={() => setShowNewTemplate(false)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
     </div>
   );

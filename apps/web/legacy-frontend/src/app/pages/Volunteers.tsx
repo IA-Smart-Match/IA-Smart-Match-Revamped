@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Briefcase,
   Check,
   Clock,
   MapPin,
   QrCode,
+  RefreshCw,
   Search,
   TrendingUp,
   Users,
@@ -26,14 +28,53 @@ import {
   type QrStatsSummary,
   type Specialist,
 } from "@/lib/api";
-import {
-  MOCK_CALENDAR_ASSIGNMENTS,
-  MOCK_PIPELINE,
-  MOCK_QR_STATS,
-  MOCK_SPECIALISTS,
-} from "@/lib/mockData";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
 import { QRCodeCard } from "@/components/QRCodeCard";
+
+/**
+ * Reads a human message off a thrown value without assuming a specific error
+ * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
+ * and anything else that merely looks like an error.
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object") {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+  if (typeof err === "string" && err.trim().length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+function FailureState({
+  title = "We couldn't load this data",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
+      <p className="mt-1 text-sm text-red-700">{message}</p>
+      {onRetry ? (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function VolunteerSkeleton() {
   return (
@@ -75,7 +116,10 @@ function normalizeName(value: string) {
   return value.trim().toLowerCase();
 }
 
-function percentage(value: number) {
+function percentage(value: number | null) {
+  if (value === null) {
+    return "Unknown";
+  }
   const normalized = value <= 1 ? value * 100 : value;
   return `${Math.round(clamp(normalized, 0, 100))}%`;
 }
@@ -118,11 +162,9 @@ function summarizeVolunteer(
     "Member Inquiry": 0,
   };
 
-  let weightedLoad = 0;
   for (const row of volunteerRows) {
     stageCounts[row.stage as keyof typeof stageCounts] =
       (stageCounts[row.stage as keyof typeof stageCounts] ?? 0) + 1;
-    weightedLoad += stageWeights[row.stage] ?? 1;
   }
 
   const matchedCount = volunteerRows.length;
@@ -132,17 +174,19 @@ function summarizeVolunteer(
   const eventCoverage = new Set(volunteerRows.map((row) => row.event_name)).size;
   const uniqueEvents = new Set(pipeline.map((row) => row.event_name)).size;
   const utilizationRate = uniqueEvents > 0 ? (eventCoverage / uniqueEvents) * 100 : 0;
-  const backendFatigue =
-    recoveryRows.length > 0
-      ? recoveryRows.reduce((sum, row) => sum + row.volunteer_fatigue, 0) / recoveryRows.length
-      : null;
-  const fallbackFatigue = clamp(
-    (12 + weightedLoad * 11 + stageCounts.Attended * 8 + inquiryCount * 10) / 100,
-    0,
-    1,
-  );
-  const volunteerFatigue = backendFatigue ?? fallbackFatigue;
-  const fatigueScore = Math.round(volunteerFatigue * 100);
+  // ADR-0011: fatigue is a real backend measurement or it is unknown — this
+  // page used to paper over "no assignment overlays for this volunteer" with
+  // a formula derived from unrelated pipeline-stage weighting, which
+  // fabricated a plausible-looking number with no evidentiary basis. That
+  // fallback has been removed; a volunteer with no recovery rows now shows
+  // an explicit "Unknown" fatigue state instead.
+  const knownFatigueRows = recoveryRows
+    .map((row) => row.volunteer_fatigue)
+    .filter((value): value is number => value !== null);
+  const volunteerFatigue = knownFatigueRows.length
+    ? knownFatigueRows.reduce((sum, value) => sum + value, 0) / knownFatigueRows.length
+    : null;
+  const fatigueScore = volunteerFatigue === null ? null : Math.round(volunteerFatigue * 100);
   const recovery = recoveryRows[0]
     ? {
         label: recoveryRows[0].recovery_label,
@@ -152,7 +196,9 @@ function summarizeVolunteer(
             ? "bg-amber-50 text-amber-700 border-amber-200"
             : "bg-rose-50 text-rose-700 border-rose-200",
       }
-    : recoveryState(volunteerFatigue);
+    : volunteerFatigue === null
+      ? { label: "Recovery unknown", tone: "bg-slate-50 text-slate-600 border-slate-200" }
+      : recoveryState(volunteerFatigue);
   const avgMatchScore =
     matchedCount > 0
       ? volunteerRows.reduce((sum, row) => sum + Number(row.match_score || 0), 0) / matchedCount
@@ -240,9 +286,14 @@ export function Volunteers() {
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setError(null);
 
     Promise.allSettled([
       fetchSpecialists(),
@@ -254,12 +305,22 @@ export function Volunteers() {
         if (!active) {
           return;
         }
+        // The volunteer roster and pipeline are the core data this page
+        // shows. If either failed to load, report the failure instead of
+        // substituting fixture volunteers.
         if (specialistResult.status !== "fulfilled" || pipelineResult.status !== "fulfilled") {
-          throw (
+          const reason =
             specialistResult.status === "rejected"
               ? specialistResult.reason
-              : (pipelineResult as PromiseRejectedResult).reason
-          );
+              : (pipelineResult as PromiseRejectedResult).reason;
+          setVolunteers([]);
+          setPipeline([]);
+          setAssignments([]);
+          setQrStats(emptyQrStatsSummary());
+          setIsMockData(false);
+          setLoadFailed(true);
+          setError(getErrorMessage(reason, "Failed to load volunteers."));
+          return;
         }
 
         let anyMock = false;
@@ -274,16 +335,16 @@ export function Volunteers() {
           setAssignments(assignmentResult.value.data);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
-          setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-          anyMock = true;
+          // Assignment overlays are supplementary — keep the real roster
+          // and surface a warning instead of fabricating overlay rows.
+          setAssignments([]);
         }
 
         if (qrResult.status === "fulfilled") {
           setQrStats(qrResult.value.data);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
-          setQrStats(MOCK_QR_STATS);
-          anyMock = true;
+          setQrStats(emptyQrStatsSummary());
         }
 
         setIsMockData(anyMock);
@@ -291,16 +352,12 @@ export function Volunteers() {
         const warnings = [];
         if (assignmentResult.status === "rejected") {
           warnings.push(
-            assignmentResult.reason instanceof Error
-              ? `Assignment overlays are unavailable: ${assignmentResult.reason.message}`
-              : "Assignment overlays are unavailable.",
+            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
         if (qrResult.status === "rejected") {
           warnings.push(
-            qrResult.reason instanceof Error
-              ? `QR analytics are unavailable: ${qrResult.reason.message}`
-              : "QR analytics are unavailable.",
+            `QR analytics are unavailable: ${getErrorMessage(qrResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -309,13 +366,15 @@ export function Volunteers() {
         if (!active) {
           return;
         }
-        // Backend unreachable — use Layer-3 mock constants
-        setVolunteers(MOCK_SPECIALISTS);
-        setPipeline(MOCK_PIPELINE);
-        setAssignments(MOCK_CALENDAR_ASSIGNMENTS);
-        setQrStats(MOCK_QR_STATS);
-        setIsMockData(true);
-        setError(err instanceof Error ? err.message : "Failed to load volunteers.");
+        // Unexpected failure — report it honestly rather than substituting
+        // fixture data.
+        setVolunteers([]);
+        setPipeline([]);
+        setAssignments([]);
+        setQrStats(emptyQrStatsSummary());
+        setIsMockData(false);
+        setLoadFailed(true);
+        setError(getErrorMessage(err, "Failed to load volunteers."));
       })
       .finally(() => {
         if (active) {
@@ -326,7 +385,7 @@ export function Volunteers() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadToken]);
 
   const filteredVolunteers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -395,16 +454,32 @@ export function Volunteers() {
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          {error}
-        </div>
+      {!loadFailed && error ? (
+        <FailureState
+          title="Some volunteer data is unavailable"
+          message={error}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {loading
-          ? Array.from({ length: 6 }, (_, index) => <VolunteerSkeleton key={index} />)
-          : filteredVolunteers.map((volunteer) => {
+      {loadFailed ? (
+        <FailureState
+          title="Volunteer profiles could not be loaded"
+          message={error ?? "Failed to load volunteers."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {loading ? (
+            Array.from({ length: 6 }, (_, index) => <VolunteerSkeleton key={index} />)
+          ) : filteredVolunteers.length === 0 ? (
+            <div className="col-span-full rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
+              {searchQuery
+                ? "No volunteers match your search."
+                : "No volunteer profiles are available yet."}
+            </div>
+          ) : (
+            filteredVolunteers.map((volunteer) => {
               const expertise = splitTags(volunteer.expertise_tags);
               const profile = summarizeVolunteer(volunteer, pipeline, assignments);
 
@@ -464,18 +539,26 @@ export function Volunteers() {
                       <span>{percentage(profile.fatigueScore)}</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100">
-                      <div
-                        className={`h-2 rounded-full ${
-                          profile.fatigueScore >= 75
-                            ? "bg-red-500"
-                            : profile.fatigueScore >= 50
-                              ? "bg-amber-500"
-                              : profile.fatigueScore >= 25
-                                ? "bg-blue-500"
-                                : "bg-emerald-500"
-                        }`}
-                        style={{ width: `${profile.fatigueScore}%` }}
-                      />
+                      {profile.fatigueScore === null ? (
+                        <div
+                          className="h-2 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
+                          style={{ width: "100%" }}
+                          aria-label="Fatigue unknown"
+                        />
+                      ) : (
+                        <div
+                          className={`h-2 rounded-full ${
+                            profile.fatigueScore >= 75
+                              ? "bg-red-500"
+                              : profile.fatigueScore >= 50
+                                ? "bg-amber-500"
+                                : profile.fatigueScore >= 25
+                                  ? "bg-blue-500"
+                                  : "bg-emerald-500"
+                          }`}
+                          style={{ width: `${profile.fatigueScore}%` }}
+                        />
+                      )}
                     </div>
                   </div>
 
@@ -522,14 +605,10 @@ export function Volunteers() {
                   </div>
                 </button>
               );
-            })}
-      </div>
-
-      {!loading && !error && filteredVolunteers.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600 shadow-sm">
-          No volunteers matched that search.
+            })
+          )}
         </div>
-      ) : null}
+      )}
 
       {selectedVol && selectedInsights ? (
         <div
@@ -655,7 +734,7 @@ export function Volunteers() {
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Live workload</h3>
                       <p className="text-sm text-slate-600">
-                        Fatigue is derived locally from the current pipeline footprint.
+                        Fatigue is averaged from this volunteer&apos;s calendar assignment overlays.
                       </p>
                     </div>
                     <BarChart3 className="h-5 w-5 text-blue-600" />
@@ -669,18 +748,26 @@ export function Volunteers() {
                       </span>
                     </div>
                     <div className="h-3 rounded-full bg-slate-200">
-                      <div
-                        className={`h-3 rounded-full ${
-                          selectedInsights.fatigueScore >= 75
-                            ? "bg-red-500"
-                            : selectedInsights.fatigueScore >= 50
-                              ? "bg-amber-500"
-                              : selectedInsights.fatigueScore >= 25
-                                ? "bg-blue-500"
-                                : "bg-emerald-500"
-                        }`}
-                        style={{ width: `${selectedInsights.fatigueScore}%` }}
-                      />
+                      {selectedInsights.fatigueScore === null ? (
+                        <div
+                          className="h-3 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
+                          style={{ width: "100%" }}
+                          aria-label="Fatigue unknown"
+                        />
+                      ) : (
+                        <div
+                          className={`h-3 rounded-full ${
+                            selectedInsights.fatigueScore >= 75
+                              ? "bg-red-500"
+                              : selectedInsights.fatigueScore >= 50
+                                ? "bg-amber-500"
+                                : selectedInsights.fatigueScore >= 25
+                                  ? "bg-blue-500"
+                                  : "bg-emerald-500"
+                          }`}
+                          style={{ width: `${selectedInsights.fatigueScore}%` }}
+                        />
+                      )}
                     </div>
                     <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
                       <span>{selectedInsights.recovery.label} capacity</span>
@@ -740,16 +827,24 @@ export function Volunteers() {
                             </div>
                             <div className="text-right text-sm text-slate-600">
                               <p className="font-medium text-slate-900">
-                                {entry.scan_count} scans
+                                {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
                               </p>
-                              <p>{entry.conversion_count} conversions</p>
+                              <p>{entry.conversion_count === null ? "Unknown" : entry.conversion_count} conversions</p>
                             </div>
                           </div>
                           <div className="mt-3 h-2 rounded-full bg-white">
-                            <div
-                              className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
-                              style={{ width: `${Math.round(entry.conversion_rate * 100)}%` }}
-                            />
+                            {entry.conversion_rate === null ? (
+                              <div
+                                className="h-2 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
+                                style={{ width: "100%" }}
+                                aria-label="Conversion rate unknown"
+                              />
+                            ) : (
+                              <div
+                                className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
+                                style={{ width: `${Math.round(entry.conversion_rate * 100)}%` }}
+                              />
+                            )}
                           </div>
                         </div>
                       ))}
