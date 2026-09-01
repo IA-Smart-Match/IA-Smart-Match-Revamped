@@ -25,3 +25,25 @@ The file is still scanned for every other secret shape, and
 """
 regexTarget = "match"
 regexes = ['''re_abcdefghijklmnop123456''']
+
+[[allowlists]]
+description = """
+`docs/plans/perf-baseline-828.md` records the P4 performance baseline. To be
+reproducible it has to show the exact command the measurement was taken with,
+which means showing the dev principal the request authenticated as — once in
+`SMARTMATCH_DEV_PRINCIPALS` and once in the `Authorization: Bearer` header of
+the `curl` line. Two default rules fire on that pair: `generic-api-key` on the
+JSON form and `curl-auth-header` on the header form.
+
+`p4-perf-token` is that principal. It is a key in the `SMARTMATCH_DEV_PRINCIPALS`
+fixture map, honored only when `SMARTMATCH_EDITION=dev` and
+`SMARTMATCH_USE_FIXTURE_PROVIDERS=true`, against a loopback server. No provider
+issued it, it authenticates nothing outside that dev fixture path, and a
+benchmark whose command cannot be re-run is not a baseline.
+
+Scoped to the exact string, matching the allowlist above: the file is still
+scanned for every other secret shape, and both rules still fire everywhere else
+in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''p4-perf-token''']

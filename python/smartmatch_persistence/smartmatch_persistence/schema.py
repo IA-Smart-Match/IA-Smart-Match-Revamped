@@ -591,7 +591,9 @@ review_item = sa.Table(
 spend_ceiling_bucket = sa.Table(
     "spend_ceiling_bucket",
     METADATA,
-    sa.Column("tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), primary_key=True),
+    sa.Column(
+        "tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), primary_key=True
+    ),
     # 'job' | 'tenant_day' | 'tenant_month' — the three ceilings A1's
     # obligation 1 debits atomically, in that fixed order
     # (smartmatch_domain.spend.BUCKET_LOCK_ORDER).
