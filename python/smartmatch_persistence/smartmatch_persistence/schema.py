@@ -55,6 +55,8 @@ __all__ = [
     "resource_grant",
     "review_item",
     "reward_item",
+    "spend_ceiling_bucket",
+    "spend_reservation",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -575,5 +577,101 @@ review_item = sa.Table(
     sa.CheckConstraint(
         "status IN ('pending','accepted','rejected')",
         name="ck_review_item_status",
+    ),
+)
+
+
+# ADR-0015 Amendment A1 (migration 0010). Reserve-before-paid-call monetary
+# spend semantics — the counting-quota rule ADR-0015's own body states is
+# structurally wrong for money, because a dollar paid to a provider is an
+# external side effect no ROLLBACK reaches. Full rationale lives in the
+# migration's module docstring; only what a reader of this mirror needs is
+# repeated here.
+
+spend_ceiling_bucket = sa.Table(
+    "spend_ceiling_bucket",
+    METADATA,
+    sa.Column("tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), primary_key=True),
+    # 'job' | 'tenant_day' | 'tenant_month' — the three ceilings A1's
+    # obligation 1 debits atomically, in that fixed order
+    # (smartmatch_domain.spend.BUCKET_LOCK_ORDER).
+    sa.Column("bucket_type", sa.Text, primary_key=True),
+    # job:<job_id>, tenant-day:<tenant_id>:<date>,
+    # tenant-month:<tenant_id>:<year>-<month> — derived by
+    # smartmatch_domain.spend, never constructed here.
+    sa.Column("bucket_key", sa.Text, primary_key=True),
+    # Fixed at first write for this bucket; never rewritten by a later
+    # reservation against the same key.
+    sa.Column("ceiling", sa.Numeric(12, 4), nullable=False),
+    sa.Column("reserved", sa.Numeric(12, 4), nullable=False, server_default="0"),
+    sa.Column("spent", sa.Numeric(12, 4), nullable=False, server_default="0"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Named because smartmatch_persistence.spend passes this name to
+    # ON CONFLICT DO UPDATE, the same reason pk_rate_limit_counter is named.
+    sa.PrimaryKeyConstraint(
+        "tenant_id", "bucket_type", "bucket_key", name="pk_spend_ceiling_bucket"
+    ),
+    sa.CheckConstraint(
+        "bucket_type IN ('job','tenant_day','tenant_month')",
+        name="ck_spend_ceiling_bucket_type",
+    ),
+    # Mirrors ck_budget_non_negative / ck_budget_ceiling_non_negative
+    # (tenant_budget). Deliberately no "reserved + spent <= ceiling" — A1
+    # requires a genuine overage be recorded, never truncated to fit the
+    # ceiling, so a reconciliation can legitimately push spent past ceiling.
+    sa.CheckConstraint("reserved >= 0 AND spent >= 0", name="ck_spend_ceiling_bucket_non_negative"),
+    sa.CheckConstraint("ceiling >= 0", name="ck_spend_ceiling_bucket_ceiling_non_negative"),
+)
+
+
+spend_reservation = sa.Table(
+    "spend_reservation",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, sa.ForeignKey("tenant.id", ondelete="RESTRICT"), nullable=False),
+    # Deterministic (smartmatch_domain.spend.derive_work_key), globally
+    # unique so a retry or redelivery of the same unit of work finds this row
+    # instead of reserving a second time — mirrors uq_outbox_task_name.
+    sa.Column("work_key", sa.Text, nullable=False),
+    sa.Column("job_bucket_key", sa.Text, nullable=False),
+    sa.Column("tenant_day_bucket_key", sa.Text, nullable=False),
+    sa.Column("tenant_month_bucket_key", sa.Text, nullable=False),
+    # The reserved maximum. NUMERIC(12,4) — never FLOAT (A1).
+    sa.Column("estimate", sa.Numeric(12, 4), nullable=False),
+    # NULL until reconciled, timed out, or swept.
+    sa.Column("actual_cost", sa.Numeric(12, 4), nullable=True),
+    # True when actual_cost is the reserved maximum written by a timeout or
+    # the sweep, not a real reported cost. A1: "an estimated dollar amount
+    # must never be recorded, displayed, or reported as an actual one."
+    sa.Column("actual_is_estimated", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    sa.Column("state", sa.Text, nullable=False, server_default="reserved"),
+    # Present exactly while reserved; cleared on every terminal transition —
+    # the same discipline J17 established for outbox_record.lease_token, which
+    # is likewise nullable. Enforced by the biconditional check below, not by
+    # NOT NULL: a NOT NULL column could never be cleared.
+    sa.Column("lease_token", _UUID, nullable=True),
+    sa.Column("lease_expires_at", _TS, nullable=False),
+    # T-08's dedup marker: at most one review finding is ever emitted for a
+    # given reservation, guarded by "UPDATE ... WHERE review_flagged_at IS
+    # NULL". No discovery_review_item table exists yet in this schema.
+    sa.Column("review_flagged_at", _TS, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Set on any reserved -> {reconciled, expired_spent, released} transition.
+    sa.Column("settled_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="spend_reservation_pkey"),
+    sa.UniqueConstraint("work_key", name="uq_spend_reservation_work_key"),
+    sa.CheckConstraint("estimate >= 0", name="ck_spend_reservation_estimate_non_negative"),
+    sa.CheckConstraint(
+        "actual_cost IS NULL OR actual_cost >= 0",
+        name="ck_spend_reservation_actual_non_negative",
+    ),
+    # Mirrors smartmatch_domain.spend.SpendReservationState.
+    sa.CheckConstraint(
+        "state IN ('reserved','reconciled','expired_spent','released')",
+        name="ck_spend_reservation_state",
+    ),
+    sa.CheckConstraint(
+        "(state = 'reserved') = (lease_token IS NOT NULL)",
+        name="ck_spend_reservation_lease_token_iff_reserved",
     ),
 )
