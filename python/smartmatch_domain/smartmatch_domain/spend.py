@@ -232,6 +232,14 @@ class RefusalReason(StrEnum):
     EXPIRED_NO_RETRY = "expired_no_retry"
     #: Persistence: no reservation row exists for the id presented.
     UNKNOWN_RESERVATION = "unknown_reservation"
+    #: Persistence: the guarded ``INSERT`` into ``spend_reservation`` lost a
+    #: race on ``uq_spend_reservation_work_key`` — two concurrent
+    #: re-reservations after the same ``released`` row computed the same next
+    #: attempt number (``smartmatch_persistence.spend``'s ``released``
+    #: re-reservation scheme) and only one could commit. See that module's
+    #: docstring for the full mechanism; this is expected to be rare, and the
+    #: loser is free to call ``reserve`` again.
+    WORK_KEY_COLLISION = "work_key_collision"
     #: This module: :func:`release_before_dispatch` was called on a reservation
     #: whose lease has already expired. A1: "an expired, unreconciled
     #: reservation is unconditionally treated as spent at its reserved
