@@ -1,0 +1,28 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Event",
+  "@id": "https://example.edu/events/spring-analytics-hackathon-candidate#event",
+  "name": "Spring Analytics Hackathon",
+  "description": "A synthetic weekend build sprint for Bronco data students. Reach zzqcontact@example.invalid with questions.",
+  "url": "https://example.edu/events/spring-analytics-hackathon-candidate",
+  "startDate": "2026-04-15T09:00:00-07:00",
+  "endDate": "2026-04-15T17:00:00-07:00",
+  "eventStatus": "https://schema.org/EventScheduled",
+  "keywords": ["Competitions", "Student Life"],
+  "location": {
+    "@type": "Place",
+    "name": "Engineering Building, Room 101"
+  },
+  "organizer": {
+    "@type": "Person",
+    "name": "ZZQORGANIZER-NAME",
+    "email": "zzqorganizer@example.invalid",
+    "telephone": "+1-555-0100-ZZQ",
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "name": "ZZQCONTACT-NAME",
+      "email": "zzqcontact@example.invalid",
+      "telephone": "+1-555-0100-ZZQ"
+    }
+  }
+}
