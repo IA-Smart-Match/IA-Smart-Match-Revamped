@@ -207,7 +207,7 @@ selects the parser, and a candidate adapter carries structured provenance while
 keeping raw tags quarantined, contacts redacted, unresolved time
 unpublishable, and provenance out of titles.
 
-A provider-neutral model-dispatch interface may land with fake adapters. It
+A provider-neutral model-dispatch interface lands with fake adapters. It
 requires both runtime guardrail approval and the A1 spend receipt. No real
 OpenRouter or Groq call is introduced.
 
@@ -252,9 +252,12 @@ The approved closed opportunity-category vocabulary is:
 - guest lecturer event;
 - school event.
 
-Unknown-category events enter an auditable review queue assigned to the IA West
-Coordinator. The coordinator may map the event to an approved category or
-reject it; the original category and decision provenance remain recorded.
+Unknown-category events produce a `review_required` result assigned to the IA
+West Coordinator. Once P6 persistence is authorized, that result enters the
+durable auditable review queue. The coordinator may map the event to an approved
+category or reject it; the original category and decision provenance remain
+recorded. Before persistence lands, fixtures prove the assignment and decision
+shape without claiming that a durable queue exists.
 
 The eventual canonical flow is:
 
