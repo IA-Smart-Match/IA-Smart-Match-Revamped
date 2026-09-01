@@ -75,6 +75,17 @@ class TestRuleOneAbsoluteHttpsWithHostname:
     def test_scheme_case_is_normalized_and_accepted(self) -> None:
         result = validate_static_url_shape("HTTPS://events.example.edu/spring-fair")
         assert isinstance(result, StaticallyValidHttpsUrl)
+        # A field named `normalized` that returned the raw text would let two
+        # spellings of one URL be persisted or compared as different values.
+        assert result.normalized == "https://events.example.edu/spring-fair"
+
+    def test_host_case_is_normalized_but_path_case_is_preserved(self) -> None:
+        """RFC 3986 §6.2.2.1: scheme and host are case-insensitive; a path is not."""
+        result = validate_static_url_shape("HTTPS://Events.Example.EDU/Spring-Fair")
+        assert isinstance(result, StaticallyValidHttpsUrl)
+        assert result.normalized == "https://events.example.edu/Spring-Fair"
+        assert result.host == "events.example.edu"
+        assert result.path == "/Spring-Fair"
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +147,72 @@ class TestRuleThreeNoQueryOrFragment:
 # ---------------------------------------------------------------------------
 # Rule 4 — IPv4/IPv6 literal hosts rejected; DNS hostname required.
 # ---------------------------------------------------------------------------
+
+
+class TestRuleThreeRejectsEmptyDelimitersToo:
+    """§6.1: query and fragment are "rejected rather than stored or stripped".
+
+    A bare trailing `?` or `#` parses to an empty query/fragment. Accepting it
+    and returning the path without the delimiter is precisely the silent
+    stripping the rule forbids, so the delimiter's presence is what is refused.
+    """
+
+    def test_an_empty_query_delimiter_is_rejected(self) -> None:
+        result = validate_static_url_shape("https://events.example.edu/spring-fair?")
+        assert isinstance(result, StaticUrlShapeRefusal)
+        assert result.reason is StaticUrlShapeRefusalReason.QUERY_PRESENT
+
+    def test_an_empty_fragment_delimiter_is_rejected(self) -> None:
+        result = validate_static_url_shape("https://events.example.edu/spring-fair#")
+        assert isinstance(result, StaticUrlShapeRefusal)
+        assert result.reason is StaticUrlShapeRefusalReason.FRAGMENT_PRESENT
+
+    def test_a_bare_delimiter_on_a_pathless_url_is_rejected(self) -> None:
+        assert isinstance(
+            validate_static_url_shape("https://events.example.edu?"), StaticUrlShapeRefusal
+        )
+        assert isinstance(
+            validate_static_url_shape("https://events.example.edu#"), StaticUrlShapeRefusal
+        )
+
+
+class TestRuleFourRequiresADnsHostname:
+    """§6.1 requires a DNS hostname; "not an IP literal" is a weaker claim.
+
+    Without a syntax check every non-IP string — `bad_host`, `a..b`, `-x-` —
+    is treated as a hostname by default, which is the fail-open reading.
+    """
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "bad_host",  # underscore: legal in DNS records, not in a hostname
+            "a..b",  # empty interior label
+            ".example.edu",  # empty leading label
+            "events.example.edu.",  # trailing dot
+            "-x.example.edu",  # label starts with a hyphen
+            "x-.example.edu",  # label ends with a hyphen
+            "a" * 64 + ".example.edu",  # label longer than 63 characters
+        ],
+    )
+    def test_a_host_that_is_not_a_dns_hostname_is_rejected(self, host: str) -> None:
+        result = validate_static_url_shape(f"https://{host}/spring-fair")
+        assert isinstance(result, StaticUrlShapeRefusal)
+        assert result.reason is StaticUrlShapeRefusalReason.HOST_NOT_DNS_HOSTNAME
+
+    @pytest.mark.parametrize(
+        "host",
+        ["events.example.edu", "e.example.edu", "events-2026.example.edu", "localhost"],
+    )
+    def test_a_valid_dns_hostname_is_accepted(self, host: str) -> None:
+        result = validate_static_url_shape(f"https://{host}/spring-fair")
+        assert isinstance(result, StaticallyValidHttpsUrl)
+        assert result.host == host
+
+    def test_the_refusal_is_syntax_only_and_claims_nothing_about_resolution(self) -> None:
+        """A syntactically valid hostname need not resolve — that is the fetch seam's question."""
+        result = validate_static_url_shape("https://nonexistent-host-zzq.example.edu/x")
+        assert isinstance(result, StaticallyValidHttpsUrl)
 
 
 class TestRuleFourNoIpLiteralHost:

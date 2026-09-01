@@ -52,6 +52,7 @@ references it.
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, TypeAlias
@@ -97,6 +98,11 @@ class StaticUrlShapeRefusalReason(StrEnum):
     FRAGMENT_PRESENT = "fragment_present"
     #: The host is an IPv4 or IPv6 literal rather than a DNS hostname.
     IP_LITERAL_HOST = "ip_literal_host"
+    #: The host is neither an IP literal nor a syntactically valid DNS
+    #: hostname (RFC 1123 labels: letters, digits, and interior hyphens).
+    #: §6.1 requires a DNS hostname, so anything that is not one is refused
+    #: rather than assumed to be one.
+    HOST_NOT_DNS_HOSTNAME = "host_not_dns_hostname"
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +115,15 @@ class StaticallyValidHttpsUrl:
     it must never be treated as such by any caller.
 
     Attributes:
-        normalized: The original candidate text, unchanged. Query, fragment,
-            and userinfo are absent by construction (validation refuses
-            otherwise), so there is nothing to strip.
+        normalized: The candidate text with the scheme and host lowercased —
+            RFC 3986 §6.2.2.1 case normalization, the only transformation
+            applied. The path is left exactly as supplied, because path case
+            is significant. Query, fragment, and userinfo are absent by
+            construction (validation refuses otherwise), so there is nothing
+            to strip. The field is named `normalized` and must therefore
+            actually be normalized: returning the raw text here would let a
+            caller persist or compare two spellings of one URL as though they
+            were different.
         scheme: Always `"https"`.
         host: The lowercase DNS hostname (never an IP literal — validation
             refuses those).
@@ -197,18 +209,30 @@ def validate_static_url_shape(candidate: str) -> StaticUrlShapeResult:
             detail="URL authority contains userinfo (username or password)",
         )
 
-    if parts.query:
+    # The delimiter's presence is what is refused, not merely a non-empty
+    # value after it. §6.1: query strings and fragments are "rejected rather
+    # than stored or stripped" — accepting "https://host/path?" and returning
+    # a path of "/path" would be stripping the delimiter, silently, which is
+    # the one handling the rule names and forbids. `parts.query` is the empty
+    # string in that case, so the raw text is what has to be checked: a
+    # literal "?" in the candidate always opens the query component, and a
+    # literal "#" always opens the fragment.
+    if "?" in text:
         return StaticUrlShapeRefusal(
             candidate=candidate,
             reason=StaticUrlShapeRefusalReason.QUERY_PRESENT,
-            detail="URL contains a query string",
+            detail="URL contains a query string"
+            if parts.query
+            else "URL contains an empty query delimiter '?'",
         )
 
-    if parts.fragment:
+    if "#" in text:
         return StaticUrlShapeRefusal(
             candidate=candidate,
             reason=StaticUrlShapeRefusalReason.FRAGMENT_PRESENT,
-            detail="URL contains a fragment",
+            detail="URL contains a fragment"
+            if parts.fragment
+            else "URL contains an empty fragment delimiter '#'",
         )
 
     if _is_ip_literal(hostname):
@@ -218,12 +242,73 @@ def validate_static_url_shape(candidate: str) -> StaticUrlShapeResult:
             detail=f"host {hostname!r} is an IP literal, not a DNS hostname",
         )
 
+    # §6.1 requires a DNS hostname, and "not an IP literal" is not the same
+    # claim: it leaves every other string — "bad_host", "a..b", "-x-" —
+    # classified as a hostname by default. Rejecting what is not a valid DNS
+    # hostname is the fail-closed reading, and the only one under which the
+    # `host` field means what its name says.
+    if not _is_dns_hostname(hostname):
+        return StaticUrlShapeRefusal(
+            candidate=candidate,
+            reason=StaticUrlShapeRefusalReason.HOST_NOT_DNS_HOSTNAME,
+            detail=f"host {hostname!r} is not a syntactically valid DNS hostname",
+        )
+
     return StaticallyValidHttpsUrl(
-        normalized=text,
+        normalized=_normalize(text, hostname=hostname),
         scheme="https",
         host=hostname,
         path=parts.path or "/",
     )
+
+
+def _normalize(text: str, *, hostname: str) -> str:
+    """Return `text` with the scheme and host lowercased, nothing else changed.
+
+    RFC 3986 §6.2.2.1: scheme and host are case-insensitive and their
+    normalized form is lowercase. The path is deliberately untouched — path
+    case is significant, and this function is not in the business of altering
+    what the source actually pointed at. `urlunsplit` is not used: it would
+    re-encode and re-assemble components, which is a larger transformation
+    than the case normalization claimed here.
+    """
+    scheme_end = text.index(":")
+    remainder = text[scheme_end:]
+    # `hostname` is already lowercase (urlsplit lowercases it), so finding the
+    # host in the remainder requires a case-insensitive search of exactly the
+    # authority span.
+    authority_start = scheme_end + len("://")
+    authority_end = len(text)
+    for delimiter in ("/", "?", "#"):
+        position = text.find(delimiter, authority_start)
+        if position != -1:
+            authority_end = min(authority_end, position)
+    authority = text[authority_start:authority_end]
+    remainder = authority.lower() + text[authority_end:]
+    return "https://" + remainder
+
+
+#: Matches one RFC 1123 hostname label: a letter or digit at each end, with
+#: letters, digits, and hyphens between, and at most 63 characters overall.
+_DNS_LABEL = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def _is_dns_hostname(hostname: str) -> bool:
+    """Return whether `hostname` is a syntactically valid DNS hostname.
+
+    RFC 1123 §2.1 labels, joined by dots, at most 253 characters in total. An
+    empty label is refused, which also refuses a trailing dot, a leading dot,
+    and a doubled dot. Underscores are refused: they are legal in DNS records
+    generally but not in a hostname, and a permissive reading here is what
+    lets a value that is not a hostname pass a check named for hostnames.
+
+    This is syntax only. That a syntactically valid hostname resolves, or
+    resolves to a public destination, is the future fetch seam's question —
+    see the module docstring.
+    """
+    if not hostname or len(hostname) > 253:
+        return False
+    return all(_DNS_LABEL.match(label) for label in hostname.split("."))
 
 
 def _is_ip_literal(hostname: str) -> bool:
