@@ -1,8 +1,50 @@
 # Metrics authorization decision — draft
 
-**Status:** draft for product/security workshop — **does not change code**.  
+**Status:** **RECORDED — GATE INCOMPLETE** (session direction recorded 31
+August 2026; formal policy still requires product and security together).
+This draft still does not ratify a policy and still does not change code —
+see §0 below for what is newly recorded and what remains a workshop question.
 **Classification:** human-decision-required (`remaining-engineering-implementation-plan.md` §5.4).  
 **Current behaviour:** intentionally ungated — documented and tested.
+
+## 0. Session-recorded direction (31 August 2026)
+
+**Session approver:** Danny Tran (`dt110202@gmail.com`) — see
+`docs/decisions/2026-08-31-session-ratification.md`. Formal policy approval
+still requires product **and** security, together; this section records
+direction, not that approval.
+
+The session approved an **aggregate-visibility hierarchy** as direction:
+
+| Actor | Recorded aggregate direction |
+|---|---|
+| Student | Their own class or unit summary. |
+| School coordinator | Their school summary. |
+| IA West Coordinator | Cross-unit portfolio metrics. |
+
+Raw rows stay restricted; this hierarchy is about aggregate access only.
+
+**This hierarchy does not answer any of the four workshop questions in §1
+below**, and specifically does not decide:
+
+- whether a student's scope is the **exact unit** or a **subtree**;
+- whether a school coordinator's "school" is an **exact unit** or a
+  **subtree**;
+- how `admin` is treated;
+- whether a **bare `resource_grant`** (no role) can read aggregates;
+- which **named roles** may read raw rows;
+- any **metric-specific exception** to the hierarchy above.
+
+Engineering must not infer any of those answers from the existing path
+model. **No route, authorizer, policy-matrix, contract, or OpenAPI change is
+authorized by this direction.** Fail-closed raw-row handling governs every
+**new** path. The existing intentionally-ungated route (below, and pinned by
+`INTENTIONALLY_UNGATED_OPERATIONS`) remains an **explicit unresolved
+exception** until policy is ratified and an implementation change is
+authorized — it is **not** an approved policy and **not** a pattern new work
+may copy. When the gate closes, raw-row refusal must use the standard error
+envelope rather than an empty row list, and aggregate/drill-down equality
+remains required for authorized callers.
 
 ## Current state (intentional)
 

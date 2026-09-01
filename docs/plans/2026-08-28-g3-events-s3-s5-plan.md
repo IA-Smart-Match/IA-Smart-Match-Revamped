@@ -4,6 +4,21 @@
 **Executor:** frontier orchestrator agent (high reasoning) delegating fenced task
 cards to subagents. Self-contained; no chat history required.
 
+> **Amended/superseded for scope — 31 August 2026.** This plan's cards are
+> superseded for scope by
+> `docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
+> §7 (slice V3) and recorded in
+> `docs/decisions/2026-08-31-session-ratification.md` §7. **Authorized now:**
+> internal iCal/JSON-LD parsers, committed synthetic fixtures, and the
+> contact-free `ContactFreeEventCandidate` public wrapper only — no runtime
+> caller. **Cards S3–S6 below (persistence, deterministic identity/upsert,
+> vocabulary/review queue, crawl adapter) remain gated on the unsigned
+> P6/R3 stop-gate exactly as this plan already states below, and do not
+> start early.** A later agent may not select a card from this file without
+> first checking the current authorized boundary in the design and the
+> ratification record — this file's continued existence is not permission to
+> run its cards.
+
 ## Standing constraints (restated; permanent)
 
 - No crawler route, crawl worker, crawl UI, or crawl network call before the

@@ -4,6 +4,21 @@
 **Executor:** frontier orchestrator agent (high reasoning) delegating fenced task
 cards to subagents. Self-contained; no chat history required.
 
+> **Amended/superseded for scope — 31 August 2026.** This plan's cards are
+> superseded for scope by
+> `docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
+> §10 (slice V6) and recorded in
+> `docs/decisions/2026-08-31-session-ratification.md` §7. **Authorized now:**
+> the formal D6 working-direction record
+> (`docs/decisions/pilot-decisions.md` §D6) and verification of
+> already-authorized existing-schema/append-only guarantees only. **Cards
+> L1–L4, C1, R3, U1 below (ledger fold, listing, redemption) remain gated on
+> D6/D7/role artifacts exactly as this plan already states below, and do not
+> start early.** No new budget envelope, commitment, reservation,
+> redemption, earning, catalog, route, or UI behavior is authorized. A later
+> agent may not select a card from this file without first checking the
+> current authorized boundary in the design and the ratification record.
+
 ## Standing constraints (restated; permanent)
 
 - Never list an unowned or unfunded item; never weaken `budget_owner_id`,

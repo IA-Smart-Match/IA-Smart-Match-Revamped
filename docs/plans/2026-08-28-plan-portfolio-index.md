@@ -5,6 +5,18 @@
 **Purpose:** execution order, dependency graph, worktree map, and
 shared-resource ownership for plans P1–P9. An orchestrator picks up plans from
 here; each plan file is self-contained for its executor.
+**Ratification status (31 August 2026):** the "Gate" and "Can start" columns
+below describe the *original* plan-level gates. The **authoritative current
+blocker classification and owner** for each plan is
+`docs/decisions/2026-08-31-session-ratification.md`, synchronized with
+`docs/plans/prep/blocked-work-register-830.md` and
+`docs/plans/status-report-830.md`. Session-recorded working directions exist
+for P1, P2, P6 (Stage 0 scope), P7 (D6), P8, and P9 (both gates) — none of
+them passes the gate named below; see the ratification record's per-decision
+matrix for the exact status (RATIFIED — SESSION POLICY / RECORDED — GATE
+INCOMPLETE / EXTERNAL DEPENDENCY / CANNOT CLOSE) and unresolved fields per
+plan. P6, P7, and P9's plan files below carry their own supersession notice
+per `docs/plans/2026-08-31-ratification-and-implementation-report.md`.
 
 ## The portfolio
 

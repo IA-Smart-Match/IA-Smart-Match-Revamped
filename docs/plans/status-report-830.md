@@ -6,6 +6,18 @@
 working tree today, not copied from a prior document. Where a number could
 not be independently confirmed, that is stated rather than assumed.
 **This document decides nothing, signs nothing, and fills no owner field.**
+**Superseded as the current status report by:** the 31 August 2026 session
+ratification. This point-in-time report (dated 2026-08-30) is preserved
+unchanged as historical evidence — none of its verification results or
+findings are edited here. The **current** authoritative blocker
+classification and owner for every P1–P9 item is
+`docs/decisions/2026-08-31-session-ratification.md`, synchronized with
+`docs/plans/2026-08-28-plan-portfolio-index.md` and
+`docs/plans/prep/blocked-work-register-830.md`; the full current picture,
+including what today's session newly recorded, is
+`docs/plans/2026-08-31-ratification-and-implementation-report.md`. Where this
+report's §§2, 5, 6 disagree with the ratification record on status, the
+ratification record governs.
 
 ---
 

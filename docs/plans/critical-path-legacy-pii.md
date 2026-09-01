@@ -8,6 +8,25 @@ this repository**. It currently has **no owner**.
 
 Planning only. No writes to the legacy repository are authorized.
 
+## Ratification status (31 August 2026) — CANNOT CLOSE
+
+Session approver Danny Tran (`dt110202@gmail.com`) recorded this item as
+**CANNOT CLOSE** — see `docs/decisions/2026-08-31-session-ratification.md`
+and `docs/plans/prep/human-decisions-handoff-831.md` §8. **Legacy PII
+remediation owner and outcome remain unnamed and unresolved**; this
+ratification does not name one and does not claim remediation.
+
+**Current disposition recorded for this handoff:** the source repository
+(`BrooklynD23/Nebiux-Team-IA-West-SmartMatch`) is archived and private, and
+the Vercel shutdown of that deployment has been directed by the Development
+Lead (`dt110202@gmail.com`). Access is removed from everyone. This item is
+held as **out of scope for the active delivery path** in *this* repository
+and does **not** block current private-repository engineering — but it
+remains open for D9/licensing/open-source purposes (see `pilot-decisions.md`
+D9), and no work recorded anywhere in this repository is remediation of the
+archived legacy repository or reduces its exposure. The "(b) Current status"
+table below is otherwise unchanged by this note.
+
 ---
 
 ## (a) What this is

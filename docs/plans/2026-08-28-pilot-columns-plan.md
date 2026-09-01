@@ -4,6 +4,23 @@
 **Executor:** frontier orchestrator agent (high reasoning) delegating fenced task
 cards to subagents. Self-contained; no chat history required.
 
+> **Amended/superseded for scope — 31 August 2026.** This plan's cards are
+> superseded for scope by
+> `docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
+> §6 (slice V2) and recorded in
+> `docs/decisions/2026-08-31-session-ratification.md` §7. **Authorized now:**
+> only the four static HTTPS URL-shape validation rules (§6.1 of the
+> design), and only where no persistence, DNS/network call, or contact-data
+> path is opened. Raw URL persistence remains blocked without a separately
+> approved host/path projection. **Gate A (`board_role`) and Gate B
+> (contact-field collection) below remain open exactly as this plan already
+> states, and no branch may run past its own gate.** See
+> `docs/decisions/p9-gate-a-board-role-decision-draft.md` and
+> `docs/decisions/p9-gate-b-contact-fields-worksheet.md` for the recorded
+> working directions, neither of which closes its gate. A later agent may
+> not select a card from this file without first checking the current
+> authorized boundary in the design and the ratification record.
+
 ## Standing constraints (restated)
 
 - No real PII in fixtures or tests — synthetic values only.

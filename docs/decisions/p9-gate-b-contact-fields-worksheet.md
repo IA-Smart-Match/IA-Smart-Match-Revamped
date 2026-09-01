@@ -2,6 +2,13 @@
 
 **Status:** **WORKSHEET — PREPARATION ONLY. This document does not approve
 anything and is not a decision artifact until a human completes and signs it.**
+**Ratification status (31 August 2026):** **RECORDED — GATE INCOMPLETE.**
+Session approver Danny Tran (`dt110202@gmail.com`) recorded a **working
+direction** — see §0.5 below and
+`docs/decisions/2026-08-31-session-ratification.md`. It is preserved as
+recorded direction, **not** as an ingestion branch or implementable behavior:
+the §8 signature and every field it requires remain blank, and the
+Gate B decision matrix in §0 is unchanged by it.
 **Gate:** P9 Gate B (`docs/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates).
 **Prepared:** 2026-08-30, by an agent, from the sources in §7.
 **Deciders required:** Dr. Wang (program owner) **and** a named privacy owner.
@@ -23,6 +30,37 @@ These four fields are the gate. None may be filled by an agent.
   anywhere in the repository today.** See §6.
 - **§0.3 Per-field collect/drop decisions** — _(blank; three fields, §2)_
 - **§0.4 Signature** — _(blank; §8)_
+
+## 0.5 Session-recorded working direction (31 August 2026) — RECORDED — GATE INCOMPLETE
+
+**This section records a direction. It does not fill §0 or §8.**
+
+The session recorded that, for the pilot, the system should collect the
+Public URL, Point(s) of Contact, and contact information (email/phone) when
+available, so the IA West Coordinator can reach out to agents as a follow-up
+when needed. The decision still requires the formal human sign-off recorded
+below in §8; this paragraph is the working choice carried forward for
+review, not a substitute for it.
+
+**Unresolved fields — none of which this record fills:**
+
+- Named privacy owner and the collection purpose (§0.2, §8).
+- Minimization and retention rules (§8).
+- Correction and deletion paths (§8).
+- Named viewer and exporter roles (§8).
+- The per-field collect/drop decisions themselves (§0.3, §2) and the §0.4/§8
+  signature.
+
+**Permitted implementation boundary, restated from the design:** static
+HTTPS URL-shape validation only (the four rules in §V2 of
+`docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`).
+Raw URL persistence remains blocked unless a separately approved host/path
+projection exists. Published contact names, email addresses, and phone
+numbers **may not be collected, persisted, quarantined, copied into a
+finding, sent to a model, exported, or rendered** until Gate B records every
+item listed above with the required signatures. This direction does **not**
+become an ingestion branch or implementable contact-collection behavior by
+being recorded here.
 
 ## 1. Why this gate is worth clearing first
 

@@ -2,6 +2,16 @@
 
 **Status:** **PREPARATION ONLY.** This document approves nothing, ratifies
 nothing, and fills no owner field. **Changes no code.**
+**Ratification status (31 August 2026):** synchronized with
+`docs/decisions/2026-08-31-session-ratification.md` — that record is now the
+authoritative blocker classification (RATIFIED — SESSION POLICY / RECORDED —
+GATE INCOMPLETE / EXTERNAL DEPENDENCY / CANNOT CLOSE) and owner for every
+item below. Session-recorded working directions now exist for several blank
+owners named below (R3 T-07/T-13/T-19/T-23, P1's hierarchy, P6 Stage 0
+scope, P7's D6, P8's category set, P9 Gate A's `board_role` shape, P9 Gate
+B's collect direction) — **none of those directions fills the blank owner
+fields this register tracks.** Read this register's per-item detail
+alongside the ratification record's matrix, not as superseded by it.
 **Baseline:** branch `friday-deliverable-828` at `fc40a06`.
 **Purpose:** for each plan that engineering cannot start, record precisely *what*
 is missing, *who* must supply it, and what it costs to keep waiting — so the

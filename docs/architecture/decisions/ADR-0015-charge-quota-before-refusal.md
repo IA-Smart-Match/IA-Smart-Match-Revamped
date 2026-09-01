@@ -1,17 +1,24 @@
 # ADR-0015 — Charge quota before the route can refuse the request
 
-**Status:** Accepted
+**Status:** Accepted — amended 31 August 2026, see [Amendment A1](#amendment-a1--counting-quota-and-monetary-spend-are-not-the-same-control) below
 **Date:** 25 August 2026
 **Contract:** Architecture v1.1 §3.4 (layer 2), §3.6 (N4), §1.6
 **Backlog:** J16
 **Refines:** ADR-0006, which decides *how* the counter counts. This decides
 *when* it is incremented.
-**Proposed amendment, not yet ratified:** A1 — *Counting quota and monetary
-spend are not the same control*, at the end of this file. Required by
+**Ratified amendment:** A1 — *Counting quota and monetary spend are not the
+same control*, at the end of this file. Required by
 `docs/decisions/g3-crawler-decision.md` §4.1 (signed 2026-08-29). It adds a rule
 for a class of limit this ADR does not currently cover and **changes nothing
-decided above**. The `**Status:**` line stays a bare `Accepted`, with no
-amendment note, until a human ratifies A1.
+decided above**. A1 was ratified as **session policy** on 31 August 2026 by
+the session approver, Danny Tran (`dt110202@gmail.com`) — see
+`docs/decisions/2026-08-31-session-ratification.md`. Ratification makes A1's
+design binding on future work; it does not itself implement anything, and it
+does not ratify the live-provider price assumption A3, production
+credentials, or production ceilings, all of which remain external
+dependencies (see item 2 under *What has to happen before this is in force*,
+in the Amendment A1 section below). No spend ledger, reservation, or paid-call
+boundary exists in the running system as of this ratification.
 
 ## Context
 
@@ -285,29 +292,43 @@ first thing to reach for if the window question above is ever reopened.
 
 # Amendment A1 — Counting quota and monetary spend are not the same control
 
-**Status of this amendment:** **PROPOSED.** Not ratified. Nothing below is in
-force, and no code implements it.
+**Status of this amendment:** **RATIFIED — SESSION POLICY.** Ratified 31
+August 2026. Ratification binds the design below on future implementation
+work; it does not itself implement anything, and nothing below is yet in
+force in the running system. No cost ceiling, reservation ledger, or paid
+call exists in the repository as of this ratification.
 **Date drafted:** 30 August 2026
+**Date ratified:** 31 August 2026
 **Mandated by:** `docs/decisions/g3-crawler-decision.md` §4.1 and §10 row 4,
 decided 2026-08-29 and signed the same day by the G3 owner of record.
-**Approver of this amendment:** ______________________ *(blank — deliberately.
-G3 §4.1 authorizes this amendment to be **written**; it does not ratify its
-text. An agent drafted this. Ratification is a human act, and the field stays
-empty until one performs it.)*
+**Approver of this amendment:** Danny Tran (`dt110202@gmail.com`), session
+approver, 31 August 2026. Recorded in
+`docs/decisions/2026-08-31-session-ratification.md`. This ratifies the design
+**text** below as session policy. It does **not** ratify, confirm, or make
+enforceable: the live-provider price assumption A3 (see *Where the estimate
+comes from*, below — A3 remains unverified against any actual provider),
+production credentials, or production spend ceilings. Those three remain
+**external dependencies**, unchanged by this ratification, per item 2 under
+*What has to happen before this is in force*.
 **Changes no code.** No cost ceiling exists in the repository today, no paid
-call is made from any code path, and nothing is deployed. Everything in this
-amendment is a **requirement on future work** — G3 §4.1 files it as a *new work
-item that must land before cost ceilings are implemented* — and is written in
-that tense throughout. Where a sentence below describes a mechanism, it
-describes one that must be built, not one that runs.
-**Deliberately not recorded in the index's `Amended` column.** The ADR's
-`**Status:**` line above still reads a bare `Accepted`, which is honest: the
-body of the accepted decision has not moved, and an unratified draft must not
-make the index claim it has. When A1 is ratified, the ratifying change is the
-one that updates both the status line and
-`docs/architecture/decisions/README.md`'s row, together, in one commit —
+call is made from any code path, and nothing is deployed. Ratifying the
+design does not change this: everything in this amendment remains a
+**requirement on future work** — G3 §4.1 files it as a *new work item that
+must land before cost ceilings are implemented* — and is written in that
+tense throughout. Where a sentence below describes a mechanism, it describes
+one that must be built, not one that runs. This ratification authorizes only
+a **synthetic-provider** reservation implementation and its verification as
+the next slice (V1 of
+`docs/plans/2026-08-31-ratification-and-implementation-report.md`); no paid
+call, live OpenRouter/Groq credential, or production configuration is
+authorized by it.
+**Recorded in the index's `Amended` column, in this same commit.** The ADR's
+`**Status:**` line above and `docs/architecture/decisions/README.md`'s row are
+updated together, in the commit that lands this ratification —
 `tests/unit/test_adr_index.py::test_an_amended_adr_is_marked_amended_in_the_index`
-ties those two ends and will say so if they are separated.
+ties those two ends and will say so if they are separated. This is the only
+Amendment A1 change this ratification makes; nothing below the line "## What
+ADR-0015 does not cover" is altered by ratification.
 
 ## What ADR-0015 does not cover
 

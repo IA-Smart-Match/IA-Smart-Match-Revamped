@@ -77,12 +77,41 @@ Consequences that follow directly:
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
 | **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
-| **D6** | Rewards budget owner | Tentatively: the **coordinator role** administers reward availability in the product, under the governance rules in D7 below. This assigns an *operational* administrator inside the pilot; it does **not** name a budget holder, and no budget exists. | A named human budget owner. Without one, the rewards catalog is not shippable. |
+| **D6** | Rewards budget owner | Tentatively: the **coordinator role** administers reward availability in the product, under the governance rules in D7 below. This assigns an *operational* administrator inside the pilot; it does **not** name a budget holder, and no budget exists. **31 Aug 2026 session-recorded working direction (RECORDED — GATE INCOMPLETE, see the D6 section below):** Danny Tran named; IA West Coordinator is the intended operational administrator; $5,000 is a placeholder ceiling. | A named human budget owner. Without one, the rewards catalog is not shippable. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
 | **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
-| **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
+| **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
 
 ---
+
+## D6 — session-recorded working direction (31 August 2026)
+
+**Ratification status:** **RECORDED — GATE INCOMPLETE.** Session approver
+Danny Tran (`dt110202@gmail.com`) formally recorded a working direction for
+D6 — see `docs/decisions/2026-08-31-session-ratification.md`. **This is not
+proof of institutional budget ownership, currency, funding, an active
+ceiling, or authority to spend.** D7 remains tentative, exactly as recorded
+below.
+
+The working direction: Danny Tran (`dt110202@gmail.com`) was named in the
+handoff; the **IA West Coordinator** is the intended **operational
+administrator**; and **$5,000** was stated as a **placeholder** ceiling while
+the funding model is confirmed.
+
+**Fields this direction does not resolve** (blocked pending a formal design):
+currency; institutional budget ownership; funded balance; budget lifecycle
+and effective versions; concurrency; release/refund semantics; overlap
+rules; item names, costs, and content; earn policy and calibration N;
+fulfilment commitments; and read/redemption roles.
+
+**Permitted implementation boundary:** the formal D6 record above, and
+verification of already-authorized existing-schema/append-only guarantees
+(e.g. `budget_owner_id NOT NULL`, `test_reward_item_rejects_a_null_budget_owner`)
+only. If a database append-only guard is found absent, that gap is reported
+rather than added under this session. **No new budget envelope, commitment,
+reservation, redemption, earning, catalog, route, or UI behavior is
+authorized by this record.** The $5,000 placeholder and the tentative D7
+values below are not promoted to ratified figures.
 
 ## D7 — points and rewards (tentative)
 
