@@ -3,10 +3,14 @@
 ``smartmatch_domain.spend`` is the pure state machine; this module is the
 guarded database half A1 requires: *"reserve the maximum estimated cost
 atomically before the paid call, then reconcile the reservation to the actual
-cost after it."* :class:`SpendReservationService` implements the first half —
-the reservation. Reconciliation, timeout, release, the sweep, and review
-escalation are separate, later work items; this module does not touch any of
-them.
+cost after it."* :class:`SpendReservationService` now implements both halves:
+:meth:`~SpendReservationService.reserve` takes the reservation, and
+:meth:`~SpendReservationService.reconcile`,
+:meth:`~SpendReservationService.expire_on_timeout`, and
+:meth:`~SpendReservationService.release_before_dispatch` settle it — see
+*Settling a reservation* below. The sweep's own path
+(:func:`~smartmatch_domain.spend.expire_abandoned`) is a separate, later work
+item that belongs in a sibling sweeper module, not this one.
 
 ## Three ceilings, one debit, one guarded write each
 
@@ -118,14 +122,61 @@ mistaken for a benign, self-resolving race.
 module writes or compares is a :class:`~decimal.Decimal`; none is ever coerced
 through :class:`float`, which cannot represent a currency amount exactly.
 
+## Settling a reservation: reconcile, timeout, release
+
+:meth:`~SpendReservationService.reconcile`,
+:meth:`~SpendReservationService.expire_on_timeout`, and
+:meth:`~SpendReservationService.release_before_dispatch` share one shape:
+load the row, build a :class:`~smartmatch_domain.spend.ReservationSnapshot`
+from it (:func:`_snapshot_from_row` is the one place that mapping is
+written, so all three build it identically), hand the snapshot to the
+matching *pure* function in ``smartmatch_domain.spend`` for the decision, and
+only then write. A refusal or an idempotent no-op
+(:class:`~smartmatch_domain.spend.AlreadyReconciledOutcome`) the domain layer
+already computed is returned straight back — nothing here re-derives or
+second-guesses that decision.
+
+The write is Global Constraint 2's single guarded statement: ``UPDATE
+spend_reservation SET state = :target, ... WHERE id = :id AND state =
+'reserved' RETURNING id``. Zero rows back means the row stopped being
+``reserved`` between this method's read and its write — another settle call,
+or the sweep, won first — and :meth:`SpendReservationService._settle` reports
+that as a lost race
+(:attr:`~smartmatch_domain.spend.RefusalReason.ALREADY_TERMINAL`), never an
+exception; the decision computed from the now-stale read is discarded rather
+than written. A won race credits all three buckets **named on the row
+itself** — ``job_bucket_key``, ``tenant_day_bucket_key``,
+``tenant_month_bucket_key`` — never re-derived from
+``smartmatch_domain.spend.job_bucket_key`` et al. at settle time, because a
+bucket's own definition could have changed since the reservation debited it.
+When the outcome carries a :class:`~smartmatch_domain.spend.ReviewFinding`,
+the row is flagged for review too, all inside the one transaction
+:meth:`SpendReservationService._settle` commits once, at the end.
+
+:func:`_bucket_deltas_for_settle` is where the two rules A1 is strictest
+about live, both provable without a database:
+
+* **An overage posts in full.** :meth:`~SpendReservationService.reconcile`'s
+  ``spent`` delta is the outcome's real ``actual_cost``, even when it is
+  larger than ``estimate`` — never ``min(actual_cost, estimate)`` and never
+  the estimate. ``spend_ceiling_bucket`` carries no CHECK bounding
+  ``reserved + spent <= ceiling`` (migration ``0010``'s own docstring)
+  precisely so this write is never refused.
+* **A release moves only ``reserved``.**
+  :meth:`~SpendReservationService.release_before_dispatch` never moves
+  ``spent`` — contrast :meth:`~SpendReservationService.expire_on_timeout`,
+  whose ``spent`` delta is the full estimate, the same conservative figure
+  the sweep's own path would record.
+
 ## What this module does not do
 
-It never records or reports an estimate as an actual cost — that distinction
-belongs to reconciliation, not reservation, and this module writes no
-``actual_cost`` at all. It never releases a reservation itself, and it never
-sweeps or expires one; A1's *"the sweep never releases, without exception"*
-is a rule this module cannot violate simply by never implementing a release or
-sweep path.
+It never runs the sweep's own path
+(:func:`~smartmatch_domain.spend.expire_abandoned`), which reads an
+:class:`~smartmatch_domain.spend.AbandonedReservationSnapshot` — a type with
+no ``lease_token`` at all — from a query this module does not build. The
+sweeper is a separate, later work item (a sibling module, not this one),
+consistent with A1's *"the sweep never releases, without exception"*, which
+this module cannot violate simply by never running that sweep.
 """
 
 from __future__ import annotations
@@ -139,9 +190,15 @@ from decimal import Decimal
 import sqlalchemy as sa
 from smartmatch_domain.spend import (
     BUCKET_LOCK_ORDER,
+    AlreadyReconciledOutcome,
     BucketType,
+    ExpiredOutcome,
+    ReconciledOutcome,
     RefusalReason,
     Refused,
+    ReleasedOutcome,
+    ReservationSnapshot,
+    ReviewFinding,
     SpendReservationReceipt,
     SpendReservationState,
     derive_work_key,
@@ -149,6 +206,9 @@ from smartmatch_domain.spend import (
     tenant_day_bucket_key,
     tenant_month_bucket_key,
 )
+from smartmatch_domain.spend import expire_on_timeout as domain_expire_on_timeout
+from smartmatch_domain.spend import reconcile as domain_reconcile
+from smartmatch_domain.spend import release_before_dispatch as domain_release_before_dispatch
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -344,6 +404,64 @@ def _build_debit_statement(
     )
 
 
+def _snapshot_from_row(row: sa.Row[tuple[object, ...]]) -> ReservationSnapshot:
+    """Build a :class:`~smartmatch_domain.spend.ReservationSnapshot` from a row.
+
+    The one place a ``spend_reservation`` row is translated into the pure
+    domain layer's input type, so every settle path
+    (:meth:`SpendReservationService.reconcile`,
+    :meth:`SpendReservationService.expire_on_timeout`,
+    :meth:`SpendReservationService.release_before_dispatch`) builds its
+    snapshot identically rather than each hand-rolling a mapping that could
+    drift from the others. Pure — no database access — so it is
+    unit-testable against a fake row without PostgreSQL.
+    """
+    return ReservationSnapshot(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        work_key=row.work_key,
+        state=SpendReservationState(row.state),
+        estimate=row.estimate,
+        actual_cost=row.actual_cost,
+        lease_token=row.lease_token,
+        lease_expires_at=row.lease_expires_at,
+    )
+
+
+def _bucket_deltas_for_settle(
+    outcome: ReconciledOutcome | ExpiredOutcome | ReleasedOutcome, *, estimate: Decimal
+) -> tuple[Decimal, Decimal]:
+    """Return the ``(reserved_delta, spent_delta)`` one settle outcome applies.
+
+    ``reserved_delta`` is always ``-estimate``: every settle path returns the
+    reservation's estimate to the bucket it came from, whichever terminal
+    state it lands in. ``spent_delta`` is where the two rules A1 is
+    strictest about live — see the module docstring's *Settling a
+    reservation* section:
+
+    * :class:`~smartmatch_domain.spend.ReconciledOutcome` posts the *real*
+      ``actual_cost`` in full — never clamped to ``estimate`` — so a genuine
+      overage is free to push a bucket's ``spent`` past its ``ceiling``,
+      which is exactly what migration ``0010`` leaves no CHECK constraint to
+      prevent.
+    * :class:`~smartmatch_domain.spend.ReleasedOutcome` moves no ``spent`` at
+      all — the call this reservation covered never happened.
+    * :class:`~smartmatch_domain.spend.ExpiredOutcome` (the in-worker-timeout
+      path this module drives; the sweep's own path is a separate module)
+      posts the full ``estimate`` as spent, the same conservative figure the
+      sweep would record.
+
+    Pure — no database access — so this is unit-testable without PostgreSQL.
+    """
+    if isinstance(outcome, ReconciledOutcome):
+        return -estimate, outcome.actual_cost
+    if isinstance(outcome, ExpiredOutcome):
+        return -estimate, outcome.spent_amount
+    if isinstance(outcome, ReleasedOutcome):
+        return -estimate, Decimal("0")
+    raise TypeError(f"unhandled settle outcome type {type(outcome).__name__}")  # pragma: no cover
+
+
 class SpendReservationService:
     """Reserves monetary spend against the three ADR-0015 A1 ceilings.
 
@@ -420,6 +538,165 @@ class SpendReservationService:
             tenant_day_key=tenant_day_key,
             tenant_month_key=tenant_month_key,
         )
+
+    def reconcile(
+        self, receipt: SpendReservationReceipt, *, actual_cost: Decimal, now: datetime
+    ) -> ReconciledOutcome | AlreadyReconciledOutcome | Refused:
+        """Settle ``receipt``'s reservation to its real ``actual_cost``.
+
+        Loads the row, builds a :class:`~smartmatch_domain.spend.
+        ReservationSnapshot`, and hands it to
+        :func:`~smartmatch_domain.spend.reconcile` for the decision — see the
+        module docstring's *Settling a reservation* section. A refusal or an
+        :class:`~smartmatch_domain.spend.AlreadyReconciledOutcome` (this
+        reservation was already settled; Global Constraint 9's idempotence)
+        is returned as-is, with no write. Otherwise commits the guarded
+        ``reserved -> reconciled`` transition, credits all three buckets by
+        ``reserved -= estimate, spent += actual_cost`` — the overage posting
+        in full, never truncated (A1) — and flags the row for review when the
+        outcome carries a :class:`~smartmatch_domain.spend.ReviewFinding`.
+
+        Returns:
+            :attr:`~smartmatch_domain.spend.RefusalReason.
+            UNKNOWN_RESERVATION` if no row matches ``receipt.reservation_id``;
+            :attr:`~smartmatch_domain.spend.RefusalReason.ALREADY_TERMINAL`
+            if the guarded write loses a race that occurred after this
+            method's read (another settle, or the sweep, won first).
+        """
+        row = self._load_reservation(receipt.reservation_id)
+        if row is None:
+            return Refused(
+                RefusalReason.UNKNOWN_RESERVATION,
+                f"no spend reservation exists with id {receipt.reservation_id}",
+            )
+
+        outcome = domain_reconcile(_snapshot_from_row(row), actual_cost=actual_cost, now=now)
+        if isinstance(outcome, (Refused, AlreadyReconciledOutcome)):
+            return outcome
+
+        reserved_delta, spent_delta = _bucket_deltas_for_settle(outcome, estimate=row.estimate)
+        won = self._settle(
+            row,
+            target_state=SpendReservationState.RECONCILED,
+            now=now,
+            actual_cost=outcome.actual_cost,
+            actual_is_estimated=False,
+            reserved_delta=reserved_delta,
+            spent_delta=spent_delta,
+            review_finding=outcome.review_finding,
+        )
+        if not won:
+            return Refused(
+                RefusalReason.ALREADY_TERMINAL,
+                f"reservation {row.id} was settled by a concurrent caller before this "
+                "reconcile's guarded update could commit",
+            )
+        return outcome
+
+    def expire_on_timeout(
+        self, receipt: SpendReservationReceipt, *, now: datetime
+    ) -> ExpiredOutcome | Refused:
+        """Reconcile an in-worker timeout to the reserved maximum, marked estimated.
+
+        See :func:`~smartmatch_domain.spend.expire_on_timeout` for the
+        decision (never an actual cost; ``actual_is_estimated=True``) and the
+        module docstring's *Settling a reservation* section for the write
+        shape. Credits ``reserved -= estimate, spent += estimate`` on all
+        three buckets — the same figure :func:`_bucket_deltas_for_settle`
+        would compute for the sweep's own conservative reclaim — and flags
+        the row for review (this outcome always carries a
+        :class:`~smartmatch_domain.spend.ReviewFinding`).
+
+        Returns:
+            :attr:`~smartmatch_domain.spend.RefusalReason.
+            UNKNOWN_RESERVATION` if no row matches ``receipt.reservation_id``;
+            :attr:`~smartmatch_domain.spend.RefusalReason.ALREADY_TERMINAL`
+            if the guarded write loses a race that occurred after this
+            method's read.
+        """
+        row = self._load_reservation(receipt.reservation_id)
+        if row is None:
+            return Refused(
+                RefusalReason.UNKNOWN_RESERVATION,
+                f"no spend reservation exists with id {receipt.reservation_id}",
+            )
+
+        outcome = domain_expire_on_timeout(_snapshot_from_row(row), receipt, now=now)
+        if isinstance(outcome, Refused):
+            return outcome
+
+        reserved_delta, spent_delta = _bucket_deltas_for_settle(outcome, estimate=row.estimate)
+        won = self._settle(
+            row,
+            target_state=SpendReservationState.EXPIRED_SPENT,
+            now=now,
+            actual_cost=outcome.spent_amount,
+            actual_is_estimated=outcome.is_estimated,
+            reserved_delta=reserved_delta,
+            spent_delta=spent_delta,
+            review_finding=outcome.review_finding,
+        )
+        if not won:
+            return Refused(
+                RefusalReason.ALREADY_TERMINAL,
+                f"reservation {row.id} was settled by a concurrent caller before this "
+                "timeout's guarded update could commit",
+            )
+        return outcome
+
+    def release_before_dispatch(
+        self, receipt: SpendReservationReceipt, *, reason: str, now: datetime
+    ) -> ReleasedOutcome | Refused:
+        """Release ``receipt``'s reservation before its own outbound dispatch.
+
+        See :func:`~smartmatch_domain.spend.release_before_dispatch` for the
+        decision — the *only* function in ``smartmatch_domain.spend`` that
+        can produce a :class:`~smartmatch_domain.spend.ReleasedOutcome`,
+        legal only while the lease is still live and only for the receipt
+        that took the reservation. Credits ``reserved -= estimate`` on all
+        three buckets with **no** ``spent`` movement — A1's *"a release moves
+        only reserved"* rule :func:`_bucket_deltas_for_settle` encodes. Never
+        produces a :class:`~smartmatch_domain.spend.ReviewFinding`; nothing
+        is flagged.
+
+        Returns:
+            :attr:`~smartmatch_domain.spend.RefusalReason.
+            UNKNOWN_RESERVATION` if no row matches ``receipt.reservation_id``;
+            :attr:`~smartmatch_domain.spend.RefusalReason.ALREADY_TERMINAL`
+            if the guarded write loses a race that occurred after this
+            method's read.
+        """
+        row = self._load_reservation(receipt.reservation_id)
+        if row is None:
+            return Refused(
+                RefusalReason.UNKNOWN_RESERVATION,
+                f"no spend reservation exists with id {receipt.reservation_id}",
+            )
+
+        outcome = domain_release_before_dispatch(
+            _snapshot_from_row(row), receipt, reason=reason, now=now
+        )
+        if isinstance(outcome, Refused):
+            return outcome
+
+        reserved_delta, spent_delta = _bucket_deltas_for_settle(outcome, estimate=row.estimate)
+        won = self._settle(
+            row,
+            target_state=SpendReservationState.RELEASED,
+            now=now,
+            actual_cost=None,
+            actual_is_estimated=False,
+            reserved_delta=reserved_delta,
+            spent_delta=spent_delta,
+            review_finding=None,
+        )
+        if not won:
+            return Refused(
+                RefusalReason.ALREADY_TERMINAL,
+                f"reservation {row.id} was settled by a concurrent caller before this "
+                "release's guarded update could commit",
+            )
+        return outcome
 
     def _resolve_work_key(
         self, base_key: str
@@ -597,5 +874,155 @@ class SpendReservationService:
             bucket_key=bucket_key,
             ceiling=ceiling,
             estimate=estimate,
+        )
+        return self._session.execute(statement).one_or_none() is not None
+
+    def _load_reservation(self, reservation_id: uuid.UUID) -> sa.Row[tuple[object, ...]] | None:
+        """Read one ``spend_reservation`` row by id, or ``None``.
+
+        Every column a settle path's snapshot (:func:`_snapshot_from_row`) or
+        bucket credit (:meth:`_credit_bucket`) needs is selected here, so
+        those never issue their own follow-up read.
+        """
+        return self._session.execute(
+            sa.select(
+                schema.spend_reservation.c.id,
+                schema.spend_reservation.c.tenant_id,
+                schema.spend_reservation.c.work_key,
+                schema.spend_reservation.c.job_bucket_key,
+                schema.spend_reservation.c.tenant_day_bucket_key,
+                schema.spend_reservation.c.tenant_month_bucket_key,
+                schema.spend_reservation.c.state,
+                schema.spend_reservation.c.estimate,
+                schema.spend_reservation.c.actual_cost,
+                schema.spend_reservation.c.lease_token,
+                schema.spend_reservation.c.lease_expires_at,
+            ).where(schema.spend_reservation.c.id == reservation_id)
+        ).one_or_none()
+
+    def _settle(
+        self,
+        row: sa.Row[tuple[object, ...]],
+        *,
+        target_state: SpendReservationState,
+        now: datetime,
+        actual_cost: Decimal | None,
+        actual_is_estimated: bool,
+        reserved_delta: Decimal,
+        spent_delta: Decimal,
+        review_finding: ReviewFinding | None,
+    ) -> bool:
+        """Commit one ``reserved -> target_state`` settle, or lose the race.
+
+        Global Constraint 2's single guarded statement:
+        ``UPDATE ... WHERE id = :id AND state = 'reserved' RETURNING id``.
+        Rolls back and returns ``False`` without writing anything else when
+        that update matches no row — the row stopped being ``reserved``
+        between the caller's read and this write, so the decision computed
+        from that read is stale and must not be applied. On success, credits
+        all three buckets **named on the row** (never re-derived) by
+        ``(reserved_delta, spent_delta)`` in :data:`BUCKET_LOCK_ORDER`, flags
+        the row for review when ``review_finding`` is given, and commits the
+        whole transaction once. A bucket found missing mid-loop is a
+        separate, unrecoverable failure — see :meth:`_credit_bucket` — that
+        rolls back and raises rather than returning ``False``.
+        """
+        statement = (
+            sa.update(schema.spend_reservation)
+            .where(
+                schema.spend_reservation.c.id == row.id,
+                schema.spend_reservation.c.state == SpendReservationState.RESERVED.value,
+            )
+            .values(
+                state=target_state.value,
+                actual_cost=actual_cost,
+                actual_is_estimated=actual_is_estimated,
+                settled_at=now,
+                lease_token=None,
+            )
+            .returning(schema.spend_reservation.c.id)
+        )
+        if self._session.execute(statement).one_or_none() is None:
+            self._session.rollback()
+            return False
+
+        bucket_keys = {
+            BucketType.JOB: row.job_bucket_key,
+            BucketType.TENANT_DAY: row.tenant_day_bucket_key,
+            BucketType.TENANT_MONTH: row.tenant_month_bucket_key,
+        }
+        for bucket_type in BUCKET_LOCK_ORDER:
+            self._credit_bucket(
+                tenant_id=row.tenant_id,
+                bucket_type=bucket_type,
+                bucket_key=bucket_keys[bucket_type],
+                reserved_delta=reserved_delta,
+                spent_delta=spent_delta,
+            )
+
+        if review_finding is not None:
+            self._flag_for_review(review_finding, now=now)
+
+        self._session.commit()
+        return True
+
+    def _credit_bucket(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        bucket_type: BucketType,
+        bucket_key: str,
+        reserved_delta: Decimal,
+        spent_delta: Decimal,
+    ) -> None:
+        """Apply one bucket's unconditional settle credit.
+
+        Unlike :meth:`_debit_bucket`, this is not guarded by a ceiling
+        comparison — a settle never refuses on a bucket's account, per A1's
+        overage rule (module docstring). The row is expected to already
+        exist: :meth:`SpendReservationService.reserve` upserts it before any
+        reservation row can name it, so a missing row here means that
+        invariant was violated, not a legitimate outcome — raised as a
+        :class:`RuntimeError` after rolling back, mirroring
+        :meth:`_apply_redelivery_rule`'s handling of a violated database
+        invariant.
+        """
+        bucket = schema.spend_ceiling_bucket
+        statement = (
+            sa.update(bucket)
+            .where(
+                bucket.c.tenant_id == tenant_id,
+                bucket.c.bucket_type == bucket_type.value,
+                bucket.c.bucket_key == bucket_key,
+            )
+            .values(reserved=bucket.c.reserved + reserved_delta, spent=bucket.c.spent + spent_delta)
+            .returning(bucket.c.reserved)
+        )
+        if self._session.execute(statement).one_or_none() is None:
+            self._session.rollback()
+            raise RuntimeError(
+                f"bucket {bucket_type.value}:{bucket_key!r} for tenant {tenant_id} does not "
+                "exist; every bucket a reservation debited must still exist at settle time"
+            )
+
+    def _flag_for_review(self, finding: ReviewFinding, *, now: datetime) -> bool:
+        """Guarded ``UPDATE ... WHERE review_flagged_at IS NULL``.
+
+        Global Constraint 10: a review finding is emitted at most once per
+        reservation. Returns whether *this* call is the one that flagged it
+        — ``False`` means an earlier call already did, which is not an error;
+        the caller (:meth:`_settle`) does not branch on the return value, but
+        a future caller outside a settle transaction may need to know
+        whether it was the one that raised the finding. Does not commit; the
+        caller commits as part of its own transaction.
+        """
+        statement = (
+            sa.update(schema.spend_reservation)
+            .where(
+                schema.spend_reservation.c.id == finding.reservation_id,
+                schema.spend_reservation.c.review_flagged_at.is_(None),
+            )
+            .values(review_flagged_at=now)
+            .returning(schema.spend_reservation.c.id)
         )
         return self._session.execute(statement).one_or_none() is not None
