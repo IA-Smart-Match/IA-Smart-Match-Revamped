@@ -43,6 +43,7 @@ The four required properties under test:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,7 @@ EXPECTED_CANDIDATE_FIELDS = frozenset(
     {
         "title",
         "event_time",
-        "source_uid",
+        "source_uid_digest",
         "source_url",
         "location",
         "description",
@@ -231,6 +232,15 @@ class TestNoSentinelCrossesTheWrapper:
         assert candidate.description is not None
         assert "[redacted]" in candidate.description
 
+    def test_ical_candidate_digests_rather_than_carries_the_source_uid(self) -> None:
+        """The fixture's UID is address-shaped; the digest is what crosses."""
+        (candidate,) = _ical_candidates()
+        raw_uid = "synthetic-candidate-0001@example.edu"
+        assert candidate.source_uid_digest == hashlib.sha256(raw_uid.encode()).hexdigest()
+        assert candidate.source_uid_digest is not None
+        assert raw_uid not in candidate.source_uid_digest
+        assert "@" not in candidate.source_uid_digest
+
     def test_jsonld_candidate_still_carries_the_expected_safe_content(self) -> None:
         (candidate,) = _jsonld_candidates()
         assert candidate.title == "Spring Analytics Hackathon"
@@ -238,6 +248,63 @@ class TestNoSentinelCrossesTheWrapper:
         assert candidate.raw_tags == ("Competitions", "Student Life")
         assert candidate.description is not None
         assert "[contact removed]" in candidate.description
+
+
+class TestSourceUidNeverCrossesVerbatim:
+    """Property: an address-shaped UID cannot reach the public seam.
+
+    RFC 5545 suggests a domain-qualified UID and every committed fixture has
+    one, so a verbatim `source_uid` would carry an email address through a
+    seam whose whole claim is that it carries none. The digest is what makes
+    that impossible rather than merely unlikely.
+    """
+
+    #: An email sentinel placed where a source's UID goes, not in prose.
+    UID_EMAIL_SENTINEL = "zzquid-person@example.invalid"
+
+    def _candidate_from_uid(self, uid: str) -> ContactFreeEventCandidate:
+        text = (
+            "BEGIN:VCALENDAR\r\n"
+            "VERSION:2.0\r\n"
+            "PRODID:-//synthetic//test//EN\r\n"
+            "BEGIN:VEVENT\r\n"
+            f"UID:{uid}\r\n"
+            "DTSTART:20260901T120000Z\r\n"
+            "SUMMARY:Synthetic Event\r\n"
+            "END:VEVENT\r\n"
+            "END:VCALENDAR\r\n"
+        )
+        outcome = candidates_from_ical_fixture(text, source_time_zone="America/Los_Angeles")
+        assert not isinstance(outcome, CandidateRefusal)
+        (candidate,) = outcome
+        return candidate
+
+    def test_an_email_shaped_uid_does_not_appear_anywhere_in_the_candidate(self) -> None:
+        candidate = self._candidate_from_uid(self.UID_EMAIL_SENTINEL)
+        assert self.UID_EMAIL_SENTINEL not in repr(candidate)
+        for value in dataclasses.astuple(candidate):
+            assert self.UID_EMAIL_SENTINEL not in str(value)
+
+    def test_the_local_part_of_an_email_shaped_uid_does_not_survive_either(self) -> None:
+        """A digest, not a domain strip — the local part is identifying too."""
+        candidate = self._candidate_from_uid(self.UID_EMAIL_SENTINEL)
+        assert "zzquid-person" not in repr(candidate)
+
+    def test_the_same_uid_always_digests_to_the_same_value(self) -> None:
+        """Identity across two reads of a source is what a UID is kept for."""
+        first = self._candidate_from_uid("synthetic-0042@example.edu")
+        second = self._candidate_from_uid("synthetic-0042@example.edu")
+        assert first.source_uid_digest == second.source_uid_digest
+
+    def test_two_different_uids_digest_differently(self) -> None:
+        first = self._candidate_from_uid("synthetic-0042@example.edu")
+        second = self._candidate_from_uid("synthetic-0043@example.edu")
+        assert first.source_uid_digest != second.source_uid_digest
+
+    def test_the_digest_is_hex_and_carries_no_source_punctuation(self) -> None:
+        candidate = self._candidate_from_uid(self.UID_EMAIL_SENTINEL)
+        assert candidate.source_uid_digest is not None
+        assert all(character in "0123456789abcdef" for character in candidate.source_uid_digest)
 
 
 class TestMalformedFixturesFailClosed:
@@ -301,6 +368,9 @@ class TestSeamPerformsNoIO:
             "__future__",
             "dataclasses",
             "enum",
+            # Pure stdlib, and the reason the seam can digest a source UID
+            # rather than carry it verbatim. No I/O of any kind.
+            "hashlib",
             "typing",
             "smartmatch_domain",
         }

@@ -30,11 +30,23 @@ one omitted `del` away from a leak, and a *future* field added to
 deliberate choice. The allowlist inverts that failure mode — a future field on
 `ParsedSourceEvent` crosses only if a maintainer edits `_project` to name it.
 
+**The source UID is digested, not carried.** A source's own UID is routinely
+address-shaped — RFC 5545 suggests a domain-qualified value, and every fixture
+under `tests/fixtures/event_sources/` carries one (`synthetic-0001@example.edu`).
+An opaque-but-verbatim UID would therefore walk an email address straight
+through a seam whose entire claim is that it carries none, and no redaction
+rule can be trusted to recognise every address-shaped identifier a source might
+mint. This seam exposes `source_uid_digest` instead: a SHA-256 digest of the
+raw UID. Equality is preserved, so the identity work a UID exists for —
+recognising the same event across two reads of a source — still works, while
+the address itself cannot survive the hash. The internal parsers keep emitting
+the raw `source_uid`; digesting is this boundary's job, not theirs.
+
 `ContactFreeEventCandidate` itself carries no organizer, no contact name, no
-email, no phone, and no generic catch-all/raw-properties/extra-fields mapping
-that could carry any of those — no `dict[str, Any]`, no `**extra`, no `raw`
-attribute. Its field set is fixed and closed (`slots=True`, no default
-catch-all).
+email, no phone, no verbatim source UID, and no generic catch-all / raw-
+properties / extra-fields mapping that could carry any of those — no
+`dict[str, Any]`, no `**extra`, no `raw` attribute. Its field set is fixed and
+closed (`slots=True`, no default catch-all).
 
 **Fail-closed, not exception-as-control-flow.** `parse_ical` and `parse_jsonld`
 raise `ValueError` for a structurally malformed document (§13: "malformed
@@ -75,6 +87,7 @@ modules and their shared `smartmatch_domain.events` types.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeAlias
@@ -153,9 +166,11 @@ class ContactFreeEventCandidate:
         event_time: The `EventTime` ADR-0010 resolved for the event —
             `ExactTime`, `DateOnlyTime`, or `UnresolvedTime`. Carries no
             contact data by construction (see `smartmatch_domain.events`).
-        source_uid: The source's own identifier for the event, or `None`.
-            Opaque; never redacted (see both parsers' docstrings on why a UID
-            is not treated as prose).
+        source_uid_digest: A SHA-256 digest of the source's own identifier
+            for the event, or `None` when the source declared none. Never the
+            raw UID: a UID is routinely an email address (see the module
+            docstring). Deterministic, so two reads of the same source event
+            still compare equal.
         source_url: A source-declared URL for the event, or `None`,
             contact-redacted.
         location: The event's location, contact-redacted free text.
@@ -170,7 +185,7 @@ class ContactFreeEventCandidate:
 
     title: str
     event_time: EventTime
-    source_uid: str | None
+    source_uid_digest: str | None
     source_url: str | None
     location: str | None
     description: str | None
@@ -188,6 +203,21 @@ class ContactFreeEventCandidate:
 CandidateOutcome: TypeAlias = "tuple[ContactFreeEventCandidate, ...] | CandidateRefusal"
 
 
+def _digest_source_uid(source_uid: str | None) -> str | None:
+    """Return a SHA-256 digest of `source_uid`, or `None` for `None`.
+
+    Not a redaction and not a truncation: a digest is the only transformation
+    that preserves the equality a UID is kept for while making it impossible
+    for an address-shaped UID to reach the public seam. The full 64-character
+    hex digest is kept — a UID space is not enumerable in the way a truncated
+    digest's collisions would matter here, and nothing downstream needs a
+    shorter key.
+    """
+    if source_uid is None:
+        return None
+    return hashlib.sha256(source_uid.encode()).hexdigest()
+
+
 def _project(parsed: _ParsedSourceEvent) -> ContactFreeEventCandidate:
     """Allowlist `parsed` into a `ContactFreeEventCandidate`.
 
@@ -196,11 +226,14 @@ def _project(parsed: _ParsedSourceEvent) -> ContactFreeEventCandidate:
     the allowlist projection the design in the module docstring requires: a
     field is copied because this function names it, never because it happened
     to be present on the source object.
+
+    `source_uid` is the one named field that is transformed rather than
+    carried: it is digested, because a raw UID is routinely an email address.
     """
     return ContactFreeEventCandidate(
         title=parsed.title,
         event_time=parsed.event_time,
-        source_uid=parsed.source_uid,
+        source_uid_digest=_digest_source_uid(parsed.source_uid),
         source_url=parsed.source_url,
         location=parsed.location,
         description=parsed.description,
