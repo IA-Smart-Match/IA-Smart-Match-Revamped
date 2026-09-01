@@ -23,7 +23,7 @@ write is not a reservation."* ADR-0006's shape — a guarded
 exists, but copying it verbatim reintroduces exactly the defect A1 calls out:
 ADR-0006 only guards the ``DO UPDATE``, so a *first* reservation against a key
 with no row yet — for an estimate already larger than the ceiling — sails
-through unguarded. :func:`SpendReservationService._debit_bucket` closes that
+through unguarded. :func:`_build_debit_statement` closes that
 gap by guarding the insert's own source row too: the row is built by a
 ``SELECT ... WHERE :estimate <= :ceiling`` rather than a bare ``VALUES``
 clause, so when the estimate alone already exceeds the ceiling, the ``SELECT``
@@ -293,6 +293,57 @@ def _is_work_key_collision(exc: IntegrityError) -> bool:
     return _WORK_KEY_UNIQUE_CONSTRAINT in str(exc.orig)
 
 
+def _build_debit_statement(
+    *,
+    tenant_id: uuid.UUID,
+    bucket_type: BucketType,
+    bucket_key: str,
+    ceiling: Decimal,
+    estimate: Decimal,
+) -> sa.Executable:
+    """Build the guarded single-statement debit for one ceiling bucket.
+
+    The insert's source row is a ``SELECT`` guarded by
+    ``WHERE :estimate <= :ceiling`` rather than a bare ``VALUES`` clause, so a
+    first reservation against a key with no existing row, for an estimate
+    already larger than the ceiling, produces no candidate row and therefore
+    no insert — see the module docstring's *three ceilings* section for why
+    copying ADR-0006's shape verbatim would miss exactly this case. When a
+    row already exists, the ``ON CONFLICT ... DO UPDATE`` is separately
+    guarded by the arithmetic check against that row's own stored ``ceiling``
+    (fixed at first creation, never rewritten here). Either guard failing
+    means ``RETURNING`` yields no row, which :meth:`SpendReservationService.
+    _debit_bucket` reports as ``False``.
+    """
+    bucket = schema.spend_ceiling_bucket
+    # Each literal is typed from the destination column it fills, rather than
+    # a type this module maintains separately — `.from_select`, unlike
+    # `.values()`, does not infer bind types from the INSERT's target table,
+    # so an untyped literal here would bind by Python-value guesswork instead
+    # of the schema's own NUMERIC(12,4)/UUID/Text.
+    source = sa.select(
+        sa.literal(tenant_id, type_=bucket.c.tenant_id.type).label("tenant_id"),
+        sa.literal(bucket_type.value, type_=bucket.c.bucket_type.type).label("bucket_type"),
+        sa.literal(bucket_key, type_=bucket.c.bucket_key.type).label("bucket_key"),
+        sa.literal(ceiling, type_=bucket.c.ceiling.type).label("ceiling"),
+        sa.literal(estimate, type_=bucket.c.reserved.type).label("reserved"),
+    ).where(
+        sa.literal(estimate, type_=bucket.c.reserved.type)
+        <= sa.literal(ceiling, type_=bucket.c.ceiling.type)
+    )
+
+    return (
+        pg_insert(bucket)
+        .from_select(["tenant_id", "bucket_type", "bucket_key", "ceiling", "reserved"], source)
+        .on_conflict_do_update(
+            constraint=_BUCKET_PRIMARY_KEY,
+            set_={"reserved": bucket.c.reserved + estimate},
+            where=(bucket.c.reserved + bucket.c.spent + estimate <= bucket.c.ceiling),
+        )
+        .returning(bucket.c.reserved)
+    )
+
+
 class SpendReservationService:
     """Reserves monetary spend against the three ADR-0015 A1 ceilings.
 
@@ -322,8 +373,7 @@ class SpendReservationService:
         trace. A refusal reached before any bucket is touched (the redelivery
         checks) neither commits nor rolls back, since nothing was written.
         """
-        now = request.now
-        now_utc = now.astimezone(UTC)
+        now_utc = request.now.astimezone(UTC)
         base_key = derive_work_key(
             tenant_id=request.tenant_id,
             job_id=request.job_id,
@@ -337,31 +387,9 @@ class SpendReservationService:
         tenant_day_key = tenant_day_bucket_key(request.tenant_id, now_utc.date())
         tenant_month_key = tenant_month_bucket_key(request.tenant_id, now_utc.year, now_utc.month)
 
-        family = self._session.execute(
-            sa.select(
-                schema.spend_reservation.c.id,
-                schema.spend_reservation.c.tenant_id,
-                schema.spend_reservation.c.work_key,
-                schema.spend_reservation.c.state,
-                schema.spend_reservation.c.estimate,
-                schema.spend_reservation.c.lease_token,
-            ).where(
-                sa.or_(
-                    schema.spend_reservation.c.work_key == base_key,
-                    schema.spend_reservation.c.work_key.like(f"{base_key}#%"),
-                )
-            )
-        ).all()
-
-        work_key = base_key
-        if family:
-            latest = max(family, key=lambda row: family_attempt_number(base_key, row.work_key))
-            redelivery = self._apply_redelivery_rule(latest)
-            if redelivery is not None:
-                return redelivery
-            # `released`: fall through and re-reserve under the next attempt's
-            # key. `_apply_redelivery_rule` returns None only for `released`.
-            work_key = next_family_work_key(base_key, (row.work_key for row in family))
+        work_key, redelivery = self._resolve_work_key(base_key)
+        if redelivery is not None:
+            return redelivery
 
         bucket_ceilings = {
             BucketType.JOB: (job_key, ceilings.job),
@@ -385,6 +413,87 @@ class SpendReservationService:
                     f"{request.estimate} for bucket {bucket_key!r}",
                 )
 
+        return self._insert_reservation(
+            request,
+            work_key=work_key,
+            job_key=job_key,
+            tenant_day_key=tenant_day_key,
+            tenant_month_key=tenant_month_key,
+        )
+
+    def _resolve_work_key(
+        self, base_key: str
+    ) -> tuple[str, SpendReservationReceipt | Refused | None]:
+        """Resolve the work key this reservation should use, applying redelivery.
+
+        Fetches every row in the ``base_key`` family — the base key itself, or
+        any ``base_key#<int>`` suffix of it, per the module docstring's
+        *released re-reservation scheme* — and, if the family is non-empty,
+        applies :meth:`_apply_redelivery_rule` to whichever row has the
+        highest attempt number.
+
+        Returns ``(work_key, early_result)``. When ``early_result`` is not
+        ``None``, the caller (:meth:`reserve`) must return it immediately
+        without touching any bucket — the family's most recent row was
+        ``reserved``, ``reconciled``, or ``expired_spent``, each of which
+        handles or refuses the call without a new debit. When
+        ``early_result`` is ``None``, ``work_key`` is where the new
+        reservation belongs: ``base_key`` itself if no prior attempt exists,
+        or the next attempt's key (:func:`next_family_work_key`) if the
+        latest attempt is ``released`` — the only state that falls through to
+        a fresh reservation.
+        """
+        family = self._session.execute(
+            sa.select(
+                schema.spend_reservation.c.id,
+                schema.spend_reservation.c.tenant_id,
+                schema.spend_reservation.c.work_key,
+                schema.spend_reservation.c.state,
+                schema.spend_reservation.c.estimate,
+                schema.spend_reservation.c.lease_token,
+            ).where(
+                sa.or_(
+                    schema.spend_reservation.c.work_key == base_key,
+                    schema.spend_reservation.c.work_key.like(f"{base_key}#%"),
+                )
+            )
+        ).all()
+        if not family:
+            return base_key, None
+
+        latest = max(family, key=lambda row: family_attempt_number(base_key, row.work_key))
+        redelivery = self._apply_redelivery_rule(latest)
+        if redelivery is not None:
+            return base_key, redelivery
+        # `released`: fall through and re-reserve under the next attempt's
+        # key. `_apply_redelivery_rule` returns None only for `released`.
+        work_key = next_family_work_key(base_key, (row.work_key for row in family))
+        return work_key, None
+
+    def _insert_reservation(
+        self,
+        request: ReservationRequest,
+        *,
+        work_key: str,
+        job_key: str,
+        tenant_day_key: str,
+        tenant_month_key: str,
+    ) -> SpendReservationReceipt | Refused:
+        """Insert the reservation row, folding a key collision into a refusal.
+
+        All three buckets are already debited by the time this runs, so this
+        is where the reservation gets its own transaction via the single
+        ``session.commit()``. See the module docstring's *failure mode*
+        section for why ``work_key``'s insert can still raise
+        ``IntegrityError`` even though :func:`next_family_work_key` computed
+        it as the next free slot: a concurrent re-reservation of the same
+        released unit of work may have already claimed it. That race is
+        recognized narrowly by :func:`_is_work_key_collision` and turned into
+        :attr:`~smartmatch_domain.spend.RefusalReason.WORK_KEY_COLLISION`,
+        rolling back so the debit this call just made leaves no trace; any
+        other ``IntegrityError`` is a real bug and is re-raised rather than
+        folded into this refusal.
+        """
         reservation_id = uuid.uuid4()
         lease_token = uuid.uuid4()
         try:
@@ -399,7 +508,7 @@ class SpendReservationService:
                     estimate=request.estimate,
                     state=SpendReservationState.RESERVED.value,
                     lease_token=lease_token,
-                    lease_expires_at=now + request.lease,
+                    lease_expires_at=request.now + request.lease,
                 )
             )
         except IntegrityError as exc:
@@ -473,50 +582,20 @@ class SpendReservationService:
         ceiling: Decimal,
         estimate: Decimal,
     ) -> bool:
-        """Guarded single-statement debit of one ceiling bucket.
+        """Execute one bucket's guarded debit and report whether it succeeded.
 
         Returns whether the debit succeeded. Failure — the guarded write
         matched no row — is not an error here; it is Global Constraint 3's
         refusal signal, and the caller turns it into a
-        :class:`~smartmatch_domain.spend.Refused`.
-
-        The insert's source row is a ``SELECT`` guarded by
-        ``WHERE :estimate <= :ceiling`` rather than a bare ``VALUES`` clause,
-        so a first reservation against a key with no existing row, for an
-        estimate already larger than the ceiling, produces no candidate row
-        and therefore no insert — see the module docstring's *three ceilings*
-        section for why copying ADR-0006's shape verbatim would miss exactly
-        this case. When a row already exists, the ``ON CONFLICT ... DO
-        UPDATE`` is separately guarded by the arithmetic check against that
-        row's own stored ``ceiling`` (fixed at first creation, never
-        rewritten here). Either guard failing means ``RETURNING`` yields no
-        row, which is this method's ``False``.
+        :class:`~smartmatch_domain.spend.Refused`. See
+        :func:`_build_debit_statement` for the guard shape that produces this
+        outcome.
         """
-        bucket = schema.spend_ceiling_bucket
-        # Each literal is typed from the destination column it fills, rather
-        # than a type this module maintains separately — `.from_select`,
-        # unlike `.values()`, does not infer bind types from the INSERT's
-        # target table, so an untyped literal here would bind by Python-value
-        # guesswork instead of the schema's own NUMERIC(12,4)/UUID/Text.
-        source = sa.select(
-            sa.literal(tenant_id, type_=bucket.c.tenant_id.type).label("tenant_id"),
-            sa.literal(bucket_type.value, type_=bucket.c.bucket_type.type).label("bucket_type"),
-            sa.literal(bucket_key, type_=bucket.c.bucket_key.type).label("bucket_key"),
-            sa.literal(ceiling, type_=bucket.c.ceiling.type).label("ceiling"),
-            sa.literal(estimate, type_=bucket.c.reserved.type).label("reserved"),
-        ).where(
-            sa.literal(estimate, type_=bucket.c.reserved.type)
-            <= sa.literal(ceiling, type_=bucket.c.ceiling.type)
-        )
-
-        statement = (
-            pg_insert(bucket)
-            .from_select(["tenant_id", "bucket_type", "bucket_key", "ceiling", "reserved"], source)
-            .on_conflict_do_update(
-                constraint=_BUCKET_PRIMARY_KEY,
-                set_={"reserved": bucket.c.reserved + estimate},
-                where=(bucket.c.reserved + bucket.c.spent + estimate <= bucket.c.ceiling),
-            )
-            .returning(bucket.c.reserved)
+        statement = _build_debit_statement(
+            tenant_id=tenant_id,
+            bucket_type=bucket_type,
+            bucket_key=bucket_key,
+            ceiling=ceiling,
+            estimate=estimate,
         )
         return self._session.execute(statement).one_or_none() is not None
