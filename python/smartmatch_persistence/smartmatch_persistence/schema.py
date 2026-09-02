@@ -50,6 +50,7 @@ __all__ = [
     "org_unit",
     "outbox_record",
     "point_ledger_entry",
+    "professional_unit_relationship",
     "rate_limit_counter",
     "redrive_record",
     "resource_grant",
@@ -759,5 +760,81 @@ spend_reservation = sa.Table(
     sa.CheckConstraint(
         "(state = 'reserved') = (lease_token IS NOT NULL)",
         name="ck_spend_reservation_lease_token_iff_reserved",
+    ),
+)
+
+
+# P9 Gate A (`docs/decisions/p9-gate-a-board-role-decision-draft.md`, CLOSED
+# 2026-09-02) and migration 0012. board_role is relationship-scoped, not an
+# intrinsic attribute of a professional: §1 of the gate record decides that
+# question, and §2 answers the follow-on ones this table's shape encodes.
+
+professional_unit_relationship = sa.Table(
+    "professional_unit_relationship",
+    METADATA,
+    # Composite NATURAL key, no surrogate id -- mirrors spend_ceiling_bucket
+    # and rate_limit_counter, the schema's other tables whose identity is
+    # exactly what a caller already knows rather than a generated value. Here
+    # that identity is "this professional's role at this unit", and it is
+    # also the multiplicity rule Gate A §2 states: the same professional_id
+    # may appear in many rows as long as unit_id differs, which is what lets
+    # "multiple concurrent board_role values per person across different
+    # units" (§2) be represented at the same instant -- by more than one row,
+    # not by a wider column.
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # No foreign key: no professional table exists yet in this schema.
+    # Professionals are P9 pilot import/review data today
+    # (docs/pilot-data/columns.yaml, quarantined into review_item), not a
+    # persisted entity with a stable id of its own -- the same situation
+    # attendance_record.event_id and pipeline_record.opportunity_event_id
+    # are already in for their own not-yet-built parent tables. Whichever
+    # migration gives professionals a persisted identity should add this
+    # constraint alongside it.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("unit_id", _UUID, nullable=False),
+    # The whole point of a row existing here. NOT NULL: a relationship row
+    # carrying no role records nothing Gate A asked this table to hold, the
+    # same reasoning reward_item.budget_owner_id (D6) already applies to a
+    # column that would be meaningless if it could be absent.
+    sa.Column("board_role", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Gate A §2's "correction semantics": a coordinator's correction updates
+    # the current relationship record rather than superseding it with a new
+    # one, so — unlike point_ledger_entry's append-only design — mutation is
+    # expected here, and carrying updated_at says so structurally
+    # (pipeline_record's stage columns are the same argument for the same
+    # reason).
+    sa.Column(
+        "updated_at",
+        _TS,
+        nullable=False,
+        server_default=sa.text("now()"),
+    ),
+    # The composite natural key IS the primary key -- no separate
+    # UniqueConstraint is needed alongside it, unlike attendance_record's
+    # surrogate id + uq_attendance_record_subject_event pair, because there
+    # is no surrogate id here to make redundant.
+    sa.PrimaryKeyConstraint(
+        "tenant_id",
+        "professional_id",
+        "unit_id",
+        name="professional_unit_relationship_pkey",
+    ),
+    # Deliberately NO effective_from / effective_to columns. Gate A §2: "pilot
+    # treats board_role as current-state only on each relationship; no
+    # effective_from / effective_to columns for pilot." Post-pilot dating is
+    # explicitly deferred, not merely unimplemented -- adding those columns
+    # without a new gate decision would be inventing the answer this table's
+    # shape is not authorized to give yet.
+    #
+    # RESTRICT: reorganizing a unit must not silently delete the board-role
+    # relationships recorded against it -- the same intent
+    # attendance_record.owning_unit_id and import_batch.owning_unit_id
+    # already carry against org_unit. Composite, not a bare unit_id, so a
+    # relationship in one tenant cannot name a unit in another (ADR-0004).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
     ),
 )

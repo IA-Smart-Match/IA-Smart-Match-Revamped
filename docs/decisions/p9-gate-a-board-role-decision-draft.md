@@ -45,9 +45,21 @@ representation remains importable; worker wiring documents relationship intent.
 
 - Update `columns.yaml`, fixtures, and decision prep to reflect closed gate.
 - Schema-shape analysis and migration **planning** authorized.
-- **Not yet authorized:** production migration or worker `validate_columns`
-  enforcement of relationship table — follows P9 plan Wave C after `columns.yaml`
-  ratification update.
+- **Authorized 2026-09-02 (program owner, this slice — P9 pilot columns V2):**
+  the program owner has authorized the schema change this section previously
+  called "not yet authorized." That covers authoring the relationship
+  table's source — `professional_unit_relationship` in
+  `python/smartmatch_persistence/smartmatch_persistence/schema.py` and the
+  corresponding version file
+  `db/migrations/versions/0012_professional_unit_relationship.py` — and
+  updating `columns.yaml`, the worker's `column_contract`/`handlers` import
+  path, and fixtures so `board_role` is removed from
+  `professionals.optional` and enforced only in its relationship-scoped
+  shape. This authorizes writing and reviewing that source; it does not
+  itself apply the migration or verify it against a live database — no
+  database exists in the authoring environment, and running `alembic
+  upgrade` against a real pilot database is a separate, later operator
+  action.
 
 ## 5. Signature
 

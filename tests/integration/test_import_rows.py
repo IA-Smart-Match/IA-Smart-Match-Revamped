@@ -299,6 +299,56 @@ def test_gate_b_contact_values_are_persisted_after_gate_close(
     }
 
 
+def test_an_invalid_public_url_shape_is_a_finding_not_a_crash_or_a_drop(
+    client, engine, session_factory, unit_id, coordinator, tenant_id
+):
+    """P9 pilot columns V2: URL-shape wiring, exercised end to end.
+
+    ``smartmatch_domain.public_url.validate_static_url_shape`` is genuinely
+    called on this import path (``handlers._url_shape_findings``, wired from
+    ``columns.yaml``'s ``url_shaped_columns``). A shape-invalid ``Public URL``
+    (here: plain ``http://``, not ``https://``) does not crash the job and
+    does not silently drop the value — it is a WARNING finding the job's
+    summary surfaces, the import still succeeds, and the value is written to
+    ``review_item.row_data`` exactly as submitted, for a coordinator's review.
+    """
+    rows = [
+        {
+            "Event / Program": "Career Day",
+            "Category": "Outreach",
+            "Public URL": "http://example.edu/career-day",
+        }
+    ]
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="url-shape-invalid",
+            body=_rows_body(rows, dry_run=False, dataset="events"),
+        ).json()["job_id"]
+    )
+
+    state = _run_job_to_terminal(session_factory, tenant_id, job_id)
+    assert state is JobState.SUCCEEDED, f"job reached {state}, not succeeded"
+
+    completed = _terminal_event(session_factory, tenant_id, job_id)
+    summary = completed["summary"]
+    assert summary["usable"] is True
+
+    (finding,) = [f for f in summary["findings"] if f["code"] == "url_shape_invalid"]
+    assert finding["severity"] == "warning"
+    assert finding["columns"] == ["Public URL"]
+    assert "scheme_not_https" in finding["message"]
+
+    with engine.connect() as conn:
+        (row_data,) = conn.execute(
+            text("SELECT row_data FROM review_item WHERE import_batch_id = :id"),
+            {"id": uuid.UUID(summary["import_batch_id"])},
+        ).one()
+    assert row_data["public_url"] == "http://example.edu/career-day"
+
+
 def test_an_import_missing_a_ratified_required_column_fails_closed(
     client, session_factory, unit_id, coordinator, tenant_id
 ):

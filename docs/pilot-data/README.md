@@ -5,7 +5,9 @@ Synthetic test dataset for the SmartMatch pilot, built so `POST
 the request body; a live import writes an `import_batch` plus one quarantined
 `review_item` per row) has something real to run against, and so the column
 contract the pilot import path is held to — ratified 28 Aug 2026 in
-`columns.yaml`, with two column questions still open for Dr. Wang.
+`columns.yaml`. Both column questions the ratification left open (P9 Gate A,
+`board_role`; P9 Gate B, the three published contact fields) closed
+2 Sep 2026 — see "Resolved gates" below.
 
 ## What this is, and is not
 
@@ -32,10 +34,11 @@ contract the pilot import path is held to — ratified 28 Aug 2026 in
   `demo-mode-fallback` rule). They exist so a human can exercise the import
   path and its validation locally, deliberately, one file at a time.
 - **The column contract in `columns.yaml` is ratified for the pilot** (28 Aug
-  2026). Two column questions remain open under Dr. Wang — see that file's
-  `open_questions` section. Nothing in `python/`, `services/`, or the frontend
-  reads it yet; ratification is what the fixtures and ``verify_fixtures.py`` are
-  held to, not an application wiring change.
+  2026). Both column questions the ratification left open closed 2 Sep 2026
+  (P9 Gate A, Gate B) — see that file's `open_questions` section and "Resolved
+  gates" below. As of P9 card W1, `services/worker/smartmatch_worker` reads
+  it and holds live imports to it (see "Why this exists" below); ratification
+  is also what the fixtures and ``verify_fixtures.py`` are held to.
 
 ## Why this exists
 
@@ -54,14 +57,18 @@ name is repeated in Python, a contract that cannot be read is a terminal
 validating nothing, and a dataset the contract does not declare is refused as
 `dataset_contract_unknown`.
 
-Enforcement is **section-level**. The four columns still behind an open
-question are declared under each dataset's `gate_pending` map and are never
-treated as ratified -- `board_role` is accepted and stored with a
-`columns_pending_gate` warning (P9 Gate A is a modelling question), and the
-three published contact fields are accepted but **not stored**, with a
-`columns_withheld_pending_gate` warning naming them (P9 Gate B is a privacy
-question, and a `review_item` row is persistence). Neither posture rejects.
-See the `GATE-PENDING COLUMNS` section in `columns.yaml`.
+Enforcement is **section-level**. A column still behind an open question
+would be declared under its dataset's `gate_pending` map and never treated as
+ratified. No column is gate-pending today: P9 Gate A (`board_role`, a
+modelling question) and P9 Gate B (the three published contact fields, a
+privacy question) were the only entries, and both gates closed 2 Sep 2026.
+`board_role` is no longer a `professionals` column at all -- it is
+relationship-scoped, on the `professional_unit_relationship` table
+(`python/smartmatch_persistence/smartmatch_persistence/schema.py`, migration
+`db/migrations/versions/0012_professional_unit_relationship.py`), with no
+effective-date columns for the pilot. The three contact fields are collected
+and stored per Gate B's decision. See the `GATE-PENDING COLUMNS` section in
+`columns.yaml`.
 
 The migration manifest's own **F-28** finding records that architecture v1.1
 Section 1.5 -- the spec section that would define the real contract -- "has
@@ -113,7 +120,8 @@ below) to reproduce this table's right-hand column.
 See `columns.yaml` for the ratified contract and its rationale. In short:
 
 - **professionals**: required `name`, `metro_region`; optional `company`,
-  `title`, `expertise_tags`, `board_role`, `initials`, `pronouns`.
+  `title`, `expertise_tags`, `initials`, `pronouns`. (`board_role` is no
+  longer here — P9 Gate A closed it relationship-scoped; see below.)
 - **events**: required `"Event / Program"`, `"Category"`; optional
   `"Recurrence (typical)"`, `"Host / Unit"`, `"Volunteer Roles (fit)"`,
   `"Primary Audience"`, `"Public URL"`, `"Point(s) of Contact (published)"`,
@@ -144,12 +152,18 @@ README's table. A clean run prints one `OK` line per fixture (some fixtures
 get more than one line, for the sentinel-declared/not-declared contrast) and
 exits `0`.
 
-## Open questions for Dr. Wang (see `columns.yaml`'s `open_questions`)
+## Resolved gates (see `columns.yaml`'s `open_questions`)
 
-- **Whether `board_role` belongs on a professional at all**, versus being a
-  property of their relationship to a specific unit/chapter — `mockData.ts`
-  carried it as a flat field; ratification kept it optional pending this call.
-- **Two events fields** (`"Public URL"`, and the two `"(published)"` contact
-  fields) are declared optional because `mockData.ts`'s `CppEvent` type had
-  them, but no fixture here exercises them — worth deciding whether the pilot
-  actually collects them.
+Both questions this contract originally left open are now closed, 2 Sep 2026:
+
+- **P9 Gate A — `board_role`.** Relationship-scoped, not intrinsic to a
+  professional: it varies by `(professional, unit)`, multiple concurrent
+  roles per person across different units are representable at once, and
+  the pilot carries no effective-date columns (current-state only). See
+  `docs/decisions/p9-gate-a-board-role-decision-draft.md`. The column is
+  removed from `professionals.optional` and now lives on the
+  `professional_unit_relationship` table.
+- **P9 Gate B — the three events contact fields** (`"Public URL"`,
+  `"Point(s) of Contact (published)"`, `"Contact Email / Phone
+  (published)"`). All three: **collect**, human/import origin only. See
+  `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8.

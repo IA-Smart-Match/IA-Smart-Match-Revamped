@@ -78,6 +78,7 @@ from typing import Any, ClassVar, Final
 from smartmatch_domain.ingest import QualityFinding, Severity, validate_columns
 from smartmatch_domain.ingest import normalize_header as _normalize_header
 from smartmatch_domain.jobs import JobState
+from smartmatch_domain.public_url import StaticUrlShapeRefusal, validate_static_url_shape
 from smartmatch_persistence.jobs import JobRecord
 from smartmatch_persistence.review import ReviewRepository
 from sqlalchemy.orm import Session
@@ -464,15 +465,33 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
     does not declare is refused as ``dataset_contract_unknown`` for the same
     reason.
 
-    Enforcement is **section-level**, per W1's partial-ratification rule: the
-    four columns still behind an open question (P9 Gate A's ``board_role``, and
-    Gate B's three published contact fields) are declared under the contract's
-    ``gate_pending`` maps and are never enforced as ratified. A gate-pending
-    column is recognized and never rejected; depending on its declared posture
-    it is either persisted with a ``columns_pending_gate`` warning, or — for the
-    Gate B contact fields, where quarantine would itself be collection under
-    ADR-0014 — dropped before any write, with a ``columns_withheld_pending_gate``
-    warning naming exactly what was withheld.
+    Enforcement is **section-level**, per W1's partial-ratification rule: a
+    column still behind an open question would be declared under the
+    contract's ``gate_pending`` maps and never enforced as ratified. No column
+    is gate-pending today — P9 Gate A's ``board_role`` and Gate B's three
+    published contact fields were the only entries, and both gates closed
+    2 Sep 2026. ``board_role`` is no longer part of the ``professionals``
+    contract at all: it is relationship-scoped, on
+    :data:`~smartmatch_persistence.schema.professional_unit_relationship`
+    (migration ``0012``), not a flat import column. The mechanism stays in
+    place for the next column a gate has not yet answered; when one exists, a
+    gate-pending column is recognized and never rejected, and depending on its
+    declared posture it is either persisted with a ``columns_pending_gate``
+    warning, or — for a column withheld like Gate B's contact fields were
+    while that gate was open, where quarantine would itself be collection
+    under ADR-0014 — dropped before any write, with a
+    ``columns_withheld_pending_gate`` warning naming exactly what was
+    withheld.
+
+    A URL-shaped column declared under the contract's ``url_shaped_columns``
+    (P9 pilot columns V2; today just ``events``' ``"Public URL"``) is checked
+    with :func:`smartmatch_domain.public_url.validate_static_url_shape` for
+    every row that carries a value. A candidate that fails the four static
+    HTTPS shape rules is neither rejected nor silently dropped: it is reported
+    as a ``url_shape_invalid`` warning finding naming the column and the
+    failing rule, and the value is still stored exactly as submitted, for a
+    coordinator's review — the same quarantine-and-review posture every other
+    finding here already has.
 
     Raises:
         PolicyFailure: ``command_payload_missing`` when the job carries no
@@ -591,13 +610,16 @@ def _execute_inline_rows_import(
         blank_sentinels_by_column=contract.blank_sentinels_by_column,
     )
 
-    # Gate findings are appended to the domain's, never merged into
-    # ``quality`` itself: ``is_usable`` is the domain's verdict on the ratified
-    # contract, and a still-open gate must not be able to change it in either
-    # direction.
+    # Gate findings and URL-shape findings are appended to the domain's,
+    # never merged into ``quality`` itself: ``is_usable`` is the domain's
+    # verdict on the ratified column contract, and neither a still-open gate
+    # nor a candidate URL's shape can change it in either direction — both are
+    # reviewable findings, not usability verdicts.
     gate_findings = _gate_pending_findings(contract, rows)
+    url_shape_findings = _url_shape_findings(contract, rows)
     findings_payload = [
-        _finding_payload(finding) for finding in (*quality.findings, *gate_findings)
+        _finding_payload(finding)
+        for finding in (*quality.findings, *gate_findings, *url_shape_findings)
     ]
 
     context.emit(
@@ -755,6 +777,74 @@ def _gate_pending_findings(
                 columns=columns,
             )
         )
+
+    return tuple(findings)
+
+
+def _url_shape_findings(
+    contract: DatasetColumnContract, rows: Sequence[Mapping[str, Any]]
+) -> tuple[QualityFinding, ...]:
+    """Report rows whose declared URL-shaped columns fail the four static HTTPS rules.
+
+    Checked with :func:`smartmatch_domain.public_url.validate_static_url_shape`
+    — text shape only; no DNS resolution, no fetch (see that module's
+    docstring for what passing does and does not mean). A candidate that fails
+    is never rejected and never silently dropped: it is reported here as a
+    WARNING, the same non-blocking posture :func:`_gate_pending_findings`
+    already uses for the same reason — this is a reviewable signal for the
+    coordinator, not a usability verdict. ``quality.is_usable`` (the ratified
+    column contract's own verdict) is untouched by this function's result, and
+    the value is still written exactly as submitted; only the finding is new.
+
+    Blank or absent values are not failures — there is no candidate to check
+    the shape of. A non-string value (a JSON number or boolean a submitter
+    put where a URL belongs) is likewise skipped here: that is a shape problem
+    :func:`~smartmatch_domain.ingest.validate_columns` has no opinion about
+    either, and inventing one would be scope creep past the four rules this
+    check exists to run.
+
+    Column names are compared after
+    :func:`~smartmatch_domain.ingest.normalize_header`, the same way
+    ``validate_columns`` and :func:`_gate_pending_findings` compare them, so
+    ``"Public URL"`` and ``"public_url"`` are the same declared column here
+    too.
+    """
+    if not contract.url_shaped_columns or not rows:
+        return ()
+
+    findings: list[QualityFinding] = []
+    for declared_column in contract.url_shaped_columns:
+        target = _normalize_header(declared_column)
+        reasons: set[str] = set()
+        invalid_count = 0
+        for row in rows:
+            value: Any = None
+            present = False
+            for key, raw in row.items():
+                if _normalize_header(str(key)) == target:
+                    value, present = raw, True
+                    break
+            if not present or not isinstance(value, str) or not value.strip():
+                continue
+            result = validate_static_url_shape(value)
+            if isinstance(result, StaticUrlShapeRefusal):
+                invalid_count += 1
+                reasons.add(result.reason.value)
+
+        if invalid_count:
+            findings.append(
+                QualityFinding(
+                    severity=Severity.WARNING,
+                    code="url_shape_invalid",
+                    message=(
+                        f"{contract.dataset}: {declared_column!r} failed static HTTPS "
+                        f"shape validation in {invalid_count} row(s) "
+                        f"({', '.join(sorted(reasons))}); values were neither rejected "
+                        "nor dropped and remain exactly as submitted, for review"
+                    ),
+                    columns=(declared_column,),
+                )
+            )
 
     return tuple(findings)
 

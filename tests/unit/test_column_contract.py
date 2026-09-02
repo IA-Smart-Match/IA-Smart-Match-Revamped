@@ -60,23 +60,48 @@ class TestShippedContract:
         # Empty on purpose: "Null" is a real surname.
         assert professionals.blank_sentinels_by_column["name"] == ()
 
+    def test_public_url_is_declared_url_shaped(self, shipped: dict) -> None:
+        """P9 pilot columns V2: the only URL-shaped column declared today."""
+        assert shipped["events"].url_shaped_columns == ("Public URL",)
+        assert shipped["professionals"].url_shaped_columns == ()
+
 
 class TestGatePosture:
     """A still-open question is declared, not enforced and not forgotten."""
 
-    def test_board_role_is_accepted_pending_gate_a(self, shipped: dict) -> None:
+    def test_board_role_is_no_longer_in_the_professionals_contract(self, shipped: dict) -> None:
+        """P9 Gate A closed 2026-09-02, relationship-scoped — not a flat column.
+
+        ``board_role`` used to be ``accept``-postured gate_pending on
+        ``professionals`` while Gate A was open. The gate closed deciding the
+        column belongs on ``professional_unit_relationship`` instead
+        (composite ``(tenant_id, professional_id, unit_id)`` key, no
+        effective-date columns for the pilot), so it is removed from this
+        dataset entirely — not merely re-postured.
+        """
         professionals = shipped["professionals"]
-        assert professionals.accepted_pending_columns == ("board_role",)
-        assert professionals.withheld_columns == ()
-        (entry,) = professionals.gate_pending
-        assert entry.gate == "P9 Gate A"
-        assert entry.reason, "a gate-pending column must say why it is pending"
+        assert "board_role" not in professionals.optional
+        assert "board_role" not in professionals.required
+        assert professionals.accepted_pending_columns == ()
+        assert professionals.gate_pending == ()
 
     def test_gate_b_fields_are_no_longer_withheld_after_gate_close(self, shipped: dict) -> None:
         """P9 Gate B closed 2026-09-02 — events carry no gate_pending withhold."""
         events = shipped["events"]
         assert events.withheld_columns == ()
         assert events.gate_pending == ()
+
+    def test_no_dataset_has_a_gate_pending_column_today(self, shipped: dict) -> None:
+        """Both gates this file ever named (A and B) are closed.
+
+        The mechanism (``gate_pending``, ``accepted_pending_columns``,
+        ``withheld_columns``) stays fully general for the next column a gate
+        has not yet answered; today, nothing exercises it.
+        """
+        for contract in shipped.values():
+            assert contract.gate_pending == ()
+            assert contract.accepted_pending_columns == ()
+            assert contract.withheld_columns == ()
 
     def test_gate_pending_columns_stay_declared_so_they_are_never_unexpected(
         self, shipped: dict
@@ -167,4 +192,18 @@ class TestRefusal:
             encoding="utf-8",
         )
         with pytest.raises(ColumnContractError, match="must be a list"):
+            load_column_contract(path)
+
+    def test_a_url_shaped_column_nobody_declared_raises(self, tmp_path: Path) -> None:
+        """A url_shaped_columns entry outside required/optional applies to nothing."""
+        path = tmp_path / "columns.yaml"
+        path.write_text(
+            "datasets:\n"
+            "  events:\n"
+            "    required: []\n"
+            "    optional: ['Category']\n"
+            "    url_shaped_columns: ['Public URL']\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ColumnContractError, match="in neither 'required' nor 'optional'"):
             load_column_contract(path)

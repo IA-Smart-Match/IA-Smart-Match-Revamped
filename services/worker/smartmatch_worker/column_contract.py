@@ -16,30 +16,38 @@ only reads it, and refuses rather than guessing when it cannot.
 
 Gate posture
 ------------
-`columns.yaml` carries two ratified sections and two still-open questions
-(`open_questions`), and card W1's partial-ratification rule is explicit that
-enforcement is *section-level*: W1 "must not treat a still-open
-``open_questions`` entry as ratified contract". So each column still behind a
-gate is declared under a dataset's ``gate_pending`` map, with the gate that
-owns it and one of two postures:
+`columns.yaml` carries two ratified sections. Both of its originally
+still-open questions (`open_questions`) — P9 Gate A's ``board_role`` and P9
+Gate B's three published contact fields — closed 2 Sep 2026, so no column is
+gate-pending today. Card W1's partial-ratification rule remains in force for
+whatever comes next: enforcement is *section-level*, W1 "must not treat a
+still-open ``open_questions`` entry as ratified contract", and a column still
+behind a gate would be declared under its dataset's ``gate_pending`` map, with
+the gate that owns it and one of two postures:
 
 ``accept``
     The column is recognized (never reported as unexpected), persisted
     normally, and reported in a ``columns_pending_gate`` **warning** so a
     coordinator sees that its meaning is not settled. Used where the open
-    question is about *modelling* — P9 Gate A's ``board_role``, which may yet
-    become a unit-relationship record rather than a flat attribute. Nothing is
-    lost by persisting it; what is unsettled is where it will eventually live.
+    question is about *modelling* — P9 Gate A's ``board_role`` was this
+    posture's first and, so far, only example, while the gate was open:
+    whether it belonged on a professional or on a unit relationship was
+    undecided, so nothing was lost by persisting it flat meanwhile. The gate
+    closed relationship-scoped; ``board_role`` is no longer a
+    ``professionals`` column, and now lives on
+    ``professional_unit_relationship``
+    (``python/smartmatch_persistence/smartmatch_persistence/schema.py``).
 
 ``withhold``
     The column is recognized, but its values are **dropped before anything is
     written**, and the drop is reported in a ``columns_withheld_pending_gate``
     warning naming every column withheld. Used for P9 Gate B's published
-    contact fields, where the open question is *privacy*: Gate B has not
-    authorized collecting them, quarantine is collection, and a review item is
-    persistence. Accepting the import while declining to store those values is
-    the only posture that neither fabricates an authorization nor throws away
-    the rest of a coordinator's submission.
+    contact fields while that gate was open, because the question was
+    *privacy*: quarantine is collection, and a review item is persistence.
+    Accepting the import while declining to store those values was the only
+    posture that neither fabricated an authorization nor threw away the rest
+    of a coordinator's submission. Gate B has since closed collecting all
+    three; they are ordinary ratified ``events`` columns now.
 
 Neither posture rejects. A gate-pending column never makes a dataset unusable —
 that would be enforcing an answer the gate has not given either.
@@ -110,6 +118,14 @@ class DatasetColumnContract:
     blank_sentinels: tuple[str, ...]
     blank_sentinels_by_column: Mapping[str, tuple[str, ...]]
     gate_pending: tuple[GatePendingColumn, ...]
+    #: Columns whose values `smartmatch_worker.handlers` validates with
+    #: `smartmatch_domain.public_url.validate_static_url_shape` before an
+    #: import writes them (P9 pilot columns V2). Declared per dataset, the
+    #: same reasoning `blank_sentinels_by_column` already uses: a column is
+    #: checked only where it is declared to hold a URL, never inferred from
+    #: its name. A shape failure is reported as a `url_shape_invalid`
+    #: WARNING finding, never a rejection and never a silent drop.
+    url_shaped_columns: tuple[str, ...] = ()
 
     @property
     def withheld_columns(self) -> tuple[str, ...]:
@@ -182,6 +198,16 @@ def _build_dataset(dataset: str, declared: Any, path: Path) -> DatasetColumnCont
     gate_pending = _build_gate_pending(
         declared.get("gate_pending") or {}, dataset, required + optional, path
     )
+    url_shaped_columns = _string_tuple(
+        declared.get("url_shaped_columns", ()), dataset, "url_shaped_columns", path
+    )
+    declared_columns = required + optional
+    for column in url_shaped_columns:
+        if column not in declared_columns:
+            raise ColumnContractError(
+                f"{path}: dataset {dataset!r} declares url_shaped_columns "
+                f"{column!r}, which is in neither 'required' nor 'optional'"
+            )
 
     return DatasetColumnContract(
         dataset=dataset,
@@ -190,6 +216,7 @@ def _build_dataset(dataset: str, declared: Any, path: Path) -> DatasetColumnCont
         blank_sentinels=sentinels,
         blank_sentinels_by_column=by_column,
         gate_pending=gate_pending,
+        url_shaped_columns=url_shaped_columns,
     )
 
 
