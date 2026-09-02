@@ -154,6 +154,79 @@ def _get(client: TestClient, path: str, token: str):
     return client.get(path, headers={"Authorization": f"Bearer {token}"})
 
 
+def _register_principal(
+    engine: Engine,
+    client: TestClient,
+    tenant_id: uuid.UUID,
+    *,
+    role: str | None,
+    resource_grant_unit_id: uuid.UUID | None = None,
+) -> str:
+    """Create one more user in ``tenant_id`` and return a bearer token for it.
+
+    ``role`` is ``None`` for a principal that holds no membership at all — the
+    bare-``resource_grant`` shape the ratified metrics authorization decision
+    (§4) says must be refused for aggregates. ``resource_grant_unit_id`` adds
+    an explicit ``allow`` grant on that unit; the S-007 rule (pinned in
+    ``tests/authz/test_policy_matrix.py``) is that a grant conveys reach, not
+    membership, so it must not substitute for the role check either.
+
+    Registers the new token on the same ``FixtureTokenVerifier`` instance the
+    ``metric_context`` fixture already wired onto ``client.app.state`` — this
+    does not create a second app or a second engine, only a second principal
+    the existing client can authenticate as.
+    """
+    user_id = uuid.uuid4()
+    subject = f"sub-metrics-{uuid.uuid4().hex}"
+    token = f"tok-metrics-{uuid.uuid4().hex}"
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :subject, :email)"
+            ),
+            {
+                "id": user_id,
+                "tid": tenant_id,
+                "subject": subject,
+                "email": f"{subject}@example.edu",
+            },
+        )
+        if role is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                    "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "uid": user_id,
+                    "path": UNIT_PATH,
+                    "role": role,
+                },
+            )
+        if resource_grant_unit_id is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO resource_grant "
+                    "(id, tenant_id, user_id, resource_type, resource_id, effect) "
+                    "VALUES (:id, :tid, :uid, 'org_unit', :rid, 'allow')"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "uid": user_id,
+                    "rid": resource_grant_unit_id,
+                },
+            )
+
+    verifier = client.app.state.token_verifier
+    verifier.register(token, subject)
+    return token
+
+
 def test_pending_review_drill_down_count_equals_real_aggregate(metric_context) -> None:
     client, unit_id, token, _tenant_id = metric_context
 
@@ -198,6 +271,96 @@ def test_pipeline_unknown_is_null_with_an_empty_drill_down(metric_context) -> No
     assert drill_down["aggregate_value"] is None
     assert drill_down["rows"] == []
     assert "S12" in drill_down["unknown_reason"]
+
+
+def test_a_student_reads_aggregates_but_is_refused_drill_down(
+    metric_context, engine: Engine
+) -> None:
+    """The ratified decision's Option B split (§4), against a live database.
+
+    Any active unit membership with a role reads aggregates — a ``student``
+    role is not special-cased, it is simply *a* role. Drill-down is different:
+    only ``admin``/``coordinator`` may see row-level data (``row_data`` may
+    carry contact fields, P9 Gate B), so the same student is refused there,
+    in the standard error envelope rather than an empty ``rows`` list — an
+    empty list would be indistinguishable from "no pending rows exist",
+    which is exactly the ambiguity ADR-0011 (unknown vs. zero) exists to rule
+    out for aggregates and this task's negative coverage rules out for
+    refusals too.
+    """
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    student_token = _register_principal(engine, client, tenant_id, role="student")
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", student_token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    assert by_name["pending_review_items"]["value"] == 2
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        student_token,
+    )
+    assert drill_response.status_code == 403
+    body = drill_response.json()
+    assert body["error"]["code"] == "forbidden"
+    assert body["error"]["details"]["reason"] == "no_grant"
+    assert "rows" not in body
+
+
+def test_a_bare_resource_grant_is_refused_aggregates(metric_context, engine: Engine) -> None:
+    """The decision's negative, live: a bare `resource_grant` does not read aggregates.
+
+    Mirrors ``tests/authz/test_policy_matrix.py``'s
+    ``test_a_bare_resource_grant_never_satisfies_a_membership_only_operation``
+    against the real HTTP surface and a real database, rather than the
+    in-memory policy call: a principal with an explicit ``allow`` grant on
+    this unit and no membership anywhere gets the standard error envelope
+    naming ``resource_grant_lacks_membership``, not a 200 with metrics in it.
+    """
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    grant_only_token = _register_principal(
+        engine, client, tenant_id, role=None, resource_grant_unit_id=unit_id
+    )
+
+    response = _get(client, f"/v1/units/{unit_id}/metrics", grant_only_token)
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "forbidden"
+    assert body["error"]["details"]["reason"] == "resource_grant_lacks_membership"
+    assert "metrics" not in body
+
+
+def test_an_authorized_coordinator_keeps_equal_aggregate_and_drill_down_counts(
+    metric_context,
+) -> None:
+    """Option B's admin/coordinator path is unchanged: today's behaviour, preserved.
+
+    The ``metric_context`` fixture's own token already carries a
+    ``coordinator`` membership at the owning unit, so this is the same
+    equality ``test_pending_review_drill_down_count_equals_real_aggregate``
+    already proves, restated here to name explicitly what this task's
+    acceptance list (decision record §6) requires: authorization did not
+    change the count for the population it continues to admit.
+    """
+    client, unit_id, coordinator_token, _tenant_id = metric_context
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", coordinator_token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    aggregate = by_name["pending_review_items"]["value"]
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        coordinator_token,
+    )
+    assert drill_response.status_code == 200
+    drill_down = drill_response.json()
+
+    assert aggregate == 2
+    assert drill_down["aggregate_value"] == aggregate
+    assert len(drill_down["rows"]) == aggregate
 
 
 def _insert_pending_review_item(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> None:

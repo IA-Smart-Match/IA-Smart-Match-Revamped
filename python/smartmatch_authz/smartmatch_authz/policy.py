@@ -8,7 +8,7 @@ Architecture v1.1 §2.1 combination semantics, implemented exactly as specified:
     filters apply after either path. Administrative suspension fails local
     authorization immediately, independent of IdP token revocation.
 
-Four rules follow from that, in evaluation order:
+Five rules follow from that, in evaluation order:
 
 1. **Suspension is checked first.** A suspended account is denied locally and
    immediately. Waiting for the identity provider to revoke a token is defense
@@ -20,6 +20,22 @@ Four rules follow from that, in evaluation order:
    administrator carves an exception out of a broad unit grant.
 4. **Otherwise, either path suffices** — inherited unit-path prefix match, or an
    explicit allow grant on the resource.
+5. **``require_membership`` withdraws the explicit-grant path as a substitute
+   for membership.** Some operations are correctly expressed with no finite
+   ``required_roles`` set at all — the ratified metrics-authorization decision's
+   aggregate read is the first: any active unit membership with a role
+   suffices, but a bare ``resource_grant`` is denied. ``membership.role`` is
+   free text, so there is no finite role set to enumerate, and an *empty*
+   ``required_roles`` already means "any role suffices" on the
+   inherited-membership path (Path 1) — that part needs no new keyword. What
+   an empty ``required_roles`` cannot express on its own is "and a resource
+   grant with no covering membership at all must still be refused"; by
+   default Path 2 would allow it, which is the loosening this rule exists to
+   prevent. Passing ``require_membership=True`` says exactly that: Path 2 (the
+   explicit-grant path) denies with the distinct reason code
+   ``resource_grant_lacks_membership`` instead of allowing, even when
+   ``required_roles`` is empty. Suspension, tenant mismatch, and explicit deny
+   keep their precedence ahead of both grant paths regardless of this flag.
 
 Deny-by-default throughout: :func:`evaluate` returns a denial for any case not
 positively allowed, including unknown roles and malformed paths.
@@ -206,6 +222,7 @@ def evaluate(
     *,
     at: datetime,
     required_roles: frozenset[str] = frozenset(),
+    require_membership: bool = False,
 ) -> AccessDecision:
     """Evaluate whether ``principal`` may access ``resource``.
 
@@ -216,6 +233,13 @@ def evaluate(
             rather than read from the clock so expiry is testable.
         required_roles: Roles that satisfy this operation. An empty set means
             any active membership covering the path suffices.
+        require_membership: When ``True``, an explicit ``resource_grant`` alone
+            does not satisfy this operation — an active membership must cover
+            the resource's owning unit path. See module docstring rule 5. Has
+            no effect on Path 1 (inherited membership), which already applies
+            an empty ``required_roles`` as "any role"; it only withdraws Path 2
+            (the explicit-grant path) as a substitute for holding no
+            membership at all.
 
     Returns:
         An :class:`AccessDecision`. Deny-by-default: every path that does not
@@ -262,6 +286,14 @@ def evaluate(
     # convey is open policy-matrix work (v1.1 §2.1); until that is decided,
     # denying is the safe answer and the distinct reason code keeps the gap
     # visible in the audit trail rather than silent.
+    #
+    # require_membership is the second, independent way this path can be
+    # withdrawn: an operation that names no required_roles at all (so the
+    # branch above never fires) may still want membership itself, not just
+    # reach, to be the thing that satisfies it. That case gets its own reason
+    # code rather than reusing resource_grant_lacks_required_role, because the
+    # two populations are different — one held a grant but the wrong role,
+    # the other held a grant and no role requirement existed to lack.
     for grant in principal.resource_grants:
         if (
             grant.resource_type == resource.resource_type
@@ -270,6 +302,8 @@ def evaluate(
         ):
             if required_roles:
                 return AccessDecision(allowed=False, reason="resource_grant_lacks_required_role")
+            if require_membership:
+                return AccessDecision(allowed=False, reason="resource_grant_lacks_membership")
             return AccessDecision(allowed=True, reason="explicit_resource_allow")
 
     return AccessDecision(allowed=False, reason="no_grant")
@@ -281,8 +315,16 @@ def assert_allowed(
     *,
     at: datetime,
     required_roles: frozenset[str] = frozenset(),
+    require_membership: bool = False,
 ) -> AccessDecision:
     """Evaluate policy and raise on denial.
+
+    Args:
+        principal: The authenticated actor, with tenant derived server-side.
+        resource: The target resource.
+        at: The instant to evaluate membership validity against.
+        required_roles: Roles that satisfy this operation. See :func:`evaluate`.
+        require_membership: See :func:`evaluate` rule 5 (module docstring).
 
     Returns:
         The allowing decision, so callers can record which path granted access.
@@ -290,7 +332,13 @@ def assert_allowed(
     Raises:
         AuthorizationError: when access is denied.
     """
-    decision = evaluate(principal, resource, at=at, required_roles=required_roles)
+    decision = evaluate(
+        principal,
+        resource,
+        at=at,
+        required_roles=required_roles,
+        require_membership=require_membership,
+    )
     if not decision.allowed:
         raise AuthorizationError(decision)
     return decision

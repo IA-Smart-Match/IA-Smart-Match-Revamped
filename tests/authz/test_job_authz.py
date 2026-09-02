@@ -379,13 +379,23 @@ def _denial_reasons_evaluate_can_emit() -> frozenset[str]:
 
 
 def test_the_denial_vocabulary_is_exactly_the_five_documented_reasons():
-    """The five stable reason codes, pinned as a *set* rather than one at a time.
+    """The six stable reason codes, pinned as a *set* rather than one at a time.
 
-    Each of the five is already asserted individually by a test above, which
-    catches one being renamed. None of them catches one being *added* — and an
-    added reason is the case that matters, because
-    :func:`test_a_new_denial_reason_must_choose_a_side` is what decides whether
-    the new one is overridable by the actor exception.
+    Each is already asserted individually by a test above (or, for the newest
+    one, by the metrics authorization matrix), which catches one being
+    renamed. None of them catches one being *added* — and an added reason is
+    the case that matters, because
+    :func:`test_a_new_denial_reason_must_choose_a_side` is what decides
+    whether the new one is overridable by the actor exception.
+
+    ``resource_grant_lacks_membership`` is the newest: the ratified metrics
+    authorization decision's ``require_membership`` keyword
+    (``smartmatch_authz.policy`` module docstring rule 5) added it to what
+    ``evaluate`` can emit. No job route passes ``require_membership`` — job
+    operations are role-gated, so that branch is unreachable from here — but
+    this test scans the policy's full source, not any one call site, so the
+    vocabulary grows the moment the policy can emit it, whether or not this
+    module happens to trigger it today.
 
     These strings are a contract beyond this repository: they are emitted as
     ``details.reason`` on a 403 and are safe to log and to audit against.
@@ -396,6 +406,7 @@ def test_the_denial_vocabulary_is_exactly_the_five_documented_reasons():
             "tenant_mismatch",
             "explicit_resource_deny",
             "resource_grant_lacks_required_role",
+            "resource_grant_lacks_membership",
             "no_grant",
         }
     )
@@ -437,6 +448,15 @@ def test_a_new_denial_reason_must_choose_a_side():
 
     # Stated the other way round, so a failure names the hole rather than a set
     # difference: everything else is deliberately overridable.
+    #
+    # resource_grant_lacks_membership joins this side, not _STRUCTURAL_DENIALS:
+    # it is a statement about which grants and memberships the principal
+    # holds (the same population as resource_grant_lacks_required_role), not
+    # about the caller or the request in the way suspension, tenant mismatch,
+    # and an explicit deny are. No job route can reach it today — none passes
+    # require_membership — but the classification is decided here regardless,
+    # exactly as this test's docstring requires for every reason the policy
+    # can emit.
     assert vocabulary - job_authz._STRUCTURAL_DENIALS == frozenset(
-        {"resource_grant_lacks_required_role", "no_grant"}
+        {"resource_grant_lacks_required_role", "resource_grant_lacks_membership", "no_grant"}
     ), "a denial reason became overridable by the actor exception without anyone deciding it"

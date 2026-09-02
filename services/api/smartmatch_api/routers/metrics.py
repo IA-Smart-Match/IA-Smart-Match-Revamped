@@ -94,6 +94,25 @@ def _pipeline_funnel_rows_v1(
     return _MetricEvidence(rows=(), unknown_reason=metric.unknown_reason)
 
 
+def _opportunities_rows_v1(
+    _session: Session,
+    _tenant_id: uuid.UUID,
+    _unit_id: uuid.UUID,
+    metric: MetricDefinition,
+) -> _MetricEvidence:
+    """Report honest absence until S12 pipeline persistence provides evidence.
+
+    Shared interface contract (P1/V4 + P8/V5 card O1): the ``opportunities``
+    metric registers with ``owning_query = "opportunities_rows_v1"``, and this
+    is its adapter. Cards O2 (persistence) and O3 (owning-query binding) give
+    it a real storage-backed query later; until then it carries the same
+    honest-unknown shape :func:`_pipeline_funnel_rows_v1` already uses for an
+    absent evidence source.
+    """
+    assert metric.unknown_reason is not None
+    return _MetricEvidence(rows=(), unknown_reason=metric.unknown_reason)
+
+
 def _pending_review_item_rows_v1(
     session: Session,
     tenant_id: uuid.UUID,
@@ -139,20 +158,33 @@ def _pending_review_item_rows_v1(
 _OWNING_QUERIES: dict[str, _OwningQuery] = {
     "pipeline_funnel_rows_v1": _pipeline_funnel_rows_v1,
     "pending_review_item_rows_v1": _pending_review_item_rows_v1,
+    "opportunities_rows_v1": _opportunities_rows_v1,
 }
 
+#: Roles permitted to drill into a metric's constituent rows (the ratified
+#: metrics-authorization decision, Option B —
+#: ``docs/decisions/metrics-authorization-decision-draft.md`` §4, CLOSED
+#: 2026-09-02). Row-level drill-down carries ``row_data`` — the full imported
+#: row payload, which may include contact fields (P9 Gate B) — so it is
+#: deliberately tighter than the aggregate read below.
+_DRILL_DOWN_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
-def _authorize_unit_read(
+
+def _authorize_aggregate_read(
     session: Session,
     principal: CurrentPrincipal,
     unit_id: uuid.UUID,
 ) -> None:
-    """Load the unit and authorize org-unit access without a role gate.
+    """Load the unit and authorize aggregate metric reads.
 
-    Mirrors ``imports.py``'s unit load and ``assert_allowed`` resource shape, but
-    unlike that router it passes no ``required_roles``. Any active membership at
-    the unit may read metrics and drill into rows — see
-    ``tests/authz/test_policy_matrix.py`` (:data:`INTENTIONALLY_UNGATED_OPERATIONS`).
+    Per the ratified decision's §4: any **active unit membership with a
+    role** may read aggregates; a bare ``resource_grant`` is denied. There is
+    no finite role set to enumerate — ``membership.role`` is free text
+    (``schema.py``) — so this is expressed with no ``required_roles`` at all
+    (any active membership's role suffices) plus ``require_membership=True``,
+    which withdraws the explicit-grant path as a substitute for holding no
+    membership. See ``smartmatch_authz.policy`` module docstring rule 5 and
+    ``tests/authz/test_policy_matrix.py`` (:data:`MEMBERSHIP_ONLY_OPERATIONS`).
     """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -164,6 +196,39 @@ def _authorize_unit_read(
             owning_unit_path=OrgPath.parse(unit.path),
         ),
         at=utc_now(),
+        require_membership=True,
+    )
+
+
+def _authorize_drill_down_read(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> None:
+    """Load the unit and authorize row-level drill-down reads.
+
+    Per the ratified decision's §4: only ``admin`` and ``coordinator`` may
+    drill into a metric's constituent rows, which is an ordinary role-gated
+    operation (:data:`_DRILL_DOWN_ROLES`). ``require_membership=True`` is
+    still passed alongside it: it has no observable effect once
+    ``required_roles`` is non-empty (a bare grant is already refused by the
+    required-roles check first), but it keeps this authorizer's shape
+    consistent with :func:`_authorize_aggregate_read` and with what the
+    decision record actually authorizes — membership, not mere resource
+    reach, admin/coordinator role notwithstanding.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_DRILL_DOWN_ROLES,
+        require_membership=True,
     )
 
 
@@ -276,9 +341,11 @@ def list_metrics(
 
     Authorization runs before any conditional-request handling: an
     ``If-None-Match`` header must never let an unauthorized or unknown caller
-    learn that a 304-eligible representation exists.
+    learn that a 304-eligible representation exists. Any active unit
+    membership with a role may read aggregates (a bare ``resource_grant`` is
+    refused) — see :func:`_authorize_aggregate_read`.
     """
-    _authorize_unit_read(session, principal, unit_id)
+    _authorize_aggregate_read(session, principal, unit_id)
     metrics = [
         _summary(
             unit_id,
@@ -309,9 +376,10 @@ def metric_drill_down(
     Authorization and the metric-not-found check both run before any
     conditional-request handling, for the same reason as ``list_metrics``: a
     404 must never be short-circuited into a 304 by a caller replaying an
-    ETag it never legitimately received.
+    ETag it never legitimately received. Only ``admin`` and ``coordinator``
+    may drill into rows — see :func:`_authorize_drill_down_read`.
     """
-    _authorize_unit_read(session, principal, unit_id)
+    _authorize_drill_down_read(session, principal, unit_id)
     metric = get_metric(metric_name)
     if metric is None:
         raise ApiError(

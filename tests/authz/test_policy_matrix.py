@@ -73,13 +73,38 @@ adds a role-carrying field to the type — which is the moment the product
 decision has to be made deliberately rather than arriving as a side effect of
 a new column.
 
-That decision has a second half, reached rather than merely hypothesised as of
-``metrics.read``/``metrics.drill_down``: an operation that names *no* required
-roles at all asks nothing of a grant that its plain "you may address this
-resource" does not already answer, so ``evaluate`` permits it —
-:data:`INTENTIONALLY_UNGATED_OPERATIONS` and
+That decision has a second half, first *hypothesised* rather than reached when
+``metrics.read``/``metrics.drill_down`` had no ratified policy to implement:
+an operation that names *no* required roles at all asks nothing of a grant
+that its plain "you may address this resource" does not already answer, so
+``evaluate`` would permit it. :data:`INTENTIONALLY_UNGATED_OPERATIONS` and
 :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`
-are that half, pinned just as explicitly as the fail-closed one.
+are that half — kept, empty, exactly as :data:`GAPS` is kept after being
+emptied, because no operation in this codebase has needed the loosening once
+one was actually characterised end to end.
+
+**The metrics-authorization decision (CLOSED 2026-09-02,
+`docs/decisions/metrics-authorization-decision-draft.md`) answered the
+hypothesis differently.** ``metrics.read`` (aggregates) really does need no
+finite role set — ``membership.role`` is free text, so there is no role set to
+enumerate for "any active membership with a role" — but the decision's §4 is
+explicit that a bare ``resource_grant`` is **denied**, not admitted, for
+aggregates. That is neither of the two shapes S-007 had drawn: not
+role-gated (no ``roles_constant`` to name), and not the ungated case either
+(a grant alone must not suffice). It is a third, honest category —
+:data:`MEMBERSHIP_ONLY_OPERATIONS` — checked with the same rigour as the
+other two: both directions of membership in
+:func:`test_every_membership_only_operation_is_declared`, and the negative
+pinned directly in
+:func:`test_a_bare_resource_grant_never_satisfies_a_membership_only_operation`
+(the inverse of the ungated test that used to cover this operation). The
+mechanism behind the category is ``smartmatch_authz.evaluate``'s
+``require_membership`` keyword (policy module docstring, rule 5): it
+withdraws the explicit-grant path as a substitute for membership without
+requiring a role. ``metrics.drill_down`` did not need a third category — the
+decision role-gates it outright (``admin``, ``coordinator`` only), so it is
+an ordinary row naming :data:`_DRILL_DOWN_ROLES`, and both metrics operations
+have left :data:`INTENTIONALLY_UNGATED_OPERATIONS` for good.
 """
 
 from __future__ import annotations
@@ -396,11 +421,13 @@ class Operation:
     #: source, so swapping a strict authorizer for a weaker one fails.
     authorizer: str
     #: The module-level constant the authorizer reads its role set from, or
-    #: ``None`` for an operation that is *intentionally* ungated — it names no
-    #: required roles at all, so there is no constant to name either. ``None``
-    #: is only honest when :data:`required_roles` is empty and the operation's
-    #: key appears in :data:`INTENTIONALLY_UNGATED_OPERATIONS`; both are
-    #: checked, not merely declared (see the two tests this field changes).
+    #: ``None`` when the operation names no required roles at all, so there is
+    #: no constant to name either. ``None`` is only honest when
+    #: :data:`required_roles` is empty and the operation's key appears in
+    #: :data:`INTENTIONALLY_UNGATED_OPERATIONS` (a bare grant suffices) *or*
+    #: :data:`MEMBERSHIP_ONLY_OPERATIONS` (a bare grant does not — an active
+    #: membership is still required); both are checked, not merely declared
+    #: (see the tests this field changes).
     roles_constant: str | None
     #: Where :data:`authorizer` and :data:`roles_constant` are *defined*, when
     #: that is not the module the route lives in. The four job operations are
@@ -423,6 +450,12 @@ class Operation:
     #: :func:`test_no_operation_is_reachable_from_a_sibling_department` requires
     #: it to be true, so a route that cannot scope has to say so and fail.
     unit_scoped: bool
+    #: Whether the real authorizer passes ``require_membership=True`` to
+    #: ``assert_allowed``/``evaluate`` (policy module docstring, rule 5).
+    #: ``False`` for every operation except the two metrics ones: it is what
+    #: lets ``metrics.read`` name no ``required_roles`` at all while still
+    #: refusing a bare ``resource_grant`` — see :data:`MEMBERSHIP_ONLY_OPERATIONS`.
+    require_membership: bool = False
 
     @property
     def resource_id(self) -> str:
@@ -495,57 +528,95 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="job",
         unit_scoped=True,
     ),
-    # ``metrics.read`` and ``metrics.drill_down`` share one authorizer,
-    # ``routers/metrics.py::_authorize_unit_read`` — a private helper matching
-    # the ``_authorize*`` naming convention, deliberately mirroring
-    # ``import.create``'s own shape: load the unit, then call
-    # ``smartmatch_authz.assert_allowed`` against an ``org_unit`` Resource
-    # built from it. Where it genuinely differs from every operation above:
-    # its call to ``assert_allowed`` passes no ``required_roles`` at all. That
-    # is read off the source, not assumed — see ``_authorize_unit_read`` in
-    # ``routers/metrics.py`` — and it means these two are the first operations
-    # to actually reach ``evaluate``'s ungated grant path (S-007), which is
-    # why they are also the first two keys in
-    # :data:`INTENTIONALLY_UNGATED_OPERATIONS`. ``roles_constant=None``
-    # follows from that: there is no module-level roles constant to name
-    # because the code names none either.
+    # ``metrics.read`` and ``metrics.drill_down`` now name two different
+    # authorizers in ``routers/metrics.py``, per the ratified metrics
+    # authorization decision (Option B, CLOSED 2026-09-02) — they no longer
+    # share one call and one outcome the way the four job operations share
+    # ``job_authz``. Both still mirror ``import.create``'s shape: load the
+    # unit, then call ``smartmatch_authz.assert_allowed`` against an
+    # ``org_unit`` Resource built from it.
+    #
+    # ``metrics.read`` (``_authorize_aggregate_read``) passes no
+    # ``required_roles`` at all — there is no finite role set for "any active
+    # unit membership with a role" — but does pass ``require_membership=True``,
+    # which is what keeps a bare ``resource_grant`` from satisfying it despite
+    # the empty role set. That combination is neither the role-gated shape nor
+    # the fully ungated one S-007 originally drew, so it gets its own category,
+    # :data:`MEMBERSHIP_ONLY_OPERATIONS`, rather than
+    # :data:`INTENTIONALLY_UNGATED_OPERATIONS`. ``roles_constant=None`` follows
+    # from the empty ``required_roles``, exactly as it did for the ungated
+    # case — there is still no module-level roles constant to name.
+    #
+    # ``metrics.drill_down`` (``_authorize_drill_down_read``) is role-gated
+    # outright — ``admin``/``coordinator`` only, :data:`_DRILL_DOWN_ROLES` — so
+    # it is an ordinary row, the same shape as every job operation above, and
+    # is read off the source the same way (see the two checks below).
     Operation(
         key="metrics.read",
         method="GET",
         path="/v1/units/{unit_id}/metrics",
         module="smartmatch_api.routers.metrics",
-        authorizer="_authorize_unit_read",
+        authorizer="_authorize_aggregate_read",
         roles_constant=None,
         authorizer_module=None,
         required_roles=frozenset(),
         resource_type="org_unit",
         unit_scoped=True,
+        require_membership=True,
     ),
     Operation(
         key="metrics.drill_down",
         method="GET",
         path="/v1/units/{unit_id}/metrics/{metric_name}/drill-down",
         module="smartmatch_api.routers.metrics",
-        authorizer="_authorize_unit_read",
-        roles_constant=None,
+        authorizer="_authorize_drill_down_read",
+        roles_constant="_DRILL_DOWN_ROLES",
         authorizer_module=None,
-        required_roles=frozenset(),
+        required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
+        require_membership=True,
     ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
-#: is answered "yes" for exactly these, and only these. Landing an operation
-#: that names no required roles used to fail this file outright
-#: (:func:`test_every_ungated_operation_is_declared_intentional`'s predecessor
-#: named this as the moment that confirmation would have to happen). It has: reading
-#: an accountable metric is exactly the "guest reviewer" shape S-007's own
-#: reasoning anticipated, and the route's authorizer already calls
-#: ``assert_allowed`` with no ``required_roles`` — this table records that as
-#: a decision, checked in both directions below, rather than leaving it to be
-#: discovered as an accident the day someone widens a role set by mistake.
-INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset({"metrics.read", "metrics.drill_down"})
+#: answered "yes": an operation names no required roles at all, and a bare
+#: ``resource_grant`` is enough to satisfy it anyway, because it asks for
+#: nothing beyond "you may address this resource".
+#:
+#: **Empty, and kept** — the same posture :data:`GAPS` takes after being
+#: emptied. This constant used to name ``metrics.read`` and
+#: ``metrics.drill_down`` as a working hypothesis, before either operation had
+#: a ratified policy behind it. The metrics authorization decision (CLOSED
+#: 2026-09-02) answered differently: ``metrics.drill_down`` is role-gated
+#: outright, and ``metrics.read`` needs membership even though it needs no
+#: role — see :data:`MEMBERSHIP_ONLY_OPERATIONS`. Neither is the shape this
+#: table exists for. It stays, rather than being deleted along with its last
+#: members, because the next operation that genuinely asks for nothing beyond
+#: resource reach should land here on purpose, checked in both directions by
+#: :func:`test_every_ungated_operation_is_declared_intentional` exactly as it
+#: was for these two.
+INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset()
+
+#: Operations that name no ``required_roles`` yet still refuse a bare
+#: ``resource_grant`` — the category :data:`INTENTIONALLY_UNGATED_OPERATIONS`
+#: does not cover. Mechanically: ``require_membership=True`` on the real
+#: authorizer's call to ``assert_allowed``/``evaluate`` (policy module
+#: docstring, rule 5). ``metrics.read`` is the first and, so far, only member:
+#: the decision's §4 gives it no finite role set to enumerate ("any active
+#: unit membership with a role" — ``membership.role`` is free text) while
+#: explicitly denying a bare grant, which is a policy shape neither
+#: :data:`INTENTIONALLY_UNGATED_OPERATIONS` nor an ordinary ``roles_constant``
+#: row could express.
+#:
+#: Checked with the same rigour S-007's table always has, in both directions —
+#: :func:`test_every_membership_only_operation_is_declared` — and pinned as a
+#: negative just as explicitly as the ungated table's positive is:
+#: :func:`test_a_bare_resource_grant_never_satisfies_a_membership_only_operation`
+#: is the direct inverse of
+#: :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`,
+#: proving the same shape of grant is refused here where it used to be admitted.
+MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
 
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
@@ -925,10 +996,17 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
     },
-    # Both metrics rows are identical in content, deliberately: `metric_name`
-    # plays no part in what `_authorize_unit_read` decides — only `unit_id`
-    # does — so the two routes share not just an authorizer but its outcome
-    # on every shape, the same way `job.read` and `job.events.read` do.
+    # The two metrics rows no longer share an outcome on every shape, because
+    # they no longer share a policy: `metrics.read` is membership-only
+    # (`_authorize_aggregate_read`, MEMBERSHIP_ONLY_OPERATIONS) and
+    # `metrics.drill_down` is role-gated to `_DRILL_DOWN_ROLES`
+    # (`_authorize_drill_down_read`) — the ratified metrics authorization
+    # decision's Option B split (CLOSED 2026-09-02, decision record §4). They
+    # still agree on every cell that is purely about unit scoping, suspension,
+    # tenant isolation, or an explicit deny, because both routes still load the
+    # same unit and reach `evaluate` through it; they diverge exactly on the
+    # cells that ask "which role" — `student_at_owning_unit` and
+    # `resource_grant_only`.
     "metrics.read": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -946,29 +1024,35 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "student_at_owning_unit": permit(
             why=(
-                "the cell that would deny on every operation above and does not "
-                "here: `required_roles` is empty, so `evaluate`'s role filter "
-                "(`if required_roles and membership.role not in required_roles`) "
-                "never triggers — an active membership at the right unit is "
-                "enough on its own, whichever role it carries. This is S-007 "
-                "landing for real, not a defect: reading an accountable metric "
-                "is exactly the operation this policy's ungated path exists for."
+                "the cell that would deny on every role-gated operation above "
+                "and does not here: `required_roles` is empty, so `evaluate`'s "
+                "role filter (`if required_roles and membership.role not in "
+                "required_roles`) never triggers — an active membership at the "
+                "right unit is enough on its own, whichever role it carries. "
+                "This is the decision's §4 aggregate rule: 'any active unit "
+                "membership with a role'."
             ),
         ),
         "member_with_no_memberships": deny(
             "no_grant",
             why=(
-                "ungated is not unauthenticated — some membership or grant on "
-                "the unit is still required"
+                "membership-only is not unauthenticated — some membership or "
+                "grant on the unit is still required"
             ),
         ),
-        "resource_grant_only": permit(
+        "resource_grant_only": deny(
+            "resource_grant_lacks_membership",
             why=(
-                "the other half of S-007 landing: with no required role to lack, "
-                "`evaluate`'s Path 2 (`if required_roles: return ...lacks_required_role"
-                "; return allowed=True`) permits a bare explicit grant outright, "
-                "reason `explicit_resource_allow` rather than the "
-                "`resource_grant_lacks_required_role` every gated operation answers"
+                "the decision's §4 negative, made real: `require_membership=True` "
+                "on `_authorize_aggregate_read`'s call means `evaluate`'s Path 2 "
+                "(`if require_membership: return ...lacks_membership`) refuses a "
+                "bare explicit grant even though `required_roles` is empty — the "
+                "distinct reason code is what tells this population apart from a "
+                "role-gated operation's `resource_grant_lacks_required_role` in "
+                "the audit trail. This is the cell that used to permit under the "
+                "S-007 hypothesis and is the one this task's negative coverage "
+                "exists to flip: `resource_grant` alone reads aggregates? No — "
+                "role required (decision record §1)."
             ),
         ),
         "admin_with_explicit_deny": deny(
@@ -1002,24 +1086,36 @@ MATRIX: dict[str, dict[str, Cell]] = {
     },
     "metrics.drill_down": {
         "admin_at_org_root": permit(
-            why="an admin grant at the root covers every unit beneath it",
+            why="an admin grant at the root covers every unit; admin is a drill-down role",
         ),
         "coordinator_at_owning_unit": permit(
-            why="containment is inclusive, so a path covers itself",
+            why="containment is inclusive, and coordinator is a drill-down role",
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
             why="unit scoping is a path question, not a role question — see metrics.read",
         ),
-        "student_at_owning_unit": permit(
+        "student_at_owning_unit": deny(
+            "no_grant",
             why=(
-                "ungated: an active membership at the unit is enough regardless "
-                "of role — see metrics.read"
+                "the split from metrics.read: row-level drill-down carries "
+                "`row_data` — the full imported row payload, which may include "
+                "contact fields (P9 Gate B) — so the decision's §4 restricts it "
+                "to `admin`/`coordinator` (`_DRILL_DOWN_ROLES`) and a student "
+                "membership, however active and however well it covers the unit, "
+                "is refused for holding the wrong role"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
-        "resource_grant_only": permit(
-            why="S-007 landing for this operation too — see metrics.read",
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why=(
+                "role-gated like every other row-scoped operation above: "
+                "`required_roles` is non-empty, so `evaluate`'s Path 2 refuses "
+                "the bare grant on that check before `require_membership` is "
+                "ever consulted — the same reason code `import.create` and the "
+                "four job operations answer for this shape"
+            ),
         ),
         "admin_with_explicit_deny": deny("explicit_resource_deny"),
         "expired_coordinator_at_owning_unit": deny("no_grant"),
@@ -1085,20 +1181,27 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     resolved = _resolved(operation, shape)
 
     # `import.create`'s handler calls `assert_allowed` directly; `metrics.py`'s
-    # two routes call it through `_authorize_unit_read`, a private helper that
-    # first loads the unit from the database and then makes exactly this same
-    # call against it (`routers/metrics.py`, around its `_authorize_unit_read`
-    # definition) — the DB load is plumbing that produces `unit.path`, not a
-    # second policy decision. Both names dispatch here rather than one being
-    # given its own near-identical branch: the load is out of scope for this
-    # no-database file the same way it already is for `import.create` (see the
-    # comment on `owning_unit_path` below), and `required_roles` is what
-    # actually varies between the operations that reach this branch —
-    # `metrics.read`/`metrics.drill_down` pass `frozenset()`, matching
-    # `_authorize_unit_read` not naming `required_roles` in its own call at
-    # all, which is the whole reason those two are the first entries in
-    # INTENTIONALLY_UNGATED_OPERATIONS.
-    if operation.authorizer in ("assert_allowed", "_authorize_unit_read"):
+    # two routes each call it through their own private helper —
+    # `_authorize_aggregate_read` for `metrics.read`,
+    # `_authorize_drill_down_read` for `metrics.drill_down` — which first
+    # loads the unit from the database and then makes exactly this same call
+    # against it (`routers/metrics.py`, around those two definitions). The DB
+    # load is plumbing that produces `unit.path`, not a second policy
+    # decision, so all three names dispatch here rather than each getting its
+    # own near-identical branch: the load is out of scope for this
+    # no-database file the same way it already is for `import.create` (see
+    # the comment on `owning_unit_path` below). `required_roles` and
+    # `require_membership` are what actually vary between the operations that
+    # reach this branch — `metrics.read` passes `required_roles=frozenset()`
+    # and `require_membership=True` (the row's `MEMBERSHIP_ONLY_OPERATIONS`
+    # membership), `metrics.drill_down` passes both `_DRILL_DOWN_ROLES` and
+    # `require_membership=True` (ordinary role-gated, plus the same keyword
+    # for consistency — see `_authorize_drill_down_read`'s own docstring).
+    if operation.authorizer in (
+        "assert_allowed",
+        "_authorize_aggregate_read",
+        "_authorize_drill_down_read",
+    ):
         assert_allowed(
             resolved.principal,
             Resource(
@@ -1111,6 +1214,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
             ),
             at=NOW,
             required_roles=operation.required_roles,
+            require_membership=operation.require_membership,
         )
         return
 
@@ -1282,23 +1386,36 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
     The comparison is against the live object, so this is not a text match on a
     docstring: adding ``"student"`` to ``JOB_OVERSIGHT_ROLES`` breaks it.
 
-    ``roles_constant is None`` is the intentionally-ungated case
-    (:data:`INTENTIONALLY_UNGATED_OPERATIONS`): there is no constant to read
-    when the code names no required roles at all, so what is checked instead
-    is that the row is honest about *that* — empty ``required_roles`` and
-    membership in the table, both directions, so an operation cannot claim the
-    exemption without also being declared, or vice versa.
+    ``roles_constant is None`` covers two categories, both empty of a finite
+    role set: :data:`INTENTIONALLY_UNGATED_OPERATIONS` (a bare grant suffices)
+    and :data:`MEMBERSHIP_ONLY_OPERATIONS` (a bare grant does not — see
+    ``require_membership``). There is no constant to read for either, so what
+    is checked instead is that the row is honest about *belonging to one of
+    them* — empty ``required_roles`` and membership in exactly one table, both
+    directions, so an operation cannot claim an exemption without also being
+    declared, or vice versa.
     """
     if operation.roles_constant is None:
         assert operation.required_roles == frozenset(), (
             f"{operation.key} names no roles_constant, which only makes sense "
-            f"for an intentionally ungated operation; MATRIX states "
-            f"required_roles={sorted(operation.required_roles)}"
+            f"for an intentionally ungated or membership-only operation; "
+            f"MATRIX states required_roles={sorted(operation.required_roles)}"
         )
-        assert operation.key in INTENTIONALLY_UNGATED_OPERATIONS, (
+        assert (
+            operation.key in INTENTIONALLY_UNGATED_OPERATIONS
+            or operation.key in MEMBERSHIP_ONLY_OPERATIONS
+        ), (
             f"{operation.key} names no roles_constant but is not listed in "
-            f"INTENTIONALLY_UNGATED_OPERATIONS — add it there with a reason, "
-            f"or give it a real roles_constant"
+            f"INTENTIONALLY_UNGATED_OPERATIONS or MEMBERSHIP_ONLY_OPERATIONS — "
+            f"add it to one with a reason, or give it a real roles_constant"
+        )
+        assert not (
+            operation.key in INTENTIONALLY_UNGATED_OPERATIONS
+            and operation.key in MEMBERSHIP_ONLY_OPERATIONS
+        ), (
+            f"{operation.key} is listed in both INTENTIONALLY_UNGATED_OPERATIONS "
+            f"and MEMBERSHIP_ONLY_OPERATIONS — a resource grant cannot both "
+            f"satisfy this operation and be refused by it; pick one"
         )
         return
 
@@ -1306,6 +1423,12 @@ def test_the_required_roles_match_the_constant_in_the_code(operation: Operation)
         f"{operation.key} is listed in INTENTIONALLY_UNGATED_OPERATIONS but "
         f"names a real roles_constant ({operation.roles_constant!r}); remove "
         f"it from that table"
+    )
+    assert operation.key not in MEMBERSHIP_ONLY_OPERATIONS, (
+        f"{operation.key} is listed in MEMBERSHIP_ONLY_OPERATIONS but names a "
+        f"real roles_constant ({operation.roles_constant!r}); remove it from "
+        f"that table — a role-gated operation already refuses a bare grant "
+        f"via resource_grant_lacks_required_role"
     )
     module = importlib.import_module(operation.authz_module)
     declared = getattr(module, operation.roles_constant, None)
@@ -1483,14 +1606,17 @@ def test_every_operation_denies_a_principal_without_its_role(operation: Operatio
     where a principal holding nothing is refused.
 
     The "wrong role" half is skipped for :data:`INTENTIONALLY_UNGATED_OPERATIONS`
-    — there is no wrong role to hold when the operation names none, by design
-    (S-007); :func:`test_an_intentionally_ungated_operation_admits_any_active_membership`
-    is that property's positive counterpart, asserted rather than merely
-    unassert-ed here. "Holding nothing is refused" still applies to every
-    operation without exception: ungated is not unauthenticated.
+    and :data:`MEMBERSHIP_ONLY_OPERATIONS` alike — there is no wrong role to
+    hold when the operation names none, by design (S-007);
+    :func:`test_an_intentionally_ungated_operation_admits_any_active_membership`
+    and :func:`test_a_membership_only_operation_admits_any_active_membership`
+    are that property's positive counterpart for each category, asserted
+    rather than merely unassert-ed here. "Holding nothing is refused" still
+    applies to every operation without exception: neither category is
+    unauthenticated.
     """
     row = MATRIX[operation.key]
-    if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS:
+    if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS | MEMBERSHIP_ONLY_OPERATIONS:
         wrong_role = row["student_at_owning_unit"]
         assert not wrong_role.permit and wrong_role.reason == "no_grant", (
             f"{operation.key} admits an active membership carrying no required role"
@@ -1530,6 +1656,36 @@ def test_an_intentionally_ungated_operation_admits_any_active_membership(
     assert observed.permit
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [op for op in OPERATIONS if op.key in MEMBERSHIP_ONLY_OPERATIONS],
+    ids=lambda op: op.key,
+)
+def test_a_membership_only_operation_admits_any_active_membership(
+    operation: Operation,
+) -> None:
+    """The positive half of membership-only, mirroring the ungated one exactly.
+
+    Same mechanism as :func:`test_an_intentionally_ungated_operation_admits_any_active_membership`
+    — an empty ``required_roles`` means ``evaluate``'s role filter never
+    triggers on Path 1 (inherited membership), so a ``student`` membership at
+    the owning unit is exactly as good as any other role there. What
+    distinguishes this category is Path 2, checked separately by
+    :func:`test_a_bare_resource_grant_never_satisfies_a_membership_only_operation`
+    — membership-only means membership, specifically, is what has to be held;
+    this test is the "membership is still enough regardless of role" half of
+    that, not the "a grant alone is not" half.
+    """
+    cell = MATRIX[operation.key]["student_at_owning_unit"]
+    assert cell.permit, (
+        f"{operation.key} is recorded in MEMBERSHIP_ONLY_OPERATIONS but denies "
+        f"an active membership at the owning unit anyway; if it is now "
+        f"role-gated, remove it from that table and give it real required_roles"
+    )
+    observed = _observe(operation, SHAPES_BY_NAME["student_at_owning_unit"])
+    assert observed.permit
+
+
 @pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
 def test_every_operation_denies_a_suspended_principal(operation: Operation) -> None:
     """Suspension is the one control that must not be reachable around.
@@ -1548,34 +1704,70 @@ def test_every_ungated_operation_is_declared_intentional() -> None:
     """Every operation that reaches the policy's ungated grant path says so on purpose.
 
     :func:`smartmatch_authz.evaluate` allows a bare resource grant when an
-    operation names no roles — the guest-reviewer case the policy is designed
-    for. This test used to assert that *no* operation reached that path at
-    all, and its own docstring named the day that changed as "the right
-    moment to confirm deliberately that a grant alone is meant to be enough
-    for it." ``metrics.read`` and ``metrics.drill_down`` are that day:
-    reading an accountable metric is exactly the guest-reviewer shape S-007
-    was written for, and their authorizer already calls ``assert_allowed``
-    with no ``required_roles`` at all.
+    operation names no roles *and* does not require membership either — the
+    guest-reviewer case the policy is designed for. Scoped away from
+    ``require_membership=True`` operations deliberately:
+    :data:`MEMBERSHIP_ONLY_OPERATIONS` also names no required roles, but a
+    bare grant does *not* suffice for it, which is exactly what
+    :func:`test_every_membership_only_operation_is_declared` checks in its own
+    right rather than here. Folding the two together would let a genuinely
+    ungated operation hide behind a membership-only one's empty role set, or
+    the reverse.
 
-    So the confirmation is now a table, not a blanket denial —
-    :data:`INTENTIONALLY_UNGATED_OPERATIONS` — and this checks both
-    directions: an operation cannot be ungated in the code without being
-    declared here (an *undeclared* new hole still fails, which is what keeps
-    this from being a weakening), and the table cannot name an operation that
-    is not actually ungated in the code.
+    This checks both directions: an operation cannot be ungated in the code
+    without being declared here (an *undeclared* new hole still fails, which
+    is what keeps this from being a weakening), and the table cannot name an
+    operation that is not actually ungated in the code.
     """
-    ungated = {operation.key for operation in OPERATIONS if not operation.required_roles}
+    ungated = {
+        operation.key
+        for operation in OPERATIONS
+        if not operation.required_roles and not operation.require_membership
+    }
     undeclared = ungated - INTENTIONALLY_UNGATED_OPERATIONS
     assert not undeclared, (
-        f"these operations name no required roles, so a bare resource grant now "
-        f"suffices for them, and they are not recorded in "
-        f"INTENTIONALLY_UNGATED_OPERATIONS: {sorted(undeclared)}. Confirm that is "
-        f"intended (S-007) and add them there with a reason."
+        f"these operations name no required roles and no require_membership, so "
+        f"a bare resource grant now suffices for them, and they are not "
+        f"recorded in INTENTIONALLY_UNGATED_OPERATIONS: {sorted(undeclared)}. "
+        f"Confirm that is intended (S-007) and add them there with a reason."
     )
     stale = INTENTIONALLY_UNGATED_OPERATIONS - ungated
     assert not stale, (
         f"INTENTIONALLY_UNGATED_OPERATIONS names operations that are actually "
-        f"role-gated in the code: {sorted(stale)}. Remove them from the table."
+        f"role-gated or membership-only in the code: {sorted(stale)}. Remove "
+        f"them from the table."
+    )
+
+
+def test_every_membership_only_operation_is_declared() -> None:
+    """The membership-only counterpart of the ungated check above, same rigour.
+
+    An operation lands in :data:`MEMBERSHIP_ONLY_OPERATIONS` exactly when it
+    names no ``required_roles`` (nothing to enumerate) but does pass
+    ``require_membership=True`` (a bare grant is still refused) — the shape
+    the ratified metrics authorization decision's aggregate rule needs and
+    S-007's original two categories could not express. Checked both
+    directions, the same way :func:`test_every_ungated_operation_is_declared_intentional`
+    is: an operation cannot gain this shape in the code without being declared
+    here, and the table cannot name an operation the code does not actually
+    give this shape.
+    """
+    membership_only = {
+        operation.key
+        for operation in OPERATIONS
+        if not operation.required_roles and operation.require_membership
+    }
+    undeclared = membership_only - MEMBERSHIP_ONLY_OPERATIONS
+    assert not undeclared, (
+        f"these operations name no required roles but do require membership, "
+        f"and are not recorded in MEMBERSHIP_ONLY_OPERATIONS: "
+        f"{sorted(undeclared)}. Add them there with a reason."
+    )
+    stale = MEMBERSHIP_ONLY_OPERATIONS - membership_only
+    assert not stale, (
+        f"MEMBERSHIP_ONLY_OPERATIONS names operations the code does not "
+        f"actually give that shape: {sorted(stale)}. Remove them from the "
+        f"table, or restore require_membership=True on their authorizer."
     )
 
 
@@ -1584,8 +1776,19 @@ def test_every_ungated_operation_is_declared_intentional() -> None:
 # ---------------------------------------------------------------------------
 
 
+#: Operations that are neither intentionally ungated nor membership-only —
+#: i.e. a bare ``resource_grant`` must be refused via the ordinary
+#: ``required_roles`` check (``resource_grant_lacks_required_role``), not via
+#: ``require_membership``. Excludes both tables, not just the ungated one:
+#: before the metrics authorization decision this repository had only two
+#: categories, and ``INTENTIONALLY_UNGATED_OPERATIONS`` was the only one to
+#: subtract; now there are three, and a membership-only operation is no more
+#: "role-gated" than an ungated one is — it just fails a different way.
 _ROLE_GATED_OPERATIONS = tuple(
-    operation for operation in OPERATIONS if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS
+    operation
+    for operation in OPERATIONS
+    if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS
+    and operation.key not in MEMBERSHIP_ONLY_OPERATIONS
 )
 
 
@@ -1669,6 +1872,45 @@ def test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation(
         required_roles=operation.required_roles,
     )
     assert decision.allowed and decision.reason == "explicit_resource_allow"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [op for op in OPERATIONS if op.key in MEMBERSHIP_ONLY_OPERATIONS],
+    ids=lambda op: op.key,
+)
+def test_a_bare_resource_grant_never_satisfies_a_membership_only_operation(
+    operation: Operation,
+) -> None:
+    """The direct inverse of the ungated test above — pinned on ``metrics.read``.
+
+    This is the test the task brief asked for by name: before the metrics
+    authorization decision was ratified, ``metrics.read`` sat in
+    :data:`INTENTIONALLY_UNGATED_OPERATIONS` and this exact shape —
+    ``resource_grant_only`` — *permitted*. The decision's §4 answers "bare
+    resource_grant reads aggregates?" with **No — role required**, which this
+    codebase expresses not as a role requirement (there is none to enumerate)
+    but as membership required (``require_membership=True``). The reason code,
+    ``resource_grant_lacks_membership``, is what tells this population apart
+    from a role-gated operation's ``resource_grant_lacks_required_role`` in
+    the audit trail — the same distinction
+    :func:`test_the_distinct_denial_reason_survives` draws for
+    :data:`_ROLE_GATED_OPERATIONS`, drawn here for this table instead.
+    """
+    cell = MATRIX[operation.key]["resource_grant_only"]
+    assert not cell.permit and cell.reason == "resource_grant_lacks_membership", (
+        f"{operation.key} is recorded in MEMBERSHIP_ONLY_OPERATIONS but admits "
+        f"a bare resource grant anyway; if that is now intended, move it to "
+        f"INTENTIONALLY_UNGATED_OPERATIONS instead"
+    )
+    observed = _observe(operation, SHAPES_BY_NAME["resource_grant_only"])
+    assert not observed.permit and observed.reason == "resource_grant_lacks_membership"
+
+    # Same shortcut as the ungated test above: `_observe` only records a
+    # reason for denials, which is exactly what this branch is, so the
+    # decision is available through it directly — no need for the second,
+    # direct `evaluate` call the allow-side test needs to see past `_observe`
+    # recording no reason for a permit.
 
 
 def test_resource_grant_carries_no_role_field() -> None:
