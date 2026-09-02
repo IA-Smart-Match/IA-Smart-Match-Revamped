@@ -99,10 +99,21 @@ there, and without it `make setup` fails on its first line with exit code 1.
 ```bash
 sudo apt install -y python3-venv     # Debian/Ubuntu only
 make setup          # virtualenv + hash-verified dependencies (slow; do not interrupt)
-make db-up          # local PostgreSQL + dev database — REQUIRES ROOT
+sudo make db-up     # local PostgreSQL + dev database — REQUIRES ROOT
 make migrate        # apply the Foundation schema
 make check          # the nine gates that run without infrastructure
 ```
+
+Those three database commands — `sudo make db-up`, `make migrate`,
+`make test-integration` — are what turn an installed-but-empty PostgreSQL into
+one the tests can use. Run the third to prove the schema works:
+
+```bash
+make test-integration   # pytest tests/ -m integration — REQUIRES the migrated database
+```
+
+Full installation guide, including manual database setup when `make db-up`
+cannot run: [`INSTALL.md`](INSTALL.md).
 
 `make check` runs nine gates: formatting, lint, strict typing, architecture
 import boundaries, the no-database test lane, the forbidden-behavior scan, the
@@ -123,7 +134,10 @@ mean a green CI.** Two differences matter. `make test` is
 `pytest tests/ -m "not integration"` — the no-database lane, not the full suite;
 the integration tests need PostgreSQL and *skip themselves* when none is
 reachable, so a clean local run proves nothing about them unless you actually
-had a database. And CI additionally runs the migration from an empty database,
+had a database. Confirm you did: a migrated database answers
+`select version_num from alembic_version` with the newest file in
+`db/migrations/versions/`, and `pytest tests/ -m integration` then reports
+`passed` rather than `skipped`. And CI additionally runs the migration from an empty database,
 the full suite including the integration lane, the OpenAPI drift check, the
 dependency-lock recompilation, `pip-audit --strict`, gitleaks over full history,
 the tracked-artifact checks, and the container image build. `make test-all` and
@@ -217,6 +231,7 @@ Contract-Refs: v1.1 §N.N
 
 | Document | Contents |
 |---|---|
+| [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |
