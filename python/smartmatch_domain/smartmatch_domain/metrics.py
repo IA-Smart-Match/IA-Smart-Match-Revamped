@@ -80,6 +80,16 @@ class OpportunityCategoryShape(Enum):
     can review and map to an in-list category; a row with no category
     recorded at all has nothing yet to map — it needs a category assigned
     before it can even be reviewed for inclusion.
+
+    "No category recorded" means ``None`` *or* blank after stripping.
+    ``ABSENT`` is about the work item, not about the storage representation,
+    and an import that wrote ``""`` or ``"   "`` into the column recorded no
+    category just as surely as one that wrote ``NULL``. Reading a blank as
+    ``OUT_OF_LIST`` would file it as an unmapped label for a coordinator to
+    map, which is the wrong queue — there is no label there to map. This
+    follows the convention this repository already states in
+    :func:`smartmatch_domain.ingest.assess_columns`: "only ``None`` and
+    whitespace are blank on their own".
     """
 
     IN_LIST = "in-list"
@@ -92,11 +102,18 @@ def shape_opportunity_category(category: str | None) -> OpportunityCategoryShape
 
     Returns ``IN_LIST`` when ``category`` (case-insensitively) matches
     `OPPORTUNITY_IN_LIST_CATEGORIES`; ``ABSENT`` when no category was
-    recorded at all (``None``); and ``OUT_OF_LIST`` for any other value —
-    a raw or unmapped label the coordinator has not yet reviewed. Neither
-    ``OUT_OF_LIST`` nor ``ABSENT`` is ever reported as an error.
+    recorded at all — ``None``, or a string that is empty once stripped; and
+    ``OUT_OF_LIST`` for any other value — a raw or unmapped label the
+    coordinator has not yet reviewed. Neither ``OUT_OF_LIST`` nor ``ABSENT``
+    is ever reported as an error.
+
+    ``None`` and blank-after-strip are the *same* outcome on purpose, per the
+    repository's stated convention (:func:`smartmatch_domain.ingest.assess_columns`:
+    "only ``None`` and whitespace are blank on their own"). Treating ``""``
+    as ``OUT_OF_LIST`` would send a row with no category at all down O2/O3's
+    map-this-label path instead of the assign-a-category one.
     """
-    if category is None:
+    if category is None or not category.strip():
         return OpportunityCategoryShape.ABSENT
     if category.strip().casefold() in OPPORTUNITY_IN_LIST_CATEGORIES:
         return OpportunityCategoryShape.IN_LIST

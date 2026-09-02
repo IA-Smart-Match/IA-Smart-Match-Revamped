@@ -169,6 +169,23 @@ _OWNING_QUERIES: dict[str, _OwningQuery] = {
 #: deliberately tighter than the aggregate read below.
 _DRILL_DOWN_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
+#: Roles whose **aggregate** reach is the whole tenant rather than their own
+#: membership subtree (the ratified metrics-authorization decision §4, CLOSED
+#: 2026-09-02: "``admin``: unrestricted within tenant for aggregates").
+#:
+#: Only ``admin``, and only for aggregates. Nothing in the schema requires an
+#: ``admin`` membership to be rooted at the tenant root —
+#: ``membership.granted_path`` is an ordinary ``ltree`` — so without this an
+#: admin attached below the root is refused a sibling unit's aggregates, which
+#: §4 does not say. Deliberately *not* passed by
+#: :func:`_authorize_drill_down_read`: §4's scope bullet confines "unrestricted
+#: within tenant" to aggregates and sends drill-down back to the row above it
+#: in the same table, which is a *role* rule (``admin``/``coordinator``) and
+#: says nothing about widening scope. Deny-by-default settles the rest: a
+#: reading that widened row-level access to `row_data` across the tenant is a
+#: permit §4 does not name, so drill-down keeps ordinary subtree containment.
+_TENANT_WIDE_AGGREGATE_ROLES: Final[frozenset[str]] = frozenset({"admin"})
+
 
 def _authorize_aggregate_read(
     session: Session,
@@ -185,6 +202,15 @@ def _authorize_aggregate_read(
     which withdraws the explicit-grant path as a substitute for holding no
     membership. See ``smartmatch_authz.policy`` module docstring rule 5 and
     ``tests/authz/test_policy_matrix.py`` (:data:`MEMBERSHIP_ONLY_OPERATIONS`).
+
+    §4's scope rules add one thing on top of that, which ordinary subtree
+    containment cannot express: "``admin``: unrestricted within tenant for
+    aggregates". :data:`_TENANT_WIDE_AGGREGATE_ROLES` carries it, via the
+    policy's ``tenant_wide_roles`` keyword (module docstring rule 7) — so an
+    active ``admin`` membership anywhere in the tenant reads any unit's
+    aggregates, including a sibling unit its own path does not cover.
+    Suspension, tenant mismatch, and an explicit resource deny are all decided
+    ahead of it and are unaffected.
     """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -197,6 +223,7 @@ def _authorize_aggregate_read(
         ),
         at=utc_now(),
         require_membership=True,
+        tenant_wide_roles=_TENANT_WIDE_AGGREGATE_ROLES,
     )
 
 
@@ -216,6 +243,18 @@ def _authorize_drill_down_read(
     consistent with :func:`_authorize_aggregate_read` and with what the
     decision record actually authorizes — membership, not mere resource
     reach, admin/coordinator role notwithstanding.
+
+    No ``tenant_wide_roles`` here, unlike :func:`_authorize_aggregate_read`.
+    §4's scope bullet reads "``admin``: unrestricted within tenant for
+    aggregates; drill-down per row above", and the row above restricts
+    ``metrics.drill_down`` by *role* (``admin``, ``coordinator``) without
+    saying anything about scope. Drill-down therefore keeps ordinary subtree
+    containment: an admin attached to a sibling unit reads that unit's
+    aggregates but not another unit's ``row_data``, which §3 rates **High** —
+    the full imported row payload, contact fields included (P9 Gate B). Under
+    deny-by-default the narrower reading is the only one available, since the
+    wider one would be a permit the closed decision does not name. See
+    :data:`_TENANT_WIDE_AGGREGATE_ROLES`.
     """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(

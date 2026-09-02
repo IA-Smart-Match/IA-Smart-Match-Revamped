@@ -105,6 +105,25 @@ requiring a role. ``metrics.drill_down`` did not need a third category — the
 decision role-gates it outright (``admin``, ``coordinator`` only), so it is
 an ordinary row naming :data:`_DRILL_DOWN_ROLES`, and both metrics operations
 have left :data:`INTENTIONALLY_UNGATED_OPERATIONS` for good.
+
+## The one sanctioned way past unit scoping
+
+The same §4 carries a *scope* rule as well as role rules: "**``admin``:**
+unrestricted within tenant for aggregates". Ordinary subtree containment
+cannot express that, because nothing in the schema roots an ``admin``
+membership at the tenant root — ``membership.granted_path`` is an ordinary
+``ltree`` — so an admin attached below it was refused a sibling unit's
+aggregates, a wrongful denial rather than a leak.
+:data:`TENANT_WIDE_ROLE_OPERATIONS` is the third and last category, and it is
+fenced harder than the other two because it is the only one that *widens*
+anything: the mechanism is enumerated (``tenant_wide_roles``, policy module
+docstring rule 7 — a role reaches tenant-wide only because an operation named
+it), the ``admin_at_sibling_unit`` shape makes it visible as a full column,
+and :func:`test_no_operation_is_reachable_from_a_sibling_department` now
+asserts the exception as an *equality* against that table rather than leaving
+"if an operation is genuinely tenant-wide, say so here" as advice. It applies
+to aggregates only: ``metrics.drill_down`` passes no ``tenant_wide_roles``, so
+the same admin reads a sibling unit's totals and not its ``row_data``.
 """
 
 from __future__ import annotations
@@ -121,6 +140,7 @@ import pytest
 from smartmatch_api import job_authz
 from smartmatch_api.errors import ApiError
 from smartmatch_authz import (
+    AccessDecision,
     AuthorizationError,
     Effect,
     Membership,
@@ -462,6 +482,25 @@ class Operation:
     #: itself, and deleting the keyword from the real authorizer would leave
     #: this whole file green while a bare grant walked through §4's denial.
     require_membership: bool = False
+    #: The module-level constant the authorizer passes as ``tenant_wide_roles``
+    #: (policy module docstring, rule 7), or ``None`` when it passes none — the
+    #: ordinary case, and the default, because tenant-wide reach is an
+    #: exception a decision record has to name. ``metrics.read`` is the only
+    #: member: the ratified metrics-authorization decision's §4 scope rules say
+    #: "``admin``: unrestricted within tenant for aggregates", which subtree
+    #: containment cannot express for an admin attached below the tenant root.
+    #: Held against the source *and* against the live object by
+    #: :func:`test_the_authorizer_passes_the_tenant_wide_roles_the_matrix_names`,
+    #: in both directions and by name — :func:`_authorize` builds its policy
+    #: call from :data:`tenant_wide_roles` below, so without that check this
+    #: pair would be compared only with itself and deleting the keyword from
+    #: ``_authorize_aggregate_read`` would leave ``tests/authz`` green while
+    #: §4's tenant-wide admin permit silently disappeared.
+    tenant_wide_roles_constant: str | None = None
+    #: What that constant contains, or empty when there is none. Checked
+    #: against the live object, so widening the tenant-wide set in the code
+    #: without recording it here fails.
+    tenant_wide_roles: frozenset[str] = frozenset()
 
     @property
     def resource_id(self) -> str:
@@ -553,10 +592,22 @@ OPERATIONS: tuple[Operation, ...] = (
     # from the empty ``required_roles``, exactly as it did for the ungated
     # case — there is still no module-level roles constant to name.
     #
+    # ``metrics.read`` also carries the one *scope* exception in this file:
+    # ``tenant_wide_roles=_TENANT_WIDE_AGGREGATE_ROLES``. §4's scope rules say
+    # "``admin``: unrestricted within tenant for aggregates", and subtree
+    # containment cannot say that for an admin whose membership hangs below the
+    # tenant root — nothing in the schema requires it to be rooted there. The
+    # ``admin_at_sibling_unit`` shape is what makes the difference observable,
+    # and it is the only cell in this whole matrix where a principal reaches a
+    # unit no membership of theirs covers.
+    #
     # ``metrics.drill_down`` (``_authorize_drill_down_read``) is role-gated
     # outright — ``admin``/``coordinator`` only, :data:`_DRILL_DOWN_ROLES` — so
     # it is an ordinary row, the same shape as every job operation above, and
-    # is read off the source the same way (see the two checks below).
+    # is read off the source the same way (see the two checks below). It gets
+    # **no** ``tenant_wide_roles``: §4 sends drill-down "per row above", which
+    # is a role rule and not a scope one, so row-level access to ``row_data``
+    # (§3: **High** sensitivity) keeps ordinary containment.
     Operation(
         key="metrics.read",
         method="GET",
@@ -569,6 +620,8 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
         require_membership=True,
+        tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
+        tenant_wide_roles=frozenset({"admin"}),
     ),
     Operation(
         key="metrics.drill_down",
@@ -624,6 +677,30 @@ INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset()
 #: proving the same shape of grant is refused here where it used to be admitted.
 MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
 
+#: Operations that permit a role *outside* the resource's own subtree — the one
+#: deliberate exception to the unit scoping
+#: :func:`test_no_operation_is_reachable_from_a_sibling_department` otherwise
+#: enforces without exception. Mechanically: a non-empty
+#: ``tenant_wide_roles`` on the real authorizer's policy call (policy module
+#: docstring, rule 7).
+#:
+#: ``metrics.read`` is the only member, and the ratified metrics-authorization
+#: decision's §4 is the whole of its authority: "**``admin``:** unrestricted
+#: within tenant for aggregates". Note what it is *not*: not
+#: ``metrics.drill_down`` (§4 sends that "per row above", a role rule that says
+#: nothing about scope, and §3 rates its ``row_data`` **High**), and not any
+#: role but ``admin``.
+#:
+#: Checked in both directions by
+#: :func:`test_every_tenant_wide_operation_is_declared`, exactly as the other
+#: two tables are, so an operation cannot gain tenant-wide reach in the code
+#: without landing here, and this table cannot claim reach the code does not
+#: give. The permit itself is exercised by
+#: :func:`test_a_tenant_wide_role_reaches_a_unit_its_own_path_does_not_cover`
+#: and its precedence limits by
+#: :func:`test_a_tenant_wide_role_never_outranks_suspension_tenant_or_an_explicit_deny`.
+TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
+
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
 
@@ -675,6 +752,14 @@ SHAPES: tuple[Shape, ...] = (
         name="coordinator_at_sibling_unit",
         description="coordinator in a different department of the same tenant",
         memberships=(_member(SIBLING_UNIT, "coordinator"),),
+    ),
+    Shape(
+        name="admin_at_sibling_unit",
+        description=(
+            "admin membership in a different department of the same tenant — "
+            "an admin the org tree does not root at the tenant root"
+        ),
+        memberships=(_member(SIBLING_UNIT, "admin"),),
     ),
     Shape(
         name="student_at_owning_unit",
@@ -806,6 +891,17 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "have until A5 gave a job a unit of its own; they have it now."
             ),
         ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "admin is a required role here and the membership is active, so "
+                "the only thing refusing this principal is the path: a sibling "
+                "department does not contain the owning unit. Being an admin "
+                "somewhere is not authority everywhere — `metrics.read` is the "
+                "single operation the ratified decision makes tenant-wide, and "
+                "it is tenant-wide for *aggregates* only."
+            ),
+        ),
         "student_at_owning_unit": deny(
             "no_grant",
             why="importing records into a unit is role-gated, not membership-gated",
@@ -858,6 +954,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "0006) is that unit, and the policy's inherited-grant path now "
                 "does the scoping the router used to skip."
             ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; jobs are scoped by their own unit",
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -922,6 +1022,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "admin_at_org_root": permit(),
         "coordinator_at_owning_unit": permit(),
         "coordinator_at_sibling_unit": deny("no_grant"),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="same as job.read — one authorizer, one answer",
+        ),
         "student_at_owning_unit": deny("no_grant"),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny("resource_grant_lacks_required_role"),
@@ -945,6 +1049,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "coordinator_at_sibling_unit": deny(
             "no_grant",
             why="another department's failed work is no longer re-drivable from outside it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="a command on another department's job is refused on the path, admin or not",
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -986,6 +1094,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "admin_at_org_root": permit(),
         "coordinator_at_owning_unit": permit(),
         "coordinator_at_sibling_unit": deny("no_grant"),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="abandon shares `authorize_job_command` with re-drive, at the same tightness",
+        ),
         "student_at_owning_unit": deny(
             "no_grant",
             why="closing work permanently removes it from everyone else's view",
@@ -1026,6 +1138,25 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "unit scoping is a path question, not a role question — it still "
                 "applies with no required_roles at all, exactly as it does on "
                 "every gated operation above"
+            ),
+        ),
+        "admin_at_sibling_unit": permit(
+            why=(
+                "the decision's §4 scope rule, made real, and the only cell in "
+                "this matrix where a principal reaches a unit no membership of "
+                "theirs covers: '**admin:** unrestricted within tenant for "
+                "aggregates'. Nothing in the schema roots an admin membership "
+                "at the tenant root — `membership.granted_path` is an ordinary "
+                "`ltree` — so an admin attached to a sibling department was "
+                "getting a 403 on this unit's aggregates, which §4 does not "
+                "say. `_authorize_aggregate_read` passes "
+                "`tenant_wide_roles=_TENANT_WIDE_AGGREGATE_ROLES`, and "
+                "`evaluate`'s Path 1b (policy module docstring, rule 7) allows "
+                "with `tenant_wide_role_grant` — a distinct code, so this "
+                "population stays countable rather than blending into "
+                "`inherited_unit_grant`. Compare `coordinator_at_sibling_unit` "
+                "immediately above, which still denies: the widening is by "
+                "enumerated role, not by 'sibling units are fine now'."
             ),
         ),
         "student_at_owning_unit": permit(
@@ -1100,6 +1231,22 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "coordinator_at_sibling_unit": deny(
             "no_grant",
             why="unit scoping is a path question, not a role question — see metrics.read",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the split that keeps §4's tenant-wide rule where §4 put it. "
+                "The same principal reads this unit's *aggregates* one row "
+                "above, and is refused its rows here: §4's scope bullet says "
+                "'unrestricted within tenant **for aggregates**; drill-down per "
+                "row above', and the row above is a role rule "
+                "(`admin`/`coordinator`) that says nothing about widening "
+                "scope. `row_data` is §3's **High** sensitivity — the full "
+                "imported row payload, contact fields included (P9 Gate B) — "
+                "so under deny-by-default the narrower reading is the only one "
+                "available: `_authorize_drill_down_read` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses."
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -1221,6 +1368,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
             at=NOW,
             required_roles=operation.required_roles,
             require_membership=operation.require_membership,
+            tenant_wide_roles=operation.tenant_wide_roles,
         )
         return
 
@@ -1598,6 +1746,125 @@ def test_the_authorizer_passes_require_membership_exactly_when_the_matrix_says_s
             f"require_membership=False; set the field on the row so the matrix "
             f"describes the code"
         )
+
+
+def _tenant_wide_roles_argument(function_node: ast.AST) -> str | None:
+    """The name a policy call inside ``function_node`` passes as ``tenant_wide_roles``.
+
+    Returns the referenced constant's name, or ``None`` when no policy call in
+    the function passes the keyword at all. Only a plain name (or a dotted
+    attribute, whose ``.attr`` is what matters) is recognised — the same
+    deliberate narrowness :func:`_passes_require_membership_keyword` takes, and
+    for the same reason: an inline set literal or a computed expression in that
+    position is something this file cannot compare against a live object, and
+    reading an uncomparable expression as "fine" is how a source check stops
+    catching anything. If an authorizer ever needs to build the set inline,
+    this returning ``None`` and failing loudly is the correct outcome.
+    """
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Call):
+            continue
+        if _referenced_name(child.func) not in _POLICY_ENTRY_POINTS:
+            continue
+        for keyword in child.keywords:
+            if keyword.arg == "tenant_wide_roles":
+                return _referenced_name(keyword.value)
+    return None
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_the_authorizer_passes_the_tenant_wide_roles_the_matrix_names(
+    operation: Operation,
+) -> None:
+    """``tenant_wide_roles`` must describe the code, in both directions and by name.
+
+    The exact counterpart of
+    :func:`test_the_authorizer_passes_require_membership_exactly_when_the_matrix_says_so`,
+    and it exists for the same structural reason: :func:`_authorize` builds its
+    ``assert_allowed`` call *from the row's own field*, so without a source
+    check the row would be compared with itself and deleting
+    ``tenant_wide_roles=_TENANT_WIDE_AGGREGATE_ROLES`` from
+    ``_authorize_aggregate_read`` would leave the whole of ``tests/authz``
+    green.
+
+    What that mutation costs is §4's tenant-wide admin rule: an active
+    ``admin`` membership attached below the tenant root — which nothing in the
+    schema forbids — goes back to a 403 on a sibling unit's aggregates, the
+    wrongful denial this keyword exists to fix. Only
+    ``tests/contract/test_metrics.py`` would otherwise notice, and only with a
+    live PostgreSQL.
+
+    Three things are asserted, not one: that the keyword is passed exactly for
+    the operations the matrix marks tenant-wide (so quietly widening
+    ``metrics.drill_down`` fails here too), that the constant passed is the one
+    the row names (so swapping in a wider set fails), and that the constant's
+    *live value* matches what the row records (so editing
+    ``_TENANT_WIDE_AGGREGATE_ROLES`` to add ``coordinator`` fails).
+    """
+    function_node = _authorizer_function_node(operation)
+    passed = _tenant_wide_roles_argument(function_node)
+
+    if operation.tenant_wide_roles_constant is None:
+        assert operation.tenant_wide_roles == frozenset(), (
+            f"{operation.key} names no tenant_wide_roles_constant but records "
+            f"tenant_wide_roles={sorted(operation.tenant_wide_roles)}"
+        )
+        assert passed is None, (
+            f"{operation.authz_module}.{operation.authorizer} now passes "
+            f"tenant_wide_roles={passed!r}, but MATRIX records {operation.key} "
+            f"as ordinarily unit-scoped. A tenant-wide role reaches units no "
+            f"membership of the caller's covers — the one thing "
+            f"test_no_operation_is_reachable_from_a_sibling_department "
+            f"otherwise forbids — so it has to be recorded on the row and "
+            f"declared in TENANT_WIDE_ROLE_OPERATIONS with the decision that "
+            f"authorizes it."
+        )
+        return
+
+    assert passed == operation.tenant_wide_roles_constant, (
+        f"MATRIX says {operation.key} passes "
+        f"{operation.tenant_wide_roles_constant!r} as tenant_wide_roles, but "
+        f"{operation.authz_module}.{operation.authorizer} passes {passed!r}. "
+        f"Without that argument an admin whose membership hangs below the "
+        f"tenant root is refused a sibling unit's aggregates, which the "
+        f"ratified metrics authorization decision (§4, 'admin: unrestricted "
+        f"within tenant for aggregates') does not say. Restore it, or — if "
+        f"the policy really changed — change the row and the decision record."
+    )
+    module = importlib.import_module(operation.authz_module)
+    declared = getattr(module, operation.tenant_wide_roles_constant, None)
+    assert declared is not None, (
+        f"{operation.authz_module} has no {operation.tenant_wide_roles_constant}"
+    )
+    assert declared == operation.tenant_wide_roles, (
+        f"{operation.key}: MATRIX states tenant-wide roles "
+        f"{sorted(operation.tenant_wide_roles)} but "
+        f"{operation.authz_module}.{operation.tenant_wide_roles_constant} is "
+        f"{sorted(declared)}"
+    )
+
+
+def test_every_tenant_wide_operation_is_declared() -> None:
+    """Both directions, exactly as the other two category tables are checked.
+
+    Tenant-wide reach is the only sanctioned way past unit scoping in this
+    codebase, so an operation must not acquire it without landing in
+    :data:`TENANT_WIDE_ROLE_OPERATIONS`, and the table must not claim it for
+    an operation the code does not give it.
+    """
+    tenant_wide = {operation.key for operation in OPERATIONS if operation.tenant_wide_roles}
+    undeclared = tenant_wide - TENANT_WIDE_ROLE_OPERATIONS
+    assert not undeclared, (
+        f"these operations now permit a role outside the resource's own "
+        f"subtree and are not recorded in TENANT_WIDE_ROLE_OPERATIONS: "
+        f"{sorted(undeclared)}. Name the decision that authorizes it."
+    )
+    stale = TENANT_WIDE_ROLE_OPERATIONS - tenant_wide
+    assert not stale, (
+        f"TENANT_WIDE_ROLE_OPERATIONS names operations the code does not "
+        f"actually give tenant-wide reach: {sorted(stale)}. Remove them, or "
+        f"restore the tenant_wide_roles argument on their authorizer."
+    )
 
 
 def test_the_matrix_is_a_full_rectangle() -> None:
@@ -2072,6 +2339,175 @@ def test_no_operation_is_reachable_from_a_sibling_department() -> None:
         f"resource the API authorizes now carries an owning unit — org_unit is its "
         f"own, and job has one as of migration 0006."
     )
+
+    # The sibling shape above holds a *coordinator*, so it cannot see the one
+    # sanctioned way past unit scoping: `admin_at_sibling_unit`, whose role the
+    # ratified metrics-authorization decision makes tenant-wide for aggregates.
+    # Left unchecked, "if an operation is genuinely tenant-wide, say so here
+    # deliberately" would be advice rather than a control — a second operation
+    # could quietly start admitting a sibling department's admin and no
+    # assertion in this file would move. So the exception is enumerated too:
+    # only the operations declared in TENANT_WIDE_ROLE_OPERATIONS may permit
+    # it, and every one of them must.
+    tenant_wide_leaking = {
+        operation.key
+        for operation in OPERATIONS
+        if MATRIX[operation.key]["admin_at_sibling_unit"].permit
+    }
+    assert tenant_wide_leaking == TENANT_WIDE_ROLE_OPERATIONS, (
+        f"operations admitting an admin from a different department are "
+        f"{sorted(tenant_wide_leaking)}, but TENANT_WIDE_ROLE_OPERATIONS "
+        f"declares {sorted(TENANT_WIDE_ROLE_OPERATIONS)}. Tenant-wide reach is "
+        f"the decision record's exception (§4, aggregates only) and has to be "
+        f"declared where it is taken."
+    )
+
+
+def _decision_for(
+    shape: Shape,
+    *,
+    operation_key: str = "metrics.read",
+    tenant_wide_roles: frozenset[str] | None = None,
+) -> AccessDecision:
+    """Evaluate one shape against ``metrics.read``'s resource, directly.
+
+    Goes to :func:`evaluate` rather than through :func:`_observe` because these
+    tests need the *allow* reason code, which :class:`Cell` does not carry (a
+    permit cell has ``reason=None`` by construction) — the same shortcut
+    :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`
+    takes. ``tenant_wide_roles`` overrides the row's own value so a single
+    shape can be run with the mechanism on and off.
+    """
+    operation = OPERATIONS_BY_KEY[operation_key]
+    resolved = _resolved(operation, shape)
+    return evaluate(
+        resolved.principal,
+        Resource(
+            resource_type=operation.resource_type,
+            resource_id=operation.resource_id,
+            tenant_id=str(resolved.tenant_id),
+            owning_unit_path=OrgPath.parse(OWNING_UNIT),
+        ),
+        at=NOW,
+        required_roles=operation.required_roles,
+        require_membership=operation.require_membership,
+        tenant_wide_roles=(
+            operation.tenant_wide_roles if tenant_wide_roles is None else tenant_wide_roles
+        ),
+    )
+
+
+def test_a_tenant_wide_role_reaches_a_unit_its_own_path_does_not_cover() -> None:
+    """§4's admin rule, run in both directions so the permit is attributable.
+
+    A denial or a permit on its own proves little here — the admin shape could
+    be permitted for some unrelated reason, or refused because the whole role
+    check broke. So the *same* principal and the *same* resource are evaluated
+    twice, varying only ``tenant_wide_roles``: refused ``no_grant`` without it
+    (which is the bug — a wrongful 403 on a sibling unit's aggregates for an
+    admin the org tree does not root at the tenant root), allowed with it, and
+    allowed specifically because of it, which the distinct reason code
+    ``tenant_wide_role_grant`` is what records.
+    """
+    shape = SHAPES_BY_NAME["admin_at_sibling_unit"]
+
+    without = _decision_for(shape, tenant_wide_roles=frozenset())
+    assert not without.allowed and without.reason == "no_grant", (
+        "the sibling admin is reachable without the tenant-wide keyword, so "
+        "the permit below proves nothing about the keyword"
+    )
+
+    with_it = _decision_for(shape)
+    assert with_it.allowed and with_it.reason == "tenant_wide_role_grant"
+    assert with_it.matched_path == OrgPath.parse(SIBLING_UNIT)
+
+
+def test_a_tenant_wide_role_does_not_relabel_an_ordinary_containment_permit() -> None:
+    """An admin whose membership *does* cover the unit still reports the old reason.
+
+    The keyword is checked after Path 1, deliberately (policy module docstring,
+    rule 7), so ``tenant_wide_role_grant`` means exactly one thing in the audit
+    trail: this permit existed only because the role reaches tenant-wide. If
+    the check moved ahead of Path 1 every admin permit would start carrying it
+    and the population would stop being countable.
+    """
+    decision = _decision_for(SHAPES_BY_NAME["admin_at_org_root"])
+    assert decision.allowed and decision.reason == "inherited_unit_grant"
+
+
+def test_a_tenant_wide_role_never_outranks_suspension_tenant_or_an_explicit_deny() -> None:
+    """The three controls that must survive the widening, asserted rather than assumed.
+
+    Every one of these shapes holds an ``admin`` membership, so each would be
+    permitted by Path 1b on the role alone if the new check had been placed
+    ahead of the earlier rules instead of after them. That is precisely the
+    defect a widening like this invites — a role that reaches everywhere
+    quietly reaching *past* suspension, tenant isolation, or an administrator's
+    explicit carve-out — so it is pinned per control, with the reason code, not
+    left to the reading of the source.
+    """
+    suspended = _decision_for(SHAPES_BY_NAME["suspended_admin"])
+    assert not suspended.allowed and suspended.reason == "principal_suspended"
+
+    denied = _decision_for(SHAPES_BY_NAME["admin_with_explicit_deny"])
+    assert not denied.allowed and denied.reason == "explicit_resource_deny"
+
+    # The cross-tenant shape carries a coordinator, so the tenant check is put
+    # to a real admin here: the same tenant-wide role, in the wrong tenant.
+    cross_tenant_admin = Shape(
+        name="cross_tenant_admin",
+        description="an admin whose authorization tenant is another tenant entirely",
+        memberships=(_member(SIBLING_UNIT, "admin"),),
+        cross_tenant=True,
+    )
+    crossed = _decision_for(cross_tenant_admin)
+    assert not crossed.allowed and crossed.reason == "tenant_mismatch"
+
+    expired_admin = Shape(
+        name="expired_admin_at_sibling_unit",
+        description="a tenant-wide admin membership whose validity window closed yesterday",
+        memberships=(_member(SIBLING_UNIT, "admin", valid_until=NOW - timedelta(days=1)),),
+    )
+    expired = _decision_for(expired_admin)
+    assert not expired.allowed and expired.reason == "no_grant", (
+        "an expired membership grants nothing, tenant-wide role or not"
+    )
+
+
+def test_a_blank_role_gains_nothing_from_the_tenant_wide_path() -> None:
+    """Rule 6 holds on Path 1b too, and is reachable there only through a caller mistake.
+
+    ``membership.role`` is ``sa.Text NOT NULL`` with no non-blank ``CHECK``, so
+    a blank-role row is storable out-of-band. On this path it can only match if
+    a blank string is also placed in ``tenant_wide_roles`` — a caller mistake
+    rather than a data one, and exactly the kind that turns a blank column into
+    tenant-wide authority. The guard makes it inert; this is what would notice
+    if it were removed as redundant.
+    """
+    blank_role_admin = Shape(
+        name="blank_role_at_sibling_unit",
+        description="an active membership whose role column is whitespace-only",
+        memberships=(_member(SIBLING_UNIT, "   "),),
+    )
+    decision = _decision_for(blank_role_admin, tenant_wide_roles=frozenset({"   ", "admin"}))
+    assert not decision.allowed and decision.reason == "no_grant"
+
+
+def test_a_tenant_wide_role_is_not_a_grant_of_membership_to_everyone() -> None:
+    """Only the enumerated role widens; every other shape is refused as before.
+
+    The risk in a keyword like this is not the role it names but the ones it
+    might drag along — a check written as "has any membership and the operation
+    is tenant-wide" would permit the coordinator and the student too. So the
+    shapes that must *not* move are asserted against the real evaluation with
+    the keyword live, rather than inferred from the matrix agreeing with itself.
+    """
+    for shape_name in ("coordinator_at_sibling_unit", "member_with_no_memberships"):
+        decision = _decision_for(SHAPES_BY_NAME[shape_name])
+        assert not decision.allowed and decision.reason == "no_grant", (
+            f"{shape_name} was admitted by the tenant-wide path; only the roles "
+            f"in _TENANT_WIDE_AGGREGATE_ROLES may reach outside their subtree"
+        )
 
 
 def test_the_owning_unit_is_what_decides_a_job_operation() -> None:

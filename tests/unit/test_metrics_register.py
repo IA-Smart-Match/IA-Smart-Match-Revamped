@@ -133,6 +133,33 @@ def test_absent_category_shapes_as_absent_not_out_of_list() -> None:
     assert shape_opportunity_category(None) is not OpportunityCategoryShape.OUT_OF_LIST
 
 
+@pytest.mark.parametrize("blank", ["", "   ", "\t", "\n  "])
+def test_blank_category_shapes_as_absent_not_out_of_list(blank: str) -> None:
+    """A blank string recorded no category, exactly as ``None`` did.
+
+    The bug this pins: ``shape_opportunity_category`` used to return
+    ``ABSENT`` only for ``None``, so an import that wrote ``""`` — or a
+    whitespace-only cell — into the column came back ``OUT_OF_LIST`` and was
+    filed as an *unmapped label* for a coordinator to map to an in-list
+    category. There is no label there to map; the row needs a category
+    assigned first, which is what ``ABSENT`` means. This also restores the
+    convention the repository already states in
+    ``smartmatch_domain.ingest.assess_columns``: "only ``None`` and
+    whitespace are blank on their own".
+    """
+    assert shape_opportunity_category(blank) is OpportunityCategoryShape.ABSENT
+    assert shape_opportunity_category(blank) is not OpportunityCategoryShape.OUT_OF_LIST
+
+
+def test_the_category_shape_enum_still_has_exactly_three_members() -> None:
+    """Blank folds into ``ABSENT``; it does not earn a fourth outcome."""
+    assert {shape.value for shape in OpportunityCategoryShape} == {
+        "in-list",
+        "out-of-list",
+        "absent",
+    }
+
+
 def test_category_comparison_is_case_insensitive() -> None:
     assert shape_opportunity_category("HACKATHON") is OpportunityCategoryShape.IN_LIST
     assert shape_opportunity_category("  Datathon  ") is OpportunityCategoryShape.IN_LIST

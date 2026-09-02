@@ -25,6 +25,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 UNIT_PATH = "iawest.metrics"
+#: A second department in the same tenant, sibling to :data:`UNIT_PATH` and
+#: containing none of it. A membership here reaches the metrics unit only if a
+#: rule says roles may reach outside their own subtree — which the ratified
+#: metrics-authorization decision (§4) says of ``admin``, for aggregates.
+SIBLING_UNIT_PATH = "iawest.sibling"
 
 
 @pytest.fixture(scope="module")
@@ -161,6 +166,8 @@ def _register_principal(
     *,
     role: str | None,
     resource_grant_unit_id: uuid.UUID | None = None,
+    membership_path: str = UNIT_PATH,
+    resource_grant_effect: str = "allow",
 ) -> str:
     """Create one more user in ``tenant_id`` and return a bearer token for it.
 
@@ -170,6 +177,15 @@ def _register_principal(
     an explicit ``allow`` grant on that unit; the S-007 rule (pinned in
     ``tests/authz/test_policy_matrix.py``) is that a grant conveys reach, not
     membership, so it must not substitute for the role check either.
+
+    ``membership_path`` is where the membership hangs. It defaults to the unit
+    under test, and is set to :data:`SIBLING_UNIT_PATH` for the non-rooted
+    admin cases: nothing in the schema requires an ``admin`` membership to be
+    rooted at the tenant root, so "an admin somewhere else in the tenant" is
+    an ordinary, storable shape and not a contrived one.
+    ``resource_grant_effect`` makes the grant a ``deny`` instead of an
+    ``allow``, which is how the precedence of an administrator's explicit
+    carve-out is checked against the tenant-wide rule rather than assumed.
 
     Registers the new token on the same ``FixtureTokenVerifier`` instance the
     ``metric_context`` fixture already wired onto ``client.app.state`` — this
@@ -203,7 +219,7 @@ def _register_principal(
                     "id": uuid.uuid4(),
                     "tid": tenant_id,
                     "uid": user_id,
-                    "path": UNIT_PATH,
+                    "path": membership_path,
                     "role": role,
                 },
             )
@@ -212,13 +228,14 @@ def _register_principal(
                 text(
                     "INSERT INTO resource_grant "
                     "(id, tenant_id, user_id, resource_type, resource_id, effect) "
-                    "VALUES (:id, :tid, :uid, 'org_unit', :rid, 'allow')"
+                    "VALUES (:id, :tid, :uid, 'org_unit', :rid, :effect)"
                 ),
                 {
                     "id": uuid.uuid4(),
                     "tid": tenant_id,
                     "uid": user_id,
                     "rid": resource_grant_unit_id,
+                    "effect": resource_grant_effect,
                 },
             )
 
@@ -329,6 +346,93 @@ def test_a_bare_resource_grant_is_refused_aggregates(metric_context, engine: Eng
     assert body["error"]["code"] == "forbidden"
     assert body["error"]["details"]["reason"] == "resource_grant_lacks_membership"
     assert "metrics" not in body
+
+
+def test_a_non_rooted_admin_reads_a_sibling_units_aggregates(
+    metric_context, engine: Engine
+) -> None:
+    """§4's tenant-wide admin rule, over HTTP, on a real membership row.
+
+    "**``admin``:** unrestricted within tenant for aggregates" — and nothing in
+    the schema requires an ``admin`` membership to be rooted at the tenant
+    root, so this principal's membership hangs on :data:`SIBLING_UNIT_PATH`,
+    which contains none of the unit under test. Under ordinary subtree
+    containment that is a 403; under §4 it is a 200, and the wrongful denial
+    is what this test would catch coming back.
+
+    The coordinator half is what makes the permit attributable to the *role*
+    rather than to sibling units having quietly become reachable: the same
+    membership path, an ordinary role, still refused.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    admin_token = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path=SIBLING_UNIT_PATH
+    )
+    response = _get(client, f"/v1/units/{unit_id}/metrics", admin_token)
+    assert response.status_code == 200, response.json()
+    assert {item["name"] for item in response.json()["metrics"]}
+
+    coordinator_token = _register_principal(
+        engine, client, tenant_id, role="coordinator", membership_path=SIBLING_UNIT_PATH
+    )
+    refused = _get(client, f"/v1/units/{unit_id}/metrics", coordinator_token)
+    assert refused.status_code == 403, refused.json()
+    assert refused.json()["error"]["details"]["reason"] == "no_grant"
+
+
+def test_a_non_rooted_admin_is_still_refused_a_sibling_units_drill_down(
+    metric_context, engine: Engine
+) -> None:
+    """The aggregate/row split held where §4 put it, on the same principal.
+
+    §4's scope bullet is "unrestricted within tenant **for aggregates**;
+    drill-down per row above", and the row above is a role rule that says
+    nothing about scope. So the admin who just read this unit's totals is
+    refused its rows: ``row_data`` is §3's **High** sensitivity — the full
+    imported row payload, contact fields included (P9 Gate B) — and widening
+    it across the tenant is a permit the closed decision does not name.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    admin_token = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path=SIBLING_UNIT_PATH
+    )
+    assert _get(client, f"/v1/units/{unit_id}/metrics", admin_token).status_code == 200
+
+    response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        admin_token,
+    )
+    assert response.status_code == 403, response.json()
+    assert response.json()["error"]["details"]["reason"] == "no_grant"
+
+
+def test_an_explicit_deny_still_beats_the_tenant_wide_admin_rule(
+    metric_context, engine: Engine
+) -> None:
+    """The precedence the widening must not disturb, checked rather than assumed.
+
+    An administrator carving one unit out of a broad grant is v1.1 §2.1's
+    explicit deny, and it is evaluated before either grant path. A tenant-wide
+    role that reached past it would make the carve-out unenforceable against
+    exactly the population it is most often aimed at.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    denied_admin_token = _register_principal(
+        engine,
+        client,
+        tenant_id,
+        role="admin",
+        membership_path=SIBLING_UNIT_PATH,
+        resource_grant_unit_id=unit_id,
+        resource_grant_effect="deny",
+    )
+    response = _get(client, f"/v1/units/{unit_id}/metrics", denied_admin_token)
+    assert response.status_code == 403, response.json()
+    assert response.json()["error"]["details"]["reason"] == "explicit_resource_deny"
 
 
 def test_an_authorized_coordinator_keeps_equal_aggregate_and_drill_down_counts(
