@@ -21,11 +21,13 @@ carries a working default and a stated failure direction, which for
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
+from smartmatch_persistence.spend import SpendCeilings
 
 __all__ = ["WorkerSettings", "get_settings"]
 
@@ -147,6 +149,80 @@ class WorkerSettings(BaseSettings):
         return frozenset(
             entry.strip() for entry in self.task_service_accounts.split(",") if entry.strip()
         )
+
+    #: Which edition is running. Consulted only when building providers, and
+    #: recorded in a provider refusal so an operator can see which deployment
+    #: asked. ``dev`` by default because the safe outcome must be what a
+    #: deployment gets by writing nothing.
+    edition: str = Field(
+        default="dev",
+        description="Platform edition: dev, staging, classroom, or production",
+    )
+
+    #: Per-job spend ceiling, as a decimal string (ADR-0015 A1). **No default,
+    #: and the absence is the control.** A worker only routes
+    #: ``extraction.paid_pages`` when all three ceilings are set, so a
+    #: deployment acquires the ability to spend money by naming the numbers it
+    #: is accountable for — never by omission. A1 is explicit that until A3 is
+    #: confirmed against the actual provider, every ceiling computed from it is
+    #: provisional, so no figure here can be shipped as a default.
+    #:
+    #: Strings rather than ``Decimal``: an environment variable is a string,
+    #: and parsing it here keeps the float that ``Decimal(0.1)`` would smuggle
+    #: in out of a money path entirely.
+    spend_ceiling_job: str | None = Field(
+        default=None,
+        description="Per-job spend ceiling, e.g. '2.00'. Required to enable paid extraction.",
+    )
+
+    #: Per-tenant-per-day spend ceiling, as a decimal string (G3 §4).
+    spend_ceiling_tenant_day: str | None = Field(
+        default=None,
+        description="Per-tenant-per-day spend ceiling, e.g. '25.00'.",
+    )
+
+    #: Per-tenant-per-month spend ceiling, as a decimal string (G3 §4).
+    spend_ceiling_tenant_month: str | None = Field(
+        default=None,
+        description="Per-tenant-per-month spend ceiling, e.g. '250.00'.",
+    )
+
+    @property
+    def spend_ceilings(self) -> SpendCeilings | None:
+        """The three ceilings, or ``None`` when the deployment has not set all three.
+
+        All-or-nothing on purpose. A partially configured set would leave one
+        ceiling defaulted by this module rather than chosen by whoever answers
+        for the spend, which is the one thing ADR-0015 A1 says must not happen.
+        Returning ``None`` is what keeps the paid command unrouted, so an
+        incomplete configuration produces a worker that cannot spend rather
+        than one that spends against a number nobody picked.
+
+        Raises:
+            ValueError: when a ceiling is set but is not a usable decimal, so a
+                typo fails the boot loudly instead of resolving to a silent
+                zero. ``SpendCeilings`` itself refuses a negative.
+        """
+        raw = (
+            self.spend_ceiling_job,
+            self.spend_ceiling_tenant_day,
+            self.spend_ceiling_tenant_month,
+        )
+        if any(value is None for value in raw):
+            return None
+
+        parsed: list[Decimal] = []
+        for name, value in zip(
+            ("spend_ceiling_job", "spend_ceiling_tenant_day", "spend_ceiling_tenant_month"),
+            raw,
+            strict=True,
+        ):
+            try:
+                parsed.append(Decimal(str(value)))
+            except InvalidOperation as exc:
+                raise ValueError(f"{name} is not a valid decimal: {value!r}") from exc
+
+        return SpendCeilings(job=parsed[0], tenant_day=parsed[1], tenant_month=parsed[2])
 
     @property
     def allowed_scheduler_accounts(self) -> frozenset[str]:

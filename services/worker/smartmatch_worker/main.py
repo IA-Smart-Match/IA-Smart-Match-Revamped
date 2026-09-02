@@ -168,6 +168,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
+from smartmatch_providers.base import Edition
+from smartmatch_providers.registry import build_paid_extraction_provider
 from smartmatch_providers.tasks import TaskQueue
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -185,6 +187,10 @@ from smartmatch_worker.identity import (
     TaskIdentityUnconfigured,
     TaskIdentityVerifier,
     build_task_verifier,
+)
+from smartmatch_worker.paid_extraction import (
+    build_paid_extraction_handler,
+    with_paid_extraction,
 )
 
 __all__ = ["app", "create_app"]
@@ -321,6 +327,11 @@ def create_app(
     Returns:
         A configured :class:`~fastapi.FastAPI` application.
     """
+    # Whether the paid command may be composed in below. A caller that passed
+    # its own registry gets exactly that registry: composing onto an injected
+    # one would hand a test, or an embedder, a money-spending handler it did
+    # not ask for.
+    registry_is_ours = registry is None
     registry = registry or default_registry()
 
     @asynccontextmanager
@@ -360,6 +371,30 @@ def create_app(
             app.state.scheduler_verifier = build_task_verifier(
                 expected_audience=resolved.scheduler_audience,
                 allowed_service_accounts=resolved.allowed_scheduler_accounts,
+            )
+
+        # ADR-0015 A1: the worker acquires the ability to spend money here, at
+        # the composition root, and only when a deployment has named all three
+        # ceilings it is accountable for. `default_registry` stays as it was —
+        # it takes no collaborators, and `handlers` importing `paid_extraction`
+        # to reach the command type would make a cycle out of a dependency that
+        # is genuinely one-way. With no ceilings set, `spend_ceilings` is None,
+        # nothing is composed, and an `extraction.paid_pages` delivery meets the
+        # registry's existing refusal for an unregistered command.
+        #
+        # The provider is whatever `build_paid_extraction_provider` allows,
+        # which today is the synthetic one under every edition: A1 approves "a
+        # synthetic-provider reservation implementation and its verification",
+        # no paid call. That builder — not this call site — is what refuses a
+        # live client, so wiring here cannot widen it.
+        if registry_is_ours and (ceilings := resolved.spend_ceilings) is not None:
+            app.state.registry = with_paid_extraction(
+                app.state.registry,
+                build_paid_extraction_handler(
+                    session_factory=app.state.session_factory,
+                    provider=build_paid_extraction_provider(Edition(resolved.edition)),
+                    ceilings=ceilings,
+                ),
             )
 
         # Built once per process, because `ScheduledPass` holds this instance's
