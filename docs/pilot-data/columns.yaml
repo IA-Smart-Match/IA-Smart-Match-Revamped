@@ -7,11 +7,15 @@
 # question about these columns is settled" -- see that section for what still
 # needs Dr. Wang.
 #
-# It is still not wired into application code: smartmatch_worker.handlers
-# calls smartmatch_domain.ingest.validate_columns with required=(),
-# optional=(), and connecting the two is a separate change to a file this
-# drop does not own. What ratification changes is that the contract is no
-# longer a set of options waiting on a human to pick between them.
+# WIRED as of 2 Sep 2026 (P9 card W1). smartmatch_worker.column_contract
+# reads this file and smartmatch_worker.handlers hands the declarations below
+# to smartmatch_domain.ingest.validate_columns, so an inline-rows import is
+# now held to this contract rather than to required=(), optional=(). This
+# file is the single source of truth: no column name is repeated in Python.
+# Enforcement is SECTION-LEVEL, per card W1's partial-ratification rule --
+# the four columns still behind an open question are declared under each
+# dataset's `gate_pending` map and are neither enforced nor treated as
+# ratified. See "GATE-PENDING COLUMNS" below.
 # See docs/pilot-data/README.md for the finding this fills (F-28 / migration
 # manifest: architecture v1.1 Section 1.5 is not in this repository, so the
 # "real" column contract it might define has never been read). Ratifying
@@ -51,6 +55,38 @@
 #      exactly one check -- required_column_entirely_blank -- so a sentinel on
 #      an optional column would be inert, and declaring inert things hides the
 #      ones that do work. Extend the declarations when a check needs them.
+#
+# GATE-PENDING COLUMNS
+#
+#   The four columns named in OPEN QUESTIONS below are still undecided, and
+#   card W1 is explicit that W1 "must not treat a still-open open_questions
+#   entry as ratified contract". They are therefore declared twice: in prose
+#   under open_questions (unchanged, for a human), and machine-readably under
+#   each dataset's `gate_pending` map (for the worker). Each entry names the
+#   gate that owns the column and one of two postures:
+#
+#     accept   -- recognized, persisted normally, and reported in a
+#                 `columns_pending_gate` WARNING so a coordinator sees the
+#                 meaning is unsettled. Used where the open question is about
+#                 MODELLING: board_role may yet become a unit-relationship
+#                 record instead of a flat attribute, but nothing is lost by
+#                 storing it meanwhile.
+#
+#     withhold -- recognized, but the values are DROPPED before anything is
+#                 written, reported in a `columns_withheld_pending_gate`
+#                 WARNING naming every column withheld. Used where the open
+#                 question is PRIVACY: P9 Gate B has not authorized collecting
+#                 the published contact fields, quarantine is collection, and
+#                 a review_item row is persistence (ADR-0014). Accepting the
+#                 import while declining to store those three values is the
+#                 only posture that neither invents an authorization nor
+#                 discards the rest of a coordinator's submission.
+#
+#   Neither posture REJECTS. A gate-pending column never makes a dataset
+#   unusable -- refusing would be enforcing an answer the gate has not given
+#   either. When a gate closes, delete that column's gate_pending entry and
+#   its open_questions paragraph together; leaving one without the other is
+#   how a contract starts lying.
 
 datasets:
   professionals:
@@ -88,6 +124,16 @@ datasets:
       # that anyone who later adds a dataset-wide sentinel cannot silently
       # start blanking people's names.
       name: []
+    gate_pending:
+      board_role:
+        gate: "P9 Gate A"
+        posture: accept
+        reason: >-
+          Whether board_role is intrinsic to a professional or scoped to that
+          person's relationship with one unit/chapter is undecided (see
+          OPEN QUESTIONS). Flat storage is a holding position, so the value is
+          kept and flagged rather than withheld -- moving it later is a schema
+          change, and having the data makes that migration possible.
 
   events:
     description: >-
@@ -120,6 +166,32 @@ datasets:
       # optional, so it takes no declaration today (see decision 3).
       "Event / Program": *null_markers
       "Category": *null_markers
+    gate_pending:
+      "Public URL":
+        gate: "P9 Gate B"
+        posture: withhold
+        reason: >-
+          Gate B has not decided collect-or-drop for this field. A URL can
+          carry an identifying token in an ordinary-looking path segment and
+          no static check can tell the difference, which is why
+          smartmatch_domain.public_url offers no raw-URL persistence under any
+          name and APPROVED_HOST_PATH_PROJECTIONS is empty. Static shape
+          validation of a candidate URL is authorized; storing one is not.
+      "Point(s) of Contact (published)":
+        gate: "P9 Gate B"
+        posture: withhold
+        reason: >-
+          A published contact name is personal data. ADR-0014: "published"
+          provenance is not consent for platform disclosure, and Gate B has
+          recorded no purpose, minimization rule, retention period, correction
+          path, or permitted audience for it.
+      "Contact Email / Phone (published)":
+        gate: "P9 Gate B"
+        posture: withhold
+        reason: >-
+          Same as the contact-name field, and the one most likely to be used
+          for outreach the gate has not authorized. Withheld until Gate B
+          records collect-or-drop with a named privacy owner.
 
 open_questions:
   - >-

@@ -139,9 +139,14 @@ def _rows_body(rows: list[dict], *, dry_run: bool, dataset: str = "professionals
     return {"dataset": dataset, "dry_run": dry_run, "rows": rows}
 
 
+# Spelled per the ratified contract (``docs/pilot-data/columns.yaml``), which
+# the worker now enforces (P9 card W1): the professionals name column is
+# ``name``, not ``full_name``. The mixed casing is the point — the first row is
+# spelled the way a coordinator's spreadsheet export would spell it, and
+# ``validate_columns`` normalizes both to the same required columns.
 _SAMPLE_ROWS = [
-    {"Full Name": "A. Rivera", "Metro Region": "Inland Empire"},
-    {"full_name": "B. Osei", "metro_region": "Coastal"},
+    {"Name": "A. Rivera", "Metro Region": "Inland Empire"},
+    {"name": "B. Osei", "metro_region": "Coastal"},
 ]
 
 
@@ -231,12 +236,132 @@ def test_a_live_inline_row_import_creates_review_items_and_succeeds(
 
     assert [item.row_index for item in items] == [0, 1]
     assert all(item.status == "pending" for item in items)
-    # Normalized: "Full Name" / "Metro Region" collapse to the same keys the
+    # Normalized: "Name" / "Metro Region" collapse to the same keys the
     # already-lowercase second row used — validate_columns compares them this
     # way, and row_data is documented (schema.py) to store that normalized
     # shape, not the raw submission.
-    assert items[0].row_data == {"full_name": "A. Rivera", "metro_region": "Inland Empire"}
-    assert items[1].row_data == {"full_name": "B. Osei", "metro_region": "Coastal"}
+    assert items[0].row_data == {"name": "A. Rivera", "metro_region": "Inland Empire"}
+    assert items[1].row_data == {"name": "B. Osei", "metro_region": "Coastal"}
+
+
+def test_gate_b_contact_values_are_never_written_to_review_items(
+    client, engine, session_factory, unit_id, coordinator, tenant_id
+):
+    """P9 Gate B has not authorized collection, so a live import stores none of it.
+
+    This is the write-side half of card W1's ``withhold`` posture, and the half
+    that matters: quarantine *is* collection, and a ``review_item`` row is
+    persistence (ADR-0014). A coordinator may submit an export carrying the
+    three published contact fields — the import is accepted, not rejected,
+    because refusing would be enforcing an answer Gate B has not given — but
+    none of those three values may reach the database, and the submission must
+    say so rather than dropping them silently.
+    """
+    rows = [
+        {
+            "Event / Program": "Career Day",
+            "Category": "Outreach",
+            "Host / Unit": "Riverside High",
+            "Public URL": "https://example.edu/career-day",
+            "Point(s) of Contact (published)": "R. Vance",
+            "Contact Email / Phone (published)": "nobody@example.edu",
+        }
+    ]
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="gate-b-withheld",
+            body=_rows_body(rows, dry_run=False, dataset="events"),
+        ).json()["job_id"]
+    )
+
+    state = _run_job_to_terminal(session_factory, tenant_id, job_id)
+    assert state is JobState.SUCCEEDED, f"job reached {state}, not succeeded"
+
+    completed = _terminal_event(session_factory, tenant_id, job_id)
+    summary = completed["summary"]
+    assert summary["usable"] is True, "a still-open gate must not make a dataset unusable"
+
+    withheld = [
+        finding
+        for finding in summary["findings"]
+        if finding["code"] == "columns_withheld_pending_gate"
+    ]
+    assert len(withheld) == 1, "the drop must be reported, never silent"
+    assert set(withheld[0]["columns"]) == {
+        "Public URL",
+        "Point(s) of Contact (published)",
+        "Contact Email / Phone (published)",
+    }
+    assert withheld[0]["severity"] == "warning"
+
+    with engine.connect() as conn:
+        items = conn.execute(
+            text("SELECT row_data FROM review_item WHERE import_batch_id = :id ORDER BY row_index"),
+            {"id": uuid.UUID(summary["import_batch_id"])},
+        ).all()
+
+    (item,) = items
+    assert item.row_data == {
+        "event_program": "Career Day",
+        "category": "Outreach",
+        "host_unit": "Riverside High",
+    }
+    stored = str(item.row_data)
+    for value in ("example.edu", "R. Vance", "nobody@example.edu"):
+        assert value not in stored, f"{value!r} reached storage ahead of Gate B"
+
+
+def test_an_import_missing_a_ratified_required_column_fails_closed(
+    client, session_factory, unit_id, coordinator, tenant_id
+):
+    """The contract is enforced, not decorative (P9 card W1).
+
+    Before W1 this import succeeded: ``validate_columns`` ran with
+    ``required=()``, so a professionals export with no ``name`` column at all
+    produced review items nobody could review. It now fails closed with the
+    ratified requirement named.
+    """
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="missing-required",
+            body=_rows_body([{"metro_region": "Coastal"}], dry_run=False),
+        ).json()["job_id"]
+    )
+
+    state = _run_job_to_terminal(session_factory, tenant_id, job_id)
+    assert state is JobState.FAILED_POLICY
+
+    completed = _terminal_event(session_factory, tenant_id, job_id)
+    assert completed["reason"] == "dataset_not_usable"
+    assert "missing_required_columns" in completed["detail"]
+    assert "name" in completed["detail"]
+
+
+def test_a_dataset_the_contract_does_not_declare_is_refused(
+    client, session_factory, unit_id, coordinator, tenant_id
+):
+    """An undeclared dataset refuses rather than validating against nothing."""
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="unknown-dataset",
+            body=_rows_body([{"name": "A. Rivera"}], dry_run=False, dataset="rosters"),
+        ).json()["job_id"]
+    )
+
+    state = _run_job_to_terminal(session_factory, tenant_id, job_id)
+    assert state is JobState.FAILED_POLICY
+    assert _terminal_event(session_factory, tenant_id, job_id)["reason"] == (
+        "dataset_contract_unknown"
+    )
 
 
 def test_cancellation_after_handler_writes_discards_review_work(

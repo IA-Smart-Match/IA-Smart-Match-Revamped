@@ -121,6 +121,22 @@ class WorkerSettings(BaseSettings):
         description="How long a claimed job may go without reporting progress",
     )
 
+    #: Filesystem path to the ratified pilot column contract
+    #: (``docs/pilot-data/columns.yaml``), read by
+    #: :mod:`smartmatch_worker.column_contract`.
+    #:
+    #: Empty means "resolve it relative to this checkout", which is right for a
+    #: developer running from the repository and wrong for an image, where
+    #: there is no repository. ``Dockerfile.worker`` therefore copies the file
+    #: in and sets this explicitly. It is not an access-control setting — the
+    #: failure direction of a bad value is a *refused import*, never a
+    #: permissive one, because a contract that cannot be read raises rather
+    #: than falling back to validating nothing.
+    column_contract_path: str = Field(
+        default="",
+        description="Path to columns.yaml; empty resolves relative to the checkout",
+    )
+
     #: Included in the health response so a deployment can be identified without
     #: exposing topology.
     release: str = Field(default="dev", description="Release identifier")

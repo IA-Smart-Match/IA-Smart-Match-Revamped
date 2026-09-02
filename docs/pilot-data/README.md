@@ -39,16 +39,35 @@ contract the pilot import path is held to — ratified 28 Aug 2026 in
 
 ## Why this exists
 
-`smartmatch_domain.ingest.validate_columns` is real and already does real
-work -- it catches empty datasets, ragged rows, and colliding headers -- but
-`services/worker/smartmatch_worker/handlers.py` currently calls it with
-`required=(), optional=()` because **the ratified contract lives in
-``columns.yaml`` and is not wired into the worker yet** — that connection is a
-separate change this drop does not own. The migration manifest's own **F-28**
-finding records that architecture v1.1 Section 1.5 -- the spec section that
-would define the real contract -- "has not been read into this repository."
-``columns.yaml`` fills that gap for the pilot; it does not resolve F-28, since
-it cannot cite a section that isn't present.
+`smartmatch_domain.ingest.validate_columns` is real and already did real
+work before any contract existed -- it catches empty datasets, ragged rows,
+and colliding headers without knowing a single column name. What it lacked was
+a schema to hold an import to.
+
+**As of 2 September 2026 (P9 card W1) it has one.**
+`services/worker/smartmatch_worker/column_contract.py` reads `columns.yaml`
+and `handlers.py` hands its declarations to `validate_columns`, so an
+inline-rows import is now validated against the ratified contract instead of
+`required=(), optional=()`. The YAML is the single source of truth: no column
+name is repeated in Python, a contract that cannot be read is a terminal
+`column_contract_unavailable` refusal rather than a quiet fall back to
+validating nothing, and a dataset the contract does not declare is refused as
+`dataset_contract_unknown`.
+
+Enforcement is **section-level**. The four columns still behind an open
+question are declared under each dataset's `gate_pending` map and are never
+treated as ratified -- `board_role` is accepted and stored with a
+`columns_pending_gate` warning (P9 Gate A is a modelling question), and the
+three published contact fields are accepted but **not stored**, with a
+`columns_withheld_pending_gate` warning naming them (P9 Gate B is a privacy
+question, and a `review_item` row is persistence). Neither posture rejects.
+See the `GATE-PENDING COLUMNS` section in `columns.yaml`.
+
+The migration manifest's own **F-28** finding records that architecture v1.1
+Section 1.5 -- the spec section that would define the real contract -- "has
+not been read into this repository." ``columns.yaml`` fills that gap for the
+pilot; it does not resolve F-28, since it cannot cite a section that isn't
+present.
 
 ## Layout
 

@@ -71,16 +71,22 @@ durable and renews the job lease (J9).
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
-from smartmatch_domain.ingest import QualityFinding, validate_columns
+from smartmatch_domain.ingest import QualityFinding, Severity, validate_columns
 from smartmatch_domain.ingest import normalize_header as _normalize_header
 from smartmatch_domain.jobs import JobState
 from smartmatch_persistence.jobs import JobRecord
 from smartmatch_persistence.review import ReviewRepository
 from sqlalchemy.orm import Session
+
+from smartmatch_worker.column_contract import (
+    ColumnContractError,
+    DatasetColumnContract,
+    get_column_contract,
+)
 
 __all__ = [
     "BudgetFailure",
@@ -447,27 +453,35 @@ def handle_import_create(context: CommandContext) -> HandlerResult:
       :class:`~smartmatch_persistence.review.ReviewRepository`, and completes
       as ``succeeded`` naming the batch and how many items it produced.
 
-    No dataset in this codebase declares which columns it requires. The only
-    per-dataset column names anywhere in this repository are a test fixture in
-    ``tests/unit/test_ingest.py`` (illustrative, not a contract), and
-    ``docs/migration/migration-manifest.yaml``'s own F-28 finding records that
-    the specification section that would define one (v1.1 §1.5) has not been
-    read into this repository. Asserting a business schema here — "the
-    'professionals' dataset requires `full_name` and `metro_region`" — would be
-    inventing exactly the kind of contract nobody has written down, so
-    ``validate_columns`` is called with no required or optional columns
-    declared. It still performs every check that does not depend on knowing the
-    schema: an empty dataset is still an error, ragged rows and colliding
-    headers are still reported, and once a dataset's real column contract is
-    decided it belongs in a small per-``dataset`` declaration this handler
-    reads — not fabricated here.
+    Which columns a dataset requires is no longer fabricated here and no longer
+    left blank. ``docs/pilot-data/columns.yaml`` was ratified on 28 August 2026
+    and, as of P9 card W1, :mod:`smartmatch_worker.column_contract` reads it and
+    this handler hands its declarations to ``validate_columns``. The YAML is the
+    single source of truth — no column name is spelled out in Python — and a
+    contract that cannot be read is a terminal ``column_contract_unavailable``
+    refusal rather than a quiet fall back to validating nothing, which would let
+    an import appear to pass a contract nobody applied. A dataset the contract
+    does not declare is refused as ``dataset_contract_unknown`` for the same
+    reason.
+
+    Enforcement is **section-level**, per W1's partial-ratification rule: the
+    four columns still behind an open question (P9 Gate A's ``board_role``, and
+    Gate B's three published contact fields) are declared under the contract's
+    ``gate_pending`` maps and are never enforced as ratified. A gate-pending
+    column is recognized and never rejected; depending on its declared posture
+    it is either persisted with a ``columns_pending_gate`` warning, or — for the
+    Gate B contact fields, where quarantine would itself be collection under
+    ADR-0014 — dropped before any write, with a ``columns_withheld_pending_gate``
+    warning naming exactly what was withheld.
 
     Raises:
         PolicyFailure: ``command_payload_missing`` when the job carries no
             payload, ``invalid_command_payload`` when it carries one that cannot
             be read, ``import_content_unavailable`` for a live import against a
-            ``source_reference``, and ``dataset_not_usable`` for a live import
-            over ``rows`` that failed validation.
+            ``source_reference``, ``column_contract_unavailable`` when the
+            ratified contract cannot be read, ``dataset_contract_unknown`` when
+            it declares no such dataset, and ``dataset_not_usable`` for a live
+            import over ``rows`` that failed validation.
     """
     payload = context.job.payload
     if payload is None:
@@ -562,13 +576,29 @@ def _execute_inline_rows_import(
 ) -> HandlerResult:
     """Handle an ``import.create`` carrying already-parsed ``rows``.
 
-    See :func:`handle_import_create`'s docstring for why ``validate_columns``
-    runs with no required or optional columns declared, why a dry run always
-    validates the data (not merely the command) and never writes, and why an
-    unusable live import fails closed.
+    See :func:`handle_import_create`'s docstring for where the required and
+    optional columns come from, why a dry run always validates the data (not
+    merely the command) and never writes, and why an unusable live import fails
+    closed.
     """
-    quality = validate_columns(command.dataset, rows, required=(), optional=())
-    findings_payload = [_finding_payload(finding) for finding in quality.findings]
+    contract = _dataset_contract(command.dataset)
+    quality = validate_columns(
+        command.dataset,
+        rows,
+        required=contract.required,
+        optional=contract.optional,
+        blank_sentinels=contract.blank_sentinels,
+        blank_sentinels_by_column=contract.blank_sentinels_by_column,
+    )
+
+    # Gate findings are appended to the domain's, never merged into
+    # ``quality`` itself: ``is_usable`` is the domain's verdict on the ratified
+    # contract, and a still-open gate must not be able to change it in either
+    # direction.
+    gate_findings = _gate_pending_findings(contract, rows)
+    findings_payload = [
+        _finding_payload(finding) for finding in (*quality.findings, *gate_findings)
+    ]
 
     context.emit(
         {
@@ -615,7 +645,7 @@ def _execute_inline_rows_import(
             reason="dataset_not_usable",
         )
 
-    normalized_rows = [_normalize_row(row) for row in rows]
+    normalized_rows = [_normalize_row(row, withhold=contract.withheld_columns) for row in rows]
     batch = _reviews.create_batch_with_items(
         context.session,
         tenant_id=context.job.tenant_id,
@@ -645,8 +675,100 @@ def _execute_inline_rows_import(
     )
 
 
-def _normalize_row(row: Mapping[str, Any]) -> dict[str, Any]:
+def _dataset_contract(dataset: str) -> DatasetColumnContract:
+    """Return the ratified contract for ``dataset``, or refuse.
+
+    Both refusals are :class:`PolicyFailure` — terminal — because a re-drive
+    replays the same dataset name against the same file and nothing about the
+    job can change either outcome. Neither falls back to an unconstrained
+    ``validate_columns`` call: an import that appears to pass a contract nobody
+    read is worse than an import that fails.
+    """
+    try:
+        contract = get_column_contract()
+    except ColumnContractError as exc:
+        raise PolicyFailure(
+            f"the ratified column contract could not be read, so no import can be "
+            f"validated against it: {exc}",
+            reason="column_contract_unavailable",
+        ) from exc
+
+    declared = contract.get(dataset)
+    if declared is None:
+        raise PolicyFailure(
+            f"dataset {dataset!r} is not declared in the ratified column contract; "
+            f"declared datasets are: {', '.join(sorted(contract))}",
+            reason="dataset_contract_unknown",
+        )
+    return declared
+
+
+def _gate_pending_findings(
+    contract: DatasetColumnContract, rows: Sequence[Mapping[str, Any]]
+) -> tuple[QualityFinding, ...]:
+    """Report the gate-pending columns this submission actually carries.
+
+    Reported per posture, and only for columns genuinely present — a warning
+    about a column nobody sent is noise that trains a coordinator to skim
+    findings. Both are WARNING: a gate that has not answered cannot make a
+    dataset unusable, and saying otherwise would be enforcing an answer.
+
+    Column names are compared after :func:`~smartmatch_domain.ingest.normalize_header`,
+    the same way ``validate_columns`` compares them, so ``"Public URL"`` and
+    ``"public_url"`` are the same declared column here too.
+    """
+    if not contract.gate_pending or not rows:
+        return ()
+
+    present = {_normalize_header(str(key)) for row in rows for key in row}
+    findings: list[QualityFinding] = []
+
+    for posture, code, phrasing in (
+        (
+            "accept",
+            "columns_pending_gate",
+            "accepted and stored, but their meaning is not yet decided",
+        ),
+        (
+            "withhold",
+            "columns_withheld_pending_gate",
+            "accepted, but their values were not stored",
+        ),
+    ):
+        entries = [
+            entry
+            for entry in contract.gate_pending
+            if entry.posture == posture and _normalize_header(entry.column) in present
+        ]
+        if not entries:
+            continue
+        gates = ", ".join(sorted({entry.gate for entry in entries}))
+        columns = tuple(entry.column for entry in entries)
+        findings.append(
+            QualityFinding(
+                severity=Severity.WARNING,
+                code=code,
+                message=(
+                    f"{contract.dataset}: {', '.join(columns)} — {phrasing}, because "
+                    f"{gates} has not closed"
+                ),
+                columns=columns,
+            )
+        )
+
+    return tuple(findings)
+
+
+def _normalize_row(row: Mapping[str, Any], *, withhold: Sequence[str] = ()) -> dict[str, Any]:
     """Normalize one row's keys the way ``validate_columns`` compares them.
+
+    ``withhold`` names columns whose values must not be persisted while their
+    gate is open (P9 Gate B's published contact fields). They are dropped here,
+    at the last point before the write, rather than filtered earlier: validation
+    still sees the submission exactly as it arrived, so the coordinator's
+    findings describe what they sent, and only storage is narrowed. The drop is
+    reported as ``columns_withheld_pending_gate``, so it is never silent.
+
 
     ``validate_columns`` normalizes headers internally to decide which columns
     are present, but hands back only the aggregate
@@ -660,10 +782,11 @@ def _normalize_row(row: Mapping[str, Any]) -> dict[str, Any]:
     reading that finding learns nothing new from this repeating the same
     choice — it is consistency with an existing finding, not a second policy.
     """
+    withheld = {_normalize_header(column) for column in withhold}
     normalized: dict[str, Any] = {}
     for key, value in row.items():
         header = _normalize_header(str(key))
-        if header in normalized:
+        if header in withheld or header in normalized:
             continue
         normalized[header] = value
     return normalized

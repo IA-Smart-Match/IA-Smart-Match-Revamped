@@ -55,6 +55,13 @@ RUN pip install --require-hashes -r requirements/runtime.txt
 # interchangeable in what they contain and differ only in what they run.
 COPY python/ python/
 COPY services/worker/ services/worker/
+
+# The ratified pilot column contract (P9 card W1). smartmatch_worker.handlers
+# refuses every inline-rows import when it cannot read this file, so an image
+# without it is an image whose import path is dead on arrival — it belongs in
+# the build, not in a mount somebody has to remember. It is a checked-in
+# contract, not configuration: no secret, no environment-specific value.
+COPY docs/pilot-data/columns.yaml docs/pilot-data/columns.yaml
 RUN pip install --no-deps \
         python/smartmatch_domain \
         python/smartmatch_authz \
@@ -91,10 +98,19 @@ ENV HOME=/home/smartmatch
 ENV PORT=8080
 EXPOSE 8080
 
-# No secrets, no .env, no provider configuration. The worker reads no
-# SMARTMATCH_ settings of its own today; its task endpoint fails closed until
-# OIDC verification is implemented, which is the safe placeholder rather than a
-# permissive one.
+# The ratified column contract, at an absolute path named explicitly. The
+# module's checkout-relative fallback resolves against a repository, and this
+# stage has none — so the setting is not a convenience here, it is the only
+# way the file is found. Root-owned like the virtualenv: readable by the
+# application user, writable by nobody it runs as.
+COPY --from=builder --chown=root:root /src/docs/pilot-data/columns.yaml \
+     /opt/smartmatch/columns.yaml
+ENV SMARTMATCH_COLUMN_CONTRACT_PATH=/opt/smartmatch/columns.yaml
+
+# No secrets, no .env, no provider configuration. Beyond the contract path
+# above the worker reads no SMARTMATCH_ settings of its own today; its task
+# endpoint fails closed until OIDC verification is implemented, which is the
+# safe placeholder rather than a permissive one.
 
 # DIFFERENCE 3 of 3: the worker's liveness path is /health, not /api/health.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
