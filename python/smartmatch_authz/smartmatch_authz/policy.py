@@ -8,7 +8,7 @@ Architecture v1.1 §2.1 combination semantics, implemented exactly as specified:
     filters apply after either path. Administrative suspension fails local
     authorization immediately, independent of IdP token revocation.
 
-Five rules follow from that, in evaluation order:
+Six rules follow from that, in evaluation order:
 
 1. **Suspension is checked first.** A suspended account is denied locally and
    immediately. Waiting for the identity provider to revoke a token is defense
@@ -36,6 +36,20 @@ Five rules follow from that, in evaluation order:
    ``resource_grant_lacks_membership`` instead of allowing, even when
    ``required_roles`` is empty. Suspension, tenant mismatch, and explicit deny
    keep their precedence ahead of both grant paths regardless of this flag.
+6. **A membership with a blank role is not a membership *with a role*.** Path 1
+   skips any active membership whose ``role`` is empty or whitespace-only,
+   unconditionally — not only under ``require_membership``. The ratified
+   metrics-authorization decision (§4, CLOSED 2026-09-02) grants aggregate
+   reads to "any active unit membership **with a role**", and rule 5 alone
+   does not deliver that: ``required_roles`` is empty for such an operation,
+   so the role filter never inspects ``membership.role`` and a row carrying
+   ``role=""`` would satisfy Path 1. ``membership.role`` is ``sa.Text NOT
+   NULL`` with no non-blank ``CHECK``, so a blank-role row is storable
+   out-of-band — a reachable permit, not a theoretical one. The rule is
+   unconditional because it is observably inert everywhere else: a blank role
+   already fails a non-empty ``required_roles`` filter, so the only
+   operations whose outcome can change are the ones with no role requirement
+   — exactly the population §4 is about.
 
 Deny-by-default throughout: :func:`evaluate` returns a denial for any case not
 positively allowed, including unknown roles and malformed paths.
@@ -232,7 +246,8 @@ def evaluate(
         at: The instant to evaluate membership validity against. Passed in
             rather than read from the clock so expiry is testable.
         required_roles: Roles that satisfy this operation. An empty set means
-            any active membership covering the path suffices.
+            any active membership covering the path suffices, provided its
+            role is non-blank (module docstring, rule 6).
         require_membership: When ``True``, an explicit ``resource_grant`` alone
             does not satisfy this operation — an active membership must cover
             the resource's owning unit path. See module docstring rule 5. Has
@@ -263,6 +278,13 @@ def evaluate(
     # Path 1: inherited grant via an active membership covering the owning unit.
     for membership in principal.memberships:
         if not membership.is_active_at(at):
+            continue
+        # A blank role is not a role (module docstring, rule 6). Checked before
+        # the required_roles filter and independently of it, because when
+        # required_roles is empty that filter never looks at the role at all —
+        # which is exactly the case where a blank-role row would otherwise be
+        # read as "any active membership with a role".
+        if not membership.role.strip():
             continue
         if required_roles and membership.role not in required_roles:
             continue

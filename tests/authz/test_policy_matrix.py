@@ -455,6 +455,12 @@ class Operation:
     #: ``False`` for every operation except the two metrics ones: it is what
     #: lets ``metrics.read`` name no ``required_roles`` at all while still
     #: refusing a bare ``resource_grant`` — see :data:`MEMBERSHIP_ONLY_OPERATIONS`.
+    #: Held against the source in both directions by
+    #: :func:`test_the_authorizer_passes_require_membership_exactly_when_the_matrix_says_so`,
+    #: because :func:`_authorize` builds its policy call *from this field* —
+    #: so without that check the field would be a declaration compared with
+    #: itself, and deleting the keyword from the real authorizer would leave
+    #: this whole file green while a bare grant walked through §4's denial.
     require_membership: bool = False
 
     @property
@@ -1518,6 +1524,80 @@ def test_the_authorizer_reads_the_role_constant_the_matrix_names(operation: Oper
         f"{operation.authz_module} does not reference {operation.roles_constant}, "
         f"which MATRIX says is where {operation.key} gets its role set"
     )
+
+
+def _passes_require_membership_keyword(function_node: ast.AST) -> bool:
+    """Whether a policy call inside ``function_node`` passes ``require_membership=True``.
+
+    A *literal* ``True`` only. A name, an attribute or a call in that position
+    is an expression this file cannot evaluate, and reading an unevaluatable
+    expression as "yes" is how a source check like this quietly stops catching
+    anything. If an authorizer ever needs to compute the flag, this returning
+    ``False`` is the correct, loud outcome: the matrix row and the code have
+    stopped being comparable by reading, and that is worth a failure.
+    """
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Call):
+            continue
+        if _referenced_name(child.func) not in _POLICY_ENTRY_POINTS:
+            continue
+        for keyword in child.keywords:
+            if keyword.arg != "require_membership":
+                continue
+            if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                return True
+    return False
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_the_authorizer_passes_require_membership_exactly_when_the_matrix_says_so(
+    operation: Operation,
+) -> None:
+    """``Operation.require_membership`` must describe the code, not itself.
+
+    Every other field on a row is held against the source or against the live
+    object: :func:`test_the_route_calls_the_authorizer_the_matrix_names`
+    catches the two metrics authorizers being swapped, and
+    :func:`test_the_authorizer_reads_the_role_constant_the_matrix_names`
+    catches ``_DRILL_DOWN_ROLES`` being dropped. ``require_membership`` had no
+    such check: :func:`_authorize` reconstructs the ``assert_allowed`` call
+    from the row's own field, so the row was being compared with itself, and
+    deleting ``require_membership=True`` from ``_authorize_aggregate_read``
+    left the whole of ``tests/authz`` green.
+
+    What that mutation costs is the §4 denial itself: a principal holding only
+    an ``allow`` ``resource_grant`` on the unit, with no membership anywhere,
+    reaches Path 2, gets ``explicit_resource_allow``, and reads the unit's
+    aggregates — the exact permit the ratified decision refuses. The only
+    other test that would notice is in ``tests/contract/test_metrics.py``,
+    which is ``pytest.mark.integration`` and cannot run without PostgreSQL.
+
+    Checked in **both** directions, like every other membership check in this
+    file: an operation the matrix marks ``require_membership=True`` must pass
+    the keyword, and one it marks ``False`` must not — so quietly hardening a
+    route without recording it fails here too, rather than leaving the row
+    stale in the loose direction.
+    """
+    function_node = _authorizer_function_node(operation)
+    passes = _passes_require_membership_keyword(function_node)
+
+    if operation.require_membership:
+        assert passes, (
+            f"MATRIX records {operation.key} as require_membership=True, but "
+            f"{operation.authz_module}.{operation.authorizer} does not pass "
+            f"require_membership=True to assert_allowed/evaluate. Without that "
+            f"keyword a bare resource_grant with no covering membership is "
+            f"permitted via explicit_resource_allow, which the ratified metrics "
+            f"authorization decision (§4) denies. Restore the keyword, or — if "
+            f"the policy really changed — change the row and the decision record."
+        )
+    else:
+        assert not passes, (
+            f"{operation.authz_module}.{operation.authorizer} now passes "
+            f"require_membership=True, but MATRIX records {operation.key} as "
+            f"require_membership=False; set the field on the row so the matrix "
+            f"describes the code"
+        )
 
 
 def test_the_matrix_is_a_full_rectangle() -> None:
