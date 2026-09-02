@@ -82,7 +82,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any, Final, Literal
 
 from smartmatch_domain.jobs import JobState
@@ -583,7 +583,8 @@ class StalledJobSweeper:
                         "reason": "lease_expired",
                         "detail": (
                             "no worker reported on this job before its lease expired at "
-                            f"{record.lease_expired_at.isoformat()}; it was timed out by "
+                            f"{record.lease_expired_at.astimezone(UTC).isoformat()}; "
+                            "it was timed out by "
                             "the scheduled sweep"
                         ),
                     },
@@ -600,7 +601,7 @@ class StalledJobSweeper:
                 "timed out by the sweep. Re-drive it to re-run the work",
                 record.id,
                 record.command_type,
-                record.lease_expired_at.isoformat(),
+                record.lease_expired_at.astimezone(UTC).isoformat(),
             )
 
         return len(swept)

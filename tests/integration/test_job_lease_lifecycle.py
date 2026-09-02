@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -43,7 +44,8 @@ from smartmatch_persistence.jobs import JobRepository
 from smartmatch_worker.config import WorkerSettings
 from smartmatch_worker.execution import StalledJobSweeper, TaskExecutor
 from smartmatch_worker.handlers import CommandContext, CommandRegistry, HandlerResult
-from sqlalchemy import text
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
 
@@ -63,6 +65,20 @@ def jobs() -> JobRepository:
 @pytest.fixture
 def sweeper(session_factory) -> StalledJobSweeper:
     return StalledJobSweeper(session_factory)
+
+
+@pytest.fixture
+def non_utc_session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """A real database session whose ``timestamptz`` values render off UTC."""
+    non_utc_engine = create_engine(
+        engine.url,
+        connect_args={"options": "-c timezone=America/Los_Angeles"},
+        future=True,
+    )
+    try:
+        yield sessionmaker(bind=non_utc_engine, expire_on_commit=False, future=True)
+    finally:
+        non_utc_engine.dispose()
 
 
 def dispatched_job(session_factory, jobs, tenant_id, *, command_type: str = COMMAND) -> uuid.UUID:
@@ -331,26 +347,30 @@ def test_a_job_the_executor_finished_carries_no_deadline(session_factory, jobs, 
 # ---------------------------------------------------------------------------
 
 
-def test_the_sweep_times_out_a_job_whose_lease_ran_out(session_factory, jobs, sweeper, tenant_id):
+def test_the_sweep_times_out_a_job_whose_lease_ran_out(
+    non_utc_session_factory, jobs, tenant_id
+):
     """The recovery J9 exists for: a claim with nothing behind it.
 
     The job is claimed and then abandoned — no exception, no outcome, nothing.
     That is what a killed worker leaves, and until the sweep existed the row
     stayed ``running`` until a human noticed.
     """
-    job_id = dispatched_job(session_factory, jobs, tenant_id)
-    with session_factory() as session:
+    job_id = dispatched_job(non_utc_session_factory, jobs, tenant_id)
+    with non_utc_session_factory() as session:
         jobs.claim(session, tenant_id=tenant_id, job_id=job_id, lease=timedelta(minutes=10))
         session.commit()
-    missed = expire_lease(session_factory, job_id)
+    missed = expire_lease(non_utc_session_factory, job_id)
 
-    assert sweeper.sweep() == 1, "the count is the metric an operator alerts on"
+    assert StalledJobSweeper(non_utc_session_factory).sweep() == 1, (
+        "the count is the metric an operator alerts on"
+    )
 
-    row = job_row(session_factory, job_id)
+    row = job_row(non_utc_session_factory, job_id)
     assert row.status == JobState.TIMED_OUT.value
     assert row.lease_expires_at is None, "a swept job must not be swept again"
 
-    events = job_events(session_factory, jobs, tenant_id, job_id)
+    events = job_events(non_utc_session_factory, jobs, tenant_id, job_id)
     timed_out = [event for event in events if event.get("type") == "job.timed_out"]
     assert len(timed_out) == 1, (
         "a job that goes terminal with nothing saying why is the failure this "
