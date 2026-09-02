@@ -101,6 +101,26 @@ produces 40 `TypeError` failures that are an API mismatch, not evidence.
 Reverting only the worker files reproduces the true pre-J9 condition the
 backlog describes — the column exists and nothing reads or writes it.
 
+**Closed on `friday-deliverable-828`.** Two integration modules now exist —
+`tests/integration/test_job_lease_lifecycle.py` (13 tests) and
+`tests/integration/test_scheduled_dispatch_pass.py` (9) — and both were
+revert-checked the way this section asks, with the trap above respected: the
+soft-reverts touch the lease *paths* only, and `create()`'s A5 signature is
+left at HEAD throughout. Ten soft-reverts in total, each failing exactly the
+tests that assert the behaviour it removed and no others; the commands, the
+mutations and the failure lists are recorded in the two commit messages. On the
+restored tree, `pytest tests/integration/test_outbox_dispatcher.py
+tests/integration/test_worker_execution.py
+tests/integration/test_job_lease_lifecycle.py
+tests/integration/test_scheduled_dispatch_pass.py` reports **105 passed**
+against PostgreSQL 16 (83 before this work).
+
+The J8 alerting question this document raises in §2.3 — whether the benign J17
+race that increments `failed` is covered — **was answered**: it is reported
+apart in `contended`, and the alert reads `unexplained_failures = failed -
+contended`, never `failed`. Written down in
+`docs/operations/deploy-runbook.md` beside the other two dispatcher alerts.
+
 ### 2.3 Still unverified
 
 - **F9 (docs)** — documentation only, so there is no behavioural revert-check
