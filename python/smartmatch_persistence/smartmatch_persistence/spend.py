@@ -47,13 +47,14 @@ the reservation this exact ``(tenant, job, provider, unit_of_work)`` would
 derive, via :func:`~smartmatch_domain.spend.derive_work_key`, and applies A1's
 per-state redelivery rule:
 
-* ``reserved`` — a live reservation already covers this unit of work. A
-  receipt is minted straight from the existing row's ``lease_token``; nothing
-  is debited a second time.
-* ``reconciled`` — refused
-  (:attr:`~smartmatch_domain.spend.RefusalReason.ALREADY_TERMINAL`), a no-op.
-  The call already happened and was paid for; redelivering it must not reserve
-  again.
+* ``reserved`` — while ``lease_expires_at >= now``, a live reservation already
+  covers this unit of work. A receipt is minted straight from the existing
+  row's ``lease_token``; nothing is debited a second time. After that instant,
+  it is refused as ``EXPIRED_NO_RETRY`` without changing state; only the
+  sweeper writes abandoned expiry.
+* ``reconciled`` — returns the recorded actual as an idempotent
+  :class:`~smartmatch_domain.spend.AlreadyReconciledOutcome`. The call already
+  happened and was paid for; redelivering it must not reserve or dispatch again.
 * ``expired_spent`` — refused
   (:attr:`~smartmatch_domain.spend.RefusalReason.EXPIRED_NO_RETRY`). A1: *"the
   retry does not call... it requires a new reservation taken under the
@@ -479,7 +480,7 @@ class SpendReservationService:
 
     def reserve(
         self, request: ReservationRequest, ceilings: SpendCeilings
-    ) -> SpendReservationReceipt | Refused:
+    ) -> SpendReservationReceipt | AlreadyReconciledOutcome | Refused:
         """Reserve ``request.estimate`` against the three ceilings, or refuse.
 
         See the module docstring for the full redelivery rule, the bucket
@@ -505,7 +506,7 @@ class SpendReservationService:
         tenant_day_key = tenant_day_bucket_key(request.tenant_id, now_utc.date())
         tenant_month_key = tenant_month_bucket_key(request.tenant_id, now_utc.year, now_utc.month)
 
-        work_key, redelivery = self._resolve_work_key(base_key)
+        work_key, redelivery = self._resolve_work_key(base_key, now=now_utc)
         if redelivery is not None:
             return redelivery
 
@@ -699,8 +700,8 @@ class SpendReservationService:
         return outcome
 
     def _resolve_work_key(
-        self, base_key: str
-    ) -> tuple[str, SpendReservationReceipt | Refused | None]:
+        self, base_key: str, *, now: datetime
+    ) -> tuple[str, SpendReservationReceipt | AlreadyReconciledOutcome | Refused | None]:
         """Resolve the work key this reservation should use, applying redelivery.
 
         Fetches every row in the ``base_key`` family — the base key itself, or
@@ -727,7 +728,9 @@ class SpendReservationService:
                 schema.spend_reservation.c.work_key,
                 schema.spend_reservation.c.state,
                 schema.spend_reservation.c.estimate,
+                schema.spend_reservation.c.actual_cost,
                 schema.spend_reservation.c.lease_token,
+                schema.spend_reservation.c.lease_expires_at,
             ).where(
                 sa.or_(
                     schema.spend_reservation.c.work_key == base_key,
@@ -739,7 +742,7 @@ class SpendReservationService:
             return base_key, None
 
         latest = max(family, key=lambda row: family_attempt_number(base_key, row.work_key))
-        redelivery = self._apply_redelivery_rule(latest)
+        redelivery = self._apply_redelivery_rule(latest, now=now)
         if redelivery is not None:
             return base_key, redelivery
         # `released`: fall through and re-reserve under the next attempt's
@@ -811,7 +814,9 @@ class SpendReservationService:
     @staticmethod
     def _apply_redelivery_rule(
         latest: sa.Row[tuple[object, ...]],
-    ) -> SpendReservationReceipt | Refused | None:
+        *,
+        now: datetime,
+    ) -> SpendReservationReceipt | AlreadyReconciledOutcome | Refused | None:
         """Apply Global Constraint 8 to the family's most recent row.
 
         Returns a receipt or refusal for every state except ``released``, for
@@ -820,6 +825,13 @@ class SpendReservationService:
         """
         state = SpendReservationState(latest.state)
         if state is SpendReservationState.RESERVED:
+            if latest.lease_expires_at < now:
+                return Refused(
+                    RefusalReason.EXPIRED_NO_RETRY,
+                    f"reservation {latest.id} for work key {latest.work_key!r} has "
+                    "expired but has not yet been reclaimed by the sweeper; retrying "
+                    "could duplicate a paid call",
+                )
             if latest.lease_token is None:
                 # ck_spend_reservation_lease_token_iff_reserved guarantees a
                 # `reserved` row always carries a token; reaching this means
@@ -836,11 +848,12 @@ class SpendReservationService:
                 estimate=latest.estimate,
             )
         if state is SpendReservationState.RECONCILED:
-            return Refused(
-                RefusalReason.ALREADY_TERMINAL,
-                f"reservation {latest.id} for work key {latest.work_key!r} is "
-                "already reconciled; a redelivery is a no-op",
-            )
+            if latest.actual_cost is None:
+                raise RuntimeError(
+                    f"reservation {latest.id} is 'reconciled' with no actual_cost, "
+                    "violating the reconciled state invariant"
+                )
+            return AlreadyReconciledOutcome(actual_cost=latest.actual_cost)
         if state is SpendReservationState.EXPIRED_SPENT:
             return Refused(
                 RefusalReason.EXPIRED_NO_RETRY,

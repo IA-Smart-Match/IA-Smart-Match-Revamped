@@ -287,7 +287,7 @@ def build_paid_extraction_handler(
 
         with session_factory() as session:
             service = SpendReservationService(session)
-            receipt = _reserve_or_fail(
+            reservation = _reserve_or_fail(
                 service,
                 context=context,
                 command=command,
@@ -297,11 +297,26 @@ def build_paid_extraction_handler(
                 lease=lease,
                 now=clock(),
             )
+            if isinstance(reservation, AlreadyReconciledOutcome):
+                if reservation.actual_cost is None:
+                    raise RuntimeError(
+                        "reconciled spend reservation has no actual_cost; refusing to "
+                        "invent a durable paid-call result"
+                    )
+                summary: dict[str, Any] = {
+                    "unit_of_work": command.unit_of_work,
+                    "pages": command.pages,
+                    "actual_cost": str(reservation.actual_cost),
+                    "actual_is_estimated": False,
+                    "already_reconciled": True,
+                }
+                context.emit({"type": "progress", **summary})
+                return HandlerResult(state=JobState.SUCCEEDED, summary=summary)
             return _dispatch_and_settle(
                 service,
                 context=context,
                 command=command,
-                receipt=receipt,
+                receipt=reservation,
                 provider=provider,
                 clock=clock,
             )
@@ -366,7 +381,7 @@ def _reserve_or_fail(
     ceilings: SpendCeilings,
     lease: timedelta,
     now: datetime,
-) -> SpendReservationReceipt:
+) -> SpendReservationReceipt | AlreadyReconciledOutcome:
     """Take the reservation, or end the job as ``failed_budget``.
 
     The refusal is emitted as a job event *before* it is raised, so that the
@@ -411,6 +426,9 @@ def _reserve_or_fail(
             "job is terminal until a ceiling moves.",
             reason=outcome.reason.value,
         )
+
+    if isinstance(outcome, AlreadyReconciledOutcome):
+        return outcome
 
     context.emit(
         {

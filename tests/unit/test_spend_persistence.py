@@ -23,15 +23,20 @@ from types import SimpleNamespace
 
 import pytest
 from smartmatch_domain.spend import (
+    AlreadyReconciledOutcome,
     ExpiredOutcome,
     ReconciledOutcome,
+    RefusalReason,
+    Refused,
     ReleasedOutcome,
     ReservationSnapshot,
+    SpendReservationReceipt,
     SpendReservationState,
 )
 from smartmatch_persistence.spend import (
     ReservationRequest,
     SpendCeilings,
+    SpendReservationService,
     _bucket_deltas_for_settle,
     _snapshot_from_row,
     family_attempt_number,
@@ -169,6 +174,55 @@ def _fake_row(**overrides):
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _redelivery_row(**overrides):
+    defaults = dict(
+        id=RESERVATION_ID,
+        tenant_id=TENANT_ID,
+        work_key=BASE,
+        state="reserved",
+        estimate=Decimal("2.0000"),
+        actual_cost=None,
+        lease_token=LEASE_TOKEN,
+        lease_expires_at=NOW,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+class TestRedeliveryRule:
+    def test_an_expired_reserved_row_is_refused_without_becoming_reusable(self):
+        row = _redelivery_row(lease_expires_at=NOW - timedelta(microseconds=1))
+
+        outcome = SpendReservationService._apply_redelivery_rule(row, now=NOW)
+
+        assert isinstance(outcome, Refused)
+        assert outcome.reason is RefusalReason.EXPIRED_NO_RETRY
+
+    def test_a_reserved_row_expiring_exactly_now_reuses_the_original_receipt(self):
+        row = _redelivery_row(lease_expires_at=NOW)
+
+        outcome = SpendReservationService._apply_redelivery_rule(row, now=NOW)
+
+        assert outcome == SpendReservationReceipt(
+            reservation_id=RESERVATION_ID,
+            tenant_id=TENANT_ID,
+            work_key=BASE,
+            lease_token=LEASE_TOKEN,
+            estimate=Decimal("2.0000"),
+        )
+
+    def test_a_reconciled_row_returns_its_durable_actual_cost(self):
+        row = _redelivery_row(
+            state="reconciled",
+            actual_cost=Decimal("1.2500"),
+            lease_token=None,
+        )
+
+        outcome = SpendReservationService._apply_redelivery_rule(row, now=NOW)
+
+        assert outcome == AlreadyReconciledOutcome(actual_cost=Decimal("1.2500"))
 
 
 class TestSnapshotFromRow:

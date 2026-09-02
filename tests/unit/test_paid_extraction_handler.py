@@ -30,6 +30,7 @@ import pytest
 import smartmatch_worker.paid_extraction as paid_extraction
 from smartmatch_domain.jobs import JobState
 from smartmatch_domain.spend import (
+    AlreadyReconciledOutcome,
     ExpiredOutcome,
     ReconciledOutcome,
     RefusalReason,
@@ -96,7 +97,7 @@ class _RecordingService:
     def __init__(
         self,
         *,
-        reserve_result: SpendReservationReceipt | Refused,
+        reserve_result: SpendReservationReceipt | AlreadyReconciledOutcome | Refused,
         reconcile_result: object = None,
         timeout_result: object = None,
     ) -> None:
@@ -109,7 +110,7 @@ class _RecordingService:
 
     def reserve(
         self, request: ReservationRequest, ceilings: SpendCeilings
-    ) -> SpendReservationReceipt | Refused:
+    ) -> SpendReservationReceipt | AlreadyReconciledOutcome | Refused:
         self.calls.append("reserve")
         self.reserve_requests.append(request)
         assert ceilings is CEILINGS
@@ -289,6 +290,39 @@ def test_a_redelivery_of_an_expired_unit_is_refused_not_re_debited(
 
     assert raised.value.reason == RefusalReason.EXPIRED_NO_RETRY.value
     assert provider.calls == []
+
+
+def test_a_reconciled_redelivery_succeeds_without_calling_or_settling(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    provider = SyntheticPaidProvider()
+    service = _RecordingService(
+        reserve_result=AlreadyReconciledOutcome(actual_cost=Decimal("0.1200"))
+    )
+    handler, _ = _build(monkeypatch, service, provider)
+
+    result = handler(_Context({"unit_of_work": "page:1", "pages": 10}).context)
+
+    assert result.state is JobState.SUCCEEDED
+    assert result.summary["actual_cost"] == "0.1200"
+    assert result.summary["actual_is_estimated"] is False
+    assert result.summary["already_reconciled"] is True
+    assert provider.calls == []
+    assert service.calls == ["reserve"]
+
+
+def test_a_reconciled_redelivery_missing_its_actual_cost_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    provider = SyntheticPaidProvider()
+    service = _RecordingService(reserve_result=AlreadyReconciledOutcome(actual_cost=None))
+    handler, _ = _build(monkeypatch, service, provider)
+
+    with pytest.raises(RuntimeError, match=r"reconciled.*actual_cost"):
+        handler(_Context({"unit_of_work": "page:1", "pages": 10}).context)
+
+    assert provider.calls == []
+    assert service.calls == ["reserve"]
 
 
 # ---------------------------------------------------------------------------

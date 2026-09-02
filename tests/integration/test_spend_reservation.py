@@ -52,6 +52,7 @@ from smartmatch_domain.spend import (
     RefusalReason,
     Refused,
     ReleasedOutcome,
+    ReviewFinding,
     SpendReservationReceipt,
     SpendReservationState,
     derive_work_key,
@@ -165,7 +166,7 @@ def _reserve(
     session_factory: sessionmaker[Session],
     request: ReservationRequest,
     ceilings: SpendCeilings,
-) -> SpendReservationReceipt | Refused:
+) -> SpendReservationReceipt | AlreadyReconciledOutcome | Refused:
     """Take one reservation in its own session, as a caller would.
 
     ``reserve`` commits its own transaction (Global Constraint 4), so a fresh
@@ -318,7 +319,7 @@ def test_a_day_ceiling_refusal_leaves_the_job_bucket_untouched(
     first = _reserve(
         session_factory,
         _request(tenant_id, job_id, unit_of_work="page-1", estimate=admitted),
-        _ceilings(job=Decimal("10.0000"), tenant_day=Decimal("10.0000")),
+        _ceilings(job=Decimal("10.0000"), tenant_day=Decimal("1.5000")),
     )
     assert isinstance(first, SpendReservationReceipt)
 
@@ -523,17 +524,16 @@ def test_redelivery_of_a_reserved_row_reuses_it_and_debits_nothing_twice(
     assert _reservation_count(engine, tenant_id) == 1
 
 
-def test_redelivery_of_a_reconciled_row_is_refused_as_terminal(
+def test_redelivery_of_a_reconciled_row_returns_the_recorded_actual(
     engine: Engine, session_factory: sessionmaker[Session], tenant_id: uuid.UUID
 ) -> None:
-    """A redelivery after the call was made and paid for is a no-op refusal.
+    """A redelivery after the call was made and paid for is a successful no-op.
 
     The work already happened and its real cost is on the row. Re-reserving
     would charge the ceiling twice for one paid call; returning a receipt would
-    invite the caller to make the call a second time. The only correct answer
-    is to refuse, and the refusal must say *why*: ``ALREADY_TERMINAL`` is a
-    different operational situation from a ceiling refusal, and a caller that
-    cannot tell them apart will retry the one it must not.
+    invite the caller to make the call a second time. Returning the durable
+    actual lets the caller report the earlier success without dispatching or
+    reserving again.
     """
     job_id = uuid.uuid4()
     request = _request(tenant_id, job_id, unit_of_work="page-1", estimate=Decimal("1.0000"))
@@ -548,8 +548,7 @@ def test_redelivery_of_a_reconciled_row_is_refused_as_terminal(
 
     redelivered = _reserve(session_factory, request, _ceilings())
 
-    assert isinstance(redelivered, Refused)
-    assert redelivered.reason is RefusalReason.ALREADY_TERMINAL
+    assert redelivered == AlreadyReconciledOutcome(actual_cost=Decimal("0.7500"))
     assert _reservation_count(engine, tenant_id) == 1
     bucket = _bucket(engine, tenant_id, BucketType.JOB, job_bucket_key(job_id))
     assert bucket is not None
@@ -588,6 +587,44 @@ def test_redelivery_of_an_expired_row_is_refused_with_expired_no_retry(
     bucket = _bucket(engine, tenant_id, BucketType.JOB, job_bucket_key(job_id))
     assert bucket is not None
     assert bucket.spent == estimate, "an expired reservation must be held as spent, not released"
+
+
+def test_redelivery_of_an_expired_but_unswept_row_refuses_without_writing(
+    engine: Engine, session_factory: sessionmaker[Session], tenant_id: uuid.UUID
+) -> None:
+    """An elapsed lease is not reusable while its sweeper write is pending."""
+    job_id = uuid.uuid4()
+    estimate = Decimal("1.0000")
+    receipt = _reserve(
+        session_factory,
+        _request(
+            tenant_id,
+            job_id,
+            unit_of_work="page-1",
+            estimate=estimate,
+            now=NOW - timedelta(hours=1),
+            lease=timedelta(minutes=30),
+        ),
+        _ceilings(),
+    )
+    assert isinstance(receipt, SpendReservationReceipt)
+
+    redelivered = _reserve(
+        session_factory,
+        _request(tenant_id, job_id, unit_of_work="page-1", estimate=estimate, now=NOW),
+        _ceilings(),
+    )
+
+    assert isinstance(redelivered, Refused)
+    assert redelivered.reason is RefusalReason.EXPIRED_NO_RETRY
+    assert _reservation_count(engine, tenant_id) == 1
+    row = _reservation(engine, receipt.reservation_id)
+    assert row is not None
+    assert row.state == SpendReservationState.RESERVED.value
+    bucket = _bucket(engine, tenant_id, BucketType.JOB, job_bucket_key(job_id))
+    assert bucket is not None
+    assert bucket.reserved == estimate
+    assert bucket.spent == Decimal("0")
 
 
 def test_redelivery_after_release_re_reserves_under_the_next_attempt_key(
@@ -651,7 +688,7 @@ def test_redelivery_after_release_re_reserves_under_the_next_attempt_key(
 def test_two_reconciles_record_one_actual(
     engine: Engine, session_factory: sessionmaker[Session], tenant_id: uuid.UUID
 ) -> None:
-    """A second reconcile must not post the cost a second time.
+    """Two reconciles that both read reserved must post the cost only once.
 
     A1 names the case: a late worker and the sweep can reach the same row, and
     so can two deliveries of the same completion message. The guard is the
@@ -659,9 +696,9 @@ def test_two_reconciles_record_one_actual(
     is the bucket, not the row — a second unguarded credit would add
     ``actual_cost`` to ``spent`` again and subtract ``estimate`` from
     ``reserved`` again, driving ``reserved`` negative and inflating recorded
-    spend for a single call. The two reconciles run in *separate sessions* so
-    the second genuinely re-reads committed state rather than reusing the
-    first's identity map.
+    spend for a single call. A barrier immediately before the real guarded
+    settle forces both sessions to make their decision from ``reserved``; the
+    database predicate, not a sequential early return, chooses the winner.
     """
     job_id = uuid.uuid4()
     estimate = Decimal("1.0000")
@@ -673,17 +710,44 @@ def test_two_reconciles_record_one_actual(
     )
     assert isinstance(receipt, SpendReservationReceipt)
 
-    with session_factory() as session:
-        first = SpendReservationService(session).reconcile(receipt, actual_cost=actual, now=NOW)
-    with session_factory() as session:
-        second = SpendReservationService(session).reconcile(receipt, actual_cost=actual, now=NOW)
+    settle_barrier = threading.Barrier(2)
 
-    assert isinstance(first, ReconciledOutcome)
-    assert first.actual_cost == actual
-    assert isinstance(second, AlreadyReconciledOutcome), (
-        "the second reconcile was not recognised as already settled"
-    )
-    assert second.actual_cost == actual
+    class _BarrierService(SpendReservationService):
+        def _settle(
+            self,
+            row: Row[tuple[object, ...]],
+            *,
+            target_state: SpendReservationState,
+            now: datetime,
+            actual_cost: Decimal | None,
+            actual_is_estimated: bool,
+            reserved_delta: Decimal,
+            spent_delta: Decimal,
+            review_finding: ReviewFinding | None,
+        ) -> bool:
+            settle_barrier.wait(timeout=60.0)
+            return super()._settle(
+                row,
+                target_state=target_state,
+                now=now,
+                actual_cost=actual_cost,
+                actual_is_estimated=actual_is_estimated,
+                reserved_delta=reserved_delta,
+                spent_delta=spent_delta,
+                review_finding=review_finding,
+            )
+
+    def _reconcile(session: Session) -> object:
+        return _BarrierService(session).reconcile(receipt, actual_cost=actual, now=NOW)
+
+    results = _run_concurrently(session_factory, [_reconcile, _reconcile])
+    reconciled = [result for result in results if isinstance(result, ReconciledOutcome)]
+    refused = [result for result in results if isinstance(result, Refused)]
+
+    assert len(reconciled) == 1
+    assert reconciled[0].actual_cost == actual
+    assert len(refused) == 1
+    assert refused[0].reason is RefusalReason.ALREADY_TERMINAL
 
     for bucket_type, key in (
         (BucketType.JOB, job_bucket_key(job_id)),
