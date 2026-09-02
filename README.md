@@ -37,6 +37,8 @@ was kept, what was rejected, and why.
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |
 | Transactional rate limiter | `smartmatch_persistence.rate_limit` | 18 integration + 4 unit |
+| Spend reservation state machine, guarded reservation service, and conservative abandoned-reservation sweeper (ADR-0015 A1) | `smartmatch_domain.spend`, `smartmatch_persistence.spend`, `smartmatch_persistence.spend_sweeper` | 100 unit + 14 PostgreSQL integration collected; integration unexecuted locally |
+| Synthetic paid-extraction seam and opt-in worker handler; deliberately absent from the shipped registry | `smartmatch_providers.paid`, `smartmatch_worker.paid_extraction` | 55 unit |
 | Authenticated command path, end to end | `services/api` | 29 integration |
 | Identity lookup — `external_subject` globally unique (ADR-0008) | `smartmatch_persistence.principals` | 6 integration |
 | API health + non-mutating unsubscribe GET | `services/api` | 10 contract |
@@ -50,20 +52,14 @@ was kept, what was rejected, and why.
 | CHECK constraints exercised behaviourally — the forbidden write *and* the permitted one | `db/migrations` | 50 integration |
 | One transaction per Alembic revision (ADR-0009) | `db/migrations/env.py` | 3 |
 
-**789 tests total — 788 pass, 1 skipped by design**
-(`test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
-second implemented scoring factor). The split is **444 passing plus that skip**
-in the no-database lane, and **344 requiring PostgreSQL** — measured against
-PostgreSQL 16.15, which is the version the CHECK-constraint expression pins in
-`tests/integration/test_check_constraints.py` assume.
-
-The figure here was `489` until 25 August 2026, and the drift is worth naming
-because it was not the aggregate that went stale on its own: `489` was exactly
-the sum of the table above while two of its rows were out of date — the
-dispatcher had grown from 27 to 41, re-drive from 22 to 30 — and four
-capabilities had no row at all. Both halves are corrected above. Counts come
-from `pytest tests/ --collect-only -q`; the lane split from
-`pytest tests/ -m "not integration"`.
+**1,817 tests collected: 1,266 in the no-database lane and 551 marked for the
+integration lane.** These are fresh collection measurements from
+`pytest tests/ --collect-only -q` and `pytest tests/ -m integration`. They are
+not a passing-test claim: PostgreSQL was unavailable in the latest local run,
+so all 551 integration tests skipped, including the 14 spend-reservation tests.
+The no-database run also did not complete in that environment because
+`tests/contract/test_api_health.py::test_health_reports_ok` blocked; see the
+[A1 verification record](docs/testing/adr0015-a1-spend-persistence-verification.md).
 
 ### Proposed, scaffolded, or deliberately absent
 
@@ -78,6 +74,7 @@ from `pytest tests/ --collect-only -q`; the lane split from
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
 | Research agents / crawler | Not scaffolded | Gate G3, R3 |
+| Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
 | `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Student engagement — attendance, points ledger, rewards, disclosure consent | **Designed, not built** — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
