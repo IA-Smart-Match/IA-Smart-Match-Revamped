@@ -307,6 +307,7 @@ def test_a_reconciled_redelivery_succeeds_without_calling_or_settling(
     assert result.summary["actual_cost"] == "0.1200"
     assert result.summary["actual_is_estimated"] is False
     assert result.summary["already_reconciled"] is True
+    assert "estimate" not in result.summary
     assert provider.calls == []
     assert service.calls == ["reserve"]
 

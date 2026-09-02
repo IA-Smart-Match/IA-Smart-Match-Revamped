@@ -595,6 +595,7 @@ def test_redelivery_of_an_expired_but_unswept_row_refuses_without_writing(
     """An elapsed lease is not reusable while its sweeper write is pending."""
     job_id = uuid.uuid4()
     estimate = Decimal("1.0000")
+    reservation_time = NOW - timedelta(hours=1)
     receipt = _reserve(
         session_factory,
         _request(
@@ -602,12 +603,25 @@ def test_redelivery_of_an_expired_but_unswept_row_refuses_without_writing(
             job_id,
             unit_of_work="page-1",
             estimate=estimate,
-            now=NOW - timedelta(hours=1),
+            now=reservation_time,
             lease=timedelta(minutes=30),
         ),
         _ceilings(),
     )
     assert isinstance(receipt, SpendReservationReceipt)
+
+    bucket_keys = {
+        BucketType.JOB: job_bucket_key(job_id),
+        BucketType.TENANT_DAY: tenant_day_bucket_key(tenant_id, reservation_time.date()),
+        BucketType.TENANT_MONTH: tenant_month_bucket_key(
+            tenant_id, reservation_time.year, reservation_time.month
+        ),
+    }
+    before = {
+        bucket_type: _bucket(engine, tenant_id, bucket_type, bucket_key)
+        for bucket_type, bucket_key in bucket_keys.items()
+    }
+    assert all(bucket is not None for bucket in before.values())
 
     redelivered = _reserve(
         session_factory,
@@ -621,10 +635,15 @@ def test_redelivery_of_an_expired_but_unswept_row_refuses_without_writing(
     row = _reservation(engine, receipt.reservation_id)
     assert row is not None
     assert row.state == SpendReservationState.RESERVED.value
-    bucket = _bucket(engine, tenant_id, BucketType.JOB, job_bucket_key(job_id))
-    assert bucket is not None
-    assert bucket.reserved == estimate
-    assert bucket.spent == Decimal("0")
+    after = {
+        bucket_type: _bucket(engine, tenant_id, bucket_type, bucket_key)
+        for bucket_type, bucket_key in bucket_keys.items()
+    }
+    for bucket_type in BucketType:
+        assert after[bucket_type] is not None
+        assert before[bucket_type] is not None
+        assert after[bucket_type].reserved == before[bucket_type].reserved == estimate
+        assert after[bucket_type].spent == before[bucket_type].spent == Decimal("0")
 
 
 def test_redelivery_after_release_re_reserves_under_the_next_attempt_key(

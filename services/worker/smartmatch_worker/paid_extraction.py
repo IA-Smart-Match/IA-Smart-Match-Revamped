@@ -265,8 +265,10 @@ def build_paid_extraction_handler(
                 payload, ``invalid_command_payload`` when it carries one that
                 cannot be read.
             BudgetFailure: whenever the reservation is refused — a ceiling
-                reached, a redelivery against a settled unit, or a lost race on
-                the work key. Terminal, per A1: *"a reservation failure is a
+                reached, an expired or otherwise non-replayable terminal unit,
+                or a lost race on the work key. A reconciled redelivery is the
+                exception: it succeeds from the recorded actual without a new
+                dispatch. Refusals are terminal, per A1: *"a reservation failure is a
                 BudgetFailure, and therefore ends the job as failed_budget"*,
                 and unlike a counting-quota refusal it does not self-heal at a
                 window boundary. See :func:`_reserve_or_fail`.
