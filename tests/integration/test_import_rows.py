@@ -244,19 +244,10 @@ def test_a_live_inline_row_import_creates_review_items_and_succeeds(
     assert items[1].row_data == {"name": "B. Osei", "metro_region": "Coastal"}
 
 
-def test_gate_b_contact_values_are_never_written_to_review_items(
+def test_gate_b_contact_values_are_persisted_after_gate_close(
     client, engine, session_factory, unit_id, coordinator, tenant_id
 ):
-    """P9 Gate B has not authorized collection, so a live import stores none of it.
-
-    This is the write-side half of card W1's ``withhold`` posture, and the half
-    that matters: quarantine *is* collection, and a ``review_item`` row is
-    persistence (ADR-0014). A coordinator may submit an export carrying the
-    three published contact fields — the import is accepted, not rejected,
-    because refusing would be enforcing an answer Gate B has not given — but
-    none of those three values may reach the database, and the submission must
-    say so rather than dropping them silently.
-    """
+    """P9 Gate B closed 2026-09-02 — human/import contact fields may reach review_item."""
     rows = [
         {
             "Event / Program": "Career Day",
@@ -272,7 +263,7 @@ def test_gate_b_contact_values_are_never_written_to_review_items(
             client,
             unit_id,
             coordinator,
-            key="gate-b-withheld",
+            key="gate-b-collect",
             body=_rows_body(rows, dry_run=False, dataset="events"),
         ).json()["job_id"]
     )
@@ -282,20 +273,14 @@ def test_gate_b_contact_values_are_never_written_to_review_items(
 
     completed = _terminal_event(session_factory, tenant_id, job_id)
     summary = completed["summary"]
-    assert summary["usable"] is True, "a still-open gate must not make a dataset unusable"
+    assert summary["usable"] is True
 
     withheld = [
         finding
         for finding in summary["findings"]
         if finding["code"] == "columns_withheld_pending_gate"
     ]
-    assert len(withheld) == 1, "the drop must be reported, never silent"
-    assert set(withheld[0]["columns"]) == {
-        "Public URL",
-        "Point(s) of Contact (published)",
-        "Contact Email / Phone (published)",
-    }
-    assert withheld[0]["severity"] == "warning"
+    assert withheld == []
 
     with engine.connect() as conn:
         items = conn.execute(
@@ -308,10 +293,10 @@ def test_gate_b_contact_values_are_never_written_to_review_items(
         "event_program": "Career Day",
         "category": "Outreach",
         "host_unit": "Riverside High",
+        "public_url": "https://example.edu/career-day",
+        "point_s_of_contact_published": "R. Vance",
+        "contact_email_phone_published": "nobody@example.edu",
     }
-    stored = str(item.row_data)
-    for value in ("example.edu", "R. Vance", "nobody@example.edu"):
-        assert value not in stored, f"{value!r} reached storage ahead of Gate B"
 
 
 def test_an_import_missing_a_ratified_required_column_fails_closed(

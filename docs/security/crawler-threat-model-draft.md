@@ -988,11 +988,10 @@ quarantine by design.
 
 Recorded, not resolved. None may be closed by an agent.
 
-1. **Reviewer authority.** The R3 stop-gate requires a **named security
-   reviewer**. Danny Tran is documented as Development Lead and G3 owner; the
-   repository does not establish that this is the same role as designated R3
-   security reviewer. Signing as Development Lead alone may not meet the stated
-   gate. The name field below is left blank pending this determination.
+1. **Reviewer authority — CLOSED 2026-09-02 (option 1a).** Danny Tran
+   (@dangt), Development Lead, **is** the designated R3 security reviewer.
+   The signature block below should name Danny with role Development Lead /
+   Security Reviewer. Signing remains outstanding until the human signing pass.
 2. **T-13 enforcement point** — proposed above, not decided. Until named, T-13
    cannot close.
 3. **T-07 tools/providers** — unfilled, as above.
@@ -1034,8 +1033,9 @@ reviewer authority and not security completeness.
 
 ## Security reviewer sign-off (R3) — OUTSTANDING
 
-**This document is not signed.** The R3 stop-gate requires a named security
-reviewer, and the authority question at Open Questions §1 is unresolved.
+**This document is not signed.** Reviewer authority resolved 2026-09-02 (1a):
+Danny Tran (@dangt), Development Lead / Security Reviewer. The signing pass
+remains outstanding.
 
 ```
 Reviewed and approved as DESIGN REQUIREMENTS by: ____________________ (name, role)
@@ -1080,7 +1080,7 @@ Outstanding dependencies at signature time:
   - T-23: LLM provider unnamed; retention/training/region terms not recorded.
   - ADR-0015 amendment (quota versus spend) has not landed; T-08's conservative
     reclaim direction depends on Amendment A1.
-  - Reviewer authority question, Open Questions §1.
+  - Reviewer authority question — **closed 2026-09-02 (1a)**; signature outstanding.
 ```
 
 > **Signing procedure.** `tests/unit/test_gate_decision_artifacts.py::test_g3_threat_model_remains_unsigned_draft`

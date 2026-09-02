@@ -1,15 +1,11 @@
 # A1b — institutional IdP configuration worksheet
 
-**Status:** UNFILLED — this is a blank worksheet, not a decision.
-**Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY.** Session
-approver Danny Tran (`dt110202@gmail.com`) recorded P2 as **in scope;
-proceed** — see `docs/decisions/2026-08-31-session-ratification.md`. That is
-a scope decision, not a completed worksheet: this is infrastructure
-procurement (a Google Cloud IdP tenant must exist), not a workshop question,
-and P2 is filed as procurement-blocked rather than workshop-blocked. **Every
-field in Part 1 below, including the approval fields, must be complete
-before P2 resumes past card A0; a shortened subset does not pass the
-stop-gate.** No identity implementation is authorized until then.
+**Status:** **TENANT PROCURED — WORKSHEET UNFILLED.** Google Cloud IdP
+dev/test tenant exists (confirmed 2026-09-02). Part 1 configuration fields
+below remain blank until the provisioner commits values.
+**Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY** until Part 1
+is complete. Session approver Danny Tran (@dangt) recorded P2 as **in scope;
+proceed** — see `docs/decisions/2026-08-31-session-ratification.md`.
 **Created by:** plan P2 card A0 (`docs/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
 **Date:** 2026-08-28 · **Branch:** `plan/a1b-sign-in`
 

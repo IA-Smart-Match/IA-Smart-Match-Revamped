@@ -78,7 +78,7 @@ class TestGatePendingFindings:
         assert finding.columns == ("board_role",)
         assert "P9 Gate A" in finding.message
 
-    def test_gate_b_contact_fields_are_reported_as_withheld(self, events) -> None:
+    def test_gate_b_contact_fields_are_stored_when_gate_is_closed(self, events) -> None:
         rows = [
             {
                 "Event / Program": "Career Day",
@@ -87,15 +87,7 @@ class TestGatePendingFindings:
                 "Contact Email / Phone (published)": "nobody@example.edu",
             }
         ]
-        (finding,) = _gate_pending_findings(events, rows)
-        assert finding.code == "columns_withheld_pending_gate"
-        assert finding.severity == "warning"
-        assert set(finding.columns) == {
-            "Public URL",
-            "Contact Email / Phone (published)",
-        }
-        # The field nobody sent is not warned about.
-        assert "Point(s) of Contact (published)" not in finding.columns
+        assert _gate_pending_findings(events, rows) == ()
 
     def test_a_gate_finding_never_carries_error_severity(self, events, professionals) -> None:
         """A gate that has not answered cannot make a dataset unusable.
@@ -104,21 +96,21 @@ class TestGatePendingFindings:
         gate finding could be an ERROR, an open question would fail imports —
         which is enforcing an answer the gate has not given.
         """
-        rows = [{"Public URL": "https://example.edu/x", "board_role": "Chair"}]
+        rows = [{"board_role": "Chair"}]
         for contract in (events, professionals):
             for finding in _gate_pending_findings(contract, rows):
                 assert finding.severity == "warning"
 
-    def test_column_names_are_matched_the_way_validate_columns_matches_them(self, events) -> None:
-        """``"Public URL"`` and ``public_url`` are the same declared column."""
-        (finding,) = _gate_pending_findings(events, [{"public_url": "https://example.edu/x"}])
-        assert finding.columns == ("Public URL",)
+    def test_public_url_normalizes_without_gate_withhold(self, events) -> None:
+        """``"Public URL"`` and ``public_url`` normalize the same after Gate B close."""
+        normalized = _normalize_row({"public_url": "https://example.edu/x"})
+        assert normalized == {"public_url": "https://example.edu/x"}
 
 
 class TestWithholding:
     """Withheld values are dropped at the write, and only at the write."""
 
-    def test_a_withheld_column_never_reaches_the_normalized_row(self, events) -> None:
+    def test_gate_b_contact_fields_persist_after_gate_close(self, events) -> None:
         row = {
             "Event / Program": "Career Day",
             "Category": "Outreach",
@@ -127,7 +119,9 @@ class TestWithholding:
             "Contact Email / Phone (published)": "nobody@example.edu",
         }
         normalized = _normalize_row(row, withhold=events.withheld_columns)
-        assert normalized == {"event_program": "Career Day", "category": "Outreach"}
+        assert normalized["public_url"] == "https://example.edu/career-day"
+        assert normalized["point_s_of_contact_published"] == "R. Vance"
+        assert normalized["contact_email_phone_published"] == "nobody@example.edu"
 
     def test_an_accepted_gate_pending_column_is_still_stored(self, professionals) -> None:
         """Gate A is a modelling question, not a privacy one — keep the value."""
@@ -135,10 +129,10 @@ class TestWithholding:
         normalized = _normalize_row(row, withhold=professionals.withheld_columns)
         assert normalized["board_role"] == "Chair"
 
-    def test_withholding_is_header_insensitive(self, events) -> None:
+    def test_withholding_still_applies_when_a_column_is_declared_withhold(self) -> None:
         normalized = _normalize_row(
             {"category": "Outreach", "  public-url ": "https://example.edu/x"},
-            withhold=events.withheld_columns,
+            withhold=("Public URL",),
         )
         assert normalized == {"category": "Outreach"}
 

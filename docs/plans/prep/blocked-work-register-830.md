@@ -29,91 +29,94 @@ none of these and may fill none of them.**
 
 | # | Field | Where | State | Blocks |
 |---|---|---|---|---|
-| 1 | **R3 security reviewer** | `docs/security/crawler-threat-model-draft.md` signature block; `r3-technical-review-findings.md` header reads `Reviewer: (unfilled — see §6)` | Blank | All of P6 past the R3 gate |
-| 2 | **R3 reviewer *authority*** | same | Unresolved question, not merely blank | See §1 |
-| 3 | **Privacy owner** | P9 Gate B (`2026-08-28-pilot-columns-plan.md` §Stop-gates) | **Role is named as a requirement in five documents and filled in none** | P9 Gate B, R3 T-14, MP-4 |
-| 4 | **Program owner (D1/G1)** | `g1-factor-registry-workshop-packet.md`: `Blocking owner: program owner (name TBD)` | Blank | P5 entirely; P8 if score-floor |
-| 5 | **Rewards budget owner (D6)** | `pilot-decisions.md` D6: "does **not** name a budget holder, and no budget exists" | Blank | P7; `budget_owner_id NOT NULL` is already enforced by `test_reward_item_rejects_a_null_budget_owner` |
+| 1 | **R3 security reviewer** | `docs/security/crawler-threat-model-draft.md` signature block; `r3-technical-review-findings.md` header | **Resolved 1a — 2026-09-02:** Danny Tran (@dangt), Development Lead, is the designated R3 security reviewer. Threat model **unsigned** until signing pass. | R3 signature pass (not authority) |
+| 2 | **R3 reviewer *authority*** | same | **Closed 2026-09-02** — option **1a** (Development Lead is security reviewer) | — |
+| 3 | **Privacy owner** | P9 Gate B (`2026-08-28-pilot-columns-plan.md` §Stop-gates) | **Closed 2026-09-02** — Danny Tran (@dangt); see `p9-gate-b-contact-fields-worksheet.md` §8 | — |
+| 4 | **Program owner (D1/G1)** | `g1-factor-registry-workshop-packet.md` | **Named 2026-09-02** — Danny Tran (@dangt). G1 workshop may run. | Registry approval (workshop output) |
+| 5 | **Rewards budget owner (D6)** | `pilot-decisions.md` D6 | **Named 2026-09-02** — Danny Tran (@dangt); $5k placeholder. D6 **closed** for pilot scope. | P7 behavior cards |
 | 6 | **Allowlist entry approver** | `r3-technical-review-findings.md` §5 | **Resolved 2026-08-29** by signed G3 §10 row 1 (Danny Tran). R3's §5 text is now stale. | — |
-| 7 | **Product owner (opportunities definition)** | P8 stop-gate | No artifact exists under `docs/decisions/` at all | P8 |
+| 7 | **Product owner (opportunities definition)** | P8 + P1 stop-gates | **Named 2026-09-02** — Danny Tran (@dangt). P8 and P1 **closed**. | — |
 | 8 | **Interim project owner** | `pilot-decisions.md`: "Interim owner: DangT … This is a **self-assignment**" | Filled, but **explicitly unratified** and pending IA West confirmation | Nothing directly; noted so it is not mistaken for institutional authority |
 | 9 | **`DESIGN.md` owner (D-0)** | `pilot-decisions.md` §197 | "deferred, not decided" | Nothing directly |
 
-**The pattern worth naming:** items 3, 4, 5, and 7 are all the same failure —
-a role that documents reference as though it exists. Each was written as a
-dependency by someone who assumed someone else had named it. None is expensive
-to fill; all four are cheap sentences a human can write in a single sitting.
+**Owner naming (2 September 2026):** rows 4, 5, and 7 are now filled. Row 1
+authority is resolved (1a); signature remains outstanding. Row 6 (IdP
+provisioner) and row 9 (D-0) remain open.
 
-## 1. The R3 reviewer-authority question — surfaced, not resolved
+## 1. The R3 reviewer-authority question — **closed 2026-09-02**
 
-The R3 stop-gate requires a **named security reviewer**. Danny Tran is
-documented as **Development Lead** and as the G3 owner of record. The repository
-does not establish that those are the same role.
+**Resolution (1a):** Danny Tran (@dangt), Development Lead, **is** the
+designated R3 security reviewer for this project. The signature block should
+name Danny Tran with role **Development Lead / Security Reviewer**.
 
-This is recorded here as an **open question for the human**, not a finding
-against anyone. Two honest resolutions exist:
-
-- **1a.** The Development Lead *is* the security-reviewing authority for this
-  project, and the artifact should say so explicitly in the signature block.
-- **1b.** A separate reviewer is required, and the field stays blank until one
-  is named.
-
-An agent cannot choose between these, because the answer is a fact about the
-organization and not about the repository. It matters because signing under the
-wrong role produces an artifact that *looks* like it cleared the gate.
+The threat model remains **unsigned** until a human signing pass. T-27–T-29 and
+other open items in the threat model's outstanding-dependencies list remain
+as recorded there — authority resolution does not close those items.
 
 ## 2. Per-plan status
 
-### P1 — metrics authorization · blocked on a workshop
+### P1 — metrics authorization · **closed 2026-09-02**
 
-- **Waiting on:** ratification of `docs/decisions/metrics-authorization-decision-draft.md`, which poses four questions and answers none.
-- **Who:** product + security, together.
-- **Cost of waiting:** low and *honest*. Current behaviour is intentionally ungated, documented, and pinned by `tests/authz/test_policy_matrix.py::INTENTIONALLY_UNGATED_OPERATIONS`. Nothing is silently wrong; it is knowingly open.
-- **Leverage:** the portfolio index calls P1 "small, high leverage". That still reads correctly — four questions, and the work behind them is bounded.
-- **Coupling:** if P9 Gate B collects any contact field, P1 acquires a new dependent (minimum-disclosure roles for contact data). **Deciding Gate B as "drop" keeps P1 uncoupled.**
+- **Status:** **CLOSED** — `docs/decisions/metrics-authorization-decision-draft.md`
+- **Policy:** Option B (split aggregates/drill-down); subtree scopes; admin
+  unrestricted within tenant; bare `resource_grant` denied; no metric exceptions.
+- **Owners:** Danny Tran (@dangt) as product owner and security/privacy owner.
+- **Implementation:** V4 authorized; retire `INTENTIONALLY_UNGATED_OPERATIONS`
+  for metrics in the implementation change set.
 
-### P2 — institutional sign-in · blocked on a thing that does not exist
+### P2 — institutional sign-in · tenant procured; worksheet unfilled
 
-- **Waiting on:** `docs/decisions/a1b-idp-configuration-worksheet.md`, in which **every field is `_(blank)_`**.
-- **Who:** whoever can provision an identity provider.
-- **The honest blocker:** **no IdP tenant exists.** This is not a decision awaiting a decider; it is infrastructure awaiting procurement. Cards A1–A4 cannot be planned around a workshop, because a workshop cannot produce an issuer URL.
-- **Recommendation:** stop describing P2 A1–A4 as workshop-blocked. Re-file it as **procurement-blocked** so it is not repeatedly queued behind a meeting that cannot resolve it. Card A0 remains startable per the portfolio index.
+- **Waiting on:** `docs/decisions/a1b-idp-configuration-worksheet.md` Part 1
+  fields. **Google Cloud IdP dev/test tenant exists** (procurement resolved
+  2026-09-02); configuration values not yet committed.
+- **Who:** IdP provisioner (unnamed on roster row 6).
+- **Status:** remains **EXTERNAL DEPENDENCY** until worksheet complete.
 
-### P5 — G1 matching · blocked on the longest pole
+### P5 — G1 matching · workshop ready
 
-- **Waiting on:** a ratified factor registry and golden case set (gate G1), with a named program owner for ongoing weight governance.
-- **Who:** the program owner — **currently unnamed** (register item 4).
-- **Cost of waiting:** scoring continues to fail closed, which is the correct behaviour. `pilot-decisions.md` D1 calls this "the longest pole, and all matching work waits on it."
-- **Note:** the workshop packet exists and is complete. **The gap is a name, not a document.** Naming the owner is a prerequisite to running the workshop, not an output of it.
+- **Program owner:** **Danny Tran (@dangt)** — named 2026-09-02.
+- **Waiting on:** G1 factor-registry workshop execution and committed approval
+  outputs (factors, weights, golden cases).
+- **Cost of waiting:** scoring continues to fail closed — correct behaviour.
+- **Next action:** schedule and run
+  `docs/plans/workshops/g1-factor-registry-workshop-packet.md`.
 
-### P7 — D6/D7 rewards · blocked on a budget that does not exist
+### P7 — D6/D7 rewards · D6 closed for pilot scope
 
-- **Waiting on:** a named human budget owner (D6) and calibration N (D7).
-- **Who:** whoever controls reward funding.
-- **The honest blocker:** `pilot-decisions.md` D6 states plainly that no budget exists and no budget holder is named. `rewards-catalog-worksheet.md` is marked "human completion required — **do not seed listable catalog rows**", and the schema already enforces `budget_owner_id NOT NULL`.
-- **Why this is well-designed:** the database refuses to hold a reward with no owner. There is no way to fake progress here, which is why nothing has drifted. Leave it.
+- **Budget owner:** **Danny Tran (@dangt)** — named 2026-09-02; $5,000 placeholder
+  ceiling ratified pending institutional funding confirmation.
+- **Waiting on:** D7 calibration review; cards L1–L4+ remain gated per plan.
+- **Permitted now:** formal D6 record + schema verification per ratification boundary.
 
-### P8 — opportunities · blocked, and likely to inherit P6
+### P8 — opportunities · **closed 2026-09-02**
 
-- **Waiting on:** a written canonical definition of "opportunities", ratified by the product owner. **No such artifact exists under `docs/decisions/`.**
-- **Inheritance, stated carefully:** the plan's stop-gate says P8 inherits P6 if the definition depends on crawler-fed events, and inherits P5 if it includes a score floor. `docs/plans/opportunities-metric-inventory.md:13` records that the Opportunities page **as built today** merges "CSV + crawler rows" with "fabricated crawler dates/roles". So the *current surface* is crawler-fed.
-  **That is evidence about the existing page, not a statement of the owner's intended definition** — which does not exist in writing yet. The safe planning assumption is that P8 inherits P6 **unless the definition explicitly excludes crawler rows**; the executor must record which branch actually applies once the artifact lands, exactly as the plan requires.
-- **Note the trap the plan already names:** do not resolve the two-pages disagreement (Fix #5) by pointing both pages at the same fabricated client-side merge. The fabricated dates and roles at line 13 are the defect, not the baseline.
+- **Definition:** category-list with coordinator review; import + crawler evidence
+  (P6 persistence for crawler rows). **BRANCH-ELIGIBILITY** — no score floor.
+- **Artifact:** `docs/decisions/p8-opportunities-decision-draft.md`
+- **Product owner:** Danny Tran (@dangt).
+- **Next:** card O1 (register definition); O2+ blocked on S12 / P6 as plan states.
 
 ### P9 — pilot columns · two independent gates, one of them cheap
 
-- **Gate A (`board_role`):** blocked on Dr. Wang. Two questions (intrinsic vs. relationship-scoped; and if relationship-scoped, multiplicity + effective dates). The holding position in `columns.yaml` is documented as a holding position, which is correct.
-- **Gate B (contact fields):** **the cheapest open gate in the portfolio.** Full worksheet prepared at `docs/decisions/p9-gate-b-contact-fields-worksheet.md`.
+- **Gate A (`board_role`):** **CLOSED 2026-09-02 (pilot scope)** — relationship-scoped;
+  multiple concurrent roles; no effective dates for pilot. Artifact:
+  `docs/decisions/p9-gate-a-board-role-decision-draft.md`. Decider: Danny Tran
+  (@dangt), program owner. Schema migration follows plan Wave C.
+- **Gate B (contact fields):** **CLOSED 2026-09-02.** Artifact:
+  `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8. Collect all three;
+  ADR-0014 fields recorded. Unblocks T-14 (subject to R3 sign-off), narrows
+  MP-4, completes Stage 0 §4 schema review. Adds P1 coupling (minimum-disclosure
+  for contact data).
 - Gates pass independently; only the branch whose gate passed may run.
 
 ## 3. Recommended workshop order — by leverage, not by number
 
-1. **P9 Gate B.** Three collect/drop choices. Unblocks R3 T-14, makes MP-4's scope final, and completes the Stage 0 §4 schema review. A "drop" outcome needs no privacy owner and adds no dependencies. *Worksheet ready.*
-2. **Name the four missing owners** (register items 1, 3, 4, 7). This is not a workshop; it is four sentences. Three other plans are waiting on names rather than on decisions.
-3. **P1 metrics authz.** Four bounded questions; the portfolio index already flags it as high leverage per unit of decision.
-4. **P5 G1 registry.** The longest pole — start it as soon as item 2 names a program owner, since the packet is already complete.
-5. **P9 Gate A**, **P8 definition**, **P7 D6/D7** as their owners become available.
-6. **P2 A1–A4** — not a workshop item. Re-file as procurement.
+1. **P5 G1 registry workshop** — program owner named; packet complete. **Longest remaining product pole.**
+2. **R3 signing pass** — reviewer authority resolved (1a); threat model still unsigned.
+3. **P2 A1–A4** — complete A1b worksheet Part 1 (tenant exists; fields pending).
+4. **Implement V4 (P1)** — gate closed; engineering backlog item.
+5. **P8 O1+** — definition closed; persistence cards when ready.
+6. **P9 Gate A migration** — gate closed; `columns.yaml` + schema card per plan.
 
 ## 4. What an agent must never do with this register
 
@@ -134,3 +137,28 @@ All claims above were read directly from the working tree at `fc40a06` on
 - `docs/pilot-data/{rewards-catalog-worksheet,board-role-decision-prep,event-contact-fields-decision-prep}.md`
 - `docs/plans/opportunities-metric-inventory.md`
 - `docs/security/{r3-technical-review-findings,crawler-threat-model-draft,prompt-injection-assessment}.md`
+
+## 6. Synchronization — 2 September 2026
+
+| Item | Prior state | Current state |
+|---|---|---|
+| **P9 Gate B** | RECORDED — GATE INCOMPLETE | **CLOSED** — `p9-gate-b-contact-fields-worksheet.md` §8 complete |
+| **Privacy owner** (register §0 item 3) | Blank | **Named and closed** — Danny Tran (@dangt) |
+| **events `gate_pending`** in `columns.yaml` | All three fields `withhold` | **Removed** — gate closed per worksheet comment |
+| **MP-4** (G3 §7) | Provisional while Gate B open | **Narrowed** — human/import per §8; extractors forbidden |
+| **T-14** (R3) | Blocked on Gate B | **Unblocked for closure** — pending R3 signature pass |
+| **Next recommended action** | P9 Gate B signature | **G1 workshop** (program owner named) or **R3 signing pass** |
+
+## 7. Synchronization — 2 September 2026 (decision batch)
+
+| Item | Prior state | Current state |
+|---|---|---|
+| **Program owner** (P5/D1) | Blank | **Named** — Danny Tran (@dangt) |
+| **Product owner** (P8/P1) | Blank | **Named** — Danny Tran (@dangt) |
+| **P1 metrics authz** | RECORDED — GATE INCOMPLETE | **CLOSED** — Option B; see decision draft |
+| **P8 opportunities** | RECORDED — GATE INCOMPLETE | **CLOSED** — category-list + coordinator review |
+| **P9 Gate A** | RECORDED — GATE INCOMPLETE | **CLOSED (pilot scope)** — relationship-scoped; multiple concurrent; no dates |
+| **P7 D6 budget owner** | Blank | **Named** — Danny Tran (@dangt); $5k placeholder |
+| **R3 reviewer authority** | Open (1a vs 1b) | **Closed — 1a** (Development Lead is reviewer); signature still outstanding |
+| **P2 IdP** | No tenant | **Tenant exists** — worksheet Part 1 still unfilled |
+| **Next recommended action** | Name program owner or P1 workshop | **G1 workshop** or **R3 signing pass** |

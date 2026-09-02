@@ -72,16 +72,11 @@ class TestGatePosture:
         assert entry.gate == "P9 Gate A"
         assert entry.reason, "a gate-pending column must say why it is pending"
 
-    def test_all_three_gate_b_contact_fields_are_withheld(self, shipped: dict) -> None:
-        """Gate B has not authorized collection, and quarantine is collection."""
+    def test_gate_b_fields_are_no_longer_withheld_after_gate_close(self, shipped: dict) -> None:
+        """P9 Gate B closed 2026-09-02 — events carry no gate_pending withhold."""
         events = shipped["events"]
-        assert set(events.withheld_columns) == {
-            "Public URL",
-            "Point(s) of Contact (published)",
-            "Contact Email / Phone (published)",
-        }
-        assert events.accepted_pending_columns == ()
-        assert {entry.gate for entry in events.gate_pending} == {"P9 Gate B"}
+        assert events.withheld_columns == ()
+        assert events.gate_pending == ()
 
     def test_gate_pending_columns_stay_declared_so_they_are_never_unexpected(
         self, shipped: dict

@@ -166,32 +166,6 @@ datasets:
       # optional, so it takes no declaration today (see decision 3).
       "Event / Program": *null_markers
       "Category": *null_markers
-    gate_pending:
-      "Public URL":
-        gate: "P9 Gate B"
-        posture: withhold
-        reason: >-
-          Gate B has not decided collect-or-drop for this field. A URL can
-          carry an identifying token in an ordinary-looking path segment and
-          no static check can tell the difference, which is why
-          smartmatch_domain.public_url offers no raw-URL persistence under any
-          name and APPROVED_HOST_PATH_PROJECTIONS is empty. Static shape
-          validation of a candidate URL is authorized; storing one is not.
-      "Point(s) of Contact (published)":
-        gate: "P9 Gate B"
-        posture: withhold
-        reason: >-
-          A published contact name is personal data. ADR-0014: "published"
-          provenance is not consent for platform disclosure, and Gate B has
-          recorded no purpose, minimization rule, retention period, correction
-          path, or permitted audience for it.
-      "Contact Email / Phone (published)":
-        gate: "P9 Gate B"
-        posture: withhold
-        reason: >-
-          Same as the contact-name field, and the one most likely to be used
-          for outreach the gate has not authorized. Withheld until Gate B
-          records collect-or-drop with a named privacy owner.
 
 open_questions:
   - >-
@@ -205,12 +179,8 @@ open_questions:
     it from being flagged as unexpected; it is not an answer, and moving it
     later is a schema change, not a rename.
   - >-
-    STILL OPEN -- needs Dr. Wang. Whether the pilot actually collects the two
-    events fields no fixture exercises: "Public URL", and the published
-    contact pair "Point(s) of Contact (published)" / "Contact Email / Phone
-    (published)". They are declared optional here because mockData.ts's
-    CppEvent type has them, so an export carrying them is not flagged as
-    unexpected -- but nothing in this drop demonstrates them, and the contact
-    fields in particular are personal data whose presence in a pilot import
-    should be a deliberate decision, not an inheritance from a mock. If the
-    pilot does not collect them, drop them from `optional`.
+    RESOLVED 2026-09-02 -- P9 Gate B closed: collect all three (Public URL;
+    Point(s) of Contact (published); Contact Email / Phone (published)) per
+    docs/decisions/p9-gate-b-contact-fields-worksheet.md §8. Human/import
+    origin only for contact fields; crawler raw URL persistence still requires
+    an approved host/path projection.

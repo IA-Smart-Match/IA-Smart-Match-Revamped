@@ -94,7 +94,7 @@ above is the working choice being carried forward for review.
 **Question:** is the Development Lead the same role as the "named security
 reviewer" the R3 stop-gate requires?
 
-**Current human fact for this handoff:** Yes — Git: `dt110202@gmail.com`.
+**Current human fact for this handoff:** Yes — Git: @dangt.
 The Development Lead is the named security reviewer for this project unless
 someone explicitly designates a different authority. This is an org-level fact,
 not a repository-level recommendation.
@@ -127,7 +127,7 @@ model still lacks. For this handoff, the working decisions are:
 - **T-13:** the agent runs behind a guardrail and the platform will implement a
   project-specific harness for all model calls; the preferred enforcement point is
   at app runtime before outbound call dispatch.
-- **T-19:** approver is `dt110202@gmail.com`; proposer is the same human plus
+- **T-19:** approver is @dangt; proposer is the same human plus
   Chau / Starey Night (Janice) and each of our respective agents as delegated
   proposal actors.
 - **T-23:** model-agnostic is the goal. The project will choose the cheapest
@@ -139,7 +139,7 @@ model still lacks. For this handoff, the working decisions are:
 |---|---|
 | **T-07** | model-agnostic tooling decision is in place, with OpenRouter and Groq allowed; all tools remain permitted within the pilot scope |
 | **T-13** | the egress enforcement point is the project guardrail/harness, enforced at app runtime before outbound dispatch |
-| **T-19** | approver is `dt110202@gmail.com`; proposer is the same human plus Chau / Starey Night (Janice) and the relevant agents |
+| **T-19** | approver is @dangt; proposer is the same human plus Chau / Starey Night (Janice) and the relevant agents |
 | **T-23** | model choice remains task- and latency-based; provider-retention terms are not material to the IA West pilot scope |
 
 T-27, T-28 and T-29 are deliberately labelled **CANNOT CLOSE** rather than
@@ -248,7 +248,7 @@ wants the work accepted, clarified, or renounced.
   represent the institution. This defines the canonical opportunity set the
   system is expected to support.
 - **P7 D6/D7 rewards** — needs both the owner from §1 *and* a funding decision.
-  Working direction: owner is `dt110202@gmail.com`; rewards should be capped at a
+  Working direction: owner is @dangt; rewards should be capped at a
   maximum reward amount and managed under a defined budget. The budget is treated
   as IA West Coordinator-controlled, with a working placeholder ceiling of
   $5,000 while the final funding model is confirmed.
@@ -271,7 +271,7 @@ wants the work accepted, clarified, or renounced.
 
   **Current disposition for this handoff:** the source repo is archived and
   private, and the Vercel shutdown has been directed by the Development Lead
-  (`Git: dt110202@gmail.com`). Access is removed from everyone, and this issue
+  (`Git: @dangt`). Access is removed from everyone, and this issue
   is held as out of scope for the active delivery path and should not block
   current work in this repository.
 

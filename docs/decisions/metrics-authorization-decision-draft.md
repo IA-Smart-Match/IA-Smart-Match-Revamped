@@ -1,18 +1,14 @@
 # Metrics authorization decision — draft
 
-**Status:** **RECORDED — GATE INCOMPLETE** (session direction recorded 31
-August 2026; formal policy still requires product and security together).
-This draft still does not ratify a policy and still does not change code —
-see §0 below for what is newly recorded and what remains a workshop question.
+**Status:** **CLOSED — 2026-09-02.** Product owner and security/privacy owner
+named and signed (same person, both roles). Engineering may implement per §5.
 **Classification:** human-decision-required (`remaining-engineering-implementation-plan.md` §5.4).  
-**Current behaviour:** intentionally ungated — documented and tested.
+**Prior behaviour:** intentionally ungated — documented and tested until implementation lands.
 
 ## 0. Session-recorded direction (31 August 2026)
 
-**Session approver:** Danny Tran (`dt110202@gmail.com`) — see
-`docs/decisions/2026-08-31-session-ratification.md`. Formal policy approval
-still requires product **and** security, together; this section records
-direction, not that approval.
+**Session approver:** Danny Tran (@dangt) — see
+`docs/decisions/2026-08-31-session-ratification.md`.
 
 The session approved an **aggregate-visibility hierarchy** as direction:
 
@@ -24,93 +20,86 @@ The session approved an **aggregate-visibility hierarchy** as direction:
 
 Raw rows stay restricted; this hierarchy is about aggregate access only.
 
-**This hierarchy does not answer any of the four workshop questions in §1
-below**, and specifically does not decide:
+## 1. Closed decisions (2 September 2026)
 
-- whether a student's scope is the **exact unit** or a **subtree**;
-- whether a school coordinator's "school" is an **exact unit** or a
-  **subtree**;
-- how `admin` is treated;
-- whether a **bare `resource_grant`** (no role) can read aggregates;
-- which **named roles** may read raw rows;
-- any **metric-specific exception** to the hierarchy above.
+**Product owner:** Danny Tran (@dangt) — program owner, same person.  
+**Security/privacy owner:** Danny Tran (@dangt) — privacy owner (P9 Gate B).  
+**Development Lead:** Danny Tran (@dangt)
 
-Engineering must not infer any of those answers from the existing path
-model. **No route, authorizer, policy-matrix, contract, or OpenAPI change is
-authorized by this direction.** Fail-closed raw-row handling governs every
-**new** path. The existing intentionally-ungated route (below, and pinned by
-`INTENTIONALLY_UNGATED_OPERATIONS`) remains an **explicit unresolved
-exception** until policy is ratified and an implementation change is
-authorized — it is **not** an approved policy and **not** a pattern new work
-may copy. When the gate closes, raw-row refusal must use the standard error
-envelope rather than an empty row list, and aggregate/drill-down equality
-remains required for authorized callers.
+| Question | Decision |
+|---|---|
+| Student aggregate scope | **Subtree** (unit + descendants) |
+| School coordinator aggregate scope | **Subtree** (school + descendants) |
+| `admin` treatment | **Unrestricted within tenant** |
+| Bare `resource_grant` reads aggregates? | **No** — role required |
+| Row drill-down policy | **Option B — split:** any active membership reads aggregates; `admin` and `coordinator` only for `metrics.drill_down` |
+| Metric-specific exceptions | **None** |
 
-## Current state (intentional)
+**Contact-field coupling (P9 Gate B):** collect direction closed 2026-09-02.
+Option B limits `row_data` (including contact fields) to `admin` and
+`coordinator` roles for drill-down. Aggregate visibility remains broader per
+table above.
 
-`services/api/smartmatch_api/routers/metrics.py::_authorize_unit_read` calls
-`assert_allowed` with **no `required_roles`**. Any **active unit membership**
-may read aggregates and drill-down rows.
+## 2. Prior state (superseded on implementation)
 
-Pinned in:
+`services/api/smartmatch_api/routers/metrics.py::_authorize_unit_read` called
+`assert_allowed` with **no `required_roles`**. Pinned in
+`tests/authz/test_policy_matrix.py` — `INTENTIONALLY_UNGATED_OPERATIONS`.
+Implementation must retire this exception in the same change set that enforces
+§1.
 
-- `tests/authz/test_policy_matrix.py` — `INTENTIONALLY_UNGATED_OPERATIONS`
-- `tests/contract/test_metrics.py` — aggregate count equals drill-down rows
-
-This is not a bug to paper over without an explicit decision.
-
-## Questions the workshop must answer
-
-1. May any active unit membership read **aggregates**?
-2. May a bare `resource_grant` (no role) read aggregates? (S-007: currently yes
-   for ungated ops.)
-3. Which roles may read **underlying rows** (e.g. `review_item.row_data`)?
-4. Must specific metrics have stricter drill-down policy than others?
-
-## Drill-down field sensitivity inventory
+## 3. Drill-down field sensitivity inventory
 
 | Metric | Owning query | Row fields today | Sensitivity |
 |---|---|---|---|
-| `pending_review_items` | `pending_review_item_rows_v1` | `id`, `import_batch_id`, `row_index`, `status`, **`row_data`** | **High** — full imported row payload; may contain PII from pilot CSV |
+| `pending_review_items` | `pending_review_item_rows_v1` | `id`, `import_batch_id`, `row_index`, `status`, **`row_data`** | **High** — full imported row payload; may contain PII and contact fields |
 | `pipeline_*` (5 metrics) | `pipeline_funnel_rows_v1` | *(none — honest unknown)* | N/A until S12 |
-| Future `opportunities` | TBD (S12) | TBD | Depends on metric definition |
+| Future `opportunities` | TBD (S12) | TBD | Per P8 definition |
 
-**`row_data` note:** Imported professional/event fields may include names,
-companies, and (if collected) published contacts. ADR-0014 minimum disclosure
-applies — aggregate access does not automatically authorize row payloads.
+## 4. Authorized policy (Option B, refined)
 
-## Policy options (comparison)
+| Operation | Roles permitted |
+|---|---|
+| `metrics.read` (aggregates) | Any **active unit membership** with a role (bare `resource_grant` **denied**) |
+| `metrics.drill_down` | `admin`, `coordinator` only |
 
-| Option | `metrics.read` | `metrics.drill_down` | Matrix change |
-|---|---|---|---|
-| A — status quo | any active membership | any active membership | none |
-| B — split | any active membership | `admin`, `coordinator` only | remove `metrics.drill_down` from `INTENTIONALLY_UNGATED_OPERATIONS`; add `_METRICS_DRILL_DOWN_ROLES` |
-| C — gate both | `admin`, `coordinator` | `admin`, `coordinator` | remove both from ungated set |
+Scope rules:
 
-**Recommendation (not authorization):** if row payloads stay in drill-down, Option B
-or C merits serious consideration under ADR-0014. Option A requires explicit
-approval that imported row data is visible to all unit roles.
+- **Student:** subtree of their unit
+- **School coordinator:** subtree of their school unit
+- **`admin`:** unrestricted within tenant for aggregates; drill-down per row above
 
-## Expected code deltas (after decision only)
+## 5. Expected code deltas (authorized)
 
 | File | Change |
 |---|---|
-| `routers/metrics.py` | separate aggregate vs drill-down authorizers if policies differ |
-| `tests/authz/test_policy_matrix.py` | update `INTENTIONALLY_UNGATED_OPERATIONS`, matrix cells, negative tests |
+| `routers/metrics.py` | separate aggregate vs drill-down authorizers; scope/subtree logic |
+| `tests/authz/test_policy_matrix.py` | remove `metrics.*` from `INTENTIONALLY_UNGATED_OPERATIONS`; matrix cells; negative tests |
 | `tests/contract/test_metrics.py` | wrong-role refusal tests; preserve equality for authorized callers |
 | `contracts/openapi/smartmatch.json` | regenerate only if response docs change |
 
-## Acceptance (post-decision)
+## 6. Acceptance (post-implementation)
 
-- [ ] Committed decision record names roles separately for aggregate and rows.
+- [x] Committed decision record names roles separately for aggregate and rows.
 - [ ] Wrong-role, sibling-unit, suspended, cross-tenant, expired-membership,
       explicit-deny cases tested.
 - [ ] No path becomes "any authenticated user" without unit membership.
 - [ ] Authorized drill-down count still equals aggregate.
+- [ ] Raw-row refusal uses standard error envelope (not empty row list).
+
+## 7. Signatures
+
+```
+Product owner:        Danny Tran (@dangt), program/product owner
+Security/privacy:     Danny Tran (@dangt), privacy owner (P9 Gate B)
+Development Lead:     Danny Tran (@dangt)
+Date:                 2026-09-02
+```
 
 ## References
 
 - `docs/architecture/decisions/ADR-0014-disclosure-consent.md`
 - `docs/plans/orchestrator-handoff.md` §Blocker 2
+- `docs/plans/workshops/p1-metrics-authorization-workshop-packet.md`
 - `services/api/smartmatch_api/routers/metrics.py`
 - `tests/authz/test_policy_matrix.py`

@@ -4,7 +4,7 @@
 field is blank. This artifact passes P6's G3 stop-gate.
 **Gate:** P6 (`docs/plans/2026-08-28-g3-events-s3-s5-plan.md`).
 **Decisions taken:** 2026-08-29, in session.
-**Owner of record:** **Danny Tran, Development Lead** (`dt110202@gmail.com`)
+**Owner of record:** **Danny Tran, Development Lead** (@dangt)
 **Changes no code.**
 
 > An agent drafted this file to record decisions a human made. Each decision in
@@ -217,8 +217,9 @@ Must-pass-100% invariants:
 - **MP-2 — never emit an out-of-allowlist host**, including after every
   redirect hop.
 - **MP-3 — never publish or match an unresolved event.**
-- **MP-4 — never emit personal contact data** while P9's contact-field decision
-  is open.
+- **MP-4 — never emit personal contact data from crawler/LLM extraction.**
+  Human/import-origin contact fields are permitted only per P9 Gate B §8
+  (closed 2026-09-02); extractor output may never populate a contact column.
 - **MP-5 — never report a capped response as complete** (§2.2a).
 
 Category floors of 100% for: flyer→`unknown`, ambiguous date, out-of-scope page,
@@ -297,7 +298,7 @@ worker-side; API handlers record commands and review decisions only.
 ## 11. Signature
 
 ```
-G3 approved by: Danny Tran, Development Lead  (dt110202@gmail.com)
+G3 approved by: Danny Tran, Development Lead  (@dangt)
 Date: 2026-08-29
 
 This signature ratifies §1–§10. It does NOT ratify the R3 threat model, which is

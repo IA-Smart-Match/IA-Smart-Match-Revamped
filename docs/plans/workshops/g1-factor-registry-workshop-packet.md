@@ -1,13 +1,10 @@
 # G1 factor-registry workshop packet
 
-**Status:** preparation only — does not approve the registry or authorize scoring.  
-**Ratification status (31 August 2026):** **CANNOT CLOSE.** No institutional
-program owner is named; no factor registry or golden case set is approved —
-see `docs/decisions/2026-08-31-session-ratification.md`. Fail-closed scoring
-behavior continues; this packet is not promoted to an approval by the
-ratification.
+**Status:** **READY TO SCHEDULE** — program owner named 2026-09-02. Workshop may
+run; registry approval and scoring remain blocked until workshop outputs are
+committed. Fail-closed scoring behavior continues until then.
 **Gate:** D1 / G1 (`docs/plans/critical-path-matching-gate.md`, MM-002).  
-**Blocking owner:** program owner (name TBD — see `docs/decisions/pilot-decisions.md` D1).
+**Blocking owner:** **Danny Tran (@dangt)** — program owner, named 2026-09-02.
 
 ## Purpose
 

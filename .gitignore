@@ -55,6 +55,7 @@ apps/web/.vite/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 *.swp
 
 # Downloaded distribution artifacts. Dependencies are installed from the

@@ -292,7 +292,7 @@ class TestTagsStayRaw:
 
 
 class TestNoPersonalContactData:
-    """G3 §7 MP-4: never emit personal contact data while P9 Gate B is open."""
+    """G3 §7 MP-4: crawler/LLM extractors never emit personal contact data."""
 
     def test_organizer_name_only(self) -> None:
         (event,) = _parse("single_event.jsonld")

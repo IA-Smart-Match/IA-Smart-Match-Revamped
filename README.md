@@ -68,7 +68,7 @@ The no-database run also did not complete in that environment because
 | Matching / scoring | **Blocked** — registry proposed, scoring fails closed | Gate G1 (see finding F-001) |
 | CP-SAT portfolio assignment | Not started | Gate G1, then R1 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
-| Command payload persistence | Not started — the only real command (`import.create`) always fails when executed, because its parameters are never durably recorded | R1 (J10) |
+| Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
 | Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery | R1 (before worker deploy) |
 | Live identity verifier for user requests (JWKS) | Fixture only; accepts registered tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |

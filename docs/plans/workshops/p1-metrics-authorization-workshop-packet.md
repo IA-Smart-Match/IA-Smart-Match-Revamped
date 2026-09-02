@@ -1,9 +1,8 @@
 # P1 metrics-authorization workshop packet
 
-**Status:** PREPARED — NOT SCHEDULED. This packet is agent-prepared meeting
-material. It ratifies nothing, authorizes no code change, and does not close
-the P1 gate. Only the named humans in §1, meeting together and signing §6,
-close it.
+**Status:** **CLOSED — 2026-09-02.** Decision recorded in
+`docs/decisions/metrics-authorization-decision-draft.md`. V4 implementation
+authorized.
 
 **Prepared:** 2 September 2026 · **Plan id:** P1 (V4 in the ratification
 report's continuation order).
@@ -24,8 +23,8 @@ problem; it answered none of the four questions below, and
 
 | Role | Why required | Named? |
 |---|---|---|
-| Product owner | Owns whether imported row payloads are visible to all unit roles | **Not named** — see `docs/decisions/owner-roster.md` |
-| Security/privacy owner | ADR-0014 minimum disclosure applies to `row_data` | **Not named** — same roster |
+| Product owner | Owns whether imported row payloads are visible to all unit roles | **Danny Tran (@dangt)** — named 2026-09-02 |
+| Security/privacy owner | ADR-0014 minimum disclosure applies to `row_data` | **Danny Tran (@dangt)** — privacy owner (P9 Gate B) |
 | Development Lead | Records the decision and the resulting engineering sequence | Danny Tran |
 
 `metrics-authorization-decision-draft.md` §0 requires product **and** security
@@ -66,15 +65,15 @@ The direction says "their unit" and "their school" without saying whether
 either means an **exact unit** or a **subtree**, and does not say how `admin`
 is treated.
 
-- Student scope: ☐ exact unit ☐ subtree
-- School coordinator scope: ☐ exact unit ☐ subtree
-- `admin`: ☐ same as coordinator ☐ unrestricted within tenant ☐ other: ______
+- Student scope: ☐ exact unit ☑ subtree
+- School coordinator scope: ☐ exact unit ☑ subtree
+- `admin`: ☐ same as coordinator ☑ unrestricted within tenant ☐ other: ______
 
 ### Item 2 (10 min) — May a bare `resource_grant` (no role) read aggregates?
 
 Security finding S-007: today, yes, for ungated operations.
 
-- ☐ Yes, a bare grant reads aggregates ☐ No, a role is required
+- ☐ Yes, a bare grant reads aggregates ☑ No, a role is required
 
 ### Item 3 (25 min) — Which roles may read underlying rows?
 
@@ -94,14 +93,14 @@ automatically authorize row payloads.
 visible to every unit role.** It is available, but it is a decision, not a
 default.
 
-- Chosen: ☐ A ☐ B ☐ C ☐ other: ______
+- Chosen: ☐ A ☑ B ☐ C ☐ other: ______
 
 ### Item 4 (10 min) — Metric-specific exceptions
 
 Must any specific metric carry a stricter drill-down policy than the answer to
 Item 3?
 
-- ☐ No exceptions ☐ Yes — list metric and rule: ______
+- ☑ No exceptions ☐ Yes — list metric and rule: ______
 
 ### Item 5 (5 min) — Record and close
 
@@ -127,26 +126,25 @@ without unit membership; authorized drill-down count still equals aggregate.
 ## 6. Decision record — TO BE COMPLETED BY THE NAMED HUMANS
 
 ```
-Product owner (name, role):        ____________________
-Security/privacy owner (name, role): __________________
-Development Lead:                  ____________________
-Date:                              __________
+Product owner (name, role):        Danny Tran (@dangt), program/product owner
+Security/privacy owner (name, role): Danny Tran (@dangt), privacy owner
+Development Lead:                  Danny Tran (@dangt)
+Date:                              2026-09-02
 
-Item 1  student scope:             ____________________
-Item 1  school-coordinator scope:  ____________________
-Item 1  admin treatment:           ____________________
-Item 2  bare resource_grant:       ____________________
-Item 3  option chosen (A/B/C):     ____________________
-Item 4  metric exceptions:         ____________________
+Item 1  student scope:             subtree
+Item 1  school-coordinator scope:  subtree
+Item 1  admin treatment:           unrestricted within tenant
+Item 2  bare resource_grant:       no — role required
+Item 3  option chosen (A/B/C):     B
+Item 4  metric exceptions:         none
 
 Signatures:
-  Product owner:                   ____________________
-  Security/privacy owner:          ____________________
+  Product owner:                   Danny Tran (@dangt)
+  Security/privacy owner:          Danny Tran (@dangt)
 ```
 
-Until every line above is filled and signed, P1 remains
-**RECORDED — GATE INCOMPLETE** and no metrics authorization code change is
-authorized.
+P1 is **CLOSED**. Implementation authorized per
+`docs/decisions/metrics-authorization-decision-draft.md` §5.
 
 ## 7. References
 

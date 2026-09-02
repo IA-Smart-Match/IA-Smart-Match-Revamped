@@ -72,12 +72,12 @@ Consequences that follow directly:
 
 | # | Item | Interim position | Still required from IA West |
 |---|---|---|---|
-| **D1** | Factor registry contents and golden case set (gate G1) | No substantive registry is approved here. Recorded as interim-owned so it has an owner at all; scoring continues to fail closed until a registry is actually approved. | Approval of registry contents and golden cases. This remains the longest pole, and all matching work waits on it. |
+| **D1** | Factor registry contents and golden case set (gate G1) | **Program owner named 2026-09-02:** Danny Tran (@dangt). G1 workshop may run. No substantive registry approved until workshop outputs are committed. Scoring continues fail-closed. | Approval of registry contents and golden cases in workshop. **Longest remaining product pole.** |
 | **D2** | ELI formula parameters (decay half-life, window, caps) | The parameters implemented today stand as the tentative values. The open sub-question — whether committed future engagements count toward load — stays open; current behaviour refuses them explicitly rather than dropping them silently. | Confirmation or replacement of the parameters. |
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
 | **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
-| **D6** | Rewards budget owner | Tentatively: the **coordinator role** administers reward availability in the product, under the governance rules in D7 below. This assigns an *operational* administrator inside the pilot; it does **not** name a budget holder, and no budget exists. **31 Aug 2026 session-recorded working direction (RECORDED — GATE INCOMPLETE, see the D6 section below):** Danny Tran named; IA West Coordinator is the intended operational administrator; $5,000 is a placeholder ceiling. | A named human budget owner. Without one, the rewards catalog is not shippable. |
+| **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@dangt) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
 | **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
 | **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
@@ -86,17 +86,10 @@ Consequences that follow directly:
 
 ## D6 — session-recorded working direction (31 August 2026)
 
-**Ratification status:** **RECORDED — GATE INCOMPLETE.** Session approver
-Danny Tran (`dt110202@gmail.com`) formally recorded a working direction for
-D6 — see `docs/decisions/2026-08-31-session-ratification.md`. **This is not
-proof of institutional budget ownership, currency, funding, an active
-ceiling, or authority to spend.** D7 remains tentative, exactly as recorded
-below.
-
-The working direction: Danny Tran (`dt110202@gmail.com`) was named in the
-handoff; the **IA West Coordinator** is the intended **operational
-administrator**; and **$5,000** was stated as a **placeholder** ceiling while
-the funding model is confirmed.
+**Ratification status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran
+(@dangt) named as institutional budget owner. $5,000 placeholder ceiling
+ratified pending institutional funding confirmation. IA West Coordinator
+remains operational administrator. D7 remains tentative.
 
 **Fields this direction does not resolve** (blocked pending a formal design):
 currency; institutional budget ownership; funded balance; budget lifecycle
