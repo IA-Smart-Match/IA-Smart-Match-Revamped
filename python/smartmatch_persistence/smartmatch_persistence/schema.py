@@ -510,6 +510,90 @@ reward_item = sa.Table(
 )
 
 
+pipeline_record = sa.Table(
+    "pipeline_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as job.owning_unit_id, import_batch and
+    # attendance_record. Also the axis the funnel metrics are read per.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The student whose journey through the funnel this row is.
+    sa.Column("subject_id", _UUID, nullable=False),
+    # The opportunity. No foreign key: no event table exists yet in this
+    # schema (P6 owns it). Whichever migration adds one should add this
+    # constraint and attendance_record.event_id's together.
+    sa.Column("opportunity_event_id", _UUID, nullable=False),
+    # The five stages as the times they were reached, not as one status
+    # column: the register counts records that "reached X or a later stage",
+    # and a stalled journey has still reached the stages it passed. Only the
+    # first is NOT NULL — a record exists because a match does.
+    sa.Column("matched_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("contacted_at", _TS, nullable=True),
+    sa.Column("confirmed_at", _TS, nullable=True),
+    sa.Column("attended_at", _TS, nullable=True),
+    sa.Column("member_inquiry_at", _TS, nullable=True),
+    # The attendance row the Attended stage cites (ADR-0013's evidence, one
+    # table over). Biconditional with attended_at below.
+    sa.Column("attended_attendance_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # This row is updated when a stage is reached, unlike point_ledger_entry —
+    # carrying updated_at says mutation is expected here.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="pipeline_record_pkey"),
+    # A second row for the same student and opportunity is a second count in
+    # every stage it has reached — inflating the aggregate and the drill-down
+    # identically, so the two still agree (ADR-0011 rule 3) while both are
+    # wrong.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "subject_id",
+        "opportunity_event_id",
+        name="uq_pipeline_record_subject_opportunity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: deleting the attendance a funnel row cites would leave a count
+    # nothing could explain.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "attended_attendance_id"],
+        ["attendance_record.tenant_id", "attendance_record.id"],
+        ondelete="RESTRICT",
+    ),
+    # A funnel that is wider at the bottom than the top is a number no
+    # drill-down can reconcile, because every individual row is reported
+    # faithfully. These two constraints are what make that state unstorable.
+    sa.CheckConstraint(
+        "(contacted_at IS NULL OR matched_at IS NOT NULL) "
+        "AND (confirmed_at IS NULL OR contacted_at IS NOT NULL) "
+        "AND (attended_at IS NULL OR confirmed_at IS NOT NULL) "
+        "AND (member_inquiry_at IS NULL OR attended_at IS NOT NULL)",
+        name="ck_pipeline_record_stage_prefix",
+    ),
+    sa.CheckConstraint(
+        "(contacted_at IS NULL OR contacted_at >= matched_at) "
+        "AND (confirmed_at IS NULL OR confirmed_at >= contacted_at) "
+        "AND (attended_at IS NULL OR attended_at >= confirmed_at) "
+        "AND (member_inquiry_at IS NULL OR member_inquiry_at >= attended_at)",
+        name="ck_pipeline_record_stage_order",
+    ),
+    # An attendance claim names its evidence; evidence is never carried
+    # without the claim it supports.
+    sa.CheckConstraint(
+        "(attended_at IS NULL) = (attended_attendance_id IS NULL)",
+        name="ck_pipeline_record_attendance_evidence",
+    ),
+)
+
+
 import_batch = sa.Table(
     "import_batch",
     METADATA,
