@@ -370,3 +370,279 @@ def test_reward_item_accepts_a_non_negative_fulfilment_cost(
     """Zero for a free-to-give item (a certificate PDF); positive for a real cost."""
     with engine.begin() as conn:
         _insert_reward_item(conn, tenant_id, fulfilment_cost=fulfilment_cost)
+
+
+# ---------------------------------------------------------------------------
+# D6 (pilot scope, closed 2026-09-02) — the guarantees behind "a named human
+# budget owner", verified rather than extended.
+#
+# `docs/decisions/pilot-decisions.md` §D6 authorizes verification of the
+# already-authorized existing-schema and append-only guarantees, and nothing
+# else: no budget envelope, no catalog, no listing, no redemption. The tests
+# below tighten what was already covered, each against a case the existing
+# assertions leave open — an omitted column rather than an explicit NULL, a
+# real account in the wrong tenant rather than an id from nowhere, and the
+# writes that could weaken a row *after* it was legitimately written.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def other_tenant_id(engine: Engine):
+    """A second tenant, so "same tenant" can be tested rather than assumed.
+
+    An id belonging to nobody is refused by any foreign key. The composite key
+    ADR-0013 chose is about the narrower case only a second tenant can express:
+    a *real* account, in good standing, somewhere else.
+    """
+    tid = uuid.uuid4()
+    slug = f"test-other-{tid.hex[:12]}"
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenant (id, slug, display_name) VALUES (:id, :slug, :name)"),
+            {"id": tid, "slug": slug, "name": slug},
+        )
+    yield tid
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM user_account WHERE tenant_id = :tid"), {"tid": tid})
+        conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tid})
+
+
+def test_reward_item_rejects_an_omitted_budget_owner(engine: Engine, tenant_id) -> None:
+    """The absent case, which is not the same statement as an explicit NULL.
+
+    ``test_reward_item_rejects_a_null_budget_owner`` writes ``NULL`` on purpose.
+    This writes an INSERT that never mentions the column at all — the shape a
+    caller produces by forgetting rather than by deciding — and it must be
+    refused for the reason the migration gives: ``budget_owner_id`` carries no
+    server default, because there is no safe value to fall back to for who owns
+    a budget. ``funded`` has one and this is what distinguishes them.
+    """
+    with (
+        pytest.raises(IntegrityError, match=r"(?i)null value|not-null|budget_owner_id"),
+        engine.begin() as conn,
+    ):
+        conn.execute(
+            text(
+                "INSERT INTO reward_item (id, tenant_id, name, points_cost, fulfilment_cost) "
+                "VALUES (:id, :tenant_id, 'Mentor session', 300, 0)"
+            ),
+            {"id": uuid.uuid4(), "tenant_id": tenant_id},
+        )
+
+
+def test_reward_item_defaults_to_unfunded_when_funded_is_omitted(engine: Engine, tenant_id) -> None:
+    """The default is fail-closed, and a default is not a permission.
+
+    Omitting ``funded`` writes ``false``: an item nothing has agreed to pay for
+    is the safe reading of silence, matching ``tenant_budget.kill_switch`` and
+    ``user_account.suspended``. The row is still refused if the *owner* is
+    missing — the default governs only the column that has one — so this test
+    supplies a real owner and asserts the stored value rather than the refusal.
+    """
+    item_id = uuid.uuid4()
+    with engine.begin() as conn:
+        owner = _make_user(conn, tenant_id)
+        conn.execute(
+            text(
+                "INSERT INTO reward_item "
+                "(id, tenant_id, name, points_cost, fulfilment_cost, budget_owner_id) "
+                "VALUES (:id, :tenant_id, 'Mentor session', 300, 0, :owner)"
+            ),
+            {"id": item_id, "tenant_id": tenant_id, "owner": owner},
+        )
+        funded = conn.execute(
+            text("SELECT funded FROM reward_item WHERE id = :id"), {"id": item_id}
+        ).scalar_one()
+
+    assert funded is False, (
+        "an item written without saying who is paying for it must not arrive listable"
+    )
+
+
+def test_reward_item_rejects_a_budget_owner_from_another_tenant(
+    engine: Engine, tenant_id, other_tenant_id
+) -> None:
+    """The case the composite foreign key exists for, and the only one that proves it.
+
+    ``test_reward_item_budget_owner_must_be_a_real_account_in_the_same_tenant``
+    passes an id belonging to nobody, which a single-column key to
+    ``user_account (id)`` would refuse just as firmly. This passes a **real**
+    account that exists and is in good standing — in the wrong tenant. A
+    single-column key accepts it; the composite key
+    ``(tenant_id, budget_owner_id) -> user_account (tenant_id, id)`` does not.
+    Without this assertion, narrowing the key back to one column would break
+    D6's "named human budget owner" and no test would notice.
+    """
+    with engine.begin() as conn:
+        stranger = _make_user(conn, other_tenant_id)
+
+    with pytest.raises(IntegrityError), engine.begin() as conn:
+        _insert_reward_item(conn, tenant_id, budget_owner_id=stranger)
+
+
+def test_a_reward_cannot_be_stripped_of_its_owner_after_it_is_written(
+    engine: Engine, tenant_id
+) -> None:
+    """``NOT NULL`` governs the UPDATE too, which is where the pressure would come from.
+
+    A row is written correctly, once, under review. The realistic regression is
+    later: an "unassign the owner" or "clear the budget while we sort it out"
+    write against a row that is already listed. Both must fail at the database,
+    for the same reason the insert does — the alternative is an unowned reward
+    that was legitimate when it was created.
+    """
+    with engine.begin() as conn:
+        item_id = _insert_reward_item(conn, tenant_id, funded=True)
+
+    for column in ("budget_owner_id", "funded"):
+        with (
+            pytest.raises(IntegrityError, match=r"(?i)null value|not-null|" + column),
+            engine.begin() as conn,
+        ):
+            conn.execute(
+                text(f"UPDATE reward_item SET {column} = NULL WHERE id = :id"), {"id": item_id}
+            )
+
+
+def test_the_budget_owner_cannot_be_deleted_out_from_under_a_reward(
+    engine: Engine, tenant_id
+) -> None:
+    """``ON DELETE RESTRICT``: the named owner cannot vanish and leave the reward listed.
+
+    A cascade here would delete the reward, and a ``SET NULL`` would produce the
+    unowned row the schema exists to refuse. Restricting makes removing the
+    person a decision someone has to take about the rewards they own, which is
+    what "named human budget owner" means once the name belongs to a real
+    account rather than to a document.
+    """
+    with engine.begin() as conn:
+        owner = _make_user(conn, tenant_id)
+        _insert_reward_item(conn, tenant_id, budget_owner_id=owner)
+
+    with pytest.raises(IntegrityError), engine.begin() as conn:
+        conn.execute(text("DELETE FROM user_account WHERE id = :id"), {"id": owner})
+
+
+# ---------------------------------------------------------------------------
+# point_ledger_entry — append-only, as far as it is guaranteed today
+# ---------------------------------------------------------------------------
+
+
+def test_the_ledger_carries_no_column_an_application_could_legitimately_update(
+    engine: Engine,
+) -> None:
+    """Migration ``0009``'s claim that append-only is "enforced by what is absent".
+
+    The argument is that there is nothing on this table an application could
+    honestly ``UPDATE``: no ``status`` to advance, no ``updated_at`` to touch,
+    no ``version`` to bump, and — Fix #9 — no ``balance`` anywhere, because a
+    balance is a fold over the ledger and never a stored value. That argument
+    is only as good as the column list, and a later migration adding one of
+    these would silently retract it, so the column set is asserted exactly
+    rather than checked for the absences alone.
+    """
+    with engine.begin() as conn:
+        columns = {
+            row.column_name
+            for row in conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'point_ledger_entry'"
+                )
+            )
+        }
+
+    assert columns == {
+        "id",
+        "tenant_id",
+        "amount",
+        "source_attendance_id",
+        "reason",
+        "actor_id",
+        "occurred_at",
+    }, "a column added here is an invitation to the mutation its absence forecloses"
+
+
+def test_a_correction_is_a_second_entry_and_leaves_the_first_one_standing(
+    engine: Engine, tenant_id
+) -> None:
+    """ADR-0013: "A reversal is a compensating entry, never a delete."
+
+    The positive statement of append-only, asserted as the history it produces:
+    after correcting a credit, the ledger holds **two** rows, the original is
+    unchanged, and the balance — folded, never stored — is what the pair sums
+    to. A destructive correction would give the same balance and a history that
+    could not explain it.
+    """
+    with engine.begin() as conn:
+        attendance = _insert_attendance(conn, tenant_id)
+        _insert_ledger_entry(conn, tenant_id, attendance, 100)
+        _insert_ledger_entry(conn, tenant_id, attendance, -100)
+
+        rows = conn.execute(
+            text(
+                "SELECT amount FROM point_ledger_entry WHERE tenant_id = :tid "
+                "ORDER BY occurred_at, amount"
+            ),
+            {"tid": tenant_id},
+        ).all()
+        balance = conn.execute(
+            text("SELECT COALESCE(SUM(amount), 0) FROM point_ledger_entry WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        ).scalar_one()
+
+    assert [row.amount for row in rows] == [-100, 100], "both entries survive the correction"
+    assert balance == 0, "the balance is the fold, and the fold is over what is still there"
+
+
+def test_the_attendance_a_ledger_entry_derives_from_cannot_be_deleted(
+    engine: Engine, tenant_id
+) -> None:
+    """``ON DELETE RESTRICT`` on the source, which is what keeps the derivation checkable.
+
+    ADR-0013 allows points to derive from recorded attendance and nothing else.
+    If the attendance row could be deleted, that rule would become unverifiable
+    for exactly the entries it was written to protect — the ledger would still
+    say 100 points and nothing would say why.
+    """
+    with engine.begin() as conn:
+        attendance = _insert_attendance(conn, tenant_id)
+        _insert_ledger_entry(conn, tenant_id, attendance, 100)
+
+    with pytest.raises(IntegrityError), engine.begin() as conn:
+        conn.execute(text("DELETE FROM attendance_record WHERE id = :id"), {"id": attendance})
+
+
+def test_the_ledger_has_no_database_level_append_only_guard_yet(engine: Engine) -> None:
+    """The gap, asserted rather than assumed — and deliberately not closed here.
+
+    Append-only on ``point_ledger_entry`` is structural (the test above) and
+    conventional (ADR-0013), and it is **not** enforced by the database: no
+    trigger and no rule refuses an ``UPDATE`` or a ``DELETE`` on this table
+    today. Migration ``0009`` records that as a non-blocking note and
+    ``docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`` card **L2** owns the fix,
+    which is gated and not authorized by the D6 pilot-scope record — that record
+    says a missing guard is to be *reported*, not added. This test is the
+    report, in the only form that cannot go stale unnoticed.
+
+    **When L2 lands, this test fails**, and that is the intended behaviour: it
+    is the signal to replace it with the assertions that the guard refuses an
+    UPDATE and a DELETE. Card R3 may not ship a route over this table before
+    then.
+    """
+    with engine.begin() as conn:
+        guards = conn.execute(
+            text(
+                "SELECT t.tgname AS name FROM pg_trigger t "
+                "JOIN pg_class c ON c.oid = t.tgrelid "
+                "WHERE c.relname = 'point_ledger_entry' AND NOT t.tgisinternal "
+                "UNION ALL "
+                "SELECT rulename AS name FROM pg_rules WHERE tablename = 'point_ledger_entry'"
+            )
+        ).all()
+
+    assert [row.name for row in guards] == [], (
+        "a database-level append-only guard now exists on point_ledger_entry: "
+        "replace this test with one asserting that it refuses an UPDATE and a "
+        "DELETE (plan P7 card L2)"
+    )
