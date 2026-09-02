@@ -1,0 +1,143 @@
+# Local development stack — PostgreSQL, API, worker. A spike, not a deployment.
+#
+# ALLOW_CLOUD_DEPLOY=false still holds and nothing here changes it: this file
+# describes three containers on one developer's machine, publishes no image,
+# provisions no cloud resource, and carries no credential that means anything
+# outside this network. Bringing it up is not a deployment and does not make
+# any claim about production readiness.
+#
+# What it is for: `make test-integration` needs PostgreSQL 16, and the
+# ADR-0015 A1 spend proofs and the P9 card W1 import proofs are only real when
+# they run against one. A native `apt-get install postgresql-16` does that job
+# equally well (see `make db-up`); this file is the alternative for a machine
+# where Docker is easier than a system service, and the only way to exercise
+# the two service images themselves — including that Dockerfile.worker really
+# does ship the ratified column contract, which no unit test can prove.
+#
+#   docker compose up -d db          # just the database, for pytest
+#   docker compose up --build        # all three, for image-level checks
+#   docker compose down -v           # stop and discard the data volume
+#
+# PICK ONE DATABASE. This stack publishes 5432, and so does a native
+# `apt-get install postgresql-16`. Running both means `docker compose up -d db`
+# fails to bind, or — worse, if the native service is stopped later — pytest
+# silently moves to a different database with different contents. Stop the
+# native service first (`sudo service postgresql stop`) or change the published
+# port here and set SMARTMATCH_DATABASE_URL to match.
+#
+# Deliberately absent: a frontend service (the legacy frontend builds on the
+# host, and `npm ci` fails on DrvFs — see docs/plans/orchestrator-handoff.md
+# Blocker 3), any published port for the worker's dispatch endpoints beyond
+# the one below, and any provider credential.
+
+name: smartmatch
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL 16 — the same major version .github/workflows/verify.yml runs.
+  # -------------------------------------------------------------------------
+  db:
+    # Pinned by digest, like both service bases: a database that changes major
+    # version under a rebuild is a migration failure nobody asked for.
+    image: postgres:16-bookworm
+    environment:
+      # Local-only, and stated rather than defaulted. These three values are
+      # the ones SMARTMATCH_DATABASE_URL already defaults to in Makefile:9 and
+      # tests/integration/conftest.py:25, so pytest needs no configuration to
+      # find this container. They are not secrets and must never become the
+      # shape of a real credential.
+      POSTGRES_USER: smartmatch
+      POSTGRES_PASSWORD: smartmatch
+      POSTGRES_DB: smartmatch
+    ports:
+      # Published so `make test-integration` on the host reaches it unchanged.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` reports the listener is up, which is earlier than the
+      # database being ready to accept the role's connections — hence the
+      # explicit user and database rather than the bare command.
+      test: ["CMD-SHELL", "pg_isready -U smartmatch -d smartmatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # -------------------------------------------------------------------------
+  # Migrations — runs to completion, then exits. Not a long-lived service.
+  # -------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    # Overriding CMD rather than adding an entrypoint to the image: applying
+    # migrations is this stack's convenience, not something the shipped image
+    # should learn to do on boot. A service that migrates its own database at
+    # startup migrates it once per replica.
+    command: ["sh", "-c", "cd /src/db && alembic upgrade head"]
+    working_dir: /src
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+    volumes:
+      # The migrations are not in the image — Dockerfile.api copies python/ and
+      # services/api/, not db/ — so they are mounted read-only from the
+      # checkout. That keeps the image unchanged and makes it obvious that this
+      # container runs the working tree's migrations, not a built artifact's.
+      - ./db:/src/db:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # API.
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_RELEASE: compose-dev
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # -------------------------------------------------------------------------
+  # Worker.
+  # -------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_RELEASE: compose-dev
+      PORT: "8080"
+      # SMARTMATCH_COLUMN_CONTRACT_PATH is deliberately NOT set here. The image
+      # sets it itself (Dockerfile.worker), so leaving it alone is what proves
+      # the image ships the contract: if the COPY were ever dropped, this
+      # worker would refuse every inline-rows import with
+      # column_contract_unavailable rather than appearing to work.
+      #
+      # Also absent: SMARTMATCH_TASK_AUDIENCE and the two service-account
+      # allowlists. The worker's task endpoints fail closed without them, which
+      # is the correct posture for a local stack — an unauthenticated dispatch
+      # endpoint on a developer's machine is still an unauthenticated dispatch
+      # endpoint.
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
