@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+from pathlib import Path
 
 import pytest
-from smartmatch_domain.metrics import METRIC_REGISTER, get_metric
+from smartmatch_domain.metrics import (
+    METRIC_REGISTER,
+    OPPORTUNITY_IN_LIST_CATEGORIES,
+    OpportunityCategoryShape,
+    get_metric,
+    shape_opportunity_category,
+)
+
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "opportunities"
 
 
 def test_every_metric_has_one_name_definition_query_and_drill_down() -> None:
@@ -42,3 +52,86 @@ def test_register_entries_are_frozen() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         metric.canonical_name = "changed"  # type: ignore[misc]
+
+
+def test_opportunities_is_registered_and_unknown_naming_s12() -> None:
+    metric = get_metric("opportunities")
+
+    assert metric is not None
+    assert metric.display_name == "Opportunities"
+    assert metric.unknown_reason is not None
+    assert "S12" in metric.unknown_reason
+
+
+def test_opportunities_owning_query_is_exact() -> None:
+    metric = get_metric("opportunities")
+
+    assert metric is not None
+    assert metric.owning_query == "opportunities_rows_v1"
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "hackathon",
+        "datathon",
+        "competition",
+        "guest lecturer event",
+        "school event",
+    ],
+)
+def test_opportunities_definition_names_every_in_list_category(category: str) -> None:
+    metric = get_metric("opportunities")
+
+    assert metric is not None
+    assert category in metric.definition
+    assert category in OPPORTUNITY_IN_LIST_CATEGORIES
+
+
+def test_opportunities_definition_carries_the_ratified_counting_rule() -> None:
+    metric = get_metric("opportunities")
+
+    assert metric is not None
+    assert "IA West Coordinator" in metric.definition
+    assert "non-exhaustive" in metric.definition
+    assert "does not mean invalid" in metric.definition
+
+
+def _read_opportunity_fixture(name: str) -> dict[str, str]:
+    path = FIXTURES_DIR / name
+    data: dict[str, str] = json.loads(path.read_text())
+    return data
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "in_list_hackathon.json",
+        "in_list_datathon.json",
+        "in_list_competition.json",
+        "in_list_guest_lecturer_event.json",
+        "in_list_school_event.json",
+    ],
+)
+def test_in_list_fixtures_shape_as_in_list(fixture_name: str) -> None:
+    fixture = _read_opportunity_fixture(fixture_name)
+
+    assert shape_opportunity_category(fixture["category"]) is OpportunityCategoryShape.IN_LIST
+
+
+def test_out_of_list_raw_example_shapes_as_pending_review_not_invalid() -> None:
+    fixture = _read_opportunity_fixture("out_of_list_raw_example.json")
+
+    # out-of-list is pending coordinator review, never invalid and never IN_LIST
+    assert (
+        shape_opportunity_category(fixture["category"]) is OpportunityCategoryShape.PENDING_REVIEW
+    )
+
+
+def test_absent_category_shapes_as_pending_review() -> None:
+    assert shape_opportunity_category(None) is OpportunityCategoryShape.PENDING_REVIEW
+
+
+def test_category_comparison_is_case_insensitive() -> None:
+    assert shape_opportunity_category("HACKATHON") is OpportunityCategoryShape.IN_LIST
+    assert shape_opportunity_category("  Datathon  ") is OpportunityCategoryShape.IN_LIST
