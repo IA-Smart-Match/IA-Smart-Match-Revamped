@@ -119,17 +119,18 @@ def test_in_list_fixtures_shape_as_in_list(fixture_name: str) -> None:
     assert shape_opportunity_category(fixture["category"]) is OpportunityCategoryShape.IN_LIST
 
 
-def test_out_of_list_raw_example_shapes_as_pending_review_not_invalid() -> None:
+def test_out_of_list_raw_example_shapes_as_out_of_list_not_invalid() -> None:
     fixture = _read_opportunity_fixture("out_of_list_raw_example.json")
 
     # out-of-list is pending coordinator review, never invalid and never IN_LIST
-    assert (
-        shape_opportunity_category(fixture["category"]) is OpportunityCategoryShape.PENDING_REVIEW
-    )
+    assert shape_opportunity_category(fixture["category"]) is OpportunityCategoryShape.OUT_OF_LIST
 
 
-def test_absent_category_shapes_as_pending_review() -> None:
-    assert shape_opportunity_category(None) is OpportunityCategoryShape.PENDING_REVIEW
+def test_absent_category_shapes_as_absent_not_out_of_list() -> None:
+    # a missing category is a different work item from an unmapped label:
+    # it needs a category assigned before a coordinator can even review it.
+    assert shape_opportunity_category(None) is OpportunityCategoryShape.ABSENT
+    assert shape_opportunity_category(None) is not OpportunityCategoryShape.OUT_OF_LIST
 
 
 def test_category_comparison_is_case_insensitive() -> None:

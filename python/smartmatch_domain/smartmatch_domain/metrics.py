@@ -46,7 +46,7 @@ PIPELINE_UNKNOWN_REASON = "No evidence source yet: S12 Pipeline persistence is n
 
 OPPORTUNITIES_UNKNOWN_REASON = (
     "No evidence source yet: S12 pipeline persistence is not started, "
-    "so opportunities has no owning query to resolve a value from."
+    "so opportunities_rows_v1 has nothing bound to it yet."
 )
 
 # The ratified in-list programmatic engagement types, copied verbatim from
@@ -72,25 +72,35 @@ class OpportunityCategoryShape(Enum):
     A boolean in-list/out-of-list flag would misreport "out-of-list" as an
     error. It is not: the decision record is explicit that the in-list set is
     non-exhaustive and an out-of-list category is *pending coordinator
-    review*, not invalid. An absent category carries the same pending state —
-    there is nothing to review yet, but nothing disqualifying either.
+    review*, not invalid. Neither ``OUT_OF_LIST`` nor ``ABSENT`` counts and
+    neither is ever reported as an error — both are pending review.
+
+    They are still kept distinct because they are different work items for
+    cards O2/O3: a row carrying an unmapped label is something a coordinator
+    can review and map to an in-list category; a row with no category
+    recorded at all has nothing yet to map — it needs a category assigned
+    before it can even be reviewed for inclusion.
     """
 
     IN_LIST = "in-list"
-    PENDING_REVIEW = "pending-review"
+    OUT_OF_LIST = "out-of-list"
+    ABSENT = "absent"
 
 
 def shape_opportunity_category(category: str | None) -> OpportunityCategoryShape:
     """Classify one event row's category per the ratified counting rule.
 
     Returns ``IN_LIST`` when ``category`` (case-insensitively) matches
-    `OPPORTUNITY_IN_LIST_CATEGORIES`, and ``PENDING_REVIEW`` otherwise —
-    whether the category is an out-of-list label or is absent entirely.
-    Neither non-``IN_LIST`` case is ever reported as an error.
+    `OPPORTUNITY_IN_LIST_CATEGORIES`; ``ABSENT`` when no category was
+    recorded at all (``None``); and ``OUT_OF_LIST`` for any other value —
+    a raw or unmapped label the coordinator has not yet reviewed. Neither
+    ``OUT_OF_LIST`` nor ``ABSENT`` is ever reported as an error.
     """
-    if category is not None and category.strip().casefold() in OPPORTUNITY_IN_LIST_CATEGORIES:
+    if category is None:
+        return OpportunityCategoryShape.ABSENT
+    if category.strip().casefold() in OPPORTUNITY_IN_LIST_CATEGORIES:
         return OpportunityCategoryShape.IN_LIST
-    return OpportunityCategoryShape.PENDING_REVIEW
+    return OpportunityCategoryShape.OUT_OF_LIST
 
 
 @dataclass(frozen=True, slots=True)
