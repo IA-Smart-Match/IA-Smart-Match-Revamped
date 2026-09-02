@@ -385,12 +385,13 @@ PYTHONPATH="python/smartmatch_domain" .venv/bin/lint-imports --config pyproject.
 ```
 
 Full-repo `ruff format --check .` (for completeness): 3 files would be
-reformatted, none in scope — `tests/integration/test_j8_j9_dispatcher_scheduling.py`,
-`tests/integration/test_job_lease_lifecycle.py`,
+reformatted, none in scope — the then-untracked duplicate
+`tests/integration/test_j8_j9_dispatcher_scheduling.py`,
+`tests/integration/test_job_lease_lifecycle.py`, and
 `tests/unit/test_import_column_contract_wiring.py` (the latter two mid-flight
-per `git status`). Full-repo `ruff check .`: one `I001` import-order error in
-`tests/integration/test_j8_j9_dispatcher_scheduling.py` (untracked, unrelated).
-None touched.
+per `git status`). Full-repo `ruff check .` found one `I001` import-order error
+in that duplicate untracked J8/J9 module. The duplicate was later discarded in
+favor of the existing focused suites; no spend-slice file was changed.
 
 ### Defects found
 

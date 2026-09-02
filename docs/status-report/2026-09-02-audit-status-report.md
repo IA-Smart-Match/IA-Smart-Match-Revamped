@@ -11,6 +11,12 @@
 This report decides nothing and fills no owner field. It summarizes implemented
 state, gaps, and deployment posture as of the report date.
 
+**Current-status correction (2026-09-02):** J8/J9, A4, A5, J4, and J17 are
+implemented in this checkout. J8's external Cloud Scheduler job and OIDC/
+signature provisioning remain open; the two focused J8/J9 suites have 22 cases,
+but the controller's local run collected and skipped all 22 because PostgreSQL
+at `localhost:5432` was unavailable.
+
 ---
 
 ## Executive summary
@@ -120,7 +126,7 @@ make run-worker # :8001
 |-----|--------|
 | No `docker-compose` | No single-command stack |
 | No institutional IdP | Login is fixture / broken legacy role cards |
-| No dispatcher scheduler (J8) | Outbox not on a timer |
+| No deployed dispatcher scheduler (J8) | The pass and endpoint exist, but no external Cloud Scheduler job is provisioned; outbox is not on a deployed timer |
 | No product frontend | Legacy UI uses mock/legacy API paths |
 | Core pilot features missing | Matching, rewards, events list, outreach |
 
@@ -228,10 +234,10 @@ Deploy packaging        ███░░░░░░░  ~30%
 
 | ID | Item | Notes |
 |----|------|-------|
-| J8 | Dispatcher scheduling | `run_once` exists; nothing on a timer |
-| J9 | Job lease write/renew/sweep | Column exists (`0004`); not used |
+| J8 | Dispatcher scheduling | **Code closed** — `ScheduledPass`, scheduler-authenticated endpoint, heartbeat, and alert design exist; external Cloud Scheduler wiring remains open |
+| J9 | Job lease write/renew/sweep | **Code closed** — claim, renewal, terminal clear, and expired-lease sweep are implemented; focused integration execution awaits PostgreSQL |
 | A1b | Live JWKS verifier | Fixture only today |
-| A4/A5 | Full authz matrix; `job.owning_unit_id` | Cross-unit job access gap |
+| A4/A5 | Full authz matrix; `job.owning_unit_id` | **Closed in code**; shared job authorization now enforces unit scope, with external/live identity gates still open |
 | S12 | Pipeline persistence | Unblocks funnel metrics |
 | M1–M10 | Matching | After G1 |
 | F5 | Terraform modules | After deploy target chosen |

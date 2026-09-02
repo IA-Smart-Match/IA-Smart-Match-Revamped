@@ -297,10 +297,30 @@ sources named beside it.
 | Deploy a service, roll traffic, or roll back a release | Nothing is running. The migration contract sets `ALLOW_CLOUD_DEPLOY=false` | Not scheduled |
 | Supply provider credentials | No live provider adapter is implemented; construction fails before any credential check. In deployed environments credentials come from Secret Manager, never from a file | The release gate for each provider — G4 for outreach, open decision 6 for routes |
 | Configure worker task identity | The verifier is real but ships with no signature backend, no audience, and no service-account allowlist, so it refuses every delivery (`401` without a credential, `501` with one) | Finding S-001: three separate deliberate acts, listed there |
-| Schedule the outbox dispatcher | The pass and its endpoint exist and are tested (`POST /operations/dispatch`); what does not exist is a Cloud Scheduler job calling it on a timer, which needs a deployed environment | Terraform, after F5 |
-| Monitoring, alerting, on-call | There is no running system to observe and no rotation to page. The dispatcher's alert *design* is above, and the signal it reads is emitted today | A deployed environment |
+| Schedule the outbox dispatcher | The worker endpoint exists (`POST /operations/dispatch`); Cloud Scheduler job and OIDC binding are not yet provisioned | F5 Terraform + S-001 scheduler identity |
+| Monitoring, alerting, on-call | Alert design is documented below; no environment to wire it into yet | A deployed environment |
 | Smoke test after deploy | The health endpoints exist and are probed in CI against the built images (see `containers.md`), but there is no deployed URL to probe | A deployed environment |
 
 Adding a procedure here for any of the above before the thing exists would make
 this document assert something untrue about the repository. When one of them
 becomes real, write the section then — and verify it by running it.
+
+---
+
+## Dispatcher scheduling deployment handoff (J8 + J9)
+
+**Code status (closed in repository):** `ScheduledPass` in
+`services/worker/smartmatch_worker/dispatcher.py` composes the J9 stalled-job
+sweep with the J12 reclaim and J1 dispatch. Cloud Scheduler is expected to call
+`POST /operations/dispatch` on the worker with a scheduler-scoped OIDC identity
+(separate audience and allowlist from Cloud Tasks — see `config.py`). Coverage:
+`tests/integration/test_job_lease_lifecycle.py` (13 cases) and
+`tests/integration/test_scheduled_dispatch_pass.py` (9 cases). The recorded
+implementation-run pass/revert evidence is in
+`docs/plans/pr1-blockers-handoff.md` and `docs/plans/pr3-verification-evidence.md`;
+current local execution is collection/skip only when PostgreSQL is unavailable.
+
+**Deploy procedure (when F5 and S-001 land):** create a Cloud Scheduler HTTP job
+that POSTs to `/operations/dispatch` on the worker URL at the chosen interval
+(e.g. every minute), with OIDC token minted for `scheduler_audience` and a
+service account in `scheduler_service_accounts`.

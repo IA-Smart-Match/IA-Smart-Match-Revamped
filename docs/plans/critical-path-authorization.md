@@ -9,6 +9,12 @@ matrix is rewritten once.
 
 Planning only.
 
+**Supersession note (2026-09-02):** This is the historical execution plan for
+CP-GRANT/CP-A5. Both are closed in the current checkout: job reads use the
+shared grant-aware authorizer and migration `0006` enforces `owning_unit_id`.
+The acceptance checkboxes below are retained as historical evidence, not as
+current instructions to re-implement these items.
+
 ---
 
 ## 1. CP-GRANT — Job reads ignore `resource_grant`
@@ -29,8 +35,9 @@ authorizes.
 
 ### (b) Status
 
-Open. Exists only after A4. Two matrix cells currently pin the wrong
-behaviour so the fix will fail them on purpose.
+Closed in the current checkout. The shared job authorizer now applies the grant
+deny rule to reads as well as re-drive and abandon. This plan is retained as
+historical context.
 
 ### (c) Execution plan
 
@@ -108,8 +115,9 @@ loads the unit, builds `Resource(..., owning_unit_path=...)`, calls
 
 ### (b) Status
 
-Open on `main` and on PR1. Schema work for J9/J17 is `0004`; J10 payload is
-`0005`; A5 is **`0006`**. F7 (widened drift test) is done on `main` — the new
+Closed in the current checkout by migration `0006` and shared authorization.
+Schema work for J9/J17 is `0004`; J10 payload is `0005`; A5 is **`0006`**. F7
+(widened drift test) is done on `main` — the new
 composite FK will be checked. F11 (`transaction_per_migration`) is done —
 `0006` will commit in its own transaction.
 

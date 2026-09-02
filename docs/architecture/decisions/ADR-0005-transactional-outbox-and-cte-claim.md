@@ -140,17 +140,18 @@ coordination beyond what PostgreSQL already provides. Crash recovery needs no
 liveness detection. Dispatch lag is measurable from the same predicate that
 governs claiming, so the metric and the behavior cannot drift apart.
 
-**Cost.** Dispatch is now polled rather than immediate, so every command carries
-the poll interval as added latency before its work begins. Nothing schedules the
-dispatcher yet — `run_once` and `lag` exist and nothing calls them on a timer
-(backlog J8) — so at present dispatch happens only when something invokes it.
+**Cost.** Dispatch is polled rather than immediate, so every command carries
+the poll interval as added latency before its work begins. The J8 pass and
+`POST /operations/dispatch` endpoint now exist, but the external Cloud Scheduler
+job is not provisioned until deployment/F5 and the scheduler identity gate land;
+until then dispatch happens only when something invokes the endpoint.
 
 **Cost.** `MAX_DISPATCH_ATTEMPTS` rows accumulate as `failed` and require a human.
 That is deliberate: dispatch failures are usually systemic — a misconfigured
 queue, denied credentials — and retrying such a row forever fills the logs
 without ever succeeding. It does mean the outbox has a terminal state that only
-an operator can clear, and the re-drive command that would clear it is not built
-yet (backlog J4).
+an operator can clear, and the re-drive command that clears it is now built (J4),
+subject to its authorization and deployment gates.
 
 **Cost.** `outbox_record` grows without bound; `dispatched` rows are never
 removed. The partial index `ix_outbox_claimable` keeps the dispatcher's own
@@ -239,10 +240,10 @@ cannot exist, and if one ever does, its state is not understood, and writing off
 work nothing can explain is worse than leaving it to be found.
 
 **Where the reclaim runs, and the constraint that leaves.** It rides `run_once`
-rather than living in a scheduled sweeper, because nothing in this system runs on
-a timer yet (backlog J8) and a standalone sweeper would have been dead code the
-day it was written. The coupling this creates is real and is recorded against J8
-rather than buried here: **a dispatcher that is not running is precisely the
+rather than living in a separate scheduled sweeper. The pass is now driven by
+`POST /operations/dispatch` when Cloud Scheduler is provisioned; a standalone
+sweeper would otherwise be dead code. The coupling this creates is real and is
+recorded against J8 rather than buried here: **a dispatcher that is not running is precisely the
 condition that strands rows, and is then also the condition under which nothing
 reclaims them.** Whatever schedules the dispatcher must therefore also be what
 makes the reclaim run, and J9's sweep for jobs stuck in `running` belongs in the
@@ -303,7 +304,9 @@ are `failed`. It does not close the race against a peer that re-claimed the row,
 whose own claim satisfies `leased` — a stale failure-write still lands there,
 truncating the peer's lease to an older attempt's backoff and burning an extra
 attempt. Closing that needs the row to carry who claimed it, which is a schema
-change; tracked as **J17**. The gap pre-dates these guards.
+change; tracked as **J17**. Migration `0004` and the current dispatcher now
+mint and require `outbox_record.lease_token`; the historical gap pre-dates that
+implementation.
 
 **Exactly-once was never at risk in this race, and the fix does not claim
 otherwise.** The task may genuinely exist in the queue. It executes nothing: the
