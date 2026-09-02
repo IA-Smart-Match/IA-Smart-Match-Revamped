@@ -91,6 +91,15 @@ Consequences that follow directly:
 ratified pending institutional funding confirmation. IA West Coordinator
 remains operational administrator. D7 remains tentative.
 
+**Formal record:** the working direction below is formalized in
+[`d6-rewards-budget-decision-record.md`](d6-rewards-budget-decision-record.md),
+following the same structure as the closed P8/P9 Gate A records. Deliverable
+2 of that slice (V6) — schema/append-only verification of the rewards tables
+already authorized by migration `0009` — is recorded in
+[`../testing/d6-p7-rewards-schema-verification.md`](../testing/d6-p7-rewards-schema-verification.md),
+including a database append-only gap on `point_ledger_entry` found and
+reported, not closed, under that record's boundary.
+
 **Fields this direction does not resolve** (blocked pending a formal design):
 currency; institutional budget ownership; funded balance; budget lifecycle
 and effective versions; concurrency; release/refund semantics; overlap

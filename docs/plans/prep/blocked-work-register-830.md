@@ -87,6 +87,14 @@ as recorded there — authority resolution does not close those items.
   ceiling ratified pending institutional funding confirmation.
 - **Waiting on:** D7 calibration review; cards L1–L4+ remain gated per plan.
 - **Permitted now:** formal D6 record + schema verification per ratification boundary.
+- **Formal D6 record:** `docs/decisions/d6-rewards-budget-decision-record.md`
+  (Slice V6, 2026-09-02) — decision text only, boundary-quoted, nothing built.
+- **Schema/append-only verification (Deliverable 2):**
+  `docs/testing/d6-p7-rewards-schema-verification.md` — `reward_item`'s
+  `budget_owner_id NOT NULL` guard, `amount <> 0`, and the composite FK on
+  `point_ledger_entry` are confirmed; **`point_ledger_entry` has no
+  database-level append-only guard (no trigger, no rule) — reported, not
+  added**, per the boundary.
 
 ### P8 — opportunities · **closed 2026-09-02**
 
