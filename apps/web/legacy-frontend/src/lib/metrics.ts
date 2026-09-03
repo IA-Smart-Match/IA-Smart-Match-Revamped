@@ -29,22 +29,32 @@ export const PIPELINE_FUNNEL_STAGE_LABELS: Record<PipelineFunnelMetricName, stri
   pipeline_member_inquiry: "Member Inquiry",
 };
 
-/** Matches backend `PIPELINE_UNKNOWN_REASON` plus the missing opportunities definition. */
+/** Canonical name of the registered opportunities metric (`METRIC_REGISTER`). */
+export const OPPORTUNITIES_METRIC_NAME = "opportunities";
+
+/**
+ * Why the opportunities number can be missing on the client.
+ *
+ * The metric itself *is* registered and bound server-side
+ * (`_opportunities_rows_v1`), so the client never decides the value: it
+ * either renders what `/v1/units/{id}/metrics` measured, or says it could
+ * not read the register. It never substitutes a locally merged count.
+ */
 export const OPPORTUNITIES_UNKNOWN_REASON =
-  "No evidence source yet: S12 Pipeline persistence is not started, and the canonical opportunities metric is not registered.";
+  "The registered `opportunities` metric could not be read from /v1/units/{unit_id}/metrics, so no count is available. This page never derives one from local CSV or crawler rows.";
 
-/** Matches `factor_registry.REGISTRY_STATUS == "proposed"` — no scores until G1 closes. */
+/** G1 closed 2026-09-03; M2 scoring routes and factor implementations pending. */
 export const MATCHING_UNAVAILABLE_REASON =
-  "Match scoring, ranks, and factor explanations remain blocked until gate G1 approves the factor registry and golden cases.";
+  "The factor registry is approved, but match scoring is not yet available: topic_relevance and travel_burden implementations (M2) and match API routes are still in progress.";
 
-/** Placeholder until D1/G1 approves the factor registry and match_run exists. */
+/** Placeholder until match_run exists and M2 scoring is wired. */
 export function unavailableMatchingMetric(
   reason: string = MATCHING_UNAVAILABLE_REASON,
 ): AccountableMetric {
   return {
     name: "Match score",
     definition:
-      "Heuristic match score from an approved factor registry and match_run (pending gate G1).",
+      "Heuristic shortlist from approved factors (topic_relevance, travel_burden); no percentage display.",
     value: unknownValue(reason),
     provenance: "observed",
   };

@@ -71,6 +71,14 @@ build
 # ---------------------------------------------------------------------------
 tests
 docs
+# Exception, and the only one: Dockerfile.worker:64 does
+# `COPY docs/pilot-data/columns.yaml docs/pilot-data/columns.yaml` — the
+# ratified column contract is baked into the worker image rather than mounted.
+# A bare `docs` exclusion above it silently removes the file from the build
+# context and the COPY fails with "not found", breaking both the `images` and
+# `compose smoke` jobs. Anyone tightening the `docs` rule must keep this
+# negation, or move the COPY.
+!docs/pilot-data/columns.yaml
 infra
 apps
 clients

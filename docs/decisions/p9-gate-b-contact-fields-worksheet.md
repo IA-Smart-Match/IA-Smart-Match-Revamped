@@ -1,39 +1,38 @@
 # P9 Gate B — published contact fields: decision worksheet
 
-**Status:** **WORKSHEET — PREPARATION ONLY. This document does not approve
-anything and is not a decision artifact until a human completes and signs it.**
-**Ratification status (31 August 2026):** **RECORDED — GATE INCOMPLETE.**
-Session approver Danny Tran (`dt110202@gmail.com`) recorded a **working
-direction** — see §0.5 below and
-`docs/decisions/2026-08-31-session-ratification.md`. It is preserved as
-recorded direction, **not** as an ingestion branch or implementable behavior:
-the §8 signature and every field it requires remain blank, and the
-Gate B decision matrix in §0 is unchanged by it.
+**Status:** **CLOSED — 2 September 2026.** §8 is complete: per-field **collect**
+for all three fields, program and privacy owner named, and all ADR-0014 fields
+recorded. Card W1 may ingest these columns per §8 policy; crawler/LLM extractors
+remain forbidden from populating them (§3).
+**Prior ratification (31 August 2026):** session working direction in §0.5,
+superseded for field choices by §8; see
+`docs/decisions/2026-08-31-session-ratification.md`.
 **Gate:** P9 Gate B (`docs/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates).
 **Prepared:** 2026-08-30, by an agent, from the sources in §7.
 **Deciders required:** Dr. Wang (program owner) **and** a named privacy owner.
 **Changes no code.**
 
-> An agent assembled the options and recommendations below. **Every decision
-> field is blank and must stay blank until the named humans fill it.** An agent
-> filling a field here would be inventing an approval, which is the
-> `fallbackFatigue` defect one abstraction level up.
+> An agent assembled the options and recommendations below. §8 was completed by
+> a human on 2 September 2026; unresolved ADR-0014 fields are listed in §8.
 
 ---
 
-## 0. Blocking blanks — UNRESOLVED
+## 0. Gate record — CLOSED 2 September 2026
 
-These four fields are the gate. None may be filled by an agent.
+- **§0.1 Program owner of record** — Danny Tran (@dangt),
+  program owner *(tentative)*
+- **§0.2 Privacy owner of record** — Danny Tran (@dangt),
+  privacy owner *(current)*
+- **§0.3 Per-field collect/drop decisions** — **collect** all three: Public
+  URL; Point(s) of Contact (published); Contact Email / Phone (published). See
+  §8.
+- **§0.4 Signature** — recorded 2026-09-02 in §8
+- **§0.5 ADR-0014 fields (contact data)** — complete in §8
 
-- **§0.1 Program owner of record** — _(blank)_
-- **§0.2 Privacy owner of record** — _(blank)_ · **no such role is named
-  anywhere in the repository today.** See §6.
-- **§0.3 Per-field collect/drop decisions** — _(blank; three fields, §2)_
-- **§0.4 Signature** — _(blank; §8)_
+## 0.6 Session-recorded working direction (31 August 2026) — superseded by §8
 
-## 0.5 Session-recorded working direction (31 August 2026) — RECORDED — GATE INCOMPLETE
-
-**This section records a direction. It does not fill §0 or §8.**
+**Historical record only.** The 2 September 2026 §8 signature ratifies the same
+collect-all-three field choices; §0.6 preserved for audit trail.
 
 The session recorded that, for the pilot, the system should collect the
 Public URL, Point(s) of Contact, and contact information (email/phone) when
@@ -42,25 +41,13 @@ when needed. The decision still requires the formal human sign-off recorded
 below in §8; this paragraph is the working choice carried forward for
 review, not a substitute for it.
 
-**Unresolved fields — none of which this record fills:**
-
-- Named privacy owner and the collection purpose (§0.2, §8).
-- Minimization and retention rules (§8).
-- Correction and deletion paths (§8).
-- Named viewer and exporter roles (§8).
-- The per-field collect/drop decisions themselves (§0.3, §2) and the §0.4/§8
-  signature.
-
-**Permitted implementation boundary, restated from the design:** static
-HTTPS URL-shape validation only (the four rules in §V2 of
+**Permitted implementation boundary (after §8 close):** human/import-origin
+contact fields per §8; static HTTPS URL-shape validation for `Public URL`
+(the four rules in §V2 of
 `docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`).
-Raw URL persistence remains blocked unless a separately approved host/path
-projection exists. Published contact names, email addresses, and phone
-numbers **may not be collected, persisted, quarantined, copied into a
-finding, sent to a model, exported, or rendered** until Gate B records every
-item listed above with the required signatures. This direction does **not**
-become an ingestion branch or implementable contact-collection behavior by
-being recorded here.
+Raw crawler URL persistence remains blocked unless a separately approved
+host/path projection exists. Crawler/LLM extractors **may not** populate any
+contact field (§3).
 
 ## 1. Why this gate is worth clearing first
 
@@ -192,21 +179,12 @@ That is the same failure shape as the legacy `_sanitize_for_prompt` docstring
 (`prompt-injection-assessment.md` §2.1): a control whose stated scope exceeds
 its actual scope stops reviewers from looking.
 
-## 6. The privacy owner does not exist yet
+## 6. Privacy owner — named 2 September 2026
 
-P9 Gate B requires "Dr. Wang **+ privacy owner**". **No privacy owner is named
-anywhere in this repository.** A term search across `docs/` finds the role
-referenced as a requirement and never as a filled field.
-
-This is a second, smaller blocking blank, and it is worth surfacing separately
-because it has a cheap resolution the other blanks do not: **if all three fields
-are dropped, no privacy owner is needed to close this gate** — there is no
-personal data to own. Only the collect options require the role to be filled
-first.
-
-**Do not read this as a reason to prefer dropping.** It is a note that the two
-questions are not equally expensive to answer, and the decider should know which
-one drags a vacant role in behind it.
+P9 Gate B named Danny Tran (@dangt) as privacy owner in §8.
+Because all three fields are **collect**, the ADR-0014 minimization, retention,
+correction, and export fields in §8 must still be completed before contact-field
+ingest is authorized.
 
 ## 7. Sources
 
@@ -219,29 +197,31 @@ one drags a vacant role in behind it.
 - `docs/security/prompt-injection-assessment.md` §2.5, §3 A6 — the legacy contact-field path
 - `docs/plans/prep/campus-event-discovery-capability.md` §7 — Stage 0 schema review
 
-## 8. Decision record — TO BE COMPLETED BY THE NAMED HUMANS
+## 8. Decision record — SIGNED 2 September 2026
 
 ```
-Program owner (name, role):        ____________________
-Privacy owner (name, role):        ____________________
-                                   (required only if any field below is "collect")
-Date:                              __________
+Program owner (name, role):        Danny Tran (@dangt), program owner (tentative)
+Privacy owner (name, role):        Danny Tran (@dangt), privacy owner (current)
+Date:                              2026-09-02
 
-Public URL                          [ ] collect   [ ] drop
-Point(s) of Contact (published)     [ ] collect   [ ] drop
-Contact Email / Phone (published)   [ ] collect   [ ] drop
+Public URL                          [x] collect   [ ] drop
+Point(s) of Contact (published)     [x] collect   [ ] drop
+Contact Email / Phone (published)   [x] collect   [ ] drop
 
 If any field is "collect", the following are ALSO required and this artifact is
 incomplete without them:
-  Purpose:            ____________________
-  Minimization rule:  ____________________
-  Retention/purge:    ____________________
-  Correction path:    ____________________
-  Who may view:       ____________________
-  Who may export:     ____________________
+  Purpose:            Keeping records for accountability and future audit.
+  Minimization rule:  Collect only values explicitly published on the source
+                      event's public page. Human spreadsheet import or
+                      coordinator manual entry only — never LLM or crawler
+                      extractor output. Contact fields are not merged into event
+                      titles, tags, or metric drill-downs.
+  Retention/purge:    Retain for pilot duration; purge on request.
+  Correction path:    Contact or organizer may request correction or deletion
+                      via the IA West Coordinator.
+  Who may view:       IA West Coordinator
+  Who may export:     IA West Coordinator only
 
 This decision closes P9 Gate B. It does NOT close P9 Gate A (board_role), which
 is decided independently.
 ```
-
-**No agent may fill any field in §8.**

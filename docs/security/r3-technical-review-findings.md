@@ -3,7 +3,9 @@
 **Status:** REVIEW FINDINGS — **not a signature, not an approval.**
 **Reviews:** `docs/security/crawler-threat-model-draft.md` (the 81-line revision 1;
 that artifact is now revision 4 and 1,100 lines, still unsigned).
-**Reviewer:** _(unfilled — see §6)_ · **Review pass:** 2026-08-29
+**Reviewer:** Danny Tran (@dangt), Development Lead / Security Reviewer
+(authority resolved 1a — 2026-09-02; threat model **unsigned** until signing
+pass) · **Review pass:** 2026-08-29
 **Changes no code.** The draft under review is deliberately left unmodified.
 
 > This file records what a review pass found. It does **not** satisfy plan P6's

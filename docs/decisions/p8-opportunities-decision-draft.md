@@ -1,40 +1,26 @@
 # P8 — opportunities definition: decision record
 
-**Status:** **RECORDED — GATE INCOMPLETE.** A session direction exists; the
-formal stop-gate is not closed. This document does not ratify the canonical
-"opportunities" metric and does not authorize card O1 of
-`docs/plans/2026-08-28-opportunities-s12-plan.md`.
+**Status:** **CLOSED — 2026-09-02.** Canonical definition ratified by product
+owner Danny Tran (@dangt). Card O1 of
+`docs/plans/2026-08-28-opportunities-s12-plan.md` may proceed; O2+ remain
+blocked on S12 persistence and P6 crawler persistence where applicable.
 **Gate:** P8 stop-gate (`docs/plans/2026-08-28-opportunities-s12-plan.md`
-§Stop-gate) — a written canonical definition of "opportunities", ratified by
-the product owner.
-**Formal decider:** the product owner — **no such role is named anywhere in
-this repository.** No artifact previously existed under `docs/decisions/` for
-this gate; this file is the first.
-**Session approver of the recorded direction:** Danny Tran
-(`dt110202@gmail.com`), 31 August 2026 — see
-`docs/decisions/2026-08-31-session-ratification.md`.
+§Stop-gate).
+**Product owner:** Danny Tran (@dangt) — named 2026-09-02 (same as program
+owner).
 **Prepared from:** `docs/plans/prep/human-decisions-handoff-831.md` §7 and
 `docs/plans/opportunities-metric-inventory.md`.
-**Changes no code.**
 
 ---
 
-## 1. What the stop-gate requires
+## 1. Canonical definition (stop-gate item 1)
 
-A committed artifact containing, non-blank:
+**Registered name (proposed):** `opportunities` (display: "Opportunities")
 
-1. the definition — which of: events eligible for publication, events in a
-   match pool, events with a candidate above a score floor, or another
-   precisely stated rule;
-2. which variants deserve distinct registered names versus UI filters;
-3. the owning evidence source for each registered name.
+**Counting rule — category-list with coordinator review:**
 
-None of the three is answered by this record.
-
-## 2. Recorded session direction (31 August 2026)
-
-The opportunities model is a list of **programmatic engagement
-opportunities**, recorded as an inclusive, non-exhaustive set of examples:
+An event row counts toward `opportunities` when its category is one of the
+**in-list programmatic engagement types**:
 
 - hackathon
 - datathon
@@ -42,46 +28,63 @@ opportunities**, recorded as an inclusive, non-exhaustive set of examples:
 - guest lecturer event
 - school event
 
-These are opportunities the coordinator can send connections or volunteers to
-represent the institution. The later session direction intends **out-of-list
-raw examples** to go to the IA West Coordinator for review — "out-of-list"
-does not mean invalid or unknown; the list is explicitly non-exhaustive
-unless a later product-owner artifact says it is exhaustive.
+Rows whose category is **out-of-list** (including raw/unmapped examples) do
+**not** count until the **IA West Coordinator** reviews and either assigns an
+in-list category or explicitly approves inclusion. "Out-of-list" does not mean
+invalid — the in-list set is **non-exhaustive**; coordinators may extend
+practice through review without treating unknown labels as errors.
 
-## 3. Unresolved fields
+This is **not** a score-floor definition. **Branch:**
+`BRANCH-ELIGIBILITY` — does **not** inherit P5/G1 for the count itself.
+Matcher actions on opportunities remain G1-gated separately.
 
-- Whether the examples above are exhaustive (recorded direction: they are
-  not, unless a future artifact says otherwise).
-- The canonical eligibility/count definition required by stop-gate item 1
-  (publication-eligible vs. match-pool vs. score-floor vs. another rule).
-- The owning evidence source for each registered name (stop-gate item 3).
-- T-28 identity/tenant/unit authorization, required before any durable
-  assignment or review action.
-- P6 persistence, required before any event-backed evidence exists to query.
-- The formal product-owner signature closing this gate.
+## 2. Variants vs UI filters (stop-gate item 2)
 
-## 4. Permitted implementation boundary
+| Name | Distinct registered metric? | Notes |
+|---|---|---|
+| `opportunities` | **Yes** — canonical pilot metric | In-list categories, post-review |
+| Per-category filters (e.g. hackathons only) | **UI filters** on the same metric | Not separate registered names for pilot |
+| `opportunities_pending_review` | **Optional future name** | Out-of-list rows awaiting coordinator review — defer unless drill-down needs a separate aggregate |
 
-**Committed category-shape fixtures only**, proving an **in-list** category
-shape and an **out-of-list raw example** shape, without waiting for P1 or P9.
-Specifically not authorized by this record:
+For pilot: **one registered name** (`opportunities`) with UI filters by
+category. Pending-review queue may surface as drill-down or a separate metric
+in a later pass if coordinators require it.
 
-- No durable assignment of an opportunity to a reviewer or queue.
-- No approve/reject action.
-- No registered metric, aggregate, or drill-down (waits on P1's completed
-  authorization rule, a canonical eligibility definition, and P6 owning
-  persistence).
-- No score floor is assumed; P8 does not inherit P5's fail-closed matching
-  gate unless a later decision adds a score-floor branch.
-- The legacy CSV/crawler merge and its fabricated fields
-  (`docs/plans/opportunities-metric-inventory.md`) are **not** presented as
-  the completed replacement.
+## 3. Owning evidence source (stop-gate item 3)
 
-## 5. References
+| Source | Included? | Notes |
+|---|---|---|
+| Human/import CSV (`columns.yaml` contract) | **Yes** | Primary pilot path |
+| Crawler-fed events (P6) | **Yes** | Inherits P6 persistence gate for crawler rows; no fabricated dates/roles |
+| Client-side CSV/crawler merge | **No** | Legacy `Opportunities.tsx` merge is not canonical (Fix #5) |
+| Matcher scores | **No** | Not part of this definition |
 
-- `docs/plans/2026-08-28-opportunities-s12-plan.md` — the stop-gate this
-  record partially answers
-- `docs/plans/opportunities-metric-inventory.md` — evidence on the current
-  (fabricated-field) surface
-- `docs/plans/prep/human-decisions-handoff-831.md` §7
+**P6 inheritance:** crawler-backed rows count only when P6 event persistence
+exists and rows pass the same category/review rules. Until then, import-origin
+rows may count; crawler-origin rows remain unknown or excluded honestly.
+
+## 4. Recorded session direction (31 August 2026) — incorporated
+
+The 31 August category examples are the in-list set above. Coordinator review
+for out-of-list examples is **required**, not advisory.
+
+## 5. Permitted implementation boundary (post-close)
+
+- **Card O1:** register `opportunities` per this definition text.
+- **Cards O2–O4:** per plan; authorization consistent with closed P1 (Option B).
+- **Not authorized:** fabricated client-side merge; score-floor counting without
+  a future gate amendment.
+
+## 6. Signature
+
+```
+Product owner:  Danny Tran (@dangt)
+Date:           2026-09-02
+```
+
+## 7. References
+
+- `docs/plans/2026-08-28-opportunities-s12-plan.md`
+- `docs/plans/opportunities-metric-inventory.md`
 - `docs/decisions/2026-08-31-session-ratification.md`
+- `docs/decisions/metrics-authorization-decision-draft.md` (P1 — closed)

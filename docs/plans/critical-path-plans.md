@@ -7,6 +7,23 @@ cited below.
 
 **This document plans. It changes no code.**
 
+**Current-status correction (2026-09-02):** The tree table and entries below
+preserve their 26-August historical snapshot. This checkout now closes J8/J9
+(code plus recorded focused evidence), A4, A5, J4, and J17. External Cloud
+Scheduler/OIDC deployment, Terraform/F5, live identity, and remaining product
+and review gates remain open.
+
+Three later slices land in the same checkout and are reflected in `README.md`:
+the review-decision route (`POST /v1/review-items/{id}/decision` plus migration
+`0013`), the S12/P8 **O3** binding of all three metric owning queries to
+storage, and a **dev-only** `docker compose` appliance whose seed, loopback task
+queue, dev bearer tokens, and `smartmatch_worker.local_scheduler` sidecar each
+refuse to start outside `SMARTMATCH_EDITION=dev`. None of that closes the
+deployment items: the compose scheduler **emulates** Cloud Scheduler and
+provisions nothing, and **no application code writes `pipeline_record`**, so the
+five funnel metrics measure a real zero rather than an unknown. Writers for
+`pipeline_record` are in progress elsewhere and are not claimed here.
+
 **How to read status.** Two trees are in play, and several backlog files have
 not caught up with either:
 
@@ -34,8 +51,8 @@ sets are disjoint and no named human is the bottleneck.
 | # | ID | Path | Why here |
 |---|---|---|---|
 | 1 | **CP-PR1** | Merge and evidence-check the PR1 blockers branch | Everything below is written against the post-PR1 tree. Re-doing J10 on `main` wastes the branch. Four commits have no revert-check evidence. |
-| 2 | **CP-GRANT** | Job reads ignore `resource_grant` deny | Real authorization hole, small, already pinned by the A4 matrix. Do this before A5 so the matrix cells move once. |
-| 3 | **CP-A5** | `job.owning_unit_id` (S-006) | A coordinator in one department can read, re-drive, or abandon another department's job. Migration `0006`. |
+| 2 | **CP-GRANT** | Job reads ignore `resource_grant` deny | Historical priority; closed with the shared job authorizer in the current tree. |
+| 3 | **CP-A5** | `job.owning_unit_id` (S-006) | Historical priority; migration `0006` and unit-scoped authorization are closed in the current tree. |
 | 4 | **CP-PII** | Assign an owner and decide MM-A09 remediation | Only severity-1 stakeholder finding. Unassigned. Gates D9 / `LICENSE` / kickoff Q11. Not engineering. |
 | 5 | **CP-G1** | Start D1 / gate G1 (factor registry) | Longest pole. All matching (M1–M10) waits. Matching is the product. |
 | 6 | **CP-V11** | Place Architecture v1.1 in the repository, or demote `contract_refs` | F-28. Without this, no port entry can reach a clean `verified`. Must precede the F9 re-review or the re-review returns F-28 again. |
@@ -119,7 +136,8 @@ and **permitted** by `GET /v1/jobs/{id}` and its event stream. Found by A4;
 pinned in two matrix cells. `docs/plans/pr1-blockers-handoff.md` §3.1;
 `docs/security/scaffold-security-review.md` S-006 (adjacent).
 
-**(b) Status.** Open. Exists as a finding only after A4 (PR1 branch).
+**(b) Status (historical snapshot).** Open in the source tree this plan was
+written against; closed in the current checkout by the shared job authorizer.
 
 **(c) Plan.** See focused doc. Small: apply the same grant evaluation the
 re-drive path already uses, then update the two matrix cells that pin the hole.
@@ -144,7 +162,9 @@ in one department can act on another department's job.
 A5; `docs/architecture/command-path.md` §3; `docs/security/scaffold-security-review.md`
 S-006.
 
-**(b) Status.** Open on both trees. On PR1, `job.payload` exists so
+**(b) Status (historical snapshot).** Open on both trees at the time of writing;
+closed in the current checkout by migration `0006` and shared authorization.
+On PR1, `job.payload` exists so
 `payload.unit_id` can backfill `import.create` jobs. Columns for J9/J17 already
 landed in `0004`; A5 is `0006`.
 

@@ -1,12 +1,18 @@
 # SmartMatch Design Standard
 
-**Status: NOT STARTED — this document is a brief, not a design.**
-**Owner: unassigned. Blocks all frontend work.**
+**Status: PARTIAL — Part 1 constraints settled; Part 2 open. Legacy engineering authorized; new product UI on hold.**
+**Owner: Danny Tran (@dangt) — assigned 2026-09-03 (legacy-only scope).**
 
-The frontend is deliberately on hold pending a redesign and a standardized
-design system. This document exists so that when that work begins it starts from
-the constraints already decided, rather than rediscovering them — and so nobody
-builds a screen in the meantime.
+**Scope (2026-09-03):** Legacy frontend (`apps/web/legacy-frontend`) work
+authorized for stakeholder synthetic pilot (metrics truthfulness, discovery
+feed, events calendar). **New product UI** under `apps/web/` remains blocked
+until Part 2 design is ratified. Purple theme on hold per program direction.
+
+The frontend is deliberately on hold for **new product UI** pending a redesign
+and a standardized design system. Legacy-frontend engineering paths authorized
+2026-09-03 proceed on synthetic data. This document exists so that when new
+product work begins it starts from the constraints already decided, rather than
+rediscovering them — and so nobody builds a new-product screen in the meantime.
 
 Everything below in **Part 1** is settled: it follows from architecture v1.1 and
 from the specific failures of the demo this replaces. Everything in **Part 2** is
@@ -29,11 +35,14 @@ currently describes seven endpoints. Building screens now means hand-writing API
 calls and rewriting them later — recreating exactly the coupling the contract
 forbids.
 
-**3. Most screens have nothing truthful to show.** The control center's thirteen
-views (v1.1 §5.2) depend on match runs, which are blocked on gate G1. A screen
-built before its data exists gets populated with placeholder content, and
-placeholder content that looks real is the single habit this whole revamp exists
-to end.
+**3. Match scoring is not implemented yet.** Gate G1 closed 2026-09-03 with an
+approved registry (`topic_relevance` 0.70, `travel_burden` 0.30), but factor
+implementations and match runs are **M2+** work. Legacy-frontend paths
+(metrics truthfulness, discovery feed, events calendar) proceed on synthetic
+data per program direction. The **new product UI** control center's thirteen
+views (v1.1 §5.2) still have no truthful match-run data — building those screens
+now would mean placeholder content, and placeholder content that looks real is
+the single habit this whole revamp exists to end.
 
 ---
 
@@ -144,7 +153,8 @@ attention catches the next one. `smartmatch_domain.feedback.acceptance_rate`
 already returns `None` rather than `0.0` for an empty set; the primitive is what
 stops that distinction being thrown away at the last step.
 
-This is **S2**, and it is held behind D-0 with the rest of the frontend.
+This is **S2**. Legacy-frontend work may implement it; the **new product UI**
+remains held behind Part 2 design ratification (D-1..D-11).
 
 ## 1.10 Every aggregate has a drill-down
 
@@ -213,7 +223,7 @@ From `docs/plans/remaining-foundation-r1-work.md`:
 4. **W3** — port presentational components (MM-F01), confirming licensing, and
    leaving the legacy's mock data behind
 5. **W6** — accessibility tests in CI
-6. **W5** — matching control center, once match runs exist (gate G1)
+6. **W5** — matching control center, once match runs exist (M2+, post-G1)
 
 Note the ordering of W4 before W3 and W5. That is deliberate: the provenance
 components are the ones enforcing §1.1, and everything built before them will

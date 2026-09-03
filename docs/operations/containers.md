@@ -68,6 +68,124 @@ deployment defect, not something to tolerate.
 
 ---
 
+## The local scheduler and loopback task queue (compose only)
+
+`docker-compose.yml` adds a `seed` one-shot service, a `scheduler` sidecar, and
+five new environment variables so that a queued import can be driven to
+completion on a developer's machine with **no manual dispatch step**. This
+section documents that mechanism in full: what each piece is, every setting it
+reads, how it fails, and — repeatedly, because this is the point most likely
+to be misread — what it is not.
+
+**This is a developer appliance. It is not a cloud queue, and it is not an
+institutional pilot deployment.** Nothing described here is provisioned,
+scanned, signed, monitored, or reachable from outside one developer's own
+compose network. `ALLOW_CLOUD_DEPLOY=false` is unaffected by any of it.
+
+### Why this exists
+
+Before this addition, exercising `POST /operations/dispatch` on the compose
+worker required a human to run a dispatch curl by hand after every import —
+the worker's task and dispatch endpoints are unauthenticated infrastructure
+until real OIDC verification lands (finding S-001), so they were reachable but
+nothing ever called them automatically. The `scheduler` sidecar removes that
+manual step by playing the part Cloud Scheduler will eventually play: it calls
+`POST /operations/dispatch` on a fixed interval, the same route Cloud
+Scheduler is designed to call, so the compose stack exercises the real
+worker-side dispatch boundary rather than bypassing it.
+
+### The pieces
+
+| Piece | What it is | What it is not |
+|---|---|---|
+| `seed` service | A one-shot container running `tools/seed_pilot.py` against the API image, creating one synthetic `coordinator` principal and org unit so the smoke path in `INSTALL.md` has something to authenticate as and import into. | Not an account system. Refuses to run unless `SMARTMATCH_EDITION=dev` and `SMARTMATCH_USE_FIXTURE_PROVIDERS=true` (the script's own gate). |
+| `SMARTMATCH_DEV_PRINCIPALS` (API) | Maps one fixed bearer token to the subject `seed` created, via `FixtureTokenVerifier`. Boot-time validation (`services/api/smartmatch_api/config.py`) refuses to start with this set under any edition but `dev`. | Not authentication. No password, no expiry, no revocation — a finite, explicitly configured set of test principals only. |
+| `SMARTMATCH_DEV_TASK_BEARER_TOKEN` / `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN` (worker) | Two separate dev-only bearer verifiers, one for `POST /tasks/execute`, one for `POST /operations/dispatch`. Deliberately different values — the worker refuses startup if they are equal, and refuses either being set under an edition other than `dev`. | Not a substitute for Cloud Tasks/Cloud Scheduler OIDC (`task_audience`, `scheduler_audience`, and the two service-account allowlists, all still unset here — see the `worker` service comment in `docker-compose.yml`). Those stay unconfigured and therefore fail-closed (401/501) in this stack, exactly as they do without any of this addition. |
+| Loopback task queue (`SMARTMATCH_LOCAL_TASK_QUEUE_ENABLED`, `SMARTMATCH_LOCAL_TASK_TARGET_URL`) | A `LocalPostgresHttpTaskQueue` inside the worker process. `enqueue()` does not deliver anything itself — it only validates that the durable outbox row is already committed `dispatched`. A separate delivery pump then reads that committed row and `POST`s `{tenant_id, job_id}` back to the worker's own `/tasks/execute`, using the task bearer token above. | Not `FixtureTaskQueue` (which loses work in process memory) and not a call directly into `TaskExecutor` — delivery goes over the real HTTP boundary, through the real verifier, exactly as Cloud Tasks would call it. Not Cloud Tasks: no durability guarantee beyond "this one PostgreSQL row committed", no retry-with-backoff policy beyond what the pump implements, and it accepts no tenant-controlled URL, header, or credential — the target is fixed at `http://127.0.0.1:<PORT>/tasks/execute`. |
+| `scheduler` service (`SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN`) | A sidecar built from `Dockerfile.worker`, running `python -m smartmatch_worker.local_scheduler`. Every two seconds it `POST`s to the fixed compose address `http://worker:8080/operations/dispatch` using the scheduler bearer token. Exits without sending a request unless `SMARTMATCH_EDITION=dev` and its own token are both set. | Not Cloud Scheduler. No job is provisioned, no OIDC token is minted, nothing here is reachable outside this compose network, and its target address is a hardcoded module constant, not something an environment variable can redirect. |
+
+### The flow, end to end
+
+```
+scheduler sidecar
+  -> POST /operations/dispatch [scheduler bearer token]
+  -> ScheduledPass (the real dispatcher composition: J9 sweep + J12 reclaim + J1 dispatch)
+  -> LocalPostgresHttpTaskQueue.enqueue() validates the row is already committed dispatched
+  -> delivery pump reads that durable PostgreSQL row
+  -> POST /tasks/execute [task bearer token — a DIFFERENT value from the scheduler token]
+  -> worker creates review_item row(s)
+  -> API reads pending_review_items via GET /v1/units/{unit_id}/metrics
+```
+
+The queue never delivers ahead of the durable commit: `enqueue()` only
+validates that PostgreSQL already shows the row `dispatched`, so a synchronous
+"deliver during enqueue" race — which would repeatedly see the row not yet
+committed and answer `503` — cannot happen. This mirrors why the real
+production design (Cloud Tasks after the dispatcher's own transaction commits)
+is shaped the way it is; the loopback queue keeps that ordering rather than
+shortcutting it.
+
+### Failure behavior
+
+Every one of these failure directions is fail-closed, matching the existing
+worker posture (`POST /tasks/execute` → `401` without credentials, `501` with
+credentials but no queue) rather than introducing a new permissive path:
+
+- Either dev bearer token configured outside `SMARTMATCH_EDITION=dev` fails
+  the worker or API at **startup**, not at request time.
+- The task and scheduler bearer tokens configured equal to each other fails
+  worker startup — a task-scoped credential and a dispatch-scoped one must
+  stay distinguishable, the same reason Cloud Tasks and Cloud Scheduler use
+  separate audiences in the real design.
+- `SMARTMATCH_LOCAL_TASK_QUEUE_ENABLED=true` without a task bearer token, or
+  without `SMARTMATCH_LOCAL_TASK_TARGET_URL`, fails startup rather than
+  silently running with a partial local configuration.
+- `SMARTMATCH_LOCAL_TASK_TARGET_URL` supplied while the queue is disabled
+  fails startup as contradictory configuration, rather than being silently
+  ignored.
+- The target URL must be plain `http`, host `127.0.0.1` or `::1`, path
+  exactly `/tasks/execute`, with no userinfo, query, fragment, or redirect
+  following — anything else fails startup.
+- The delivery pump retries connection errors and `5xx` while the durable job
+  stays `dispatched`. It treats `401`, `403`, `400`, `404`, and `501` as
+  configuration/contract errors: it logs clearly and leaves the job visible
+  rather than fabricating a completion it did not actually reach.
+- The `scheduler` sidecar retries network errors and `5xx` on its own POST,
+  exits on an authentication or configuration response, never logs the
+  bearer token, and stops cleanly on `SIGTERM`.
+- `seed` refuses to run — and prints why on stderr — unless
+  `SMARTMATCH_EDITION=dev` and `SMARTMATCH_USE_FIXTURE_PROVIDERS=true`, and it
+  refuses (rather than silently changing) an existing tenant, org unit,
+  account, or membership that disagrees with the identity it was asked to
+  seed.
+
+### The loopback restriction, restated
+
+`SMARTMATCH_LOCAL_TASK_TARGET_URL` cannot be pointed anywhere but this
+worker's own `127.0.0.1`/`::1`. That is not an oversight to relax later — a
+local task queue that could be redirected to an arbitrary host, with a
+tenant- or caller-controlled URL, path, header, or credential, would be a
+server-side request forgery primitive wearing a developer-convenience
+costume. The restriction stays even though nothing in this compose network is
+reachable from outside the developer's own machine, because the code path is
+the same code path a future misconfiguration could expose.
+
+### Process and restart behavior
+
+`seed` and `migrate` are one-shot: they run to completion and exit, and
+`restart: "no"` means a crash leaves them stopped rather than retried in a
+loop. `api`, `worker`, and `scheduler` are long-lived. The `scheduler` sidecar
+has no restart policy of its own in `docker-compose.yml` — like `api` and
+`worker`, an unhandled crash simply stops the container; `docker compose up`
+again restarts the whole appliance if that happens. None of the three
+long-lived containers persist any queue state of their own: every durable fact
+the loop above depends on lives in the `db` service's `outbox_record` and
+`job` tables, which is what makes `docker compose down -v` a clean reset
+rather than one that could leave a task queue holding stranded work no
+container remembers.
+
+---
+
 ## The decisions worth explaining
 
 ### The dependency install is two steps, not one

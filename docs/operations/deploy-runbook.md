@@ -200,6 +200,89 @@ revision" an acceptable state, and it is a review rule for every new revision.
 
 ---
 
+## Alerting the scheduled dispatcher pass (J8)
+
+Nothing here can create an alert policy: there is no monitoring stack and
+nothing is deployed. What the worker owes, and what this section records, is the
+*signal* an alert can be built on and the argument for which alerts are the
+right ones. Whoever stands up monitoring should build these three first, in this
+order. The source of truth for the mechanics is the module docstring in
+`services/worker/smartmatch_worker/main.py`; this is the operator's copy of it.
+
+**The signal.** One log line per completed pass, at INFO, with a fixed leading
+message — `HEARTBEAT_MESSAGE`, "scheduled dispatcher pass completed" — followed
+by every number an operator alerts on, so a log-based metric can count it
+without parsing prose. The same numbers appear in the `POST /operations/dispatch`
+response body and on `GET /operations/dispatch`. Alert on the **log line**, not
+on the response body: the body requires something to have been listening, and
+the point of this signal is to be there when nothing was.
+
+### 1. The schedule stopped firing — an absence alert, never a lag threshold
+
+A log-based counter matching `HEARTBEAT_MESSAGE`, with an **absence** condition:
+no data for a small multiple of the schedule interval. It must be evaluated
+outside the worker, since the condition being tested is that the worker is not
+running.
+
+Lag cannot substitute for it, and the reason is sharper than "a stalled
+dispatcher reports lag zero": a stalled dispatcher reports **nothing at all**,
+because `lag()` is taken *by the pass*, so no pass means no sample. A lag metric
+sampled independently would still not save it, because `pending_count` shares
+`_claimable_predicate` with the claim — the rows a dead dispatcher stranded are
+precisely the rows it does not count.
+
+That doubles back on itself, which is why this alert matters more than the other
+two: a dispatcher that is not running is what strands outbox rows, and is then
+also what stops anything reclaiming them, because `run_once` is where
+`reclaim_stranded` lives. The failure is silent, self-concealing and compounding.
+
+Cloud Scheduler's own attempt-failure metric belongs beside this one and is not a
+substitute: it catches a job that fired and got an error, not one that stopped
+firing. A pass that raised answers non-2xx and moves that metric; it does **not**
+move the heartbeat, because `last_completed` and the log line are written only by
+a pass that finished.
+
+### 2. `DispatchOutcome.reclaimed > 0` — dispatcher health, separate from lag
+
+A reclaimed row sits outside the `claimed == dispatched + already_existed +
+failed` identity and should always be zero. Non-zero says a dispatcher died, or
+the database refused a write, at the one moment in a row's life when that cannot
+be retried away. It is a statement about the dispatcher's health, not the queue's
+depth, so **any** non-zero value is the condition — there is no threshold to tune
+and it does not belong inside a lag policy.
+
+### 3. `timed_out > 0` / `rescued` — the J9 recovery surface
+
+`timed_out` is the sweep's half of the same story: a worker claimed a job and
+never came back. `rescued` is `reclaimed + timed_out` — the single number
+`docs/plans/transaction-boundary-defects.md` §3.3 asked the pass to expose, and
+the one to page on; the two fields beneath it tell the operator which table to
+open (`outbox_record` or `job`).
+
+Read `sweep_failed` beside `timed_out` and never alone. When the sweep raised,
+`timed_out` is zero because nothing was measured, not because nothing was wrong.
+One `sweep_failed` is a deadlock; a run of them across consecutive passes is J9
+not working, with `timed_out` reading zero for the wrong reason.
+
+### Lag, and the two counters that are not alerts
+
+Lag — `pending` and `oldest_age`, through `DispatcherLag.exceeds` — is the alert
+this platform already had a placeholder for. Keep it, and keep it last: it is the
+only one of these that a dispatcher which is not running cannot trip.
+
+**Alert on `unexplained_failures`, never on `failed`.** This answers the question
+handoff §2.3 left open for this design — whether the benign J17 lease race that
+increments `failed` is covered. It is. A peer dispatcher that re-claimed a row
+after this pass's lease expired makes this pass's record attempt fail through no
+fault of its own; that row is counted `failed`, because this pass genuinely did
+not finish it, and is reported apart in `contended`.
+`unexplained_failures = failed - contended` is what an alert reads. Paging on
+`failed` would wake someone for a race that resolves itself, and would do so
+*more* the more dispatcher instances they run — the alert would get worse exactly
+as the deployment got bigger.
+
+---
+
 ## Not yet applicable
 
 Each of these is a step a real deploy runbook would have. None can be written
@@ -214,10 +297,47 @@ sources named beside it.
 | Deploy a service, roll traffic, or roll back a release | Nothing is running. The migration contract sets `ALLOW_CLOUD_DEPLOY=false` | Not scheduled |
 | Supply provider credentials | No live provider adapter is implemented; construction fails before any credential check. In deployed environments credentials come from Secret Manager, never from a file | The release gate for each provider — G4 for outreach, open decision 6 for routes |
 | Configure worker task identity | The verifier is real but ships with no signature backend, no audience, and no service-account allowlist, so it refuses every delivery (`401` without a credential, `501` with one) | Finding S-001: three separate deliberate acts, listed there |
-| Schedule the outbox dispatcher | Nothing schedules it at all today, which is backlog item J8 | J8 |
-| Monitoring, alerting, on-call | There is no running system to observe and no rotation to page | A deployed environment |
+| Schedule the outbox dispatcher | The worker endpoint exists (`POST /operations/dispatch`); Cloud Scheduler job and OIDC binding are not yet provisioned | F5 Terraform + S-001 scheduler identity |
+
+**Neither of the two rows above is closed by `docker-compose.yml`.** Slice 3
+added a `seed` service, a dev-only bearer-token verifier pair
+(`SMARTMATCH_DEV_TASK_BEARER_TOKEN` / `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN`),
+a loopback task queue, and a `scheduler` sidecar so that a compose smoke test
+can exercise `POST /operations/dispatch` and `POST /tasks/execute` without a
+human running a dispatch curl by hand (see
+`docs/operations/containers.md#the-local-scheduler-and-loopback-task-queue-compose-only`).
+**That mechanism satisfies neither cloud gate above.** A bearer-token string
+comparison refused outside `SMARTMATCH_EDITION=dev` is not OIDC verification;
+a sidecar POSTing to a fixed `http://worker:8080` address inside one compose
+network is not a provisioned Cloud Scheduler job with a minted, audience-bound
+token; and a `LocalPostgresHttpTaskQueue` that only proves one PostgreSQL row
+committed `dispatched` is not Cloud Tasks' durability guarantee. "Configure
+worker task identity" and "Schedule the outbox dispatcher" remain exactly as
+open as they were before this addition, and are closed only by Finding S-001
+and F5 Terraform, respectively — never by bringing this compose stack up.
+| Monitoring, alerting, on-call | Alert design is documented below; no environment to wire it into yet | A deployed environment |
 | Smoke test after deploy | The health endpoints exist and are probed in CI against the built images (see `containers.md`), but there is no deployed URL to probe | A deployed environment |
 
 Adding a procedure here for any of the above before the thing exists would make
 this document assert something untrue about the repository. When one of them
 becomes real, write the section then — and verify it by running it.
+
+---
+
+## Dispatcher scheduling deployment handoff (J8 + J9)
+
+**Code status (closed in repository):** `ScheduledPass` in
+`services/worker/smartmatch_worker/dispatcher.py` composes the J9 stalled-job
+sweep with the J12 reclaim and J1 dispatch. Cloud Scheduler is expected to call
+`POST /operations/dispatch` on the worker with a scheduler-scoped OIDC identity
+(separate audience and allowlist from Cloud Tasks — see `config.py`). Coverage:
+`tests/integration/test_job_lease_lifecycle.py` (13 cases) and
+`tests/integration/test_scheduled_dispatch_pass.py` (9 cases). The recorded
+implementation-run pass/revert evidence is in
+`docs/plans/pr1-blockers-handoff.md` and `docs/plans/pr3-verification-evidence.md`;
+current local execution is collection/skip only when PostgreSQL is unavailable.
+
+**Deploy procedure (when F5 and S-001 land):** create a Cloud Scheduler HTTP job
+that POSTs to `/operations/dispatch` on the worker URL at the chosen interval
+(e.g. every minute), with OIDC token minted for `scheduler_audience` and a
+service account in `scheduler_service_accounts`.

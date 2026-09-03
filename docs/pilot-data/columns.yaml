@@ -1,17 +1,24 @@
 # SmartMatch pilot import column contract -- RATIFIED for the pilot.
 #
-# Ratified 28 Aug 2026. This file was a proposal; the questions it could
-# answer from evidence already in the repository have been answered, and the
-# two it cannot are listed under OPEN QUESTIONS below, still open. Ratified
-# means "this is the contract the pilot import path is held to", not "every
-# question about these columns is settled" -- see that section for what still
-# needs Dr. Wang.
+# Ratified 28 Aug 2026. This file was a proposal; both questions it originally
+# could not answer from evidence already in the repository are now resolved --
+# P9 Gate A (board_role) and P9 Gate B (published contact fields), both closed
+# 2 Sep 2026 -- see OPEN QUESTIONS below for each gate's resolution note.
+# Ratified means "this is the contract the pilot import path is held to", not
+# "every question about these columns was settled on day one".
 #
-# It is still not wired into application code: smartmatch_worker.handlers
-# calls smartmatch_domain.ingest.validate_columns with required=(),
-# optional=(), and connecting the two is a separate change to a file this
-# drop does not own. What ratification changes is that the contract is no
-# longer a set of options waiting on a human to pick between them.
+# WIRED as of 2 Sep 2026 (P9 card W1). smartmatch_worker.column_contract
+# reads this file and smartmatch_worker.handlers hands the declarations below
+# to smartmatch_domain.ingest.validate_columns, so an inline-rows import is
+# now held to this contract rather than to required=(), optional=(). This
+# file is the single source of truth: no column name is repeated in Python.
+# Enforcement is SECTION-LEVEL, per card W1's partial-ratification rule --
+# a column still behind an open question would be declared under its
+# dataset's `gate_pending` map and neither enforced nor treated as ratified.
+# No column is gate-pending today: Gate A's board_role and Gate B's three
+# contact fields were the only entries, and both gates have since closed. The
+# mechanism is unchanged and stays in place for the next column a gate has
+# not yet answered. See "GATE-PENDING COLUMNS" below.
 # See docs/pilot-data/README.md for the finding this fills (F-28 / migration
 # manifest: architecture v1.1 Section 1.5 is not in this repository, so the
 # "real" column contract it might define has never been read). Ratifying
@@ -51,6 +58,71 @@
 #      exactly one check -- required_column_entirely_blank -- so a sentinel on
 #      an optional column would be inert, and declaring inert things hides the
 #      ones that do work. Extend the declarations when a check needs them.
+#
+#   4. P9 Gate A closed 2 Sep 2026
+#      (docs/decisions/p9-gate-a-board-role-decision-draft.md): board_role is
+#      relationship-scoped, not a flat professional attribute -- it varies by
+#      (professional, unit), and multiple concurrent roles for the same
+#      person across different units must be representable at once. It is
+#      REMOVED from `professionals.optional` below and from `gate_pending`
+#      (there is nothing left to accept-and-flag; the modelling question is
+#      answered). The column now lives on the `professional_unit_relationship`
+#      table (python/smartmatch_persistence/smartmatch_persistence/schema.py,
+#      migration db/migrations/versions/0012_professional_unit_relationship.py)
+#      with NO effective_from / effective_to columns -- the pilot is
+#      current-state only per the gate record's §2. This import contract does
+#      not carry board_role at all; a coordinator's export naming it now
+#      reports `unexpected_columns`, the same as any other column this
+#      contract does not declare.
+#
+#   5. `url_shaped_columns` (see events, below) names columns
+#      smartmatch_worker.handlers validates with
+#      smartmatch_domain.public_url.validate_static_url_shape before an
+#      import writes them -- the four static HTTPS shape rules in that
+#      module's docstring. A candidate that fails is never rejected outright
+#      and never silently dropped: it is reported as a `url_shape_invalid`
+#      WARNING finding naming the column and the failing rule, and the value
+#      is still stored exactly as submitted for a coordinator's review -- the
+#      same quarantine-and-review posture every other finding in this
+#      contract already has. Declared per dataset, like
+#      `blank_sentinels_by_column`, so a column is checked only where it is
+#      declared to hold a URL.
+#
+# GATE-PENDING COLUMNS
+#
+#   A column still behind an open question would be declared twice: in prose
+#   under open_questions (unchanged, for a human), and machine-readably under
+#   its dataset's `gate_pending` map (for the worker) -- card W1 is explicit
+#   that W1 "must not treat a still-open open_questions entry as ratified
+#   contract". No dataset below declares one today: Gate A's board_role and
+#   Gate B's three contact fields were the only entries this file ever
+#   carried, and both gates have since closed (see decision 4 above and
+#   OPEN QUESTIONS below). The mechanism remains for the next column a gate
+#   has not yet answered. Each entry, when one exists, names the gate that
+#   owns the column and one of two postures:
+#
+#     accept   -- recognized, persisted normally, and reported in a
+#                 `columns_pending_gate` WARNING so a coordinator sees the
+#                 meaning is unsettled. Used where the open question is about
+#                 MODELLING -- P9 Gate A's board_role was this posture's first
+#                 and, so far, only example.
+#
+#     withhold -- recognized, but the values are DROPPED before anything is
+#                 written, reported in a `columns_withheld_pending_gate`
+#                 WARNING naming every column withheld. Used where the open
+#                 question is PRIVACY -- P9 Gate B's three contact fields were
+#                 this posture's example, while Gate B stayed open: quarantine
+#                 is collection, and a review_item row is persistence
+#                 (ADR-0014). Accepting the import while declining to store
+#                 the value is the only posture that neither invents an
+#                 authorization nor discards the rest of a coordinator's
+#                 submission.
+#
+#   Neither posture REJECTS. A gate-pending column never makes a dataset
+#   unusable -- refusing would be enforcing an answer the gate has not given
+#   either. When a gate closes, delete that column's gate_pending entry and
+#   its open_questions paragraph together; leaving one without the other is
+#   how a contract starts lying.
 
 datasets:
   professionals:
@@ -60,8 +132,12 @@ datasets:
       sources, not invented for this contract:
         1. apps/web/legacy-frontend/src/lib/mockData.ts's Specialist type
            (orphaned -- nothing imports it -- used here for shape and
-           vocabulary only) supplies `name` and the optional fields
-           board_role, company, title, expertise_tags, initials.
+           vocabulary only) supplies `name` and the optional fields company,
+           title, expertise_tags, initials. mockData.ts also carried
+           board_role as a flat field on Specialist; P9 Gate A decided
+           (2 Sep 2026) that it is relationship-scoped instead, so it is not
+           part of this dataset -- see decision 4 in WHAT WAS DECIDED HERE
+           and the `professional_unit_relationship` table.
         2. tests/unit/test_ingest.py supplies metro_region as the second
            required column and "pronouns" as an optional one. That file also
            spells the name column `full_name`; ratification chose `name`
@@ -73,7 +149,14 @@ datasets:
       - company
       - title
       - expertise_tags
-      - board_role
+      # board_role removed 2 Sep 2026 -- P9 Gate A closed relationship-scoped
+      # (see decision 4 in WHAT WAS DECIDED HERE, above). It is no longer a
+      # professionals column at all: it lives on
+      # `professional_unit_relationship`, keyed by (tenant_id,
+      # professional_id, unit_id), with no effective-date columns for the
+      # pilot. A coordinator's export still naming board_role here now
+      # reports `unexpected_columns`, not `columns_pending_gate` -- the
+      # question this posture was flagging is answered.
       - initials
       - pronouns
     # Empty on purpose -- this is the fallback for any column not named
@@ -98,8 +181,9 @@ datasets:
       and everything else optional (`?`); this contract keeps that split.
       Two CppEvent optional fields -- "Public URL" and
       "Point(s) of Contact (published)" / "Contact Email / Phone
-      (published)" -- are declared here for completeness but are not
-      exercised by any fixture in this drop; see OPEN QUESTIONS.
+      (published)" -- were declared here for completeness before any fixture
+      exercised them; P9 Gate B closed 2 Sep 2026 collecting all three (see
+      OPEN QUESTIONS for the resolution note).
     required:
       - "Event / Program"
       - "Category"
@@ -120,25 +204,30 @@ datasets:
       # optional, so it takes no declaration today (see decision 3).
       "Event / Program": *null_markers
       "Category": *null_markers
+    # See decision 5 in WHAT WAS DECIDED HERE, above. "Public URL" is the
+    # only column any dataset declares here today; smartmatch_worker.handlers
+    # runs smartmatch_domain.public_url.validate_static_url_shape against it
+    # for every row that carries a value, and a shape failure becomes a
+    # `url_shape_invalid` WARNING finding rather than a rejection or a
+    # silent drop.
+    url_shaped_columns:
+      - "Public URL"
 
 open_questions:
   - >-
-    STILL OPEN -- needs Dr. Wang. Whether "board_role" belongs on a
-    *professional* record at all, or is really a property of that person's
-    relationship to a specific unit/chapter and belongs on a
-    unit-relationship record instead. mockData.ts carries it as a flat field
-    on Specialist, which is evidence of how one orphaned frontend modeled it,
-    not evidence of how the pilot should. Ratifying it as an optional
-    professionals column is a holding position that keeps an export carrying
-    it from being flagged as unexpected; it is not an answer, and moving it
-    later is a schema change, not a rename.
+    RESOLVED 2026-09-02 -- P9 Gate A closed: "board_role" is relationship-
+    scoped, not intrinsic to a professional record -- it varies by
+    (professional, unit), with multiple concurrent roles per person across
+    different units representable at the same instant, and no
+    effective_from / effective_to columns for the pilot (current-state only).
+    See docs/decisions/p9-gate-a-board-role-decision-draft.md §§1-2. The
+    column is removed from `professionals.optional` above and now lives on
+    the `professional_unit_relationship` table
+    (python/smartmatch_persistence/smartmatch_persistence/schema.py,
+    migration db/migrations/versions/0012_professional_unit_relationship.py).
   - >-
-    STILL OPEN -- needs Dr. Wang. Whether the pilot actually collects the two
-    events fields no fixture exercises: "Public URL", and the published
-    contact pair "Point(s) of Contact (published)" / "Contact Email / Phone
-    (published)". They are declared optional here because mockData.ts's
-    CppEvent type has them, so an export carrying them is not flagged as
-    unexpected -- but nothing in this drop demonstrates them, and the contact
-    fields in particular are personal data whose presence in a pilot import
-    should be a deliberate decision, not an inheritance from a mock. If the
-    pilot does not collect them, drop them from `optional`.
+    RESOLVED 2026-09-02 -- P9 Gate B closed: collect all three (Public URL;
+    Point(s) of Contact (published); Contact Email / Phone (published)) per
+    docs/decisions/p9-gate-b-contact-fields-worksheet.md §8. Human/import
+    origin only for contact fields; crawler raw URL persistence still requires
+    an approved host/path projection.

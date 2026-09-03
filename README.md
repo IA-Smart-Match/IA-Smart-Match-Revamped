@@ -29,7 +29,7 @@ was kept, what was rejected, and why.
 | Durable job state machine | `smartmatch_domain.jobs` | 14 |
 | Import validation and normalization | `smartmatch_domain.ingest` | 13 |
 | Shadow-mode feedback → weight proposals | `smartmatch_domain.feedback` | 16 |
-| Factor registry (proposal; scoring fails closed) | `smartmatch_domain.factor_registry` | 17 |
+| Factor registry — G1 approved 2026-09-03 (`topic_relevance` 0.70, `travel_burden` 0.30); scoring factors unimplemented (M2–M3) | `smartmatch_domain.factor_registry` | 17 |
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
 | Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
@@ -37,51 +37,54 @@ was kept, what was rejected, and why.
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |
 | Transactional rate limiter | `smartmatch_persistence.rate_limit` | 18 integration + 4 unit |
+| Spend reservation state machine, guarded reservation service, and conservative abandoned-reservation sweeper (ADR-0015 A1) | `smartmatch_domain.spend`, `smartmatch_persistence.spend`, `smartmatch_persistence.spend_sweeper` | 100 unit + 14 PostgreSQL integration collected; integration unexecuted locally |
+| Synthetic paid-extraction seam and opt-in worker handler; deliberately absent from the shipped registry | `smartmatch_providers.paid`, `smartmatch_worker.paid_extraction` | 55 unit |
 | Authenticated command path, end to end | `services/api` | 29 integration |
 | Identity lookup — `external_subject` globally unique (ADR-0008) | `smartmatch_persistence.principals` | 6 integration |
 | API health + non-mutating unsubscribe GET | `services/api` | 10 contract |
 | Standard error envelope across the API | `services/api` | 13 contract |
 | Worker command execution — claim, run to a terminal state, job events | `smartmatch_worker.execution` | 31 integration |
-| OIDC task-identity verification, ships with no signature backend | `smartmatch_worker.identity` | included above + 4 contract |
+| Task-identity verification — the OIDC path is real but ships with no signature backend, so it refuses every delivery; a fixed-token `LocalBearerTaskVerifier` exists for `docker compose` and refuses to boot outside `SMARTMATCH_EDITION=dev` | `smartmatch_worker.identity` | included above + 4 contract |
 | Re-drive and abandon commands for parked work | `services/api/.../routers/redrive.py` | 30 integration |
+| Review decision — `POST /v1/review-items/{id}/decision`; a conditional `UPDATE` on `pending` rows only, `409` on a second decision; migration `0013` adds `decided_at`/`decided_by` under `ck_review_item_decision_evidence` | `services/api/.../routers/review.py`, `smartmatch_persistence.review`, `db/migrations` | `tests/contract/test_review_decision.py` + `tests/integration/test_import_review_constraints.py`; not collected in this environment |
+| Metric register bound to storage — all three owning queries (`pipeline_funnel_rows_v1`, `pending_review_item_rows_v1`, `opportunities_rows_v1`) read real tables, so an empty answer is a measured zero rather than an honest unknown | `services/api/.../routers/metrics.py`, `smartmatch_domain.metrics` | `tests/contract/test_metrics.py` + `tests/integration/test_metrics_storage_binding.py`; not collected in this environment |
 | Forbidden-legacy-behavior scanner | `tools/scan_forbidden.py` | 25 self-tests |
-| ADR index checked against the ADR files | `docs/architecture/decisions`, `tests/unit/test_adr_index.py` | 145 |
+| ADR index checked against the ADR files | `docs/architecture/decisions`, `tests/unit/test_adr_index.py` | 155 |
 | Agent-memory ledger validation | `tools/agent_memory_check.py` | 80 |
 | CHECK constraints exercised behaviourally — the forbidden write *and* the permitted one | `db/migrations` | 50 integration |
 | One transaction per Alembic revision (ADR-0009) | `db/migrations/env.py` | 3 |
 
-**789 tests total — 788 pass, 1 skipped by design**
-(`test_normalize_weights_honours_overrides_and_renormalizes`, which waits for a
-second implemented scoring factor). The split is **444 passing plus that skip**
-in the no-database lane, and **344 requiring PostgreSQL** — measured against
-PostgreSQL 16.15, which is the version the CHECK-constraint expression pins in
-`tests/integration/test_check_constraints.py` assume.
-
-The figure here was `489` until 25 August 2026, and the drift is worth naming
-because it was not the aggregate that went stale on its own: `489` was exactly
-the sum of the table above while two of its rows were out of date — the
-dispatcher had grown from 27 to 41, re-drive from 22 to 30 — and four
-capabilities had no row at all. Both halves are corrected above. Counts come
-from `pytest tests/ --collect-only -q`; the lane split from
-`pytest tests/ -m "not integration"`.
+**1,817 tests collected: 1,266 in the no-database lane and 551 marked for the
+integration lane.** These came from `pytest tests/ --collect-only -q` and
+`pytest tests/ -m integration`, and they **predate the 2 September 2026 slices**
+— the review-decision route, the metrics storage binding, and the local task
+queue and scheduler each added test files the totals do not include. Treat the
+numbers as a floor, not a current measurement. They are also not a passing-test
+claim: PostgreSQL was unavailable in the latest local run, so all 551
+integration tests skipped, including the 14 spend-reservation tests.
+The no-database run also did not complete in that environment because
+`tests/contract/test_api_health.py::test_health_reports_ok` blocked; see the
+[A1 verification record](docs/testing/adr0015-a1-spend-persistence-verification.md).
 
 ### Proposed, scaffolded, or deliberately absent
 
 | Capability | State | Gated on |
 |---|---|---|
-| Matching / scoring | **Blocked** — registry proposed, scoring fails closed | Gate G1 (see finding F-001) |
-| CP-SAT portfolio assignment | Not started | Gate G1, then R1 |
+| Matching / scoring | **Registry approved (G1 closed 2026-09-03); scoring engine not implemented** — `assert_registry_approved()` passes; no `topic_relevance` or `travel_burden` scorer yet | M2–M3 (build); see `docs/plans/workshops/g1-workshop-output-worksheet.md` |
+| CP-SAT portfolio assignment | Not started | M2–M6, then M7 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
-| Command payload persistence | Not started — the only real command (`import.create`) always fails when executed, because its parameters are never durably recorded | R1 (J10) |
-| Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery | R1 (before worker deploy) |
-| Live identity verifier for user requests (JWKS) | Fixture only; accepts registered tokens only | R1 |
+| Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
+| Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery. The only thing that accepts a task today is the dev-only fixed-token verifier, which will not boot outside `SMARTMATCH_EDITION=dev` | R1 (before worker deploy) |
+| Live identity verifier for user requests (JWKS) | **Fixture verifier only; no JWKS verifier implementation is committed.** Accepts registered fixture tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
-| Research agents / crawler | Not scaffolded | Gate G3, R3 |
-| `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
+| Research agents / crawler | Threat model signed 2026-09-03; **no crawl code scaffolded** | R3 build; live production crawl (S6a) deferred in synthetic pilot |
+| Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
+| `apps/web` frontend | **On hold** for new product UI — legacy-frontend authorized for synthetic pilot only; see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | Part 2 design decisions (D-1..D-11); owner assigned 2026-09-03 |
 | Terraform | Skeleton only; **nothing deployed** | Later |
-| Student engagement — attendance, points ledger, rewards, disclosure consent | **Designed, not built** — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
-| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Not started.** Five registered metrics with one owning query, per ADR-0011 | S12, behind the metric register (S1) |
+| Student engagement — attendance, points ledger, rewards, disclosure consent | **Base schema and design only.** No catalog repository, earning service, ledger fold, or rewards routes are committed — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
+| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Schema and read path only.** `pipeline_record` exists (migration `0011`) and the five ADR-0011 metrics read it through `pipeline_funnel_rows_v1`; **no application code writes `pipeline_record` yet**, so every stage measures a real zero | A `pipeline_record` write path — until one exists the funnel is structurally zero |
+| Local `docker compose` appliance — db, migrate, seed, api, worker, scheduler sidecar | **Dev-only, local compose only.** The seed, the loopback task queue, the fixed bearer tokens, and `smartmatch_worker.local_scheduler` each refuse to start unless `SMARTMATCH_EDITION=dev`; they *emulate* Cloud Scheduler and Cloud Tasks and deploy nothing | Cloud Scheduler + OIDC provisioning, an IdP, and Terraform (F5) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
 Nothing here has been deployed, no live provider has been called, and no live
@@ -102,10 +105,21 @@ there, and without it `make setup` fails on its first line with exit code 1.
 ```bash
 sudo apt install -y python3-venv     # Debian/Ubuntu only
 make setup          # virtualenv + hash-verified dependencies (slow; do not interrupt)
-make db-up          # local PostgreSQL + dev database — REQUIRES ROOT
+sudo make db-up     # local PostgreSQL + dev database — REQUIRES ROOT
 make migrate        # apply the Foundation schema
 make check          # the nine gates that run without infrastructure
 ```
+
+Those three database commands — `sudo make db-up`, `make migrate`,
+`make test-integration` — are what turn an installed-but-empty PostgreSQL into
+one the tests can use. Run the third to prove the schema works:
+
+```bash
+make test-integration   # pytest tests/ -m integration — REQUIRES the migrated database
+```
+
+Full installation guide, including manual database setup when `make db-up`
+cannot run: [`INSTALL.md`](INSTALL.md).
 
 `make check` runs nine gates: formatting, lint, strict typing, architecture
 import boundaries, the no-database test lane, the forbidden-behavior scan, the
@@ -126,7 +140,10 @@ mean a green CI.** Two differences matter. `make test` is
 `pytest tests/ -m "not integration"` — the no-database lane, not the full suite;
 the integration tests need PostgreSQL and *skip themselves* when none is
 reachable, so a clean local run proves nothing about them unless you actually
-had a database. And CI additionally runs the migration from an empty database,
+had a database. Confirm you did: a migrated database answers
+`select version_num from alembic_version` with the newest file in
+`db/migrations/versions/`, and `pytest tests/ -m integration` then reports
+`passed` rather than `skipped`. And CI additionally runs the migration from an empty database,
 the full suite including the integration lane, the OpenAPI drift check, the
 dependency-lock recompilation, `pip-audit --strict`, gitleaks over full history,
 the tracked-artifact checks, and the container image build. `make test-all` and
@@ -220,6 +237,7 @@ Contract-Refs: v1.1 §N.N
 
 | Document | Contents |
 |---|---|
+| [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |
@@ -242,13 +260,13 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
                G1      G2     G3    G4,G5
 ```
 
-| Gate | Blocks | Owner |
-|---|---|---|
-| G1 — factor registry + golden cases approved | R1 | Program owner |
-| G2 — privacy, records, data-owner approval for live records | R2 | Privacy / legal / records |
-| G3 — agent eval set, tool allowlist, cost controls | R3 | Engineering ADR + program owner |
-| G4 — consent-origin policy, recipient policy, deliverability | R4 | Program owner + privacy/legal |
-| G5 — Calendar authorization model | R4 direct Calendar | Workspace admin + security |
+| Gate | Blocks | Owner | Status |
+|---|---|---|---|
+| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @dangt) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed |
+| G2 — privacy, records, data-owner approval for live records | R2 live student data | Privacy / legal / records | Open — deferred in synthetic pilot |
+| G3 — agent eval set, tool allowlist, cost controls | R3 live crawl | Engineering ADR + program owner | Open — R3 threat model signed; eval set not started |
+| G4 — consent-origin policy, recipient policy, deliverability | R4 outreach | Program owner + privacy/legal | Open — deferred in synthetic pilot |
+| G5 — Calendar authorization model | R4 direct Calendar | Workspace admin + security | Open — deferred in synthetic pilot |
 
 Gate owners sit outside engineering and are never inferred from technical
 readiness.

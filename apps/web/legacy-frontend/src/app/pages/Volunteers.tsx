@@ -31,6 +31,16 @@ import {
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
 import { QRCodeCard } from "@/components/QRCodeCard";
+import { AccountableValue } from "@/app/components/provenance";
+import { unavailableMatchingMetric } from "@/lib/metrics";
+
+/**
+ * Gate G1 fail-closed placeholder for every match-score slot on this page.
+ * `REGISTRY_STATUS` is `proposed`, so no score, rank, or factor value may be
+ * rendered here; the slots show an accountable unknown with the reason
+ * instead of a fabricated average.
+ */
+const matchingMetric = unavailableMatchingMetric();
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -199,10 +209,13 @@ function summarizeVolunteer(
     : volunteerFatigue === null
       ? { label: "Recovery unknown", tone: "bg-slate-50 text-slate-600 border-slate-200" }
       : recoveryState(volunteerFatigue);
-  const avgMatchScore =
-    matchedCount > 0
-      ? volunteerRows.reduce((sum, row) => sum + Number(row.match_score || 0), 0) / matchedCount
-      : 0;
+  // G1 fail-closed: there is deliberately no average match score here. The
+  // per-row scores it averaged are factor-registry outputs and the registry is
+  // still `proposed` (`assert_registry_approved()` raises), so the field is
+  // stripped in `fetchPipeline` and the two places that printed the average
+  // now render an accountable unknown instead. Note the old expression also
+  // coerced a missing score to 0 (`row.match_score || 0`), which is the
+  // ADR-0011 rule 1 defect sitting on top of the gate leak.
   const latestAssignmentDate =
     recoveryRows.find((row) => row.event_date)?.event_date ??
     volunteerRows[0]?.event_name ??
@@ -223,7 +236,6 @@ function summarizeVolunteer(
     fatigueScore,
     recovery,
     latestAssignmentDate,
-    avgMatchScore,
   };
 }
 
@@ -576,7 +588,7 @@ export function Volunteers() {
                     <div>
                       <p className="text-xs uppercase tracking-wide text-slate-500">Avg score</p>
                       <p className="text-lg font-semibold text-slate-900">
-                        {percentage(profile.avgMatchScore * 100)}
+                        <AccountableValue metric={matchingMetric} />
                       </p>
                     </div>
                   </div>
@@ -697,7 +709,7 @@ export function Volunteers() {
                       </p>
                     </div>
                     <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-blue-700 shadow-sm">
-                      {percentage(selectedInsights.avgMatchScore * 100)} avg match
+                      <AccountableValue metric={matchingMetric} /> avg match
                     </div>
                   </div>
 

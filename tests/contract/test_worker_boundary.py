@@ -75,3 +75,46 @@ def test_worker_exposes_no_command_routes_beyond_the_task_target():
         p for p in paths if not p.startswith(("/health", "/openapi", "/docs", "/redoc"))
     }
     assert business_paths == {"/tasks/execute", "/operations/dispatch"}
+
+
+def test_dispatch_fails_closed_when_verification_is_not_configured():
+    """An arbitrary bearer token does not open the dispatch route either.
+
+    **Added when the local development path was.** The worker now knows how
+    to accept a plain bearer credential — ``LocalBearerTaskVerifier``, built
+    only when ``SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN`` is configured under
+    ``edition=dev`` — and that is precisely the kind of addition that can turn
+    a closed door into an open one without anybody noticing, because the
+    mechanism is correct and only its *gating* is load-bearing.
+
+    So this asserts the property at the layer that matters: the module-level
+    ``app``, built from whatever environment the suite happens to run in,
+    which configures none of it. A caller presenting a guessed token must be
+    refused, and refused with ``501`` — "nothing here is configured to verify
+    you" — rather than ``200``.
+
+    ``tests/unit/test_worker_local_mode.py`` proves the settings-level half
+    of the same statement (no token, no queue, and ``build_task_verifier``
+    still returning the unconfigured verifier). This is the half that
+    exercises the running application, so the two are not redundant: one
+    could pass while the other failed if composition ever consulted something
+    other than those settings.
+    """
+    response = client.post(
+        "/operations/dispatch",
+        headers={"Authorization": "Bearer guessed-local-token"},
+    )
+    assert response.status_code == 501
+    assert "not configured" in response.json()["detail"].lower()
+
+
+def test_dispatch_rejects_an_unauthenticated_caller():
+    """No credential is refused before the 501, and separately from it.
+
+    Kept distinct from the test above because the two failures mean different
+    things to an operator — ``401`` is a caller who brought nothing, ``501``
+    is a deployment that can verify nothing — and a verifier that collapsed
+    them would be hiding one of the two.
+    """
+    response = client.post("/operations/dispatch")
+    assert response.status_code == 401

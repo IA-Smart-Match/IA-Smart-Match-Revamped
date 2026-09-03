@@ -8,7 +8,7 @@ Architecture v1.1 §2.1 combination semantics, implemented exactly as specified:
     filters apply after either path. Administrative suspension fails local
     authorization immediately, independent of IdP token revocation.
 
-Four rules follow from that, in evaluation order:
+Seven rules follow from that, in evaluation order:
 
 1. **Suspension is checked first.** A suspended account is denied locally and
    immediately. Waiting for the identity provider to revoke a token is defense
@@ -20,6 +20,67 @@ Four rules follow from that, in evaluation order:
    administrator carves an exception out of a broad unit grant.
 4. **Otherwise, either path suffices** — inherited unit-path prefix match, or an
    explicit allow grant on the resource.
+5. **``require_membership`` withdraws the explicit-grant path as a substitute
+   for membership.** Some operations are correctly expressed with no finite
+   ``required_roles`` set at all — the ratified metrics-authorization decision's
+   aggregate read is the first: any active unit membership with a role
+   suffices, but a bare ``resource_grant`` is denied. ``membership.role`` is
+   free text, so there is no finite role set to enumerate, and an *empty*
+   ``required_roles`` already means "any role suffices" on the
+   inherited-membership path (Path 1) — that part needs no new keyword. What
+   an empty ``required_roles`` cannot express on its own is "and a resource
+   grant with no covering membership at all must still be refused"; by
+   default Path 2 would allow it, which is the loosening this rule exists to
+   prevent. Passing ``require_membership=True`` says exactly that: Path 2 (the
+   explicit-grant path) denies with the distinct reason code
+   ``resource_grant_lacks_membership`` instead of allowing, even when
+   ``required_roles`` is empty. Suspension, tenant mismatch, and explicit deny
+   keep their precedence ahead of both grant paths regardless of this flag.
+6. **A membership with a blank role is not a membership *with a role*.** Path 1
+   skips any active membership whose ``role`` is empty or whitespace-only,
+   unconditionally — not only under ``require_membership``. The ratified
+   metrics-authorization decision (§4, CLOSED 2026-09-02) grants aggregate
+   reads to "any active unit membership **with a role**", and rule 5 alone
+   does not deliver that: ``required_roles`` is empty for such an operation,
+   so the role filter never inspects ``membership.role`` and a row carrying
+   ``role=""`` would satisfy Path 1. ``membership.role`` is ``sa.Text NOT
+   NULL`` with no non-blank ``CHECK``, so a blank-role row is storable
+   out-of-band — a reachable permit, not a theoretical one. The rule is
+   unconditional because it is observably inert everywhere else: a blank role
+   already fails a non-empty ``required_roles`` filter, so the only
+   operations whose outcome can change are the ones with no role requirement
+   — exactly the population §4 is about.
+7. **``tenant_wide_roles`` names roles whose reach is the tenant, not a
+   subtree.** The ratified metrics-authorization decision (§4, CLOSED
+   2026-09-02) says of aggregates: "**``admin``:** unrestricted within tenant
+   for aggregates". Nothing in the schema requires an ``admin`` membership to
+   be rooted at the tenant root — ``membership.granted_path`` is an ordinary
+   ``ltree`` — so an admin whose membership hangs below the root would be
+   refused a sibling unit's aggregates under ordinary subtree containment
+   (Path 1), which is not what §4 authorizes. Passing a non-empty
+   ``tenant_wide_roles`` says: an **active** membership anywhere in the
+   principal's tenant whose (non-blank) role is in that set satisfies this
+   operation for any unit in the tenant, with the distinct reason code
+   ``tenant_wide_role_grant``. Deliberately narrow, in four ways:
+
+   * It **defaults to empty**, so it is off unless an operation asks for it.
+     Every existing call site keeps its behaviour exactly.
+   * It is **enumerated, not inferred**. There is no "admin means admin"
+     anywhere in this module; a role reaches tenant-wide only because an
+     operation named it — so the drill-down authorizer, which §4 does *not*
+     make tenant-wide, passes nothing and keeps ordinary containment.
+   * It is **checked after Path 1, not before**, so an admin whose membership
+     does cover the unit still reports ``inherited_unit_grant``. Only the
+     non-covering case the rule exists for reports the new code, which keeps
+     that population countable in the audit trail.
+   * It **changes nothing about precedence.** Suspension (rule 1), tenant
+     mismatch (rule 2), and an explicit resource deny (rule 3) are all
+     evaluated before either grant path and are unaffected: a suspended,
+     cross-tenant, or explicitly denied admin is still refused. Rule 6's
+     blank-role guard applies here too, restated in the loop rather than
+     assumed — a blank role can only reach it if a caller puts a blank
+     string in ``tenant_wide_roles``, and the guard makes that inert instead
+     of catastrophic.
 
 Deny-by-default throughout: :func:`evaluate` returns a denial for any case not
 positively allowed, including unknown roles and malformed paths.
@@ -206,6 +267,8 @@ def evaluate(
     *,
     at: datetime,
     required_roles: frozenset[str] = frozenset(),
+    require_membership: bool = False,
+    tenant_wide_roles: frozenset[str] = frozenset(),
 ) -> AccessDecision:
     """Evaluate whether ``principal`` may access ``resource``.
 
@@ -215,7 +278,21 @@ def evaluate(
         at: The instant to evaluate membership validity against. Passed in
             rather than read from the clock so expiry is testable.
         required_roles: Roles that satisfy this operation. An empty set means
-            any active membership covering the path suffices.
+            any active membership covering the path suffices, provided its
+            role is non-blank (module docstring, rule 6).
+        require_membership: When ``True``, an explicit ``resource_grant`` alone
+            does not satisfy this operation — an active membership must cover
+            the resource's owning unit path. See module docstring rule 5. Has
+            no effect on Path 1 (inherited membership), which already applies
+            an empty ``required_roles`` as "any role"; it only withdraws Path 2
+            (the explicit-grant path) as a substitute for holding no
+            membership at all.
+        tenant_wide_roles: Roles that reach every unit in the principal's own
+            tenant rather than only their membership's subtree. Empty by
+            default, so this is off unless an operation names a role here.
+            See module docstring rule 7. Applied after ordinary subtree
+            containment and never ahead of suspension, tenant mismatch, or an
+            explicit resource deny.
 
     Returns:
         An :class:`AccessDecision`. Deny-by-default: every path that does not
@@ -240,6 +317,13 @@ def evaluate(
     for membership in principal.memberships:
         if not membership.is_active_at(at):
             continue
+        # A blank role is not a role (module docstring, rule 6). Checked before
+        # the required_roles filter and independently of it, because when
+        # required_roles is empty that filter never looks at the role at all —
+        # which is exactly the case where a blank-role row would otherwise be
+        # read as "any active membership with a role".
+        if not membership.role.strip():
+            continue
         if required_roles and membership.role not in required_roles:
             continue
         if membership.granted_path.contains(resource.owning_unit_path):
@@ -248,6 +332,39 @@ def evaluate(
                 reason="inherited_unit_grant",
                 matched_path=membership.granted_path,
             )
+
+    # Path 1b: a role whose reach is the whole tenant, not a subtree.
+    #
+    # Runs only when the operation named such a role (module docstring, rule 7);
+    # `tenant_wide_roles` is empty by default, so for every other operation this
+    # loop cannot allow anything. Reached only after suspension, tenant
+    # mismatch, and an explicit resource deny have already been decided above,
+    # so it cannot override any of them — an admin who is suspended, in another
+    # tenant, or explicitly denied on this resource is refused before control
+    # arrives here. Placed after Path 1 rather than before it so that an admin
+    # whose membership *does* cover the unit still reports the ordinary
+    # `inherited_unit_grant`, leaving `tenant_wide_role_grant` to mean exactly
+    # what it says: this permit exists only because the role reaches tenant-wide.
+    #
+    # No path comparison at all is correct here: `principal.tenant_id` was
+    # already checked against `resource.tenant_id` in rule 2, and a
+    # principal's memberships are rows in their own tenant, so "anywhere in
+    # the tenant" is "any membership this principal holds".
+    if tenant_wide_roles:
+        for membership in principal.memberships:
+            if not membership.is_active_at(at):
+                continue
+            # Rule 6 again, restated rather than inherited from Path 1: the
+            # only way a blank role could match is a blank string placed in
+            # `tenant_wide_roles` itself, and a blank role is not a role.
+            if not membership.role.strip():
+                continue
+            if membership.role in tenant_wide_roles:
+                return AccessDecision(
+                    allowed=True,
+                    reason="tenant_wide_role_grant",
+                    matched_path=membership.granted_path,
+                )
 
     # Path 2: explicit allow on this specific resource.
     #
@@ -262,6 +379,14 @@ def evaluate(
     # convey is open policy-matrix work (v1.1 §2.1); until that is decided,
     # denying is the safe answer and the distinct reason code keeps the gap
     # visible in the audit trail rather than silent.
+    #
+    # require_membership is the second, independent way this path can be
+    # withdrawn: an operation that names no required_roles at all (so the
+    # branch above never fires) may still want membership itself, not just
+    # reach, to be the thing that satisfies it. That case gets its own reason
+    # code rather than reusing resource_grant_lacks_required_role, because the
+    # two populations are different — one held a grant but the wrong role,
+    # the other held a grant and no role requirement existed to lack.
     for grant in principal.resource_grants:
         if (
             grant.resource_type == resource.resource_type
@@ -270,6 +395,8 @@ def evaluate(
         ):
             if required_roles:
                 return AccessDecision(allowed=False, reason="resource_grant_lacks_required_role")
+            if require_membership:
+                return AccessDecision(allowed=False, reason="resource_grant_lacks_membership")
             return AccessDecision(allowed=True, reason="explicit_resource_allow")
 
     return AccessDecision(allowed=False, reason="no_grant")
@@ -281,8 +408,18 @@ def assert_allowed(
     *,
     at: datetime,
     required_roles: frozenset[str] = frozenset(),
+    require_membership: bool = False,
+    tenant_wide_roles: frozenset[str] = frozenset(),
 ) -> AccessDecision:
     """Evaluate policy and raise on denial.
+
+    Args:
+        principal: The authenticated actor, with tenant derived server-side.
+        resource: The target resource.
+        at: The instant to evaluate membership validity against.
+        required_roles: Roles that satisfy this operation. See :func:`evaluate`.
+        require_membership: See :func:`evaluate` rule 5 (module docstring).
+        tenant_wide_roles: See :func:`evaluate` rule 7 (module docstring).
 
     Returns:
         The allowing decision, so callers can record which path granted access.
@@ -290,7 +427,14 @@ def assert_allowed(
     Raises:
         AuthorizationError: when access is denied.
     """
-    decision = evaluate(principal, resource, at=at, required_roles=required_roles)
+    decision = evaluate(
+        principal,
+        resource,
+        at=at,
+        required_roles=required_roles,
+        require_membership=require_membership,
+        tenant_wide_roles=tenant_wide_roles,
+    )
     if not decision.allowed:
         raise AuthorizationError(decision)
     return decision

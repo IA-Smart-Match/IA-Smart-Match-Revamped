@@ -1,15 +1,11 @@
 # A1b — institutional IdP configuration worksheet
 
-**Status:** UNFILLED — this is a blank worksheet, not a decision.
-**Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY.** Session
-approver Danny Tran (`dt110202@gmail.com`) recorded P2 as **in scope;
-proceed** — see `docs/decisions/2026-08-31-session-ratification.md`. That is
-a scope decision, not a completed worksheet: this is infrastructure
-procurement (a Google Cloud IdP tenant must exist), not a workshop question,
-and P2 is filed as procurement-blocked rather than workshop-blocked. **Every
-field in Part 1 below, including the approval fields, must be complete
-before P2 resumes past card A0; a shortened subset does not pass the
-stop-gate.** No identity implementation is authorized until then.
+**Status:** **TENANT PROCURED — WORKSHEET UNFILLED.** Google Cloud IdP
+dev/test tenant exists (confirmed 2026-09-02). Part 1 configuration fields
+below remain blank until the provisioner commits values.
+**Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY** until Part 1
+is complete. Session approver Danny Tran (@dangt) recorded P2 as **in scope;
+proceed** — see `docs/decisions/2026-08-31-session-ratification.md`.
 **Created by:** plan P2 card A0 (`docs/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
 **Date:** 2026-08-28 · **Branch:** `plan/a1b-sign-in`
 
@@ -23,6 +19,16 @@ stop-gate.** No identity implementation is authorized until then.
 > live production SSO is out of scope. No live providers, no production
 > credentials, nothing deployed.
 
+**Fill status (2026-09-03).** Two cells in §1.1 now carry values. Neither is a
+new decision: both are *transcriptions* of facts already committed elsewhere in
+this repository, and each cites the file and line it was copied from. Every
+other cell in Part 1 is marked **OUTSTANDING — EXTERNAL DEPENDENCY**, because
+no committed material in this repository states it. The rule above stands
+unchanged for all of them: an issuer URL, an audience, a JWKS URI, a client ID,
+or a redirect URI that an agent produced would be indistinguishable from one a
+provisioner recorded, and that is the single failure this worksheet exists to
+prevent. They stay blank until the provisioner commits them.
+
 ---
 
 ## Part 1 — Fields the stop-gate requires
@@ -31,46 +37,46 @@ stop-gate.** No identity implementation is authorized until then.
 
 | Field | Value |
 |---|---|
-| IdP product / vendor | _(blank)_ |
-| Environment (development / test tenant) | _(blank)_ |
-| Tenant or directory identifier | _(blank)_ |
+| IdP product / vendor | **Google Cloud IdP (Google Identity Platform).** Transcribed, not decided: `docs/decisions/2026-08-31-session-ratification.md` line 63 ("Google Cloud IdP dev/test **tenant exists** (2026-09-02)"), corroborated by `docs/plans/remaining-foundation-r1-work.md` line 100 ("Live Google Identity Platform verifier") and `python/smartmatch_providers/smartmatch_providers/identity.py` lines 3–4. This is the product name only; it configures nothing. |
+| Environment (development / test tenant) | **Development / test tenant; confirmed to exist 2026-09-02.** Transcribed from this file's status header (lines 3–5) and `docs/decisions/2026-08-31-session-ratification.md` line 63. Live production SSO stays out of scope per the standing constraints above. |
+| Tenant or directory identifier | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository names the project, tenant, or directory. |
 
 ### 1.2 Token verification (card A1 needs these)
 
 | Field | Value |
 |---|---|
-| Issuer URL (`iss`) | _(blank)_ |
-| Audience (`aud`) | _(blank)_ |
-| JWKS retrieval approach (discovery document URL, or static JWKS URI) | _(blank)_ |
-| JWKS cache TTL / refresh trigger | _(blank)_ |
-| Signing algorithms accepted (e.g. RS256) | _(blank)_ |
-| Key-rotation policy (cadence, overlap window, rollover procedure) | _(blank)_ |
-| Clock-skew tolerance | _(blank)_ |
+| Issuer URL (`iss`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Audience (`aud`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| JWKS retrieval approach (discovery document URL, or static JWKS URI) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it, and no JWKS implementation is committed. |
+| JWKS cache TTL / refresh trigger | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Signing algorithms accepted (e.g. RS256) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states the tenant's accepted algorithms. |
+| Key-rotation policy (cadence, overlap window, rollover procedure) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Clock-skew tolerance | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
 
 ### 1.3 Client flow (card A2 needs these; issuer/audience/JWKS alone is NOT enough)
 
 | Field | Value |
 |---|---|
-| Client ID | _(blank)_ |
-| Public client + PKCE? (confirm yes/no) | _(blank)_ |
-| Token-exchange model (if not public+PKCE, describe) | _(blank)_ |
-| Authorization endpoint, or "use discovery document at &lt;URL&gt;" | _(blank)_ |
-| Token endpoint (or discovery) | _(blank)_ |
-| Registered redirect URI(s) | _(blank)_ |
-| Requested scopes | _(blank)_ |
-| Browser token storage policy | _(blank)_ |
-| Refresh policy (refresh tokens? silent renew? re-auth only?) | _(blank)_ |
-| Session lifetime | _(blank)_ |
-| Logout endpoint | _(blank)_ |
-| Post-logout redirect URI | _(blank)_ |
+| Client ID | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Public client + PKCE? (confirm yes/no) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Token-exchange model (if not public+PKCE, describe) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Authorization endpoint, or "use discovery document at &lt;URL&gt;" | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Token endpoint (or discovery) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Registered redirect URI(s) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Requested scopes | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Browser token storage policy | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Refresh policy (refresh tokens? silent renew? re-auth only?) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Session lifetime | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Logout endpoint | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Post-logout redirect URI | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
 
 ### 1.4 Approval
 
 | Field | Value |
 |---|---|
-| Owner who approved this configuration | _(blank)_ |
-| Approval date | _(blank)_ |
-| Where the configuration is administered | _(blank)_ |
+| Owner who approved this configuration | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Approval date | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Where the configuration is administered | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
 
 ---
 
@@ -163,3 +169,13 @@ The 16 files in §2.2. Card A3's test (`iaw_session`, `stu-001`, `coord-001`,
    or negotiate that one line explicitly.
 3. Card A2's fence includes `src/lib/api.ts`, which is also concurrently owned.
    Same sequencing note applies.
+
+---
+
+## Part 4 — Card A1 remains blocked (2026-09-03)
+
+No institutional JWKS verifier implementation is committed. The runtime still
+uses the existing fixture verifier and accepts only registered fixture tokens.
+Card A1 remains blocked until Part 1 records and a named owner approves the
+issuer, audience, JWKS retrieval and rotation policy, accepted algorithms,
+clock-skew tolerance, client-flow contract, and configuration ownership.

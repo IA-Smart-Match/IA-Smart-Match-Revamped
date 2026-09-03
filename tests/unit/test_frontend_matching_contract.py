@@ -52,7 +52,7 @@ def test_ai_matching_page_shows_g1_unavailable_state() -> None:
 def test_metrics_lib_exports_matching_unavailable_reason() -> None:
     source = METRICS_LIB.read_text(encoding="utf-8")
     assert "MATCHING_UNAVAILABLE_REASON" in source
-    assert 'REGISTRY_STATUS == "proposed"' in source
+    assert "factor registry is approved" in source
     assert "unavailableMatchingMetric" in source
 
 

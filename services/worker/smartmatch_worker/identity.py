@@ -55,12 +55,32 @@ Missing audience, empty allowlist, absent signature backend, unparseable token,
 check out — every one of them is a rejection. An unconfigured deployment must be
 a closed door, not an open one: the most dangerous version of this module is the
 one that treats "nothing is configured" as "nothing to check".
+
+## The local development path (docker compose only)
+
+:class:`LocalBearerTaskVerifier`, below, is not a sixth check added to the five
+above and it does not replace them in any deployment that has not explicitly
+asked for it. It is **a developer appliance that emulates the credential check
+Cloud Tasks and Cloud Scheduler would present, for `docker compose up`, never
+their implementation** — there is no signature, no issuer, no audience, and no
+JWKS, because there is no Google Cloud project behind ``localhost``. Cloud
+Scheduler's OIDC-authenticated trigger and Cloud Tasks' own OIDC identity
+remain open F5/S-001 deployment work; nothing this class does closes that
+finding, and it must never be described as though it had.
+
+``smartmatch_worker.config.WorkerSettings`` is what keeps it that way: a
+deployment must set ``edition=dev`` and a nonblank, unshared bearer token
+before this class is ever constructed, and ``smartmatch_worker.main``'s
+lifespan builds one only when that token is present — never as a fallback for
+a misconfigured :func:`build_task_verifier`, which keeps refusing everything
+exactly as it does today whenever these settings are absent.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import hmac
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -71,6 +91,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 __all__ = [
     "JsonWebKey",
     "JwksSource",
+    "LocalBearerTaskVerifier",
     "OidcTaskVerifier",
     "SignatureVerifier",
     "StaticJwksSource",
@@ -275,6 +296,79 @@ class UnconfiguredTaskVerifier:
         if not authorization:
             raise TaskIdentityError("missing task credentials")
         raise TaskIdentityUnconfigured(self.reason)
+
+
+@dataclass(frozen=True, slots=True)
+class LocalBearerTaskVerifier:
+    """Accepts one fixed bearer token, for the local development path only.
+
+    **Read the module docstring's "local development path" section before
+    reading this class.** This is a developer appliance that emulates the
+    credential Cloud Tasks or Cloud Scheduler would present when
+    ``docker compose up`` runs a worker with no Google Cloud project behind
+    it — it is not OIDC, it verifies nothing about an issuer or an audience,
+    and it must never be constructed, described, or reviewed as though it
+    were a substitute for :class:`OidcTaskVerifier`. Cloud Scheduler's
+    OIDC-authenticated trigger and Cloud Tasks' own OIDC identity remain open
+    F5/S-001 deployment work.
+
+    ``smartmatch_worker.config.WorkerSettings`` is the control that keeps this
+    class opt-in: it refuses to boot with a token configured under any
+    edition but ``dev``, refuses a blank token, and refuses the task and
+    scheduler tokens being equal — see that module for the full argument.
+    This class trusts none of that itself; it only compares one token, and it
+    is safe to construct in a test with any two strings precisely because the
+    dangerous configurations are refused one layer up, at boot, not here.
+
+    Args:
+        token: The one credential this verifier accepts. Compared with
+            :func:`hmac.compare_digest`, never with ``==`` — a caller probing
+            this endpoint should not be able to time its way toward the
+            token one byte at a time, even though what a naive comparison
+            would leak first is "this is a dev appliance", not anything an
+            attacker could spend.
+        label: What this verifier is for — ``"task"`` or ``"scheduler"`` —
+            recorded on the identity it returns so a log line can say which
+            local credential a caller presented, the way an OIDC-verified
+            caller's ``email`` does. Carries no other meaning: it is never
+            compared against anything and grants no authority of its own.
+
+    The token is never logged, never echoed in a response, and never placed
+    in an exception message — :meth:`verify` raises with a fixed string
+    naming only which credential failed, on the same reasoning
+    :class:`TaskIdentityError`'s own docstring gives: what an operator needs
+    is in the log as this fixed message, and what a caller must never learn
+    is which byte of their guess was wrong.
+    """
+
+    token: str
+    label: str
+
+    def verify(self, authorization: str | None) -> TaskIdentity:
+        """Verify the bearer token against the one this verifier holds.
+
+        Raises:
+            TaskIdentityError: if no credential was presented, it was not a
+                bearer credential, or it did not match. The three cases are
+                deliberately not distinguished in the exception, for the same
+                reason :class:`TaskIdentityError` gives everywhere else in
+                this module.
+        """
+        presented = _extract_bearer_token(authorization)
+        if not hmac.compare_digest(presented, self.token):
+            raise TaskIdentityError(f"local {self.label} credential did not match")
+
+        # No tenant and no business authority, on the same reasoning
+        # :class:`TaskIdentity`'s own docstring gives for the OIDC path: this
+        # identity exists to say "a caller holding the configured local
+        # credential", nothing more, and the worker re-reads the tenant and
+        # job it is asked to act on from PostgreSQL rather than from anything
+        # named here.
+        return TaskIdentity(
+            subject=f"local-dev-{self.label}",
+            email=f"local-dev-{self.label}@compose.invalid",
+            audience=f"local-dev-{self.label}",
+        )
 
 
 @dataclass(frozen=True)

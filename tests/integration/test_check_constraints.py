@@ -92,6 +92,21 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "'dispatched'::text, 'failed'::text])))"
     ),
     ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): "CHECK ((amount <> 0))",
+    ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
+        "CHECK (((attended_at IS NULL) = (attended_attendance_id IS NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_stage_order"): (
+        "CHECK ((((contacted_at IS NULL) OR (contacted_at >= matched_at)) AND "
+        "((confirmed_at IS NULL) OR (confirmed_at >= contacted_at)) AND "
+        "((attended_at IS NULL) OR (attended_at >= confirmed_at)) AND "
+        "((member_inquiry_at IS NULL) OR (member_inquiry_at >= attended_at))))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_stage_prefix"): (
+        "CHECK ((((contacted_at IS NULL) OR (matched_at IS NOT NULL)) AND "
+        "((confirmed_at IS NULL) OR (contacted_at IS NOT NULL)) AND "
+        "((attended_at IS NULL) OR (confirmed_at IS NOT NULL)) AND "
+        "((member_inquiry_at IS NULL) OR (attended_at IS NOT NULL))))"
+    ),
     ("rate_limit_counter", "ck_rate_limit_count_non_negative"): "CHECK ((count >= 0))",
     ("redrive_record", "ck_redrive_authorship_complete"): (
         "CHECK (((redriven_at IS NULL) = (redriven_by IS NULL)))"
@@ -101,6 +116,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ),
     ("review_item", "ck_review_item_status"): (
         "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
+    ),
+    ("review_item", "ck_review_item_decision_evidence"): (
+        "CHECK ((((status = 'pending'::text) = (decided_at IS NULL)) AND "
+        "((decided_at IS NULL) = (decided_by IS NULL))))"
     ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "CHECK ((points_cost > 0))",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
@@ -149,6 +168,11 @@ BEHAVIOURAL_COVERAGE = {
     ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): (
         "test_engagement_schema_constraints.py"
     ),
+    ("pipeline_record", "ck_pipeline_record_stage_prefix"): ("test_pipeline_record_constraints.py"),
+    ("pipeline_record", "ck_pipeline_record_stage_order"): "test_pipeline_record_constraints.py",
+    ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
+        "test_pipeline_record_constraints.py"
+    ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
         "test_engagement_schema_constraints.py"
@@ -160,6 +184,7 @@ BEHAVIOURAL_COVERAGE = {
     ("redrive_record", "ck_redrive_authorship_complete"): "this file",
     ("resource_grant", "ck_resource_grant_effect"): "this file",
     ("review_item", "ck_review_item_status"): "test_import_review_constraints.py",
+    ("review_item", "ck_review_item_decision_evidence"): "test_import_review_constraints.py",
     ("tenant_budget", "ck_budget_non_negative"): "this file",
     ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_type"): "this file",
     ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_non_negative"): "this file",

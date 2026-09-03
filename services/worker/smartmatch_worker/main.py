@@ -71,6 +71,36 @@ therefore be measured against the same standard, and it is: with nothing
 configured, :func:`~smartmatch_worker.identity.build_task_verifier` returns a
 verifier that refuses every request, so the default posture is unchanged.
 
+## The local development path, beside all of the above (docker compose only)
+
+Everything above describes the production control. Beside it,
+:class:`~smartmatch_worker.config.WorkerSettings` exposes four more settings —
+``dev_task_bearer_token``, ``dev_scheduler_bearer_token``,
+``local_task_queue_enabled``, and ``local_task_target_url`` — that let
+``docker compose up`` exercise both HTTP boundaries above without a real
+Google Cloud project behind them. **This is a developer appliance that
+emulates Cloud Tasks and Cloud Scheduler locally, and it is never their
+implementation.** It swaps
+:class:`~smartmatch_worker.identity.LocalBearerTaskVerifier`'s
+constant-time bearer-token comparison in for :class:`OidcTaskVerifier`'s five
+OIDC checks, and :class:`~smartmatch_worker.local_tasks.LocalPostgresHttpTaskQueue`
+— backed by durable PostgreSQL rows, never ``FixtureTaskQueue``'s in-memory
+double — in for a real Cloud Tasks client. Cloud Scheduler's
+OIDC-authenticated trigger and Cloud Tasks' own delivery guarantees remain
+open F5/S-001 deployment work; nothing below closes that finding or should be
+read as having closed it.
+
+The lifespan below composes these only when their settings are present, never
+as a fallback for a misconfigured OIDC control: with none of the four
+configured — the only way this repository ships — every branch below is
+skipped and the worker is exactly the closed door the sections above
+describe. When they are configured, ``config`` has already enforced, at boot,
+that ``edition`` is ``dev``, that the task and scheduler tokens are nonblank
+and unequal (so a caller holding one cannot drive the other endpoint — the
+same separation OIDC's separate audiences give production), and that the
+local queue's delivery target is a fixed loopback address and an exact path,
+never something a caller, a payload, or a tenant can steer.
+
 ## The scheduled pass, and why the loop is not in this repository (J8)
 
 ``POST /operations/dispatch`` runs one
@@ -168,6 +198,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
+from smartmatch_providers.base import Edition
+from smartmatch_providers.registry import build_paid_extraction_provider
 from smartmatch_providers.tasks import TaskQueue
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -180,11 +212,17 @@ from smartmatch_worker.dispatcher import (
 from smartmatch_worker.execution import StalledJobSweeper, TaskExecutor
 from smartmatch_worker.handlers import CommandRegistry, default_registry
 from smartmatch_worker.identity import (
+    LocalBearerTaskVerifier,
     TaskIdentity,
     TaskIdentityError,
     TaskIdentityUnconfigured,
     TaskIdentityVerifier,
     build_task_verifier,
+)
+from smartmatch_worker.local_tasks import LocalPostgresHttpTaskQueue, LocalTaskDeliveryPump
+from smartmatch_worker.paid_extraction import (
+    build_paid_extraction_handler,
+    with_paid_extraction,
 )
 
 __all__ = ["app", "create_app"]
@@ -316,11 +354,21 @@ def create_app(
             ``FixtureTaskQueue``, an in-memory double, and defaulting to it
             would give a deployment a dispatcher that reported success while
             every task it "created" lived in a dictionary until the container
-            went away. Without one, ``/operations/dispatch`` answers ``501``.
+            went away. Without one, ``/operations/dispatch`` answers ``501`` —
+            unless the lifespan composes
+            ``local_tasks.LocalPostgresHttpTaskQueue`` itself, which it does
+            only when ``local_task_queue_enabled`` is set; see this module's
+            "local development path" section. Injecting a queue here, as
+            every test does, always takes precedence over that.
 
     Returns:
         A configured :class:`~fastapi.FastAPI` application.
     """
+    # Whether the paid command may be composed in below. A caller that passed
+    # its own registry gets exactly that registry: composing onto an injected
+    # one would hand a test, or an embedder, a money-spending handler it did
+    # not ask for.
+    registry_is_ours = registry is None
     registry = registry or default_registry()
 
     @asynccontextmanager
@@ -343,30 +391,101 @@ def create_app(
             app.state.owns_session_factory = True
 
         if app.state.task_verifier is None:
-            # No JWKS source and no signature backend are passed, so this
-            # returns a verifier that refuses everything. Supplying them is a
-            # deliberate deployment act; see ``identity`` for what is missing
-            # and why it is not faked.
-            app.state.task_verifier = build_task_verifier(
-                expected_audience=resolved.task_audience,
-                allowed_service_accounts=resolved.allowed_service_accounts,
-            )
+            if (dev_task_token := resolved.dev_task_bearer_token) is not None:
+                # Opt-in local path (docker compose only) — see this module's
+                # "local development path" section and
+                # ``identity.LocalBearerTaskVerifier``. ``config`` has already
+                # refused to boot with this token set under any edition but
+                # ``dev``, so reaching here means an operator asked for it
+                # explicitly, not that OIDC silently went unconfigured.
+                app.state.task_verifier = LocalBearerTaskVerifier(
+                    token=dev_task_token.get_secret_value(), label="task"
+                )
+            else:
+                # No JWKS source and no signature backend are passed, so this
+                # returns a verifier that refuses everything. Supplying them is a
+                # deliberate deployment act; see ``identity`` for what is missing
+                # and why it is not faked.
+                app.state.task_verifier = build_task_verifier(
+                    expected_audience=resolved.task_audience,
+                    allowed_service_accounts=resolved.allowed_service_accounts,
+                )
 
         if app.state.scheduler_verifier is None:
-            # Built from the scheduler's own settings and nothing else. A
-            # fallback to the task audience or the task allowlist would quietly
-            # let a deployment that configured only the queue accept
-            # queue-minted tokens on the endpoint that drives dispatch.
-            app.state.scheduler_verifier = build_task_verifier(
-                expected_audience=resolved.scheduler_audience,
-                allowed_service_accounts=resolved.allowed_scheduler_accounts,
+            if (dev_scheduler_token := resolved.dev_scheduler_bearer_token) is not None:
+                # Opt-in local path, and its own token — never
+                # ``dev_task_bearer_token``, for the same reason the OIDC
+                # scheduler verifier below never reuses the task audience or
+                # allowlist: a caller holding only task credentials must not be
+                # able to drive dispatch, and ``config`` has already refused to
+                # boot two dev tokens that are equal.
+                app.state.scheduler_verifier = LocalBearerTaskVerifier(
+                    token=dev_scheduler_token.get_secret_value(), label="scheduler"
+                )
+            else:
+                # Built from the scheduler's own settings and nothing else. A
+                # fallback to the task audience or the task allowlist would quietly
+                # let a deployment that configured only the queue accept
+                # queue-minted tokens on the endpoint that drives dispatch.
+                app.state.scheduler_verifier = build_task_verifier(
+                    expected_audience=resolved.scheduler_audience,
+                    allowed_service_accounts=resolved.allowed_scheduler_accounts,
+                )
+
+        # ADR-0015 A1: the worker acquires the ability to spend money here, at
+        # the composition root, and only when a deployment has named all three
+        # ceilings it is accountable for. `default_registry` stays as it was —
+        # it takes no collaborators, and `handlers` importing `paid_extraction`
+        # to reach the command type would make a cycle out of a dependency that
+        # is genuinely one-way. With no ceilings set, `spend_ceilings` is None,
+        # nothing is composed, and an `extraction.paid_pages` delivery meets the
+        # registry's existing refusal for an unregistered command.
+        #
+        # The provider is whatever `build_paid_extraction_provider` allows,
+        # which today is the synthetic one under every edition: A1 approves "a
+        # synthetic-provider reservation implementation and its verification",
+        # no paid call. That builder — not this call site — is what refuses a
+        # live client, so wiring here cannot widen it.
+        if registry_is_ours and (ceilings := resolved.spend_ceilings) is not None:
+            app.state.registry = with_paid_extraction(
+                app.state.registry,
+                build_paid_extraction_handler(
+                    session_factory=app.state.session_factory,
+                    provider=build_paid_extraction_provider(Edition(resolved.edition)),
+                    ceilings=ceilings,
+                ),
             )
+
+        # Opt-in local path (docker compose only) — see this module's "local
+        # development path" section and ``local_tasks``. Composed only when
+        # no queue was injected *and* the deployment explicitly turned this
+        # on; `config` has already refused to boot `local_task_queue_enabled`
+        # without both a task token and a validated loopback target, so the
+        # two asserts below narrow what `config` already guaranteed rather
+        # than duplicate its validation.
+        if app.state.task_queue is None and resolved.local_task_queue_enabled:
+            assert resolved.dev_task_bearer_token is not None
+            assert resolved.local_task_target_url is not None
+            app.state.task_queue = LocalPostgresHttpTaskQueue(app.state.session_factory)
+            app.state.local_task_pump = LocalTaskDeliveryPump(
+                app.state.session_factory,
+                target_url=resolved.local_task_target_url,
+                bearer_token=resolved.dev_task_bearer_token.get_secret_value(),
+            )
+            app.state.local_task_pump.start()
+            app.state.owns_local_task_pump = True
 
         # Built once per process, because `ScheduledPass` holds this instance's
         # heartbeat and one rebuilt per request would have nothing to remember.
         _scheduled_pass(app)
 
         yield
+
+        if app.state.owns_local_task_pump and app.state.local_task_pump is not None:
+            # Stopped and joined before the session factory is disposed below,
+            # so a poll in flight when shutdown began finishes against a still-
+            # live connection pool rather than one that is already closing.
+            app.state.local_task_pump.stop()
 
         if app.state.owns_session_factory and app.state.session_factory is not None:
             app.state.session_factory.kw["bind"].dispose()
@@ -389,6 +508,11 @@ def create_app(
     app.state.task_queue = task_queue
     app.state.scheduled_pass = None
     app.state.owns_session_factory = False
+    #: The local delivery pump this lifespan started, or ``None``. Distinct
+    #: from ``task_queue`` because a caller may inject a queue directly (every
+    #: existing test does) without this lifespan ever owning a pump to stop.
+    app.state.local_task_pump = None
+    app.state.owns_local_task_pump = False
 
     @app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
@@ -412,6 +536,14 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> TaskExecutionResponse:
         """Execute one durable command delivered by Cloud Tasks.
+
+        ``request.app.state.task_verifier`` is an :class:`OidcTaskVerifier` in
+        every real deployment. It is a
+        :class:`~smartmatch_worker.identity.LocalBearerTaskVerifier` only when
+        this module's "local development path" section composed one — a
+        ``docker compose``-only emulation, never a second production control.
+        Either way the check below is the same call, at the same point, before
+        anything is parsed.
 
         Raises:
             HTTPException: ``401`` with no credential, ``403`` with one that did
@@ -498,7 +630,11 @@ def create_app(
         **Verified against the scheduler's own identity**, before anything is
         read or run, in the order and for the reasons ``/tasks/execute``
         establishes. A caller holding only Cloud Tasks credentials is refused
-        here as firmly as an anonymous one.
+        here as firmly as an anonymous one — including a caller holding this
+        deployment's own ``dev_task_bearer_token``, when this module's "local
+        development path" composed the local queue: ``config`` refuses to
+        boot two dev tokens that are equal, precisely so that credential
+        cannot also open this endpoint.
 
         Not idempotent, and it does not need to be. Two passes are not a double
         dispatch: the second claims what the first left, and every row the first

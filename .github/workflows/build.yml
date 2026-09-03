@@ -222,3 +222,54 @@ jobs:
       - name: Remove the container
         if: always()
         run: docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  compose-smoke:
+    name: compose smoke — import, dispatch, review decision, metrics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Proves the documented docker-compose.yml smoke path (INSTALL.md §4) works
+    # end to end, and that the review-decision loop actually moves a metric:
+    #
+    #   import -> scheduler dispatch -> pending_review_items == 1
+    #          -> review decision    -> pending_review_items == 0
+    #
+    # with NO manual dispatch step anywhere in it — the compose `scheduler`
+    # sidecar is what drives the queued import to completion. Same posture as
+    # the `images` job above: no login, no push, no registry, no cloud
+    # resource, and no permission beyond `contents: read`. The dev bearer
+    # tokens and local task queue this exercises are a developer appliance
+    # emulating Cloud Scheduler/Cloud Tasks, not an implementation of either —
+    # see docker-compose.yml's header and
+    # docs/operations/containers.md#the-local-scheduler-and-loopback-task-queue-compose-only.
+    #
+    # The sequence itself lives in scripts/compose_smoke.sh rather than being
+    # spelled out again here. It is the same script INSTALL.md's smoke section
+    # documents command by command, and keeping one implementation is what
+    # stops the documented path and the enforced path from drifting apart —
+    # the failure mode where CI stays green against a sequence no reader of
+    # INSTALL.md is actually running.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Bring the stack up
+        run: docker compose up --build -d
+
+      - name: Smoke the full import -> review -> metrics path
+        # scripts/compose_smoke.sh owns every assertion, exits non-zero on the
+        # first stage that fails, and dumps the relevant service logs before it
+        # does. It contains no `|| true` on any assertion, no swallowed exit
+        # code, and no bare sleep standing in for a readiness check: every wait
+        # is a bounded poll of the actual condition. In particular its stage 2
+        # fails loudly and specifically on scheduler misconfiguration (a bearer
+        # token that drifted from the worker's, or a worker with dispatch
+        # unconfigured), rather than letting that surface later as a metric
+        # poll that merely looks slow.
+        run: scripts/compose_smoke.sh
+
+      - name: Stop the stack and discard the data volume
+        if: always()
+        run: docker compose down -v

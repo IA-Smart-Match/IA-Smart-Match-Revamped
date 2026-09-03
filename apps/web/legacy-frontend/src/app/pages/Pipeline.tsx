@@ -1,18 +1,24 @@
+/**
+ * Pipeline tracking (P8 card O4c).
+ *
+ * The funnel numbers come from the registered metrics served by
+ * `GET /v1/units/{unit_id}/metrics`, with drill-down from
+ * `GET …/metrics/{name}/drill-down`. What this card removed is the *merge*:
+ * the page used to join legacy `/api` CSV pipeline rows against the events CSV
+ * in the browser to produce five independent stage counters, a host breakdown
+ * and conversion rates, so this page and Opportunities could disagree about
+ * the same question (`docs/plans/frontend-broken-buttons.md` B42, Fix #5).
+ *
+ * The QR ROI and matcher-feedback sections are *not* that merge — each reads
+ * one endpoint and reports what it returned. They stay, with every value routed
+ * through `AccountableValue` so a missing measurement renders as unknown rather
+ * than as zero.
+ *
+ */
 import { useEffect, useState } from "react";
+import { AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
 import {
-  AlertTriangle,
-  Filter,
-  TrendingUp,
-  RefreshCw,
-} from "lucide-react";
-import {
-  Bar,
-  BarChart,
   CartesianGrid,
-  Funnel,
-  FunnelChart,
-  LabelList,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -24,20 +30,19 @@ import {
 import {
   emptyFeedbackStatsSummary,
   emptyQrStatsSummary,
-  fetchEvents,
   fetchFeedbackStats,
-  fetchPipeline,
   fetchQrStats,
-  type CppEvent,
   type FeedbackStatsSummary,
-  type PipelineRecord,
   type QrStatsSummary,
 } from "@/lib/api";
-import { accountableDemoMetric } from "@/lib/metrics";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
 import { AccountableValue } from "@/app/components/provenance";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
+import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
+import {
+  accountableDemoMetric,
+} from "@/lib/metrics";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -67,7 +72,7 @@ function FailureState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
         <AlertTriangle className="h-5 w-5 text-red-600" />
       </div>
@@ -83,24 +88,6 @@ function FailureState({
   );
 }
 
-const stagePalette = ["#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
-
-type StageSummary = {
-  name: string;
-  count: number;
-  order: number;
-  fill: string;
-};
-
-type UniversityRow = {
-  name: string;
-  Matched: number;
-  Contacted: number;
-  Confirmed: number;
-  Attended: number;
-  "Member Inquiry": number;
-};
-
 function formatFactorName(value: string): string {
   return value
     .split("_")
@@ -108,130 +95,59 @@ function formatFactorName(value: string): string {
     .join(" ");
 }
 
-function summarizeStages(records: PipelineRecord[]): StageSummary[] {
-  const counts = new Map<string, { count: number; order: number }>();
-  for (const record of records) {
-    const stage = record.stage || "Unknown";
-    const order = Number(record.stage_order) || 0;
-    const current = counts.get(stage);
-    counts.set(stage, {
-      count: (current?.count ?? 0) + 1,
-      order: current?.order ?? order,
-    });
+/** Status pill copy that distinguishes "none yet" from "we don't know". */
+function availabilityPill(available: boolean, count: number | null, activeLabel: string, idleLabel: string): string {
+  if (!available || count === null) {
+    return "Unavailable";
   }
-  return Array.from(counts.entries())
-    .sort((a, b) => a[1].order - b[1].order)
-    .map(([name, value], index) => ({
-      name,
-      count: value.count,
-      order: value.order,
-      fill: stagePalette[index % stagePalette.length],
-    }));
-}
-
-function buildUniversityBreakdown(records: PipelineRecord[], events: CppEvent[]): UniversityRow[] {
-  const hostByEvent = new Map<string, string>();
-  for (const event of events) {
-    hostByEvent.set(
-      event["Event / Program"],
-      event["Host / Unit"] || "Unknown Host",
-    );
-  }
-
-  const grouped = new Map<string, UniversityRow>();
-  for (const record of records) {
-    const host = hostByEvent.get(record.event_name) || "Unknown Host";
-    const row =
-      grouped.get(host) ?? {
-        name: host,
-        Matched: 0,
-        Contacted: 0,
-        Confirmed: 0,
-        Attended: 0,
-        "Member Inquiry": 0,
-      };
-    const numericKeys = ["Matched", "Contacted", "Confirmed", "Attended", "Member Inquiry"] as const;
-    type NumericKey = (typeof numericKeys)[number];
-    if (numericKeys.includes(record.stage as NumericKey)) {
-      row[record.stage as NumericKey] += 1;
-    }
-    grouped.set(host, row);
-  }
-
-  return Array.from(grouped.values()).sort(
-    (a, b) =>
-      b.Matched + b.Contacted + b.Confirmed + b.Attended + b["Member Inquiry"] -
-      (a.Matched + a.Contacted + a.Confirmed + a.Attended + a["Member Inquiry"]),
-  );
+  return count > 0 ? activeLabel : idleLabel;
 }
 
 export function Pipeline() {
-  const [pipelineRecords, setPipelineRecords] = useState<PipelineRecord[]>([]);
-  const [events, setEvents] = useState<CppEvent[]>([]);
   const [qrStats, setQrStats] = useState<QrStatsSummary>(emptyQrStatsSummary());
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
-  const [isMockData, setIsMockData] = useState(false);
-  const [selectedUniversity, setSelectedUniversity] = useState("All Hosts");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [qrAvailable, setQrAvailable] = useState(false);
   const [feedbackAvailable, setFeedbackAvailable] = useState(false);
+  const [isMockData, setIsMockData] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  const {
+    status: metricsStatus,
+    loadError,
+    metricsUnavailableReason,
+  } = useUnitMetrics(reloadToken);
+
+  const unavailableReason =
+    metricsStatus === "unavailable"
+      ? (loadError ?? metricsUnavailableReason)
+      : metricsStatus === "loading"
+        ? "Loading registered metrics…"
+        : "The registered metric is not present in this unit's register.";
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    setLoadFailed(false);
     setError(null);
 
-    Promise.allSettled([
-      fetchPipeline(),
-      fetchEvents(),
-      fetchQrStats(),
-      fetchFeedbackStats(),
-    ])
-      .then(([pipelineResult, eventResult, qrResult, feedbackResult]) => {
+    Promise.allSettled([fetchQrStats(), fetchFeedbackStats()])
+      .then(([qrResult, feedbackResult]) => {
         if (!active) {
-          return;
-        }
-        // Pipeline records and events are the core data this page tracks.
-        // If either failed to load, show a failure state instead of
-        // substituting fixture data.
-        if (pipelineResult.status !== "fulfilled" || eventResult.status !== "fulfilled") {
-          const reason =
-            pipelineResult.status === "rejected"
-              ? pipelineResult.reason
-              : (eventResult as PromiseRejectedResult).reason;
-          setPipelineRecords([]);
-          setEvents([]);
-          setQrStats(emptyQrStatsSummary());
-          setQrAvailable(false);
-          setFeedbackStats(emptyFeedbackStatsSummary());
-          setFeedbackAvailable(false);
-          setIsMockData(false);
-          setLoadFailed(true);
-          setError(getErrorMessage(reason, "Failed to load pipeline data."));
           return;
         }
 
         let anyMock = false;
-
-        setPipelineRecords(pipelineResult.value.data);
-        if (pipelineResult.value.isMockData) anyMock = true;
-
-        setEvents(eventResult.value.data);
-        if (eventResult.value.isMockData) anyMock = true;
 
         if (qrResult.status === "fulfilled") {
           setQrStats(qrResult.value.data);
           setQrAvailable(true);
           if (qrResult.value.isMockData) anyMock = true;
         } else {
-          // QR analytics are supplementary — keep the core pipeline data and
-          // surface a warning instead of fabricating QR stats.
+          // Never fabricate QR analytics: the empty summary is all nulls, so
+          // every tile below renders unknown rather than zero.
           setQrStats(emptyQrStatsSummary());
           setQrAvailable(false);
         }
@@ -262,17 +178,12 @@ export function Pipeline() {
       })
       .catch((err: unknown) => {
         if (active) {
-          // Unexpected failure — report it honestly rather than
-          // substituting fixture data.
-          setPipelineRecords([]);
-          setEvents([]);
           setQrStats(emptyQrStatsSummary());
           setQrAvailable(false);
           setFeedbackStats(emptyFeedbackStatsSummary());
           setFeedbackAvailable(false);
           setIsMockData(false);
-          setLoadFailed(true);
-          setError(getErrorMessage(err, "Failed to load pipeline data."));
+          setError(getErrorMessage(err, "Failed to load supplementary pipeline analytics."));
         }
       })
       .finally(() => {
@@ -286,23 +197,6 @@ export function Pipeline() {
     };
   }, [reloadToken]);
 
-  const breakdown = buildUniversityBreakdown(pipelineRecords, events);
-  const hosts = ["All Hosts", ...breakdown.map((row) => row.name)];
-  const filteredBreakdown =
-    selectedUniversity === "All Hosts"
-      ? breakdown
-      : breakdown.filter((row) => row.name === selectedUniversity);
-  const filteredRecords =
-    selectedUniversity === "All Hosts"
-      ? pipelineRecords
-      : pipelineRecords.filter((record) => {
-          const matchingEvent = events.find(
-            (event) => event["Event / Program"] === record.event_name,
-          );
-          return (matchingEvent?.["Host / Unit"] || "Unknown Host") === selectedUniversity;
-        });
-
-  const stageSummary = summarizeStages(filteredRecords);
   const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
   const qrProvenance = qrAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
@@ -311,38 +205,31 @@ export function Pipeline() {
     "QR codes generated",
     "Deterministic referral assets created for speaker–event pairs.",
     qrAvailable ? qrStats.total_generated : null,
-    {
-      provenance: qrProvenance,
-      unknownReason: "QR analytics are unavailable.",
-    },
+    { provenance: qrProvenance, unknownReason: "QR analytics are unavailable." },
   );
   const qrTotalScans = accountableDemoMetric(
     "QR total scans",
     "Redirect endpoint activity attributed to referral codes.",
     qrAvailable ? qrStats.total_scans : null,
-    {
-      provenance: qrProvenance,
-      unknownReason: "QR analytics are unavailable.",
-    },
+    { provenance: qrProvenance, unknownReason: "QR analytics are unavailable." },
   );
   const qrConversions = accountableDemoMetric(
     "QR conversions",
     "Membership-interest outcomes attributed to QR referrals.",
     qrAvailable ? qrStats.total_conversions : null,
-    {
-      provenance: qrProvenance,
-      unknownReason: "QR analytics are unavailable.",
-    },
+    { provenance: qrProvenance, unknownReason: "QR analytics are unavailable." },
   );
   const qrConversionRate = accountableDemoMetric(
     "QR scan-to-conversion rate",
     "Conversions divided by scans across all referral codes.",
-    qrAvailable && qrStats.total_scans !== null && qrStats.total_scans > 0 ? qrStats.conversion_rate : null,
+    qrAvailable && qrStats.total_scans !== null && qrStats.total_scans > 0
+      ? qrStats.conversion_rate
+      : null,
     {
       provenance: qrProvenance,
       unknownReason:
         qrAvailable && qrStats.total_scans === 0
-          ? "No scans recorded yet."
+          ? "No scans recorded yet, so there is no denominator for a conversion rate."
           : "QR analytics are unavailable.",
     },
   );
@@ -351,10 +238,7 @@ export function Pipeline() {
     "Feedback rows",
     "Coordinator accept/decline submissions captured for matcher tuning.",
     feedbackAvailable ? feedbackStats.total_feedback : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason: "Feedback optimizer stats are unavailable.",
-    },
+    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackAcceptance = accountableDemoMetric(
     "Feedback acceptance rate",
@@ -366,7 +250,7 @@ export function Pipeline() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet."
+          ? "No coordinator feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -374,20 +258,8 @@ export function Pipeline() {
     "Matcher pain score",
     "How much correction pressure the matcher is under from recent feedback.",
     feedbackAvailable ? feedbackStats.pain_score : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason: "Feedback optimizer stats are unavailable.",
-    },
+    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
-
-  const conversions = stageSummary.slice(0, -1).map((stage, index) => {
-    const next = stageSummary[index + 1];
-    return {
-      from: stage.name,
-      to: next.name,
-      rate: stage.count ? ((next.count / stage.count) * 100).toFixed(1) : "0.0",
-    };
-  });
 
   // Unknown counts (null) sort after known counts of any value, including 0 —
   // they are not treated as lower measurements, just unranked.
@@ -403,81 +275,84 @@ export function Pipeline() {
     return right.conversion_count - left.conversion_count;
   });
   const qrTopEntries = qrEntries.slice(0, 3);
-  const leadAdjustment = feedbackStats.recommended_adjustments[0] ?? null;
+  const leadAdjustment = feedbackAvailable
+    ? (feedbackStats.recommended_adjustments[0] ?? null)
+    : null;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-500 rounded-lg flex items-center justify-center">
-            <TrendingUp className="w-6 h-6 text-white" />
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="mb-2 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-blue-500">
+              <TrendingUp className="h-6 w-6 text-white" />
+            </div>
+            <h1 className="text-3xl font-semibold text-gray-900">
+              Pipeline Tracking{isMockData && <DemoModeBadge />}
+            </h1>
           </div>
-          <h1 className="text-3xl font-semibold text-gray-900">
-            Pipeline Tracking{isMockData && <DemoModeBadge />}
-          </h1>
+          <p className="text-gray-600">
+            Funnel stages read from the registered metrics API. Each tile drills down to exactly the
+            rows its aggregate was calculated from.
+          </p>
         </div>
-        <p className="text-gray-600">
-          Monitor how ranked matches move through the live sample pipeline.
-        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setReloadToken((token) => token + 1)}
+          aria-label="Reload pipeline data"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </Button>
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Host Filter:</span>
-          </div>
-
-          <select
-            value={selectedUniversity}
-            onChange={(event) => setSelectedUniversity(event.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          >
-            {hosts.map((host) => (
-              <option key={host} value={host}>
-                {host}
-              </option>
-            ))}
-          </select>
+      {metricsStatus === "unavailable" ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <p className="text-sm font-semibold text-amber-900">
+            Registered metrics could not be read
+          </p>
+          <p className="mt-1 text-sm text-amber-800">{unavailableReason}</p>
+          <p className="mt-2 text-sm text-amber-800">
+            Every stage below stays unknown until the register answers. Unknown is not zero, and this
+            page will not substitute a locally counted number for one.
+          </p>
         </div>
-      </div>
+      ) : null}
 
-      {loadFailed ? (
+      {error ? (
         <FailureState
-          title="Pipeline data could not be loaded"
-          message={error ?? "Failed to load pipeline data."}
+          title="Some pipeline analytics are unavailable"
+          message={error}
           onRetry={() => setReloadToken((token) => token + 1)}
         />
+      ) : null}
+
+      <PipelineFunnelTiles reloadToken={reloadToken} />
+
+      {loading ? (
+        <div className="h-80 animate-pulse rounded-xl border border-gray-200 bg-white shadow-sm" />
       ) : (
         <>
-          {error ? (
-            <FailureState
-              title="Some pipeline data is unavailable"
-              message={error}
-              onRetry={() => setReloadToken((token) => token + 1)}
-            />
-          ) : null}
-
-          {loading ? (
-            <div className="h-80 rounded-xl border border-gray-200 bg-white shadow-sm animate-pulse" />
-          ) : (
-            <>
-          <PipelineFunnelTiles reloadToken={reloadToken} />
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">QR ROI Tracking</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="mt-1 text-sm text-gray-600">
                   Referral codes, scans, and downstream conversion signals from the QR contract.
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {(qrStats.total_generated ?? 0) > 0 ? "Live referrals" : "Awaiting QR data"}
+                {availabilityPill(
+                  qrAvailable,
+                  qrStats.total_generated,
+                  "Live referrals",
+                  "Awaiting QR data",
+                )}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Codes generated</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
@@ -506,7 +381,9 @@ export function Pipeline() {
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Membership-interest outcomes attributed to QR.</p>
+                <p className="mt-1 text-xs text-gray-600">
+                  Membership-interest outcomes attributed to QR.
+                </p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Scan-to-conversion</p>
@@ -529,7 +406,9 @@ export function Pipeline() {
                 <div className="space-y-3">
                   {qrTopEntries.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
-                      QR rows will appear here once the backend emits referral assets.
+                      {qrAvailable
+                        ? "QR rows will appear here once the backend emits referral assets."
+                        : "QR analytics are unavailable, so no referral history can be listed."}
                     </div>
                   ) : (
                     qrTopEntries.map((entry) => (
@@ -548,7 +427,8 @@ export function Pipeline() {
                             {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
                           </p>
                           <p className="text-xs text-gray-500">
-                            {entry.conversion_count === null ? "Unknown" : entry.conversion_count} conversions
+                            {entry.conversion_count === null ? "Unknown" : entry.conversion_count}{" "}
+                            conversions
                           </p>
                         </div>
                       </div>
@@ -561,36 +441,41 @@ export function Pipeline() {
                 <h4 className="mb-4 font-semibold text-gray-900">ROI notes</h4>
                 <div className="space-y-3 text-sm text-gray-600">
                   <p>
-                    Referral codes stay deterministic per speaker-event pair, so repeated outreach can
-                    reuse the same attribution key.
+                    Referral codes stay deterministic per speaker-event pair, so repeated outreach
+                    can reuse the same attribution key.
                   </p>
                   <p>
-                    Scans are the leading signal, while downstream membership-interest conversions are
-                    the primary ROI target for this phase.
+                    Scans are the leading signal, while downstream membership-interest conversions
+                    are the primary ROI target for this phase.
                   </p>
                   <p>
-                    If the QR service is unavailable, the page keeps rendering with zeroed analytics
-                    instead of failing the entire pipeline surface.
+                    If the QR service is unavailable, the tiles above say so and read Unknown. They
+                    are never backfilled with zeros, which would claim a measurement nobody took.
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Continuous Improvement</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="mt-1 text-sm text-gray-600">
                   Feedback-driven acceptance, pain-score, and weight-shift telemetry for the matcher.
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                {(feedbackStats.total_feedback ?? 0) > 0 ? "Optimizer active" : "Awaiting feedback"}
+                {availabilityPill(
+                  feedbackAvailable,
+                  feedbackStats.total_feedback,
+                  "Optimizer active",
+                  "Awaiting feedback",
+                )}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Feedback rows</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
@@ -609,7 +494,9 @@ export function Pipeline() {
                     formatNumber={(value) => `${Math.round(value * 100)}%`}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Accept vs. decline signal from the new feedback loop.</p>
+                <p className="mt-1 text-xs text-gray-600">
+                  Accept vs. decline signal from the feedback loop.
+                </p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Pain score</p>
@@ -619,17 +506,25 @@ export function Pipeline() {
                     formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Tracks how much correction pressure the matcher is under.</p>
+                <p className="mt-1 text-xs text-gray-600">
+                  Tracks how much correction pressure the matcher is under.
+                </p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
                 <p className="text-sm font-medium text-blue-700">Lead shift</p>
                 <p className="mt-2 text-lg font-semibold text-gray-900">
-                  {leadAdjustment ? formatFactorName(leadAdjustment.factor) : "No shift yet"}
+                  {leadAdjustment
+                    ? formatFactorName(leadAdjustment.factor)
+                    : feedbackAvailable
+                      ? "No shift yet"
+                      : "Unknown"}
                 </p>
                 <p className="mt-1 text-xs text-gray-600">
                   {leadAdjustment
                     ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
-                    : "Needs more coordinator outcomes."}
+                    : feedbackAvailable
+                      ? "Needs more coordinator outcomes."
+                      : "Feedback optimizer stats are unavailable."}
                 </p>
               </div>
             </div>
@@ -642,7 +537,9 @@ export function Pipeline() {
                 </div>
                 {feedbackStats.trend.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
-                    Trend rows will appear here once feedback is submitted from the coordinator workflow.
+                    {feedbackAvailable
+                      ? "Trend rows will appear here once feedback is submitted from the coordinator workflow."
+                      : "Feedback optimizer stats are unavailable, so there is no trend to plot."}
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={220}>
@@ -673,7 +570,9 @@ export function Pipeline() {
                 <div className="space-y-3">
                   {feedbackStats.recommended_adjustments.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-gray-300 bg-slate-50 p-4 text-sm text-gray-600">
-                      The optimizer has not proposed any bounded weight changes yet.
+                      {feedbackAvailable
+                        ? "The optimizer has not proposed any bounded weight changes yet."
+                        : "Feedback optimizer stats are unavailable."}
                     </div>
                   ) : (
                     feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
@@ -698,110 +597,29 @@ export function Pipeline() {
               </div>
             </div>
           </div>
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Conversion Funnel</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <FunnelChart>
-                <Tooltip />
-                <Funnel dataKey="count" data={stageSummary}>
-                  <LabelList position="right" fill="#000" stroke="none" dataKey="name" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">
-              Stage-to-Stage Conversion Rates
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {conversions.map((conversion) => (
-                <div
-                  key={`${conversion.from}-${conversion.to}`}
-                  className="bg-gradient-to-br from-blue-50 to-blue-50 rounded-xl p-6 border border-blue-200"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm text-gray-700 font-medium">{conversion.from}</p>
-                    <TrendingUp className="w-5 h-5 text-blue-600" />
-                    <p className="text-sm text-gray-700 font-medium">{conversion.to}</p>
-                  </div>
-                  <p className="text-3xl font-bold text-blue-600 text-center">
-                    {conversion.rate}%
-                  </p>
-                  <p className="text-xs text-gray-600 text-center mt-1">conversion rate</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Pipeline by Host</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <BarChart data={filteredBreakdown}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                {["Matched", "Contacted", "Confirmed", "Attended", "Member Inquiry"].map(
-                  (stage, index) => (
-                    <Bar
-                      key={stage}
-                      dataKey={stage}
-                      fill={stagePalette[index % stagePalette.length]}
-                      name={stage}
-                    />
-                  ),
-                )}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6">Detailed Host Performance</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">
-                      Host
-                    </th>
-                    {["Matched", "Contacted", "Confirmed", "Attended", "Member Inquiry"].map(
-                      (stage) => (
-                        <th
-                          key={stage}
-                          className="text-center py-3 px-4 text-sm font-medium text-gray-700"
-                        >
-                          {stage}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBreakdown.map((row) => (
-                    <tr key={row.name} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-4 px-4">
-                        <span className="font-medium text-gray-900">{row.name}</span>
-                      </td>
-                      <td className="text-center py-4 px-4 text-gray-700">{row.Matched}</td>
-                      <td className="text-center py-4 px-4 text-gray-700">{row.Contacted}</td>
-                      <td className="text-center py-4 px-4 text-gray-700">{row.Confirmed}</td>
-                      <td className="text-center py-4 px-4 text-gray-700">{row.Attended}</td>
-                      <td className="text-center py-4 px-4 text-gray-700">
-                        {row["Member Inquiry"]}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </>
       )}
-        </>
-      )}
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-gray-900">Host breakdown not shown here</h2>
+        <div className="mt-3 space-y-3 text-sm leading-6 text-gray-600">
+          <p>
+            The per-host funnel table and bar chart used to be assembled in the browser by joining
+            legacy <code>/api</code> pipeline rows against the events CSV. That join produced stage
+            counts no server query owned, which is how this page and Opportunities could disagree
+            about the same funnel.
+          </p>
+          <p>
+            It returns when a host-scoped registered metric with an owning query exists. Until then
+            the honest answer is that the number does not exist yet — not a zero, and not a
+            client-side estimate.
+          </p>
+          <p>
+            Match scores, ranks, and factor explanations remain out of this surface entirely; they
+            are blocked on gate G1.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

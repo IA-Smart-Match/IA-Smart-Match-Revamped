@@ -19,8 +19,8 @@ D6_WORKSHEET = REPO_ROOT / "docs/pilot-data/rewards-catalog-worksheet.md"
 def test_g1_packet_remains_unapproved_prep() -> None:
     """G1 workshop packet must not be mistaken for D1/G1 ratification."""
     text = G1_PACKET.read_text(encoding="utf-8").lower()
-    assert "preparation only" in text
-    assert "does not approve" in text
+    assert "ready to schedule" in text
+    assert "remain blocked" in text
 
 
 def test_g1_packet_names_required_decision_fields() -> None:
@@ -42,11 +42,13 @@ def test_g1_packet_names_required_decision_fields() -> None:
         assert phrase in lowered, f"G1 packet missing required field heading: {phrase!r}"
 
 
-def test_g3_threat_model_remains_unsigned_draft() -> None:
-    """G3 threat model must stay explicitly unsigned until R3 reviewer sign-off."""
-    text = G3_THREAT_MODEL.read_text(encoding="utf-8").lower()
-    assert "draft" in text
-    assert "not signed" in text
+def test_g3_threat_model_is_signed_requirements() -> None:
+    """R3 threat model design requirements signed 2026-09-03 (Danny Tran)."""
+    text = G3_THREAT_MODEL.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "signed 2026-09-03" in lowered
+    assert "danny tran" in lowered
+    assert "r3-signing-decisions-2026-09-03" in text
 
 
 def test_g3_threat_model_names_required_controls_and_signoff() -> None:

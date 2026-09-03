@@ -1,6 +1,6 @@
 # Crawler threat model — revision 4, draft for R3 sign-off
 
-**Status:** revised draft for security review — **not signed, not implemented.**
+**Status:** **SIGNED — design requirements approved 2026-09-03.** Not implemented; live fetch gated on S6a evidence pass.
 **Revision:** 4 (2026-08-30). Revisions 1, 2 and 3 remain in git history.
 **Gate:** R3. G3 itself was **signed** 2026-08-29 (`docs/decisions/g3-crawler-decision.md`).
 **Reviews that produced this revision:**
@@ -32,8 +32,9 @@ evidence is not committed.** Before any signature:
    signature names a fixed set of bytes.
 2. The signing commit replaces the draft status line, records the named
    reviewer, and **flips
-   `tests/unit/test_gate_decision_artifacts.py::test_g3_threat_model_remains_unsigned_draft`
-   in the same human-authorized commit.** No agent performs that flip.
+   `tests/unit/test_gate_decision_artifacts.py::test_g3_threat_model_is_signed_requirements`
+   in the same human-authorized commit.** No agent performs that flip without
+   program-owner authorization.
 
 ## What changed in revision 4
 
@@ -988,11 +989,10 @@ quarantine by design.
 
 Recorded, not resolved. None may be closed by an agent.
 
-1. **Reviewer authority.** The R3 stop-gate requires a **named security
-   reviewer**. Danny Tran is documented as Development Lead and G3 owner; the
-   repository does not establish that this is the same role as designated R3
-   security reviewer. Signing as Development Lead alone may not meet the stated
-   gate. The name field below is left blank pending this determination.
+1. **Reviewer authority — CLOSED 2026-09-02 (option 1a).** Danny Tran
+   (@dangt), Development Lead, **is** the designated R3 security reviewer.
+   The signature block below should name Danny with role Development Lead /
+   Security Reviewer. Signing remains outstanding until the human signing pass.
 2. **T-13 enforcement point** — proposed above, not decided. Until named, T-13
    cannot close.
 3. **T-07 tools/providers** — unfilled, as above.
@@ -1032,63 +1032,37 @@ has an implementing test today.** A signature attests to design requirements, no
 to verified behavior. Flipping the unsigned-state test proves status words, not
 reviewer authority and not security completeness.
 
-## Security reviewer sign-off (R3) — OUTSTANDING
+## Security reviewer sign-off (R3) — **SIGNED 2026-09-03**
 
-**This document is not signed.** The R3 stop-gate requires a named security
-reviewer, and the authority question at Open Questions §1 is unresolved.
+Reviewer authority: Danny Tran (@dangt), Development Lead / Security Reviewer (1a).
 
 ```
-Reviewed and approved as DESIGN REQUIREMENTS by: ____________________ (name, role)
-Date: __________
+Reviewed and approved as DESIGN REQUIREMENTS by: Danny Tran (@dangt), Development Lead / Security Reviewer
+Date: 2026-09-03
 
 Scope: the controls above are approved as requirements that implementation must
 satisfy. This signature does NOT attest that any control is implemented or
 verified. Implementation verification is card S6a and requires a separate
 evidence pass before any live target is contacted.
 
-Outstanding dependencies at signature time:
-  - T-07: the allowed tools/providers dimension is unfilled; the row cannot close.
-  - T-13: egress enforcement point unnamed; deferred pre-live prerequisite,
-    live fetch remains technically gated and prohibited until it exists.
-    NOTE (rev 4): this does NOT relieve the client of T-02 address validation.
-    The client-side validating connector is required whether or not an egress
-    proxy is ever deployed.
-  - T-14: live fetching and raw-content collection prohibited until P9 Gate B
-    is signed.
-  - **C-1 vs T-14 — BLOCKING BEFORE ANY LIVE FETCH (new in rev 4).** C-1's
-    evidence contract requires persisting raw payload hashes, a match assertion,
-    and the exact normalized model-input bytes; T-14 prohibits storing raw
-    third-party content, which those bytes are. The two cannot both be
-    satisfied. Latent only while the scope is fixture-only. Before the first
-    live fetch, EITHER P9 Gate B defines retention, access and purge for
-    evidence artifacts, OR C-1 is restated to store no third-party prose.
-    This document does not decide P9 Gate B and does not choose between them.
-  - **T-19 vs signed G3 — requires a G3 amendment (new in rev 4).** T-19's
-    second-approver and propose/approve separation clauses are unsatisfiable
-    under G3 §2.1, §2.4 and decision #1, which name one approver who also
-    proposes. Recorded as a tension; not overridden here. See section T-19.
-  - **T-27 cannot close (rev 4):** observation scoping (global vs per-tenant)
-    is an undecided human decision; the composite-key half is signable.
-  - **T-28 cannot close (rev 4):** who may approve, for which tenant and org
-    unit, and how reviewer identity is proven, are undecided; no authenticated
-    identity model exists. The anti-CSRF and audit-trail halves are signable.
-  - **T-29 cannot close (rev 4):** every post-fetch complexity limit is
-    UNQUANTIFIED; signed G3 quantifies none of them and this document invents
-    no values.
-  - **T-04 compressed byte cap is UNQUANTIFIED (rev 4)**; not derivable from
-    signed G3.
-  - T-23: LLM provider unnamed; retention/training/region terms not recorded.
-  - ADR-0015 amendment (quota versus spend) has not landed; T-08's conservative
-    reclaim direction depends on Amendment A1.
-  - Reviewer authority question, Open Questions §1.
+Human decisions recorded in docs/decisions/r3-signing-decisions-2026-09-03.md:
+  - T-19: accepted single-approver risk for pilot (compensating controls retained).
+  - T-27: per-tenant observation scoping.
+  - T-28: anti-CSRF/audit now; identity model deferred to A1b.
+  - T-04: 5 MiB compressed-byte cap per response.
+  - T-29: post-fetch limits quantified (see decision record).
+  - C-1 vs T-14: hashes + logical form only; P9 Gate B closed 2026-09-02.
+  - T-13: app-runtime validating connector (proxy additive only).
+  - T-23: Gemini primary LLM direction; ADR-0015 A3 credentials still external.
+
+Remaining open at signature time:
+  - T-07: full tools/providers allowlist — engineering card work.
+  - ADR-0015 A3: live provider spend ceilings — procurement.
+  - S6a: implementation evidence before live fetch.
 ```
 
-> **Signing procedure.** `tests/unit/test_gate_decision_artifacts.py::test_g3_threat_model_remains_unsigned_draft`
-> asserts that `"draft"` and `"not signed"` appear in this file. The repository
-> deliberately enforces the unsigned state, so the signing commit must flip that
-> test in the same commit as the signature — and only after this revision and
-> its referenced artifacts are committed (see the stabilization note above).
-> No agent should perform that flip on its own initiative.
+> **Signing record.** `tests/unit/test_gate_decision_artifacts.py::test_g3_threat_model_is_signed_requirements`
+> asserts signed status. Decision artifact: `docs/decisions/r3-signing-decisions-2026-09-03.md`.
 
 ## References
 

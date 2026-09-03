@@ -11,7 +11,7 @@ same control*, at the end of this file. Required by
 `docs/decisions/g3-crawler-decision.md` §4.1 (signed 2026-08-29). It adds a rule
 for a class of limit this ADR does not currently cover and **changes nothing
 decided above**. A1 was ratified as **session policy** on 31 August 2026 by
-the session approver, Danny Tran (`dt110202@gmail.com`) — see
+the session approver, Danny Tran (@dangt) — see
 `docs/decisions/2026-08-31-session-ratification.md`. Ratification makes A1's
 design binding on future work; it does not itself implement anything, and it
 does not ratify the live-provider price assumption A3, production
@@ -301,7 +301,7 @@ call exists in the repository as of this ratification.
 **Date ratified:** 31 August 2026
 **Mandated by:** `docs/decisions/g3-crawler-decision.md` §4.1 and §10 row 4,
 decided 2026-08-29 and signed the same day by the G3 owner of record.
-**Approver of this amendment:** Danny Tran (`dt110202@gmail.com`), session
+**Approver of this amendment:** Danny Tran (@dangt), session
 approver, 31 August 2026. Recorded in
 `docs/decisions/2026-08-31-session-ratification.md`. This ratifies the design
 **text** below as session policy. It does **not** ratify, confirm, or make

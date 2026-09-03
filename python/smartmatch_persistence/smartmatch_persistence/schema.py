@@ -50,6 +50,7 @@ __all__ = [
     "org_unit",
     "outbox_record",
     "point_ledger_entry",
+    "professional_unit_relationship",
     "rate_limit_counter",
     "redrive_record",
     "resource_grant",
@@ -510,6 +511,90 @@ reward_item = sa.Table(
 )
 
 
+pipeline_record = sa.Table(
+    "pipeline_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as job.owning_unit_id, import_batch and
+    # attendance_record. Also the axis the funnel metrics are read per.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The student whose journey through the funnel this row is.
+    sa.Column("subject_id", _UUID, nullable=False),
+    # The opportunity. No foreign key: no event table exists yet in this
+    # schema (P6 owns it). Whichever migration adds one should add this
+    # constraint and attendance_record.event_id's together.
+    sa.Column("opportunity_event_id", _UUID, nullable=False),
+    # The five stages as the times they were reached, not as one status
+    # column: the register counts records that "reached X or a later stage",
+    # and a stalled journey has still reached the stages it passed. Only the
+    # first is NOT NULL — a record exists because a match does.
+    sa.Column("matched_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("contacted_at", _TS, nullable=True),
+    sa.Column("confirmed_at", _TS, nullable=True),
+    sa.Column("attended_at", _TS, nullable=True),
+    sa.Column("member_inquiry_at", _TS, nullable=True),
+    # The attendance row the Attended stage cites (ADR-0013's evidence, one
+    # table over). Biconditional with attended_at below.
+    sa.Column("attended_attendance_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # This row is updated when a stage is reached, unlike point_ledger_entry —
+    # carrying updated_at says mutation is expected here.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="pipeline_record_pkey"),
+    # A second row for the same student and opportunity is a second count in
+    # every stage it has reached — inflating the aggregate and the drill-down
+    # identically, so the two still agree (ADR-0011 rule 3) while both are
+    # wrong.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "subject_id",
+        "opportunity_event_id",
+        name="uq_pipeline_record_subject_opportunity",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: deleting the attendance a funnel row cites would leave a count
+    # nothing could explain.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "attended_attendance_id"],
+        ["attendance_record.tenant_id", "attendance_record.id"],
+        ondelete="RESTRICT",
+    ),
+    # A funnel that is wider at the bottom than the top is a number no
+    # drill-down can reconcile, because every individual row is reported
+    # faithfully. These two constraints are what make that state unstorable.
+    sa.CheckConstraint(
+        "(contacted_at IS NULL OR matched_at IS NOT NULL) "
+        "AND (confirmed_at IS NULL OR contacted_at IS NOT NULL) "
+        "AND (attended_at IS NULL OR confirmed_at IS NOT NULL) "
+        "AND (member_inquiry_at IS NULL OR attended_at IS NOT NULL)",
+        name="ck_pipeline_record_stage_prefix",
+    ),
+    sa.CheckConstraint(
+        "(contacted_at IS NULL OR contacted_at >= matched_at) "
+        "AND (confirmed_at IS NULL OR confirmed_at >= contacted_at) "
+        "AND (attended_at IS NULL OR attended_at >= confirmed_at) "
+        "AND (member_inquiry_at IS NULL OR member_inquiry_at >= attended_at)",
+        name="ck_pipeline_record_stage_order",
+    ),
+    # An attendance claim names its evidence; evidence is never carried
+    # without the claim it supports.
+    sa.CheckConstraint(
+        "(attended_at IS NULL) = (attended_attendance_id IS NULL)",
+        name="ck_pipeline_record_attendance_evidence",
+    ),
+)
+
+
 import_batch = sa.Table(
     "import_batch",
     METADATA,
@@ -561,12 +646,27 @@ review_item = sa.Table(
     sa.Column("row_data", postgresql.JSONB, nullable=False),
     sa.Column("status", sa.Text, nullable=False, server_default="pending"),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # migration 0013. NULL while pending, set once by the one conditional
+    # UPDATE ... WHERE status = 'pending' this schema allows to leave that
+    # state (ReviewRepository.decide). Biconditional with both status and
+    # decided_by below — see ck_review_item_decision_evidence.
+    sa.Column("decided_at", _TS, nullable=True),
+    sa.Column("decided_by", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="review_item_pkey"),
     # CASCADE: a review item cannot outlive the batch that quarantined it.
     sa.ForeignKeyConstraint(
         ["tenant_id", "import_batch_id"],
         ["import_batch.tenant_id", "import_batch.id"],
         ondelete="CASCADE",
+    ),
+    # RESTRICT: deleting the user_account behind a recorded decision must not
+    # silently turn a cited decision back into an uncited one — the same
+    # fabricated-field state ck_review_item_decision_evidence exists to make
+    # unstorable in the first place (migration 0013).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "decided_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
     ),
     # Mirrors uq_job_event_sequence: a monotonic position within one parent,
     # and the parent id alone is already globally unique, so no tenant_id is
@@ -577,6 +677,16 @@ review_item = sa.Table(
     sa.CheckConstraint(
         "status IN ('pending','accepted','rejected')",
         name="ck_review_item_status",
+    ),
+    # A decision that names nobody and no time is the fabricated-field defect
+    # (Fix #15, H21) one table over from pipeline_record's own attendance
+    # evidence (migration 0011). Two independent biconditionals, ANDed rather
+    # than chained — see migration 0013's docstring for why a chained
+    # three-way `=` would not say what it looks like it says.
+    sa.CheckConstraint(
+        "(status = 'pending') = (decided_at IS NULL) "
+        "AND (decided_at IS NULL) = (decided_by IS NULL)",
+        name="ck_review_item_decision_evidence",
     ),
 )
 
@@ -675,5 +785,81 @@ spend_reservation = sa.Table(
     sa.CheckConstraint(
         "(state = 'reserved') = (lease_token IS NOT NULL)",
         name="ck_spend_reservation_lease_token_iff_reserved",
+    ),
+)
+
+
+# P9 Gate A (`docs/decisions/p9-gate-a-board-role-decision-draft.md`, CLOSED
+# 2026-09-02) and migration 0012. board_role is relationship-scoped, not an
+# intrinsic attribute of a professional: §1 of the gate record decides that
+# question, and §2 answers the follow-on ones this table's shape encodes.
+
+professional_unit_relationship = sa.Table(
+    "professional_unit_relationship",
+    METADATA,
+    # Composite NATURAL key, no surrogate id -- mirrors spend_ceiling_bucket
+    # and rate_limit_counter, the schema's other tables whose identity is
+    # exactly what a caller already knows rather than a generated value. Here
+    # that identity is "this professional's role at this unit", and it is
+    # also the multiplicity rule Gate A §2 states: the same professional_id
+    # may appear in many rows as long as unit_id differs, which is what lets
+    # "multiple concurrent board_role values per person across different
+    # units" (§2) be represented at the same instant -- by more than one row,
+    # not by a wider column.
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # No foreign key: no professional table exists yet in this schema.
+    # Professionals are P9 pilot import/review data today
+    # (docs/pilot-data/columns.yaml, quarantined into review_item), not a
+    # persisted entity with a stable id of its own -- the same situation
+    # attendance_record.event_id and pipeline_record.opportunity_event_id
+    # are already in for their own not-yet-built parent tables. Whichever
+    # migration gives professionals a persisted identity should add this
+    # constraint alongside it.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("unit_id", _UUID, nullable=False),
+    # The whole point of a row existing here. NOT NULL: a relationship row
+    # carrying no role records nothing Gate A asked this table to hold, the
+    # same reasoning reward_item.budget_owner_id (D6) already applies to a
+    # column that would be meaningless if it could be absent.
+    sa.Column("board_role", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Gate A §2's "correction semantics": a coordinator's correction updates
+    # the current relationship record rather than superseding it with a new
+    # one, so — unlike point_ledger_entry's append-only design — mutation is
+    # expected here, and carrying updated_at says so structurally
+    # (pipeline_record's stage columns are the same argument for the same
+    # reason).
+    sa.Column(
+        "updated_at",
+        _TS,
+        nullable=False,
+        server_default=sa.text("now()"),
+    ),
+    # The composite natural key IS the primary key -- no separate
+    # UniqueConstraint is needed alongside it, unlike attendance_record's
+    # surrogate id + uq_attendance_record_subject_event pair, because there
+    # is no surrogate id here to make redundant.
+    sa.PrimaryKeyConstraint(
+        "tenant_id",
+        "professional_id",
+        "unit_id",
+        name="professional_unit_relationship_pkey",
+    ),
+    # Deliberately NO effective_from / effective_to columns. Gate A §2: "pilot
+    # treats board_role as current-state only on each relationship; no
+    # effective_from / effective_to columns for pilot." Post-pilot dating is
+    # explicitly deferred, not merely unimplemented -- adding those columns
+    # without a new gate decision would be inventing the answer this table's
+    # shape is not authorized to give yet.
+    #
+    # RESTRICT: reorganizing a unit must not silently delete the board-role
+    # relationships recorded against it -- the same intent
+    # attendance_record.owning_unit_id and import_batch.owning_unit_id
+    # already carry against org_unit. Composite, not a bare unit_id, so a
+    # relationship in one tenant cannot name a unit in another (ADR-0004).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
     ),
 )

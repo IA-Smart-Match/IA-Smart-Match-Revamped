@@ -1,9 +1,32 @@
+/**
+ * IA admin dashboard (P8 card O4b).
+ *
+ * Opportunity and pipeline numbers are registered metrics read from
+ * `GET /v1/units/{unit_id}/metrics`; clicking one opens the drill-down of the
+ * same owning query (`GET …/metrics/{name}/drill-down`), so an aggregate and
+ * the rows behind it cannot drift apart (ADR-0011 rules 3 and 4). That is what
+ * O4b fences: the registered metric name and its drill-down, in place of the
+ * old "active opportunities" prose and `href`-only KPI navigation (B41).
+ *
+ * What this card removes is the client-side *merge*, not the product surface:
+ *
+ * - `fetchPipeline()` + `fetchSpecialists()` and the counts derived by joining
+ *   them (volunteer utilization, stage counts, match volume by event, and the
+ *   per-region member-inquiry attribution built from `event_name::speaker_name`
+ *   string keys). Those numbers had no owning server query and let this page
+ *   disagree with Pipeline and Opportunities (B41/B42, Fix #5).
+ * - the crawler live feed (B38/B39 — explicitly not to be ported).
+ *
+ * Calendar coverage, recovery overlays, matcher-feedback telemetry and the
+ * regional pulse each read one endpoint and report what it returned; they stay.
+ * Every value in them is routed through `AccountableValue` (or an explicit
+ * unknown) so a measurement nobody took renders as unknown, never as zero.
+ */
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   BellRing,
   Briefcase,
   CalendarDays,
@@ -15,15 +38,9 @@ import {
   SlidersHorizontal,
   Sparkles,
   TrendingUp,
-  Users,
 } from "lucide-react";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
-  Funnel,
-  FunnelChart,
-  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -36,32 +53,45 @@ import {
   emptyFeedbackStatsSummary,
   fetchCalendarAssignments,
   fetchCalendarEvents,
-  fetchEvents,
   fetchFeedbackStats,
-  fetchPipeline,
-  fetchSpecialists,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
-  type PipelineRecord,
-  type Specialist,
+  type MetricSummary,
 } from "@/lib/api";
 import {
   accountableDemoMetric,
   accountableMetricFromSummary,
   MATCHING_UNAVAILABLE_REASON,
-  OPPORTUNITIES_UNKNOWN_REASON,
+  OPPORTUNITIES_METRIC_NAME,
   unavailableOpportunitiesMetric,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
+import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
-import { AccountableValue, MetricDrilldownSheet } from "@/app/components/provenance";
+import {
+  AccountableValue,
+  MetricDrilldownSheet,
+  MetricValueDisplay,
+  unknownValue,
+  type AccountableMetric,
+} from "@/app/components/provenance";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
-import { DemoModeBadge } from "../components/ui/DemoModeBadge";
-import { Button } from "../components/ui/button";
+import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
+import { Button } from "@/app/components/ui/button";
 
-import { MetricCard } from "../components/MetricCard";
-import { CrawlerFeed } from "@/components/CrawlerFeed";
+const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
+
+/**
+ * Why a per-region member-inquiry count is not shown.
+ *
+ * The old tile counted it in the browser by joining calendar assignments to
+ * legacy pipeline rows on `event_name::speaker_name`. The registered
+ * `pipeline_member_inquiry` metric is unit-scoped, not region-scoped, so there
+ * is no server query that answers this question yet.
+ */
+const REGION_MEMBER_INQUIRY_UNKNOWN_REASON =
+  "No region-scoped registered metric exists: `pipeline_member_inquiry` is scoped to the organizational unit, and this page no longer attributes pipeline rows to regions in the browser.";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -107,8 +137,6 @@ function FailureState({
   );
 }
 
-const funnelPalette = ["#005394", "#1f6fb2", "#2b87d1", "#56a4e4", "#a2c9ff"];
-
 function monthLabel(dateString: string): string {
   const [year, month, day] = dateString.split("-").map(Number);
   const date =
@@ -128,45 +156,10 @@ type RegionalPulseRow = {
   openCount: number;
   assignmentCount: number;
   uniqueVolunteers: number;
-  memberInquiryCount: number;
-  coveragePercent: number;
+  coveragePercent: number | null;
   workloadPercent: number;
   detail: string;
 };
-
-function stageCounts(records: PipelineRecord[]) {
-  const counts = new Map<string, { count: number; order: number }>();
-  for (const record of records) {
-    const stage = record.stage || "Unknown";
-    const order = Number(record.stage_order) || 0;
-    const current = counts.get(stage);
-    counts.set(stage, {
-      count: (current?.count ?? 0) + 1,
-      order: current?.order ?? order,
-    });
-  }
-  return Array.from(counts.entries())
-    .sort((a, b) => a[1].order - b[1].order)
-    .map(([stage, value], index) => ({
-      name: stage,
-      value: value.count,
-      fill: funnelPalette[index % funnelPalette.length],
-    }));
-}
-
-function matchVolume(records: PipelineRecord[]) {
-  const counts = new Map<string, number>();
-  for (const record of records) {
-    counts.set(record.event_name, (counts.get(record.event_name) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 7)
-    .map(([event, count]) => ({
-      event: event.length > 18 ? `${event.slice(0, 18)}…` : event,
-      matches: count,
-    }));
-}
 
 function calendarReach(records: CalendarEventSummary[]) {
   const byMonth = new Map<string, { windows: number; covered: number }>();
@@ -185,36 +178,24 @@ function calendarReach(records: CalendarEventSummary[]) {
   }));
 }
 
+/**
+ * Rolls calendar windows and assignment overlays up by region.
+ *
+ * Both inputs come from the same calendar feed, so every count here is a count
+ * of rows that feed actually returned — no cross-source join. `coveragePercent`
+ * is `null` (not 0) for a region with no scheduled windows, because a coverage
+ * ratio with no denominator is unknown, not zero percent.
+ */
 function buildRegionalPulse(
   calendarEvents: CalendarEventSummary[],
   calendarAssignments: CalendarAssignmentSummary[],
-  pipeline: PipelineRecord[],
 ): RegionalPulseRow[] {
-  const assignmentKeyToRegion = new Map<string, string>();
-  for (const assignment of calendarAssignments) {
-    assignmentKeyToRegion.set(
-      `${assignment.event_name.trim().toLowerCase()}::${assignment.volunteer_name.trim().toLowerCase()}`,
-      assignment.region,
-    );
-  }
-
-  const memberInquiriesByRegion = new Map<string, number>();
-  for (const record of pipeline) {
-    if (record.stage !== "Member Inquiry") {
-      continue;
-    }
-    const region = assignmentKeyToRegion.get(
-      `${record.event_name.trim().toLowerCase()}::${record.speaker_name.trim().toLowerCase()}`,
-    );
-    if (!region) {
-      continue;
-    }
-    memberInquiriesByRegion.set(region, (memberInquiriesByRegion.get(region) ?? 0) + 1);
-  }
-
   const regions = Array.from(
     new Set(
-      [...calendarEvents.map((event) => event.region), ...calendarAssignments.map((assignment) => assignment.region)]
+      [
+        ...calendarEvents.map((event) => event.region),
+        ...calendarAssignments.map((assignment) => assignment.region),
+      ]
         .map((value) => value.trim())
         .filter(Boolean),
     ),
@@ -223,16 +204,26 @@ function buildRegionalPulse(
   return regions
     .map((region) => {
       const eventsInRegion = calendarEvents.filter((event) => event.region === region);
-      const assignmentsInRegion = calendarAssignments.filter((assignment) => assignment.region === region);
-      const coveredCount = eventsInRegion.filter((event) => event.coverage_status === "covered").length;
+      const assignmentsInRegion = calendarAssignments.filter(
+        (assignment) => assignment.region === region,
+      );
+      const coveredCount = eventsInRegion.filter(
+        (event) => event.coverage_status === "covered",
+      ).length;
       const eventCount = eventsInRegion.length;
-      const openCount = eventsInRegion.filter((event) => event.coverage_status !== "covered").length;
+      const openCount = eventsInRegion.filter(
+        (event) => event.coverage_status !== "covered",
+      ).length;
       const assignmentCount = assignmentsInRegion.length;
-      const uniqueVolunteers = new Set(assignmentsInRegion.map((assignment) => assignment.volunteer_name)).size;
-      const memberInquiryCount = memberInquiriesByRegion.get(region) ?? 0;
-      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : 0;
-      const workloadPercent = Math.max(0, Math.min(Math.round((assignmentCount / Math.max(eventCount * 3, 1)) * 100), 100));
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"}, ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}, ${memberInquiryCount} member inquir${memberInquiryCount === 1 ? "y" : "ies"}.`;
+      const uniqueVolunteers = new Set(
+        assignmentsInRegion.map((assignment) => assignment.volunteer_name),
+      ).size;
+      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : null;
+      const workloadPercent = Math.max(
+        0,
+        Math.min(Math.round((assignmentCount / Math.max(eventCount * 3, 1)) * 100), 100),
+      );
+      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.`;
 
       return {
         region,
@@ -241,7 +232,6 @@ function buildRegionalPulse(
         openCount,
         assignmentCount,
         uniqueVolunteers,
-        memberInquiryCount,
         coveragePercent,
         workloadPercent,
         detail,
@@ -274,15 +264,12 @@ export function Dashboard() {
     navigate("/login");
   }
 
-  const [specialists, setSpecialists] = useState<Specialist[]>([]);
-  const [pipeline, setPipeline] = useState<PipelineRecord[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([]);
-  const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>(
-    [],
-  );
+  const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
+  const [calendarAvailable, setCalendarAvailable] = useState(false);
   const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
   const [feedbackAvailable, setFeedbackAvailable] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
@@ -298,11 +285,10 @@ export function Dashboard() {
     setError(null);
 
     function resetToEmpty() {
-      setSpecialists([]);
-      setPipeline([]);
       setCalendarEvents([]);
       setCalendarAssignments([]);
       setFeedbackStats(emptyFeedbackStatsSummary());
+      setCalendarAvailable(false);
       setAssignmentsAvailable(false);
       setFeedbackAvailable(false);
       setIsMockData(false);
@@ -310,75 +296,39 @@ export function Dashboard() {
 
     async function load() {
       try {
-        const results = await Promise.allSettled([
-          fetchSpecialists(),
-          fetchEvents(),
-          fetchPipeline(),
+        const [calendarResult, assignmentResult, feedbackResult] = await Promise.allSettled([
           fetchCalendarEvents(),
           fetchCalendarAssignments(),
           fetchFeedbackStats(),
         ]);
-        const [
-          specialistResult,
-          eventResult,
-          pipelineResult,
-          calendarResult,
-          assignmentResult,
-          feedbackResult,
-        ] = results;
 
         if (!active) {
           return;
         }
 
-        // Specialists, events, pipeline, and calendar windows are the
-        // dashboard's core data. If any of them failed to load, the
-        // dashboard cannot honestly render — show a failure state instead
-        // of discarding whatever did succeed and substituting fixtures.
-        if (
-          specialistResult.status !== "fulfilled" ||
-          eventResult.status !== "fulfilled" ||
-          pipelineResult.status !== "fulfilled" ||
-          calendarResult.status !== "fulfilled"
-        ) {
-          const reason =
-            specialistResult.status === "rejected"
-              ? specialistResult.reason
-              : eventResult.status === "rejected"
-                ? eventResult.reason
-                : pipelineResult.status === "rejected"
-                  ? pipelineResult.reason
-                  : (calendarResult as PromiseRejectedResult).reason;
+        // Calendar windows are the spine of the coverage sections. If they
+        // failed, say so rather than discarding what did succeed and
+        // substituting fixtures.
+        if (calendarResult.status !== "fulfilled") {
           resetToEmpty();
           setLoadFailed(true);
-          setError(getErrorMessage(reason, "Failed to load dashboard data."));
+          setError(getErrorMessage(calendarResult.reason, "Failed to load calendar data."));
           return;
         }
 
         let anyMock = false;
 
-        const specialistRows = specialistResult.value.data;
-        const eventRows = eventResult.value.data;
-        if (specialistResult.value.isMockData) anyMock = true;
-        if (eventResult.value.isMockData) anyMock = true;
-
-        const pipelineRows = pipelineResult.value.data;
-        if (pipelineResult.value.isMockData) anyMock = true;
-
-        const calendarRows = calendarResult.value.data;
+        setCalendarEvents(calendarResult.value.data);
+        setCalendarAvailable(true);
         if (calendarResult.value.isMockData) anyMock = true;
-
-        setSpecialists(specialistRows);
-        setPipeline(pipelineRows);
-        setCalendarEvents(calendarRows);
 
         if (assignmentResult.status === "fulfilled") {
           setCalendarAssignments(assignmentResult.value.data);
           setAssignmentsAvailable(true);
           if (assignmentResult.value.isMockData) anyMock = true;
         } else {
-          // Assignment overlays are supplementary — keep the core dashboard
-          // honest and surface a warning instead of fabricating overlays.
+          // Assignment overlays are supplementary — keep the page honest and
+          // surface a warning instead of fabricating overlays.
           setCalendarAssignments([]);
           setAssignmentsAvailable(false);
         }
@@ -408,8 +358,6 @@ export function Dashboard() {
         setError(warnings.length ? warnings.join(" ") : null);
       } catch (err: unknown) {
         if (active) {
-          // Unexpected failure — report it honestly rather than
-          // substituting fixture data for the whole dashboard.
           resetToEmpty();
           setLoadFailed(true);
           setError(getErrorMessage(err, "Failed to load dashboard data."));
@@ -441,26 +389,104 @@ export function Dashboard() {
     drilldown,
   } = useUnitMetrics(reloadToken);
 
-  const memberInquirySummary = metricsByName.pipeline_member_inquiry;
-  const memberInquiryMetric = memberInquirySummary
-    ? accountableMetricFromSummary(memberInquirySummary, {
+  const unavailableReason =
+    metricsStatus === "unavailable"
+      ? (metricsLoadError ?? metricsUnavailableReason)
+      : metricsStatus === "loading"
+        ? "Loading registered metrics…"
+        : "This metric is not present in the unit's register.";
+
+  /** Wraps one registered summary, or an explicit unknown when it is absent. */
+  function registeredMetric(
+    metricName: string,
+    fallback: (reason: string) => AccountableMetric,
+  ): { metric: AccountableMetric; summary: MetricSummary | undefined } {
+    const summary = metricsByName[metricName];
+    if (!summary) {
+      return { metric: fallback(unavailableReason), summary: undefined };
+    }
+    return {
+      metric: accountableMetricFromSummary(summary, {
         provenance: "observed",
         onOpenDrilldown: () => {
-          void openDrilldown("pipeline_member_inquiry");
+          void openDrilldown(metricName);
         },
-      })
-    : unavailablePipelineMetric(
-        "pipeline_member_inquiry",
-        metricsStatus === "unavailable"
-          ? (metricsLoadError ?? metricsUnavailableReason)
-          : "Loading registered metrics…",
-      );
+      }),
+      summary,
+    };
+  }
 
-  const opportunitiesMetric = unavailableOpportunitiesMetric();
+  const opportunities = registeredMetric(OPPORTUNITIES_METRIC_NAME, (reason) =>
+    unavailableOpportunitiesMetric(reason),
+  );
+  const memberInquiry = registeredMetric(MEMBER_INQUIRY_METRIC_NAME, (reason) =>
+    unavailablePipelineMetric(MEMBER_INQUIRY_METRIC_NAME, reason),
+  );
+
+  /** The card caption: the register's own definition, or why there is none. */
+  function caption(summary: MetricSummary | undefined, fallbackName: string): string {
+    if (!summary) {
+      return `Registered metric \`${fallbackName}\` — ${unavailableReason}`;
+    }
+    if (summary.value === null) {
+      return summary.unknown_reason ?? summary.definition;
+    }
+    return summary.definition;
+  }
 
   const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
+  const calendarProvenance = calendarAvailable ? demoProvenance : ("synthetic" as const);
   const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+
+  const coveredCalendarCount = calendarEvents.filter(
+    (event) => event.coverage_status === "covered",
+  ).length;
+  const openCalendarCount = calendarEvents.filter(
+    (event) => event.coverage_status !== "covered",
+  ).length;
+
+  const upcomingEventsMetric = accountableDemoMetric(
+    "Upcoming events",
+    "Scheduled windows returned by the calendar feed for this dataset.",
+    calendarAvailable ? calendarEvents.length : null,
+    {
+      provenance: calendarProvenance,
+      unknownReason: "The calendar feed is unavailable, so the number of windows is unknown.",
+    },
+  );
+  const coveredEventsMetric = accountableDemoMetric(
+    "Covered events",
+    "Calendar windows the feed reports as covered.",
+    calendarAvailable ? coveredCalendarCount : null,
+    {
+      provenance: calendarProvenance,
+      unknownReason: "The calendar feed is unavailable, so coverage is unknown.",
+    },
+  );
+  const openEventsMetric = accountableDemoMetric(
+    "Open events",
+    "Calendar windows the feed reports as not yet covered.",
+    calendarAvailable ? openCalendarCount : null,
+    {
+      provenance: calendarProvenance,
+      unknownReason: "The calendar feed is unavailable, so open windows are unknown.",
+    },
+  );
+  const coverageRateMetric = accountableDemoMetric(
+    "Coverage rate",
+    "Covered calendar windows divided by all calendar windows.",
+    calendarAvailable && calendarEvents.length > 0
+      ? coveredCalendarCount / calendarEvents.length
+      : null,
+    {
+      provenance: calendarProvenance,
+      unknownReason:
+        calendarAvailable && calendarEvents.length === 0
+          ? "No calendar windows yet, so there is no denominator for a coverage rate."
+          : "The calendar feed is unavailable, so the coverage rate is unknown.",
+    },
+  );
 
   const knownFatigueAssignments = calendarAssignments
     .map((assignment) => assignment.volunteer_fatigue)
@@ -469,7 +495,8 @@ export function Dashboard() {
     "Average volunteer fatigue",
     "Mean fatigue score from calendar assignment overlays.",
     assignmentsAvailable && knownFatigueAssignments.length > 0
-      ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) / knownFatigueAssignments.length
+      ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) /
+          knownFatigueAssignments.length
       : null,
     {
       provenance: assignmentProvenance,
@@ -494,14 +521,12 @@ export function Dashboard() {
       unknownReason: "Assignment overlays are unavailable.",
     },
   );
+
   const feedbackRowsMetric = accountableDemoMetric(
     "Feedback rows",
     "Coordinator accept/decline submissions captured for matcher tuning.",
     feedbackAvailable ? feedbackStats.total_feedback : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason: "Feedback optimizer stats are unavailable.",
-    },
+    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackAcceptanceMetric = accountableDemoMetric(
     "Feedback acceptance rate",
@@ -513,7 +538,7 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet."
+          ? "No coordinator feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -521,10 +546,7 @@ export function Dashboard() {
     "Matcher pain score",
     "How much correction pressure the matcher is under from recent feedback.",
     feedbackAvailable ? feedbackStats.pain_score : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason: "Feedback optimizer stats are unavailable.",
-    },
+    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackMembershipMetric = accountableDemoMetric(
     "Membership interest rate",
@@ -536,46 +558,32 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet."
+          ? "No coordinator feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
 
-  const funnelData = stageCounts(pipeline);
-  const eventVolume = matchVolume(pipeline);
   const reachTrend = calendarReach(calendarEvents);
-  const memberInquiryDemoCount =
-    funnelData.find((stage) => stage.name === "Member Inquiry")?.value ?? 0;
-  const uniqueMatchedSpeakers = new Set(pipeline.map((record) => record.speaker_name)).size;
-  const utilization = specialists.length
-    ? Math.round((uniqueMatchedSpeakers / specialists.length) * 100)
-    : 0;
-  const coveredCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status === "covered",
-  ).length;
-  const openCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status !== "covered",
-  ).length;
-  const leadAdjustment = feedbackAvailable ? feedbackStats.recommended_adjustments[0] ?? null : null;
-  const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments, pipeline);
+  const leadAdjustment = feedbackAvailable
+    ? (feedbackStats.recommended_adjustments[0] ?? null)
+    : null;
+  const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments);
   const regionNeedingCoverage =
     regionalPulse
       .filter((row) => row.openCount > 0)
-      .sort((left, right) => right.openCount - left.openCount || right.eventCount - left.eventCount)[0] ??
-    null;
+      .sort(
+        (left, right) => right.openCount - left.openCount || right.eventCount - left.eventCount,
+      )[0] ?? null;
   const strongestCoverageRegion =
     regionalPulse
-      .filter((row) => row.eventCount > 0)
+      .filter((row) => row.eventCount > 0 && row.coveragePercent !== null)
       .sort(
         (left, right) =>
-          right.coveragePercent - left.coveragePercent ||
+          (right.coveragePercent ?? 0) - (left.coveragePercent ?? 0) ||
           right.uniqueVolunteers - left.uniqueVolunteers,
       )[0] ?? null;
-  const hottestInquiryRegion =
-    regionalPulse
-      .filter((row) => row.memberInquiryCount > 0)
-      .sort((left, right) => right.memberInquiryCount - left.memberInquiryCount)[0] ?? null;
 
+  const memberInquirySummary = memberInquiry.summary;
   const discoveryFeed = [
     {
       icon: BellRing,
@@ -587,33 +595,37 @@ export function Dashboard() {
       icon: MapPinned,
       title: regionNeedingCoverage
         ? `${regionNeedingCoverage.region} has ${regionNeedingCoverage.openCount} uncovered window${regionNeedingCoverage.openCount === 1 ? "" : "s"}`
-        : `${calendarEvents.length} calendar windows are currently covered`,
+        : calendarAvailable
+          ? "No region currently reports an uncovered window"
+          : "Regional coverage is unknown while the calendar feed is unavailable",
       detail: regionNeedingCoverage
         ? `${regionNeedingCoverage.assignmentCount} assignment overlays are attached across ${regionNeedingCoverage.eventCount} scheduled windows in that region.`
-        : "Every scheduled calendar window currently has covered status in the live feed.",
+        : calendarAvailable
+          ? "Every scheduled calendar window in the current feed has covered status."
+          : "Coverage notes return once the calendar feed answers.",
       stamp: "Coverage",
     },
     {
       icon: Activity,
       title:
-        memberInquirySummary?.value !== null && memberInquirySummary?.value !== undefined
-          ? `${memberInquirySummary.value} records reached member inquiry (registered metric)`
-          : "Pipeline funnel metrics load from the register when authenticated",
+        memberInquirySummary && memberInquirySummary.value !== null
+          ? `${memberInquirySummary.value.toLocaleString("en-US")} records reached member inquiry (registered metric)`
+          : "Member inquiry is unknown, not zero",
       detail:
         memberInquirySummary?.unknown_reason ??
-        `${memberInquiryDemoCount} demo pipeline rows are at member inquiry until S12 persistence lands.`,
+        memberInquirySummary?.definition ??
+        `Registered metric \`${MEMBER_INQUIRY_METRIC_NAME}\` — ${unavailableReason}`,
       stamp: "Pipeline",
     },
     {
       icon: ShieldCheck,
-      title: strongestCoverageRegion
-        ? `${strongestCoverageRegion.region} is at ${strongestCoverageRegion.coveragePercent}% covered`
-        : "Regional coverage is waiting on live calendar data",
-      detail: hottestInquiryRegion
-        ? `${hottestInquiryRegion.memberInquiryCount} member inquiry record${hottestInquiryRegion.memberInquiryCount === 1 ? "" : "s"} are currently attributed to ${hottestInquiryRegion.region}.`
-        : strongestCoverageRegion
-          ? `${strongestCoverageRegion.uniqueVolunteers} volunteer${strongestCoverageRegion.uniqueVolunteers === 1 ? "" : "s"} are attached to that region's current windows.`
-          : "The dashboard will populate regional coverage notes once calendar and pipeline data are available.",
+      title:
+        strongestCoverageRegion && strongestCoverageRegion.coveragePercent !== null
+          ? `${strongestCoverageRegion.region} is at ${strongestCoverageRegion.coveragePercent}% covered`
+          : "Regional coverage is waiting on live calendar data",
+      detail: strongestCoverageRegion
+        ? `${strongestCoverageRegion.uniqueVolunteers} volunteer${strongestCoverageRegion.uniqueVolunteers === 1 ? "" : "s"} are attached to that region's current windows.`
+        : "The dashboard populates regional coverage notes once calendar and overlay data are available.",
       stamp: "Regional watch",
     },
   ];
@@ -622,8 +634,8 @@ export function Dashboard() {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="h-10 w-48 animate-pulse rounded bg-gray-200" />
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }, (_, index) => (
             <div
               key={index}
               className="h-36 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-sm"
@@ -635,26 +647,44 @@ export function Dashboard() {
     );
   }
 
+  const header = (
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="text-3xl font-semibold text-gray-900">
+          Dashboard{isMockData && <DemoModeBadge />}
+        </h1>
+        <p className="mt-1 text-gray-600">
+          Opportunity and pipeline numbers come from the registered metrics API; coverage and
+          feedback sections report what their own feed returned.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setReloadToken((token) => token + 1)}
+          aria-label="Reload dashboard data"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </Button>
+        <button
+          type="button"
+          onClick={handleLogout}
+          aria-label="Log out and return to portal login"
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
+        >
+          <LogOut className="h-4 w-4" aria-hidden />
+          Log out
+        </button>
+      </div>
+    </div>
+  );
+
   if (loadFailed) {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
-            <p className="mt-1 text-gray-600">
-              Live summary of the specialist roster, pipeline movement, and registered metrics.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            aria-label="Log out and return to portal login"
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
-          >
-            <LogOut className="h-4 w-4" aria-hidden />
-            Log out
-          </button>
-        </div>
+        {header}
         <FailureState
           title="The dashboard could not be loaded"
           message={error ?? "Failed to load dashboard data."}
@@ -666,25 +696,20 @@ export function Dashboard() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold text-gray-900">
-            Dashboard{isMockData && <DemoModeBadge />}
-          </h1>
-          <p className="mt-1 text-gray-600">
-            Live summary of the specialist roster, pipeline movement, and registered metrics.
+      {header}
+
+      {metricsStatus === "unavailable" ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+          <p className="text-sm font-semibold text-amber-900">
+            Registered metrics could not be read
+          </p>
+          <p className="mt-1 text-sm text-amber-800">{unavailableReason}</p>
+          <p className="mt-2 text-sm text-amber-800">
+            Opportunity and pipeline values stay unknown. Unknown is not zero, and this dashboard
+            will not fall back to a locally merged number.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          aria-label="Log out and return to portal login"
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
-        >
-          <LogOut className="h-4 w-4" aria-hidden />
-          Log out
-        </button>
-      </div>
+      ) : null}
 
       {error ? (
         <FailureState
@@ -694,43 +719,56 @@ export function Dashboard() {
         />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard
           title="Opportunities"
-          value={<AccountableValue metric={opportunitiesMetric} />}
-          change={OPPORTUNITIES_UNKNOWN_REASON}
+          value={
+            <AccountableValue
+              metric={opportunities.metric}
+              formatNumber={(value) => value.toLocaleString("en-US")}
+            />
+          }
+          change={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
           changeType="neutral"
           icon={Briefcase}
           iconColor="bg-[#e6effb] text-[#005394]"
-          href="/opportunities"
         />
         <MetricCard
-          title="Volunteer Utilization"
-          value={`${utilization}%`}
-          change={`${uniqueMatchedSpeakers} specialists in pipeline`}
-          changeType="positive"
-          icon={Users}
+          title="Member Inquiry"
+          value={
+            <AccountableValue
+              metric={memberInquiry.metric}
+              formatNumber={(value) => value.toLocaleString("en-US")}
+            />
+          }
+          change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
+          changeType="neutral"
+          icon={TrendingUp}
           iconColor="bg-[#e6effb] text-[#005394]"
-          href="/volunteers"
         />
         <MetricCard
           title="Upcoming Events"
-          value={calendarEvents.length}
+          value={
+            <AccountableValue
+              metric={upcomingEventsMetric}
+              formatNumber={(value) => value.toLocaleString("en-US")}
+            />
+          }
           change="Calendar dataset"
           changeType="neutral"
           icon={CalendarDays}
           iconColor="bg-[#e6effb] text-[#005394]"
           href="/calendar"
         />
-        <MetricCard
-          title="Member Inquiry"
-          value={<AccountableValue metric={memberInquiryMetric} />}
-          change={memberInquirySummary?.definition ?? "Registered pipeline_member_inquiry metric"}
-          changeType="positive"
-          icon={TrendingUp}
-          iconColor="bg-[#e6effb] text-[#005394]"
-          href="/pipeline"
-        />
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-lg font-semibold text-gray-900">Pipeline funnel</h2>
+        <PipelineFunnelTiles reloadToken={reloadToken} />
+        <p className="mt-3 text-sm text-gray-600">
+          These are the same registered names the Pipeline page subscribes to, so the two surfaces
+          cannot show different numbers for the same metric.
+        </p>
       </div>
 
       <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
@@ -744,7 +782,10 @@ export function Dashboard() {
               </p>
             </div>
           </div>
-          <Link to="/calendar" className="shrink-0 text-xs font-medium text-[#005394] hover:underline">
+          <Link
+            to="/calendar"
+            className="shrink-0 text-xs font-medium text-[#005394] hover:underline"
+          >
             View calendar →
           </Link>
         </div>
@@ -752,16 +793,27 @@ export function Dashboard() {
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Covered Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{coveredCalendarCount}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue
+                metric={coveredEventsMetric}
+                formatNumber={(value) => value.toLocaleString("en-US")}
+              />
+            </p>
             <p className="mt-1 text-sm text-gray-600">
-              {calendarEvents.length
-                ? `${Math.round((coveredCalendarCount / calendarEvents.length) * 100)}% covered`
-                : "No calendar events yet"}
+              <AccountableValue
+                metric={coverageRateMetric}
+                formatNumber={(value) => `${Math.round(value * 100)}% covered`}
+              />
             </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Open Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">{openCalendarCount}</p>
+            <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <AccountableValue
+                metric={openEventsMetric}
+                formatNumber={(value) => value.toLocaleString("en-US")}
+              />
+            </p>
             <p className="mt-1 text-sm text-gray-600">Still need volunteer coverage</p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
@@ -791,7 +843,7 @@ export function Dashboard() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Matching Algorithm Feedback</h3>
               <p className="text-sm text-gray-600">
-                Coordinator feedback now drives a bounded weight snapshot and pain-score trend.
+                Coordinator feedback drives a bounded weight snapshot and pain-score trend.
               </p>
             </div>
           </div>
@@ -818,7 +870,9 @@ export function Dashboard() {
               />
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable && feedbackStats.accepted !== null && feedbackStats.declined !== null
+              {feedbackAvailable &&
+              feedbackStats.accepted !== null &&
+              feedbackStats.declined !== null
                 ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
                 : "Coordinator feedback breakdown unavailable."}
             </p>
@@ -831,7 +885,9 @@ export function Dashboard() {
                 formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
               />
             </p>
-            <p className="mt-1 text-sm text-gray-600">A lower score indicates a healthier matching loop.</p>
+            <p className="mt-1 text-sm text-gray-600">
+              A lower score indicates a healthier matching loop.
+            </p>
           </div>
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
@@ -850,12 +906,18 @@ export function Dashboard() {
           <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
             <p className="mt-2 text-lg font-semibold text-gray-900">
-              {leadAdjustment ? formatFactorName(leadAdjustment.factor) : feedbackAvailable ? "No adjustment yet" : "Unknown"}
+              {leadAdjustment
+                ? formatFactorName(leadAdjustment.factor)
+                : feedbackAvailable
+                  ? "No adjustment yet"
+                  : "Unknown"}
             </p>
             <p className="mt-1 text-sm text-gray-600">
               {leadAdjustment
                 ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
-                : "Collect more coordinator outcomes to unlock recommendations."}
+                : feedbackAvailable
+                  ? "Collect more coordinator outcomes to unlock recommendations."
+                  : "Feedback optimizer stats are unavailable."}
             </p>
           </div>
         </div>
@@ -943,7 +1005,7 @@ export function Dashboard() {
                 Coordinator coverage pulse
               </h3>
               <p className="mt-1 text-sm text-gray-600">
-                Live rollup built from calendar coverage, assignment overlays, and pipeline follow-through.
+                Rollup of calendar coverage and assignment overlays from the same feed.
               </p>
             </div>
           </div>
@@ -961,19 +1023,23 @@ export function Dashboard() {
                       <p className="mt-1 text-sm text-gray-600">{region.detail}</p>
                     </div>
                     <span className="rounded-full border border-[#d5e0f7] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005394]">
-                      {region.coveragePercent}% covered
+                      {region.coveragePercent === null
+                        ? "Coverage unknown"
+                        : `${region.coveragePercent}% covered`}
                     </span>
                   </div>
 
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#5a6472]">
                       <span>Coverage</span>
-                      <span>{region.coveredCount}/{region.eventCount || 0} windows</span>
+                      <span>
+                        {region.coveredCount}/{region.eventCount} windows
+                      </span>
                     </div>
                     <div className="h-2 rounded-full bg-white/80">
                       <div
                         className="h-2 rounded-full bg-[#005394]"
-                        style={{ width: `${region.coveragePercent}%` }}
+                        style={{ width: `${region.coveragePercent ?? 0}%` }}
                       />
                     </div>
                   </div>
@@ -1006,7 +1072,9 @@ export function Dashboard() {
                         Member inquiry
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.memberInquiryCount}
+                        <MetricValueDisplay
+                          value={unknownValue(REGION_MEMBER_INQUIRY_UNKNOWN_REASON)}
+                        />
                       </p>
                     </div>
                   </div>
@@ -1014,7 +1082,8 @@ export function Dashboard() {
               ))
             ) : (
               <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600 lg:col-span-2">
-                Regional coverage summaries will appear once live calendar and overlay data are available.
+                Regional coverage summaries appear once live calendar and overlay data are
+                available.
               </div>
             )}
           </div>
@@ -1059,98 +1128,52 @@ export function Dashboard() {
         </div>
       </div>
 
-      <PipelineFunnelTiles reloadToken={reloadToken} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Pipeline Funnel (demo rows)</h3>
-            <Link to="/pipeline" className="text-xs font-medium text-[#005394] hover:underline">
-              View pipeline →
-            </Link>
-          </div>
-          <p className="mb-4 text-xs text-gray-600">
-            Chart below uses legacy /api pipeline rows for layout only. KPI tiles above use the
-            registered metrics API and show Unknown until S12 persistence exists.
-          </p>
-          <ResponsiveContainer width="100%" height={300}>
-            <FunnelChart>
-              <Tooltip />
-              <Funnel dataKey="value" data={funnelData}>
-                <LabelList position="right" fill="#1f2937" stroke="none" dataKey="name" />
-              </Funnel>
-            </FunnelChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">Match Volume by Event</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={eventVolume}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-              <XAxis dataKey="event" tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <YAxis allowDecimals={false} tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="matches" fill="#2b6cb0" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
       <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Calendar Reach Trend</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={reachTrend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-            <XAxis dataKey="month" tick={{ fill: "#5a6472", fontSize: 12 }} />
-            <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="windows"
-              stroke="#005394"
-              strokeWidth={3}
-              name="IA windows"
-            />
-            <Line
-              type="monotone"
-              dataKey="covered"
-              stroke="#56a4e4"
-              strokeWidth={3}
-              name="Covered windows"
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        {reachTrend.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600">
+            No calendar windows in the current feed, so there is no reach trend to plot.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={reachTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
+              <XAxis dataKey="month" tick={{ fill: "#5a6472", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
+              <Tooltip />
+              <Line
+                type="monotone"
+                dataKey="windows"
+                stroke="#005394"
+                strokeWidth={3}
+                name="IA windows"
+              />
+              <Line
+                type="monotone"
+                dataKey="covered"
+                stroke="#56a4e4"
+                strokeWidth={3}
+                name="Covered windows"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-[#005394]" />
-            <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
-          </div>
-          <Link
-            to="/ai-matching"
-            className="flex items-center gap-1 text-sm font-medium text-[#005394] transition-colors hover:text-[#00477f]"
-          >
-            View All
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+        <div className="mb-6 flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-[#005394]" />
+          <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
-            <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
-            <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
-            <p className="mt-2 text-sm leading-6">
-              Ranked recommendations and match scores stay off this dashboard until gate G1 closes.
-            </p>
-          </div>
+        <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
+          <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
+          <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
+          <p className="mt-2 text-sm leading-6">
+            Ranked recommendations and match scores stay off this dashboard until gate G1 closes.
+          </p>
         </div>
       </div>
-
-      {/* Web Crawler Live Feed */}
-      <CrawlerFeed />
 
       <MetricDrilldownSheet
         open={drilldownOpen}

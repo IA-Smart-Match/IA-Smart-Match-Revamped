@@ -1,10 +1,23 @@
 /**
  * Presents the rows behind one accountable metric without surfacing row payloads.
+ *
+ * Enforces ADR-0011 rule 4 on the client: the rows shown here must reconcile
+ * with the aggregate the sheet was opened from — clicked N lists exactly N
+ * rows, and an unknown aggregate corresponds to an empty row set. The check is
+ * `assertDrilldownMatchesAggregate`, which until P8 card O4 fix round 3 was an
+ * exported helper nothing called: the sheet rendered whatever rows came back
+ * and the invariant was enforced only server-side in
+ * `tests/contract/test_metrics.py`. A dead helper that looks like enforcement
+ * is the same class of defect as a fabricated number.
+ *
+ * On mismatch the sheet refuses to render the rows and says so. A visible
+ * failure is deliberate: silently showing a row set that disagrees with the
+ * number the user clicked is the wrong answer delivered confidently.
  */
 import * as React from "react";
 
 import type { MetricDrillDownResponse } from "@/lib/api";
-import { drilldownRowPreview } from "@/lib/metrics";
+import { assertDrilldownMatchesAggregate, drilldownRowPreview } from "@/lib/metrics";
 import {
   Sheet,
   SheetContent,
@@ -30,10 +43,18 @@ export function MetricDrilldownSheet({
   drilldown,
   error,
 }: MetricDrilldownSheetProps): React.JSX.Element {
+  const aggregateIsUnknown =
+    drilldown === null || drilldown.aggregate_value === null;
   const aggregateValue =
-    drilldown?.aggregate_value === null || drilldown?.aggregate_value === undefined
+    drilldown === null || drilldown.aggregate_value === null
       ? unknownValue(drilldown?.unknown_reason ?? "This metric has no measured rows.")
       : knownValue(drilldown.aggregate_value);
+
+  // ADR-0011 rule 4. Only meaningful once a payload has actually arrived, so
+  // it is not evaluated while loading or when the request already failed.
+  const reconciles =
+    !loading && drilldown && !error ? assertDrilldownMatchesAggregate(drilldown) : true;
+  const rowsAreShowable = !loading && drilldown !== null && !error && reconciles;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -65,13 +86,37 @@ export function MetricDrilldownSheet({
             </p>
           ) : null}
 
-          {!loading && drilldown && drilldown.rows.length === 0 ? (
+          {!loading && drilldown && !error && !reconciles ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900"
+            >
+              <p className="font-semibold">
+                This drill-down does not reconcile with its aggregate
+              </p>
+              <p className="mt-1">
+                {aggregateIsUnknown
+                  ? `The aggregate is unknown, which under ADR-0011 rule 4 must correspond to an empty row set, but ${drilldown.rows.length} row${drilldown.rows.length === 1 ? " was" : "s were"} returned.`
+                  : `The aggregate is ${drilldown.aggregate_value}, but ${drilldown.rows.length} row${drilldown.rows.length === 1 ? "" : "s"} came back.`}
+              </p>
+              <p className="mt-2">
+                The rows are withheld rather than shown, because a row set that
+                disagrees with the number you clicked cannot both be right. Report
+                this — the aggregate and its drill-down are meant to be the same
+                query.
+              </p>
+            </div>
+          ) : null}
+
+          {rowsAreShowable && drilldown.rows.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-              No rows are available for this metric yet.
+              {aggregateIsUnknown
+                ? "This metric is unknown, so there is no row set to list. An unknown aggregate is not a measured zero."
+                : "No rows: this metric measured zero."}
             </p>
           ) : null}
 
-          {!loading && drilldown && drilldown.rows.length > 0 ? (
+          {rowsAreShowable && drilldown.rows.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>

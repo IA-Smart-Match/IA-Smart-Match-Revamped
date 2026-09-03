@@ -36,6 +36,19 @@ records the interim position taken while the block stands.
 
 ---
 
+## 2026-09-03 decision records
+
+| Artifact | Status | Topic |
+|---|---|---|
+| [`synthetic-pilot-development-authorization-2026-09-03.md`](synthetic-pilot-development-authorization-2026-09-03.md) | RATIFIED | Synthetic pilot scope, D5 dev retention, F-25, F5 |
+| [`r3-signing-decisions-2026-09-03.md`](r3-signing-decisions-2026-09-03.md) | RATIFIED | R3 T-19, T-27–T-29, T-04, C-1 vs T-14, T-23 |
+| [`f5-deploy-target-note-2026-09-03.md`](f5-deploy-target-note-2026-09-03.md) | Decision note | Classroom vs `dev` deploy target |
+| [`a1b-gcp-console-guide.md`](a1b-gcp-console-guide.md) | In progress | A1b IdP console steps (worksheet Part 1 outstanding) |
+| [`../architecture/v1.1-pin-record.md`](../architecture/v1.1-pin-record.md) | PINNED BY REFERENCE | CP-V11 architecture v1.1 pin |
+| [`../plans/workshops/g1-workshop-output-worksheet.md`](../plans/workshops/g1-workshop-output-worksheet.md) | RATIFIED | G1 / D1 factor registry closure |
+
+---
+
 ## Q1 — CLOSED (handling decided; nothing erased)
 
 **Decision: the archived legacy repository stays read-only reference material.**
@@ -72,31 +85,98 @@ Consequences that follow directly:
 
 | # | Item | Interim position | Still required from IA West |
 |---|---|---|---|
-| **D1** | Factor registry contents and golden case set (gate G1) | No substantive registry is approved here. Recorded as interim-owned so it has an owner at all; scoring continues to fail closed until a registry is actually approved. | Approval of registry contents and golden cases. This remains the longest pole, and all matching work waits on it. |
+| **D1** | Factor registry contents and golden case set (gate G1) | **CLOSED 2026-09-03** — see worksheet + `REGISTRY_STATUS = "approved"`. M2 implements factors. | IA West review (parallel). |
 | **D2** | ELI formula parameters (decay half-life, window, caps) | The parameters implemented today stand as the tentative values. The open sub-question — whether committed future engagements count toward load — stays open; current behaviour refuses them explicitly rather than dropping them silently. | Confirmation or replacement of the parameters. |
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
 | **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
-| **D6** | Rewards budget owner | Tentatively: the **coordinator role** administers reward availability in the product, under the governance rules in D7 below. This assigns an *operational* administrator inside the pilot; it does **not** name a budget holder, and no budget exists. **31 Aug 2026 session-recorded working direction (RECORDED — GATE INCOMPLETE, see the D6 section below):** Danny Tran named; IA West Coordinator is the intended operational administrator; $5,000 is a placeholder ceiling. | A named human budget owner. Without one, the rewards catalog is not shippable. |
+| **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@dangt) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
 | **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
 | **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
 
 ---
 
+## D1 — G1 factor-registry workshop record — **CLOSED 2026-09-03**
+
+**Ratification status:** **CLOSED.** Danny Tran (@dangt) ratified
+`docs/plans/workshops/g1-workshop-output-worksheet.md` per Dr. Wang program
+direction.
+
+| Artifact | State |
+|---|---|
+| `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.0-approved-g1"` |
+| `assert_registry_approved()` | succeeds |
+| `test_registry_is_approved_after_g1` | passes |
+| Match scoring in API/UI | **M2+** — registry approved; implementations and routes pending |
+
+**Approved scoring factors:** `topic_relevance` (0.70), `travel_burden` (0.30).
+**Stage A:** `availability` after shortlist. **Presentation:** 2–3 speakers, no %.
+
+---
+
+## D1 — historical template (superseded by closure above)
+
+**Ratification status:** **SUPERSEDED** — see closure record above.
+
+**Prepared inputs to be reviewed and ratified in the workshop:**
+
+- [`../plans/workshops/g1-workshop-output-worksheet.md`](../plans/workshops/g1-workshop-output-worksheet.md)
+  — the unfilled decision worksheet, one row per item the packet requires.
+- `tests/golden/matching/g1-draft-factor-set.proposed.json` — machine-readable
+  draft factor list and proposed weights, every decision field `PENDING`/`null`,
+  each row carrying its packet source line.
+- `tests/golden/matching/symptoms/G1-GC-004..008` — draft input-only fixtures:
+  reproducing inputs for the exact-tie symptom, and two ADR-0011 discriminating
+  pairs (absent data vs. measured-empty data) for the two zero symptoms. All
+  synthetic. None carries `zero_classification`, and none carries expected
+  scores.
+
+**Decision fields — TO BE FILLED BY THE RATIFIER, NOT BY ENGINEERING:**
+
+| Field | Packet requirement | Recorded decision |
+|---|---|---|
+| Surviving factor keys | packet lines 42–50 | *(blank — not decided)* |
+| Final Stage B weights (sum 1.0 over implemented scoring factors) | packet line 100 | *(blank — not decided)* |
+| Q6 `historical_conversion` | packet line 61 | *(blank — not decided)* |
+| Q6 `student_interest` | packet line 62 | *(blank — not decided)* |
+| Tie-break rule for the 43% tie | packet line 74 | *(blank — not decided)* |
+| `zero_classification` for topic-relevance zero | packet line 75 | *(blank — not decided)* |
+| `zero_classification` for match-depth zero | packet line 76 | *(blank — not decided)* |
+| Who may change approved weights after G1 | packet line 87 | *(blank — not decided)* |
+| Shadow-mode (MM-005) gate on weight changes | packet line 88 | *(blank — not decided)* |
+| Registry version pinning for `match_run` (M8) | packet line 89 | *(blank — not decided)* |
+| Named owner for ongoing weight governance | packet line 103 | *(blank — not decided)* |
+
+**Sign-off — UNSIGNED:**
+
+- Ratified by: ____________________ (must be Danny Tran, @dangt)
+- Date: ____________
+- Commit recording ratification: ____________
+
+Until that block is signed and the fields above are filled, the D1 row in the
+table remains open, scoring remains fail-closed, and the M1 sequence — flipping
+`REGISTRY_STATUS` to `"approved"`, inverting `test_registry_is_not_yet_approved`,
+landing scored golden cases — is **not authorized**. Preparing these artifacts
+does not authorize it and must not be cited as if it did.
+
+---
+
 ## D6 — session-recorded working direction (31 August 2026)
 
-**Ratification status:** **RECORDED — GATE INCOMPLETE.** Session approver
-Danny Tran (`dt110202@gmail.com`) formally recorded a working direction for
-D6 — see `docs/decisions/2026-08-31-session-ratification.md`. **This is not
-proof of institutional budget ownership, currency, funding, an active
-ceiling, or authority to spend.** D7 remains tentative, exactly as recorded
-below.
+**Ratification status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran
+(@dangt) named as institutional budget owner. $5,000 placeholder ceiling
+ratified pending institutional funding confirmation. IA West Coordinator
+remains operational administrator. D7 remains tentative.
 
-The working direction: Danny Tran (`dt110202@gmail.com`) was named in the
-handoff; the **IA West Coordinator** is the intended **operational
-administrator**; and **$5,000** was stated as a **placeholder** ceiling while
-the funding model is confirmed.
+**Formal record:** the working direction below is formalized in
+[`d6-rewards-budget-decision-record.md`](d6-rewards-budget-decision-record.md),
+following the same structure as the closed P8/P9 Gate A records. Deliverable
+2 of that slice (V6) — schema/append-only verification of the rewards tables
+already authorized by migration `0009` — is recorded in
+[`../testing/d6-p7-rewards-schema-verification.md`](../testing/d6-p7-rewards-schema-verification.md),
+including a database append-only gap on `point_ledger_entry` found and
+reported, not closed, under that record's boundary.
 
 **Fields this direction does not resolve** (blocked pending a formal design):
 currency; institutional budget ownership; funded balance; budget lifecycle
@@ -221,12 +301,15 @@ the reverse.
 
 ---
 
-## D-0 and the frontend decisions D-1..D-11 — deferred
+## D-0 and the frontend decisions D-1..D-11 — split scope (2026-09-03)
 
-**D-0 (assign a `DESIGN.md` owner) is deferred, not decided.**
-[`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) **stays unresolved** —
-Part 2's eleven open decisions (D-1..D-11) remain open, and this document does
-not answer any of them. They wait on the UI team.
+**D-0 (assign a `DESIGN.md` owner) is partially closed for legacy-only work.**
+Danny Tran (@dangt) is named owner in
+[`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) for **legacy frontend**
+engineering (synthetic pilot: metrics truthfulness, discovery feed, events
+calendar). **New product UI** under `apps/web/` stays blocked until Part 2's
+eleven open decisions (D-1..D-11) are ratified. This document does not answer
+any of D-1..D-11.
 
 Nothing in this file, and nothing in
 [`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), closes
@@ -257,7 +340,7 @@ control, not a commitment to a date.
 
 | Phase | What it covers | State in code |
 |---|---|---|
-| Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Blocked on D1 / gate G1. |
+| Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Registry approved (D1 / G1 closed 2026-09-03); M2 implements factors. |
 | Rewards | Catalog, point ledger, redemption, fulfilment tickets | Not implemented. |
 | Consent | Disclosure records, consent recheck, revocation | Not implemented. |
 | Gmail / Calendar | Outreach send, delivery status, meeting proposals, calendar sync | Not implemented. No provider is connected. |

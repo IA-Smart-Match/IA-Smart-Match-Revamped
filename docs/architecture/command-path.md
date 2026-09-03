@@ -173,11 +173,18 @@ failed *claim* aborts a pass, and janitorial work on yesterday's wreckage must
 not cost today's rows their dispatch. A failure is logged and `reclaimed` stays
 zero.
 
-**It rides `run_once` rather than being scheduled**, because nothing here runs on
-a timer yet (backlog J8) and a standalone sweeper would be dead code. The
-coupling that leaves is real: a dispatcher that is not running is exactly the
+**It rides `run_once` rather than being scheduled separately**, and J8 made that
+deliberate rather than incidental. `ScheduledPass`
+(`services/worker/smartmatch_worker/dispatcher.py`) calls `run_once` and nothing
+narrower, so no configuration of the pass can schedule dispatch without also
+scheduling the reclaim — there is nothing else to call. The coupling that leaves
+is real and is the reason: a dispatcher that is not running is exactly the
 condition that strands rows, and is then also the condition under which nothing
-reclaims them. That is a constraint on J8's design, recorded there.
+reclaims them. What drives the pass is `POST /operations/dispatch`, verified
+against Cloud Scheduler's own audience and allowlist. Because a schedule that
+stops silently fails twice over, the alert on it fires on the *absence* of the
+pass's heartbeat log line rather than on lag, which a stalled dispatcher never
+samples at all; the design is in `docs/operations/deploy-runbook.md`.
 
 **What changed in Wave B (`2564d33`):** exhausting `MAX_DISPATCH_ATTEMPTS` used
 to leave the outbox row `failed` and the job `queued` — a state nothing would
@@ -243,15 +250,25 @@ redeliver it and no route from `queued` to `redrive_pending` — the job was
 lost silently. It now answers `503` with `Retry-After`, so Cloud Tasks retries
 into a window that is at most one transaction wide.
 
-**What does not survive, named rather than hidden.** A worker that dies
-*after* `claim` commits and *before* the terminal transition commits leaves the
-job `running` with no worker behind it. Nothing in this diagram recovers that
-job: the SSE stream shows progress that will never arrive, and there is no
-operations view listing it as stuck. Recovering it needs a lease on the job row
-(`job.lease_expires_at`) and a sweeper that reclaims an expired one. The column
-and its index landed in migration `0004`; nothing writes or reads them yet, so
-the gap is still open (backlog item J9). This is the one gap `execution.py`'s own module docstring
-names explicitly rather than leaving implicit.
+**A worker that dies mid-execution, and what now recovers it (J9).** A worker
+that dies *after* `claim` commits and *before* the terminal transition commits
+leaves the job `running` with no worker behind it — invisible work, whose only
+symptom is an SSE stream showing progress that will never arrive. The recovery
+is a lease on the job row. `claim` writes `job.lease_expires_at` in the *same*
+conditional UPDATE that takes `dispatched -> running`, never as a follow-up,
+because a worker that died between two statements is the failure being fixed;
+`TaskExecutor._emit` renews it on each progress event, so the lease bounds
+*silence* rather than duration and a long handler that keeps reporting is never
+swept; every transition out of `running` clears it. `StalledJobSweeper` then
+takes `running -> timed_out` for an expired deadline, writing the `job.timed_out`
+event in the same transaction and carrying the deadline that was missed, because
+the row stops carrying it the moment the sweep commits. A `NULL` lease is skipped
+rather than swept: that is the row a release predating J9 wrote, and terminating
+live work on the strength of a column that release never set would be a defect
+introduced by the fix. The sweep runs as a sibling of the dispatch inside
+`ScheduledPass`, and goes *first* — a database refusing claims is the same
+database whose workers are dying mid-job, so a sweep behind the dispatch would
+never run in exactly the incident that needs it.
 
 **Following the result:** `GET /v1/jobs/{id}/events` streams `job_event` rows
 in order, resumable via `Last-Event-ID` against `job_event.sequence` — a

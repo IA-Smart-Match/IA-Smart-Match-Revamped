@@ -350,3 +350,126 @@ def test_resource_grant_plus_qualifying_membership_is_allowed():
 
     assert decision.allowed
     assert decision.reason == "inherited_unit_grant"
+
+
+# ---------------------------------------------------------------------------
+# Rule 6 — a blank role is not a role
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t", "\n "], ids=["empty", "spaces", "tab", "mixed"])
+def test_a_blank_role_membership_does_not_satisfy_an_operation_with_no_required_roles(
+    blank: str,
+) -> None:
+    """The §4 hole rule 6 closes: "any active membership" is not "with a role".
+
+    The ratified metrics-authorization decision grants aggregate reads to any
+    active unit membership **with a role**. Before rule 6, an operation that
+    names no ``required_roles`` never inspected ``membership.role`` at all —
+    the filter short-circuits on the empty set — so a membership carrying
+    ``role=""`` covering the owning path returned
+    ``allowed=True, reason="inherited_unit_grant"``, and
+    ``require_membership=True`` did not change that: it only withdraws Path 2.
+
+    Not a hypothetical row. ``membership.role`` is ``sa.Text NOT NULL`` with no
+    non-blank ``CHECK``, so a blank-role membership is storable out-of-band.
+    Whitespace counts as blank, because a row of spaces is a blank role that
+    happens to be typed.
+    """
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp", role=blank),),
+    )
+
+    decision = evaluate(principal, _resource(), at=NOW, require_membership=True)
+
+    assert not decision.allowed
+    assert decision.reason == "no_grant"
+
+
+def test_a_blank_role_membership_is_skipped_even_without_require_membership() -> None:
+    """Rule 6 is unconditional, not a rider on ``require_membership``.
+
+    A blank role is not a role under any reading of §4, and making the skip
+    conditional would leave the same permit reachable from any future
+    membership-only operation that forgot the keyword — which is precisely the
+    kind of "declared, not enforced" gap this surface keeps producing.
+    """
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp", role=""),),
+    )
+
+    decision = evaluate(principal, _resource(), at=NOW)
+
+    assert not decision.allowed
+    assert decision.reason == "no_grant"
+
+
+def test_rule_six_is_inert_for_role_gated_operations() -> None:
+    """The blast radius claim, asserted rather than argued.
+
+    A blank role already failed a non-empty ``required_roles`` filter, so an
+    operation that names roles cannot change outcome under rule 6 — and a
+    principal who independently holds a *real* role alongside a blank-role row
+    is still permitted, on the real one.
+    """
+    blank_only = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp", role=""),),
+    )
+    gated = evaluate(
+        blank_only, _resource(), at=NOW, required_roles=frozenset({"admin", "coordinator"})
+    )
+    assert not gated.allowed
+    assert gated.reason == "no_grant"
+
+    also_real = Principal(
+        user_id="u2",
+        tenant_id=TENANT,
+        memberships=(
+            _member("iawest.cpp", role="   "),
+            _member("iawest.cpp", role="coordinator"),
+        ),
+    )
+    permitted = evaluate(also_real, _resource(), at=NOW, require_membership=True)
+    assert permitted.allowed
+    assert permitted.reason == "inherited_unit_grant"
+
+
+def test_a_blank_role_membership_does_not_rescue_a_bare_resource_grant() -> None:
+    """Rules 5 and 6 compose: neither half of an unqualified caller qualifies.
+
+    A principal with a blank-role membership *and* an explicit allow grant is
+    the shape that would most plausibly slip through — Path 1 skips the blank
+    role, and Path 2 must still refuse under ``require_membership=True`` rather
+    than treating the presence of *some* membership row as satisfying it.
+    """
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp", role=""),),
+        resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
+    )
+
+    decision = evaluate(principal, _resource(), at=NOW, require_membership=True)
+
+    assert not decision.allowed
+    assert decision.reason == "resource_grant_lacks_membership"
+
+
+def test_assert_allowed_raises_for_a_blank_role_membership() -> None:
+    """The raising entry point agrees with :func:`evaluate` — routes call this one."""
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp", role=" "),),
+    )
+
+    with pytest.raises(AuthorizationError) as excinfo:
+        assert_allowed(principal, _resource(), at=NOW, require_membership=True)
+
+    assert excinfo.value.decision.reason == "no_grant"

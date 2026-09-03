@@ -41,6 +41,20 @@ half depends on the caller noticing anything:
 Neither statement needs to know whether it is the first attempt or the second;
 both are correct either way, which is what makes this safe to call from a
 handler that cannot itself tell the difference.
+
+## A coordinator's decision is the other write this module makes
+
+``import.create`` is not the only thing that writes ``review_item``.
+Migration ``0013`` adds ``decided_at``/``decided_by`` to the table and
+:meth:`ReviewRepository.decide` is what a coordinator's accept-or-reject
+eventually calls, through ``POST /v1/review-items/{id}/decision``
+(``services/api/smartmatch_api/routers/review.py``). It is a genuinely
+different write from the two above — a single-row ``UPDATE`` guarded by
+``status = 'pending'`` rather than an idempotent bulk insert — but it belongs
+in this module rather than a new one for the same reason ``import_batch`` and
+``review_item`` share this file to begin with: both tables, and every write to
+either of them, are one path (v1.1 §1.5), and a second repository file would
+only be a second place to look for "what may write ``review_item``".
 """
 
 from __future__ import annotations
@@ -57,7 +71,7 @@ from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
 
-__all__ = ["ImportBatchRecord", "ReviewRepository"]
+__all__ = ["ImportBatchRecord", "ReviewDecisionOutcome", "ReviewRepository"]
 
 #: Fixed, not random: this is a *namespace* for deriving a stable id, and a
 #: value that changed on every process start would make every batch id change
@@ -106,6 +120,42 @@ class ImportBatchRecord:
     dry_run: bool
     created_at: datetime
     review_item_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewDecisionOutcome:
+    """What happened when :meth:`ReviewRepository.decide` was asked to record one.
+
+    A router needs to answer three different ways depending on what this
+    carries — 404 (:attr:`exists` is ``False``), 409
+    (:attr:`exists` is ``True`` and :attr:`transitioned` is ``False``), or 200
+    (:attr:`transitioned` is ``True``) — and none of those three is derivable
+    from a bare boolean. See :meth:`ReviewRepository.decide`'s docstring for
+    why a blind ``rowcount`` cannot distinguish the first two on its own.
+
+    Attributes:
+        exists: Whether a ``review_item`` row was found at this
+            ``(tenant_id, id)``. ``False`` makes the other two fields
+            meaningless, and they are left at their defaults rather than
+            populated with values that would look like they mean something.
+        transitioned: Whether *this call* is the one that moved the row out of
+            ``pending``. ``False`` with ``exists=True`` means some earlier
+            call already decided it — never this one, because a second
+            decision on the same row can never itself be the transitioning
+            call by construction (the conditional ``UPDATE`` cannot match a
+            row twice).
+        status: The row's status after this call — ``decision`` on a fresh
+            transition, or whatever an earlier decision already set. ``None``
+            only when ``exists`` is ``False``.
+        decided_at: When the recorded decision was made — this call's own
+            ``decided_at`` on a fresh transition, or the earlier decision's
+            timestamp otherwise. ``None`` only when ``exists`` is ``False``.
+    """
+
+    exists: bool
+    transitioned: bool
+    status: str | None = None
+    decided_at: datetime | None = None
 
 
 class ReviewRepository:
@@ -227,4 +277,114 @@ class ReviewRepository:
             dry_run=row.dry_run,
             created_at=row.created_at,
             review_item_count=item_count,
+        )
+
+    def decide(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        review_item_id: uuid.UUID,
+        decision: str,
+        decided_by: uuid.UUID,
+        decided_at: datetime,
+    ) -> ReviewDecisionOutcome:
+        """Transition one ``pending`` review item to ``accepted`` or ``rejected``.
+
+        One statement, ``WHERE tenant_id = ... AND id = ... AND status =
+        'pending'`` — the conditional ``UPDATE`` ``0008``'s own module docstring
+        proposed for this column under "no version column", the same shape
+        ``JobRepository.claim`` already uses against ``job.status``. A second
+        call against the same row, whatever decision it names, matches nothing:
+        the row is no longer ``pending``, so there is no window in which two
+        concurrent decisions could both believe they were first.
+
+        Does not commit — the caller commits, per this module's own convention
+        (see the class docstring).
+
+        Why a blind zero-row match cannot tell the router what to answer
+        ---------------------------------------------------------------------
+        An ``UPDATE`` whose ``WHERE`` clause matches zero rows is silent about
+        *which* clause failed to match — whether that "zero" is read off
+        ``rowcount`` or, as here, off an empty ``RETURNING`` (``RETURNING`` is
+        used rather than ``rowcount`` for the same typing reason
+        ``OutboxRepository.mark_dispatched`` and ``JobRepository._transition``
+        already give: ``rowcount`` lives on the driver's ``CursorResult``,
+        which ``Session.execute`` is not statically known to return). Either
+        way, a zero-row match is consistent with two entirely different facts
+        on the ground — no ``review_item`` row exists at this
+        ``(tenant_id, id)`` at all (a 404: the caller named something that was
+        never real, or was never real *in this tenant*), or the row exists and
+        is simply no longer ``pending`` (a 409: a decision already landed,
+        possibly the caller's own retried request). Those are different HTTP
+        statuses, so this method does not leave the router to guess between
+        them from one boolean. It reads the row back — only on the path where
+        the ``UPDATE`` matched nothing, so the common case pays for one
+        statement, not two — and returns which of the two the caller is
+        looking at as an explicit field on :class:`ReviewDecisionOutcome`,
+        rather than an outcome the router has to re-derive from a count.
+
+        Args:
+            decision: ``"accepted"`` or ``"rejected"``. Not validated here —
+                the same discipline ``create_batch_with_items`` states for
+                ``row_data``: this module writes what its caller already
+                decided, and the router is where the request body was parsed
+                and where an invalid value must already have been refused.
+                ``ck_review_item_status`` is the schema's own backstop should
+                that discipline ever lapse.
+            decided_by: The authorizing principal's own verified user id — the
+                same "server derives it, the caller never names it" discipline
+                ``import.create`` applies to ``owning_unit_id``. This module
+                trusts what it is handed; the router is where that value is
+                the caller's *own* identity and not one they supplied.
+
+        Returns:
+            A :class:`ReviewDecisionOutcome` reporting one of: the row does not
+            exist in this tenant, the row exists but was already decided (this
+            call's ``UPDATE`` matched nothing), or the row was just
+            transitioned by this call.
+        """
+        transitioned_id = session.execute(
+            sa.update(schema.review_item)
+            .where(
+                schema.review_item.c.tenant_id == tenant_id,
+                schema.review_item.c.id == review_item_id,
+                schema.review_item.c.status == "pending",
+            )
+            .values(status=decision, decided_at=decided_at, decided_by=decided_by)
+            .returning(schema.review_item.c.id)
+        ).one_or_none()
+
+        if transitioned_id is not None:
+            # The common case: this call's own UPDATE is the decision, so its
+            # own arguments are the record of what just happened. No read-back
+            # needed — every field the caller could want was already supplied.
+            return ReviewDecisionOutcome(
+                exists=True,
+                transitioned=True,
+                status=decision,
+                decided_at=decided_at,
+            )
+
+        # The UPDATE matched nothing. Read the row back, scoped the same way
+        # every lookup in this codebase is, to learn which of the two
+        # zero-match cases this is.
+        row = session.execute(
+            sa.select(
+                schema.review_item.c.status,
+                schema.review_item.c.decided_at,
+            ).where(
+                schema.review_item.c.tenant_id == tenant_id,
+                schema.review_item.c.id == review_item_id,
+            )
+        ).one_or_none()
+
+        if row is None:
+            return ReviewDecisionOutcome(exists=False, transitioned=False)
+
+        return ReviewDecisionOutcome(
+            exists=True,
+            transitioned=False,
+            status=row.status,
+            decided_at=row.decided_at,
         )

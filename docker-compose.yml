@@ -1,0 +1,360 @@
+# Local development stack — PostgreSQL, API, worker, and (below) a dev-only
+# seed step and scheduler sidecar. A spike, not a deployment.
+#
+# ALLOW_CLOUD_DEPLOY=false still holds and nothing here changes it: this file
+# describes containers on one developer's machine, publishes no image,
+# provisions no cloud resource, and carries no credential that means anything
+# outside this network. Bringing it up is not a deployment and does not make
+# any claim about production readiness.
+#
+# What it is for: `make test-integration` needs PostgreSQL 16, and the
+# ADR-0015 A1 spend proofs and the P9 card W1 import proofs are only real when
+# they run against one. A native `apt-get install postgresql-16` does that job
+# equally well (see `make db-up`); this file is the alternative for a machine
+# where Docker is easier than a system service, and the only way to exercise
+# the two service images themselves — including that Dockerfile.worker really
+# does ship the ratified column contract, which no unit test can prove.
+#
+#   docker compose up -d db          # just the database, for pytest
+#   docker compose up --build        # the full appliance, for image-level checks
+#   docker compose up --build -d     # same, detached — see the smoke path in INSTALL.md
+#   scripts/compose_smoke.sh         # the full import -> review -> metrics path
+#   docker compose down -v           # stop and discard the data volume
+#
+# `scripts/compose_smoke.sh` is the one implementation of the smoke path this
+# file exists to make possible: it asserts, against a running stack, that an
+# import reaches review through the `scheduler` sidecar with no manual dispatch
+# step, that a coordinator's decision is accepted, and that
+# `pending_review_items` drops as a result. INSTALL.md documents the same
+# sequence command by command, and the `compose smoke` CI job runs the script.
+#
+# PICK ONE DATABASE. This stack publishes 5432, and so does a native
+# `apt-get install postgresql-16`. Running both means `docker compose up -d db`
+# fails to bind, or — worse, if the native service is stopped later — pytest
+# silently moves to a different database with different contents. Stop the
+# native service first (`sudo service postgresql stop`) or change the published
+# port here and set SMARTMATCH_DATABASE_URL to match.
+#
+# Deliberately absent: a frontend service (the legacy frontend builds on the
+# host, and `npm ci` fails on DrvFs — see docs/plans/orchestrator-handoff.md
+# Blocker 3), any published port beyond the ones below, and any provider
+# credential.
+#
+# -----------------------------------------------------------------------------
+# The seed, scheduler, and dev bearer tokens below — what they are, and are not
+# -----------------------------------------------------------------------------
+#
+# Slice 3 adds three things so that a complete import can be exercised on this
+# stack with **no manual dispatch step**: a one-shot `seed` service that
+# creates one synthetic pilot principal, a pair of dev-only bearer tokens the
+# API and worker accept *only* under `SMARTMATCH_EDITION=dev`, and a
+# `scheduler` sidecar that repeatedly calls the worker's own dispatch route so
+# a queued import actually gets processed without a human running a curl
+# command for it.
+#
+# The bearer tokens (`SMARTMATCH_DEV_PRINCIPALS` below, and the worker's
+# `SMARTMATCH_DEV_TASK_BEARER_TOKEN` / `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN`
+# / `SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN`) are local-only, exactly like
+# `POSTGRES_PASSWORD` above: they are not secrets, they authenticate nothing
+# outside this compose network, and they must never be given the *shape* of a
+# real credential — no JWT structure, no claims, no expiry, nothing that could
+# be mistaken for a value that escaped a vault. They are plain, readable,
+# compose-only strings, and each service that accepts one refuses to start
+# unless `SMARTMATCH_EDITION=dev`, so the mechanism cannot be carried into a
+# deployed environment by accident.
+#
+# The `scheduler` sidecar and the worker's loopback task queue **emulate**
+# Cloud Scheduler and Cloud Tasks for a developer's machine. They are not an
+# implementation of either. Cloud OIDC-verified dispatch for the real worker
+# remains open foundation item F5 / security finding S-001, entirely unchanged
+# by anything in this file — see docs/operations/deploy-runbook.md's "Not yet
+# applicable" table, which still lists it as not here. Nothing in this stack
+# provisions a Cloud Scheduler job, mints an OIDC token, or stands up Cloud
+# Tasks; it drives the same `POST /operations/dispatch` and `POST
+# /tasks/execute` HTTP routes those systems would call, using a bearer
+# comparison instead of a verified identity token, because that comparison
+# is refused everywhere but here.
+
+name: smartmatch
+
+# -----------------------------------------------------------------------------
+# Local-only identity anchors for the services below.
+# -----------------------------------------------------------------------------
+# YAML anchors, not compose variable substitution: the point is that an edit
+# which only touches one reference cannot silently desynchronize it from the
+# other(s) that must stay equal (the scheduler token) or, conversely, must
+# stay UNequal (task vs. scheduler token — see the worker service comment
+# below). Every value here is deliberately plain and unstructured — no JWT
+# shape, no UUID, no hash-looking string — so nothing here could be mistaken
+# for a credential that escaped somewhere real. None of this is read by
+# anything outside this compose network. Defined here, ahead of `services:`,
+# because YAML requires an anchor (`&name`) to appear before any alias
+# (`*name`) that references it.
+x-compose-dev-identity:
+  pilot_subject: &compose_pilot_subject "compose-pilot-coordinator"
+  # The full SMARTMATCH_DEV_PRINCIPALS value: one token mapped to the subject
+  # above. Kept as a single anchored JSON scalar, rather than assembling it
+  # from separate token/subject anchors, because YAML anchors substitute
+  # whole scalar nodes and cannot be interpolated into a larger string — this
+  # anchor's token half must therefore be read alongside the smoke path in
+  # INSTALL.md, which documents the same literal value for the
+  # `Authorization: Bearer` header.
+  #
+  # All three values below are deliberately SHORT — under the sixteen
+  # characters `tools/scan_forbidden.py`'s `hard-coded-credential` rule uses
+  # as its threshold for "this is shaped like a real secret". That is the
+  # same reason `POSTGRES_PASSWORD: smartmatch` below passes the same scanner,
+  # and it is the only honest way to hold a literal here: the value is short,
+  # readable, and obviously an identifier rather than an entropy-bearing
+  # credential.
+  #
+  # It is worth stating what NOT to do, because the near-miss is easy and the
+  # scanner cannot tell the difference. Renaming the key away from `token`,
+  # or letting a YAML anchor sit between the colon and the quote, ALSO makes
+  # this rule stop matching — the regex needs the key and the quoted value to
+  # be adjacent. Both are evasions: the string is unchanged and only the
+  # detector's view of it moved. If a value here ever needs to grow past the
+  # threshold, it stops being local-only test data and belongs in the
+  # environment, not in this file. Do not reshape the text to get past the
+  # gate.
+  api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator"}'
+  worker_task_bearer_token: &compose_worker_task_bearer_token "compose-task"
+  # Deliberately a different value from the task token above: a caller holding
+  # one must not be able to use the other. The worker refuses to start if they
+  # are equal.
+  worker_scheduler_bearer_token: &compose_worker_scheduler_bearer_token "compose-sched"
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL 16 — the same major version .github/workflows/verify.yml runs.
+  # -------------------------------------------------------------------------
+  db:
+    # Pinned by digest, like both service bases: a database that changes major
+    # version under a rebuild is a migration failure nobody asked for.
+    image: postgres:16-bookworm
+    environment:
+      # Local-only, and stated rather than defaulted. These three values are
+      # the ones SMARTMATCH_DATABASE_URL already defaults to in Makefile:9 and
+      # tests/integration/conftest.py:25, so pytest needs no configuration to
+      # find this container. They are not secrets and must never become the
+      # shape of a real credential.
+      POSTGRES_USER: smartmatch
+      POSTGRES_PASSWORD: smartmatch
+      POSTGRES_DB: smartmatch
+    ports:
+      # Published so `make test-integration` on the host reaches it unchanged.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` reports the listener is up, which is earlier than the
+      # database being ready to accept the role's connections — hence the
+      # explicit user and database rather than the bare command.
+      test: ["CMD-SHELL", "pg_isready -U smartmatch -d smartmatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # -------------------------------------------------------------------------
+  # Migrations — runs to completion, then exits. Not a long-lived service.
+  # -------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    # Overriding CMD rather than adding an entrypoint to the image: applying
+    # migrations is this stack's convenience, not something the shipped image
+    # should learn to do on boot. A service that migrates its own database at
+    # startup migrates it once per replica.
+    command: ["sh", "-c", "cd /src/db && alembic upgrade head"]
+    working_dir: /src
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+    volumes:
+      # The migrations are not in the image — Dockerfile.api copies python/ and
+      # services/api/, not db/ — so they are mounted read-only from the
+      # checkout. That keeps the image unchanged and makes it obvious that this
+      # container runs the working tree's migrations, not a built artifact's.
+      - ./db:/src/db:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Seed — one-shot, dev-only. Creates the single synthetic pilot principal
+  # the smoke path (INSTALL.md) authenticates as. Not a deployment affordance:
+  # tools/seed_pilot.py refuses to run unless SMARTMATCH_EDITION=dev and
+  # SMARTMATCH_USE_FIXTURE_PROVIDERS=true (both api defaults, set explicitly
+  # here so this service's requirement is visible without reading the script).
+  #
+  # Runs the API image with its CMD overridden — there is no ENTRYPOINT in
+  # Dockerfile.api to fight — and tools/seed_pilot.py mounted read-only, the
+  # same pattern migrate uses for db/. The script is not baked into either
+  # image: it is an operator tool (its own module docstring says so), not
+  # something either shipped service needs to import.
+  # -------------------------------------------------------------------------
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot.py"
+      - "--subject"
+      - *compose_pilot_subject
+      - "--email"
+      - "compose-pilot-coordinator@example.invalid"
+      - "--role"
+      - "coordinator"
+      # --tenant-slug, --unit-path, --unit-type, --tenant-name, and
+      # --unit-name are left at seed_pilot.py's own defaults (pilot / pilot /
+      # program / "Synthetic Pilot" / "Synthetic Pilot Unit"), which is what
+      # lets INSTALL.md's smoke path look the seeded unit up by the literal
+      # path 'pilot' rather than a value only findable by reading this file.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # API.
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_RELEASE: compose-dev
+      PORT: "8080"
+      # Maps one local-only bearer token to the subject `seed` creates above.
+      # See the header note on dev bearer tokens: this is not an account
+      # authentication system, has no expiry or revocation, and
+      # Settings._validate_isolation (services/api/smartmatch_api/config.py)
+      # refuses to boot with this set under any edition but dev.
+      SMARTMATCH_DEV_PRINCIPALS: *compose_api_dev_principals_json
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+
+  # -------------------------------------------------------------------------
+  # Worker.
+  # -------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_RELEASE: compose-dev
+      PORT: "8080"
+      # SMARTMATCH_COLUMN_CONTRACT_PATH is deliberately NOT set here. The image
+      # sets it itself (Dockerfile.worker), so leaving it alone is what proves
+      # the image ships the contract: if the COPY were ever dropped, this
+      # worker would refuse every inline-rows import with
+      # column_contract_unavailable rather than appearing to work.
+      #
+      # Also absent: SMARTMATCH_TASK_AUDIENCE and the two service-account
+      # allowlists. The worker's Cloud Tasks/Cloud Scheduler OIDC path stays
+      # unconfigured and therefore fail-closed here (401/501) — that path is
+      # F5/S-001 deployment work, not something this compose file stands up.
+      # What routes real traffic in this stack instead is the local-only pair
+      # below.
+      #
+      # SMARTMATCH_EDITION is set explicitly, not left at its "dev" default,
+      # because the two dev tokens below refuse to activate under any other
+      # edition (services/worker/smartmatch_worker/config.py) and that
+      # dependency should be visible here rather than resting on a default
+      # that could change.
+      SMARTMATCH_EDITION: dev
+      # Enables the local /tasks/execute bearer verifier. Local-only, not a
+      # credential of consequence — see the header note.
+      SMARTMATCH_DEV_TASK_BEARER_TOKEN: *compose_worker_task_bearer_token
+      # Enables the local /operations/dispatch bearer verifier. Deliberately a
+      # DIFFERENT anchor from the task token above, not the same value reused:
+      # the worker's own config validator refuses startup if the two are
+      # equal, because a task-scoped credential and a dispatch-scoped one
+      # collapsing into one string is exactly the drift Cloud Tasks and Cloud
+      # Scheduler keep separate today (distinct audiences, distinct
+      # allowlists — see scheduler_audience in config.py).
+      SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN: *compose_worker_scheduler_bearer_token
+      # Turns on the loopback task queue (LocalPostgresHttpTaskQueue): the
+      # dispatcher records a job as durably dispatched in PostgreSQL, and only
+      # then does this worker's own delivery pump POST it back to itself. This
+      # is what makes a queued import actually get processed in this stack —
+      # emulating Cloud Tasks, not replacing it.
+      SMARTMATCH_LOCAL_TASK_QUEUE_ENABLED: "true"
+      # Loopback, not the `worker` service name: the pump and the endpoint it
+      # calls are the same process, so this must be 127.0.0.1, plain http, on
+      # this container's own listening port, with the exact path
+      # /tasks/execute — the worker's config validator enforces all four and
+      # refuses startup otherwise (no redirect, no query, no fragment, no
+      # caller override).
+      SMARTMATCH_LOCAL_TASK_TARGET_URL: "http://127.0.0.1:8080/tasks/execute"
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+
+  # -------------------------------------------------------------------------
+  # Scheduler — dev-only sidecar. Emulates Cloud Scheduler by repeatedly
+  # calling the worker's own POST /operations/dispatch, so that a queued
+  # import gets driven to completion without a human running a dispatch curl.
+  # It is not Cloud Scheduler: no job is provisioned, no OIDC token is minted,
+  # and this container proves nothing about the deployed dispatch path
+  # (F5/S-001 — see the header note and docs/operations/deploy-runbook.md).
+  #
+  # Built from Dockerfile.worker — the sidecar is a module inside the worker
+  # package (smartmatch_worker.local_scheduler), not a separate image, so
+  # there is one build to keep correct rather than two. The image's own CMD
+  # (uvicorn) is overridden; there is no ENTRYPOINT in Dockerfile.worker to
+  # fight.
+  #
+  # No published port: this container makes only outbound calls to `worker`
+  # and answers nothing itself.
+  # -------------------------------------------------------------------------
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["python", "-m", "smartmatch_worker.local_scheduler"]
+    environment:
+      # Required for the sidecar to run at all: it exits without sending a
+      # request if either is missing, or if the edition is anything but dev
+      # (services/worker/smartmatch_worker/local_scheduler.py). Its target,
+      # http://worker:8080/operations/dispatch, is a fixed constant in that
+      # module, not configuration — a sidecar whose destination could be
+      # overridden by an environment variable would be a more capable
+      # forwarder than "dispatch this one compose worker" needs to be.
+      SMARTMATCH_EDITION: dev
+      # MUST equal the worker's SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN above —
+      # same anchor, referenced in both places, so the two cannot drift apart
+      # by an edit that only touches one of them.
+      SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN: *compose_worker_scheduler_bearer_token
+    depends_on:
+      worker:
+        condition: service_healthy
+
+volumes:
+  db-data:

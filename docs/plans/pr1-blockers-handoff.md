@@ -30,7 +30,7 @@ a comment on PR #3.
 | **J15** | `c023fb3` | A 500 refunded the quota that produced it. Now it persists. |
 | **J16** | `41d47da` | 403/404/400 refusals cost zero quota. Now charged, per the owner's decision, recorded as **ADR-0015**. |
 | **J9 + J8** | `3243e00` | A job stuck `running` had no recovery, and nothing ran the dispatcher on a timer. Lease, sweep, scheduled pass, heartbeat. |
-| **A4** | `b4450ab` | The authorization matrix: 5 operations × 11 principal shapes, executed against the real authorizer, completeness enforced executably. `tests/authz` 32 → 134. |
+| **A4** | `b4450ab` | The authorization matrix: 7 operations × 13 principal shapes, executed against the real authorizer, completeness enforced executably. `tests/authz` 32 → 134. |
 | **F9 (code)** | `654e89f`, `8c47c2e` | 13 of the port review's engineering findings across `ics`, `eli`, `ingest`, `feedback`. |
 | **F9 (docs)** | `3cf3284` | The manifest description errors the review actually rejected the ports for, plus **F-30**, a new defect found in the review document itself. |
 | **F13** | `0c5ede6` | `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`, and the deploy runbook carrying ADR-0009's `ON_ERROR_STOP=1` obligation. |
@@ -70,36 +70,45 @@ FAILED test_redrive.py::test_a_run_of_redrives_with_no_idempotency_key_is_charge
 
 Restored, and all six pass again. **J16's evidence gap is closed.**
 
-### 2.2 J9 and J8 — the tests do not exist
+### 2.2 J9 and J8 — closed on `friday-deliverable-828`
 
-This one was not a missing report. It was missing tests.
+**Closed 2026-09-02.** Coverage: `tests/integration/test_job_lease_lifecycle.py`
+(13 integration cases) and `tests/integration/test_scheduled_dispatch_pass.py`
+(9 integration cases). Revert-check evidence is recorded here and in
+`docs/plans/pr3-verification-evidence.md`.
 
-Commit `3243e00` changed 22 lines of test across two files, and **none of them
-test J9 or J8.** Measured:
+The original gap (commit `3243e00` did not add tests that exercised J8/J9) is
+closed. The recorded implementation-run revert-check soft-reverted the worker
+files to `3243e00~1`, produced `ImportError: cannot import name 'ScheduledPass'`
+at collection, then restored HEAD and passed the focused suites. The current
+local controller run only collected and skipped integration cases because
+PostgreSQL at `localhost:5432` was unavailable.
 
-| Location | `timed_out\|sweep\|heartbeat\|lease_expires` |
-|---|---|
-| `tests/integration/test_worker_execution.py` | **0** |
-| `tests/contract/test_worker_boundary.py` | **0** |
-| `tests/integration/test_outbox_dispatcher.py` | 27 — but **every one is `outbox_record.lease_expires_at`**, the *outbox* lease, which predates J9 |
-| `services/worker/smartmatch_worker/main.py` | 28 |
-| `services/worker/smartmatch_worker/execution.py` | 19 |
-| `python/smartmatch_persistence/.../jobs.py` | 34 |
+**Trap (unchanged):** do not revert `smartmatch_persistence/jobs.py` to
+`3243e00~1` — A5 changed `JobRepository.create()` and that produces unrelated
+`TypeError` noise.
 
-So the job lease, the sweep to `timed_out`, and the heartbeat have **no test
-coverage whatsoever**. The suite is green because nothing exercises them.
+**Closed on `friday-deliverable-828`.** Two integration modules now exist —
+`tests/integration/test_job_lease_lifecycle.py` (13 tests) and
+`tests/integration/test_scheduled_dispatch_pass.py` (9) — and both were
+revert-checked the way this section asks, with the trap above respected: the
+soft-reverts touch the lease *paths* only, and `create()`'s A5 signature is
+left at HEAD throughout. Ten soft-reverts in total, each failing exactly the
+tests that assert the behaviour it removed and no others; the commands, the
+mutations and the failure lists are recorded in the two commit messages. On the
+restored tree, `pytest tests/integration/test_outbox_dispatcher.py
+tests/integration/test_worker_execution.py
+tests/integration/test_job_lease_lifecycle.py
+tests/integration/test_scheduled_dispatch_pass.py` reports **105 passed**
+against PostgreSQL 16 (83 before this work), as recorded by the implementation
+run; current local verification is collection/skip only when PostgreSQL is
+unavailable.
 
-Confirmed by revert-check: reverting the four worker source files to
-`3243e00~1` (leaving `jobs.py` at HEAD — see the trap below) fails only three
-tests, and two of those are J17's, adapted by `3243e00` rather than written for
-it. The third is a route-surface contract assertion.
-
-**Trap for whoever runs this again:** do not revert
-`smartmatch_persistence/jobs.py` to `3243e00~1`. A later commit (A5, `7e27268`)
-added `owning_unit_id` to `JobRepository.create()`, so reverting that far
-produces 40 `TypeError` failures that are an API mismatch, not evidence.
-Reverting only the worker files reproduces the true pre-J9 condition the
-backlog describes — the column exists and nothing reads or writes it.
+The J8 alerting question this document raises in §2.3 — whether the benign J17
+race that increments `failed` is covered — **was answered**: it is reported
+apart in `contended`, and the alert reads `unexplained_failures = failed -
+contended`, never `failed`. Written down in
+`docs/operations/deploy-runbook.md` beside the other two dispatcher alerts.
 
 ### 2.3 Still unverified
 
@@ -112,11 +121,9 @@ backlog describes — the column exists and nothing reads or writes it.
 - **No `terraform validate`** has been run against the F5 files; terraform is
   not installed here. The Python-side isolation assertion runs and passes; the
   HCL itself is unvalidated.
-- **The J17 commit records a correction to its own backlog row** — the row
-  called `mark_dispatched` "affected in form but not in substance", which is
-  true of the outcome and not of the reporting. A benign lease race now
-  produces a `DispatchOutcome.failed` increment. J8's alerting design was
-  handed that question; confirm it was answered.
+- **J17's alerting question is closed.** A benign lease race can increment
+  `DispatchOutcome.failed`, but it is reported separately in `contended` and
+  the documented alert surface is `unexplained_failures = failed - contended`.
 
 The items whose evidence *was* delivered and reviewed — J10, J17, J15, A4,
 F9 (code), F13 — do not carry this caveat. Their revert-checks are described in
@@ -136,8 +143,10 @@ the defect was in the evidence rather than the code.
   longer reach another department's job.
 - **JOB-READ-IGNORES-GRANTS** — closed with A5, and closed properly: rather than
   patching the read path, `routers/jobs.py` and `routers/redrive.py` now both
-  call one `job_authz.authorize_job_read`, so all four job operations apply the
-  same policy to the same resource. The old defect is named in that module's
+  call the shared job authorization policy: reads use
+  `job_authz.authorize_job_read`, while re-drive and abandon use
+  `job_authz.authorize_job_command`. Thus all four job operations apply the
+  same resource-scoping rules. The old defect is named in that module's
   docstring so the reason the two implementations were merged is not lost.
 - **F12** — `uq_user_account_tenant_subject` dropped (migration `0007`).
 
@@ -145,7 +154,6 @@ the defect was in the evidence rather than the code.
 
 | # | Item | Why it matters |
 |---|---|---|
-| **J9 / J8 tests** | The lease, the sweep and the heartbeat are untested | See §2.2. This is the top item: the code is in and nothing exercises it. |
 | **F-25** | The weight-proposal aggregate bound | **Deliberately left open**, per `defect-remediation.md` §4.5 — the real finding is that the number a human approves is not the number applied, and choosing between normalize-on-apply and bound-at-proposal belongs with the M1/M8 consumer behind gate G1. Pinned by `test_aggregate_movement_is_deliberately_unbounded`. An earlier agent bounded it and was reverted; do not re-add a bound without settling the semantics. |
 | **A1b / S-001** | Live identity verification, and the worker's signature backend | Ruled **out of scope** for this branch by the repository owner: closing it needs an asymmetric-crypto runtime dependency and a lock recompile, and PR #2 is already touching the lock files. The worker still refuses every task delivery. |
 | **CI** | Two checks red on PR #3 | Neither is this branch's: the `--strip-extras` lock drift and the gitleaks org-licence failure, both pre-existing on `main` and both fixed by **PR #2**. Diagnosed in a comment on PR #3. Merging #2 resolves them. |

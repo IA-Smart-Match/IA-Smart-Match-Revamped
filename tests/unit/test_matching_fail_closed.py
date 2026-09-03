@@ -11,11 +11,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from smartmatch_api.routers import engagement, events
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
-    RegistryNotApprovedError,
     assert_registry_approved,
 )
 
@@ -88,15 +86,14 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     return None
 
 
-def test_registry_status_remains_proposed():
-    """G1 gate stays open — approval is a deliberate, reviewed commit."""
-    assert REGISTRY_STATUS == "proposed"
+def test_registry_status_is_approved():
+    """G1 gate closed 2026-09-03 — Danny Tran ratified factor registry."""
+    assert REGISTRY_STATUS == "approved"
 
 
-def test_assert_registry_approved_raises_registry_not_approved_error():
-    """G1 guard must fail closed with the exact domain exception type."""
-    with pytest.raises(RegistryNotApprovedError, match="gate G1"):
-        assert_registry_approved()
+def test_assert_registry_approved_succeeds():
+    """G1 guard passes after program-owner approval."""
+    assert_registry_approved()
 
 
 def test_events_and_engagement_routers_declare_no_handlers():

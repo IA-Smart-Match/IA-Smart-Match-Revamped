@@ -23,10 +23,12 @@ from smartmatch_providers.base import (
 )
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
 from smartmatch_providers.identity import FixtureTokenVerifier, TokenVerifier
+from smartmatch_providers.paid import PaidExtractionProvider, SyntheticPaidProvider
 from smartmatch_providers.tasks import FixtureTaskQueue, TaskQueue
 
 __all__ = [
     "build_email_provider",
+    "build_paid_extraction_provider",
     "build_route_matrix_provider",
     "build_task_queue",
     "build_token_verifier",
@@ -240,3 +242,71 @@ def build_token_verifier(
         "Foundation scaffold. It is Foundation item A1 and requires a real "
         "project and audience to validate against."
     )
+
+
+def build_paid_extraction_provider(
+    edition: Edition,
+    *,
+    api_key: str | None = None,
+    use_synthetic: bool = True,
+) -> PaidExtractionProvider:
+    """Construct the paid extraction provider. Only the synthetic one exists.
+
+    Mirrors :func:`build_email_provider`'s shape and tightens its rule.
+    :func:`_assert_fixture_only` refuses a live client for the *classroom*
+    edition, because the other editions may legitimately grow live adapters;
+    this builder refuses a live client for **every** edition, because
+    ADR-0015 A1's ratification note is explicit that approval covers *"only a
+    synthetic-provider reservation implementation and its verification as the
+    next slice; no paid call"*, and that production credentials and production
+    spend ceilings *"remain external dependencies"*. There is therefore no
+    edition, today, under which a live paid adapter is an approved thing to
+    build — so the refusal is not a property of the deployment, and expressing
+    it as one would leave a staging or production boot silently able to
+    construct something nobody ratified.
+
+    ``use_synthetic`` defaults to ``True`` for the same reason: the safe
+    outcome must be what a caller gets by writing nothing, and the only way to
+    ask for anything else is to say so explicitly and be refused for it.
+
+    Args:
+        edition: The running edition. Recorded in the refusal messages so an
+            operator can see which deployment asked, and otherwise not
+            consulted — every edition gets the same answer.
+        api_key: Present only so a misconfigured deployment fails loudly. No
+            paid credential should exist anywhere in this repository's
+            environments; finding one is a deployment defect worth failing on,
+            exactly as :func:`build_email_provider` treats a classroom email
+            credential.
+        use_synthetic: Force the synthetic adapter. Passing ``False`` is the
+            only way to request a live client, and it is always refused.
+
+    Returns:
+        A :class:`~smartmatch_providers.paid.SyntheticPaidProvider`, which
+        makes no network call and reads no credential.
+
+    Raises:
+        ProviderConfigurationError: if a paid credential is present under any
+            edition, or if a live adapter is requested at all.
+    """
+    if api_key:
+        raise ProviderConfigurationError(
+            f"a paid-provider credential is present under edition {edition.value!r}. "
+            "ADR-0015 A1 ratifies a synthetic provider only, and no environment in "
+            "this repository should hold a paid credential at all. Failing closed; "
+            "check the environment configuration and secret bindings, and rotate "
+            "anything that was actually bound."
+        )
+
+    if not use_synthetic:
+        _assert_fixture_only(edition, "paid extraction")
+        raise ProviderConfigurationError(
+            f"no live paid extraction adapter may be constructed under edition "
+            f"{edition.value!r} — or any other. ADR-0015 A1 authorizes only a "
+            "synthetic-provider reservation implementation; a live provider "
+            "additionally requires the A3 price assumption confirmed against an "
+            "actual bill, production credentials, and ratified spend ceilings, all "
+            "three of which A1 records as unmet external dependencies."
+        )
+
+    return SyntheticPaidProvider()

@@ -5,7 +5,8 @@
 `friday-deliverable-828`. This document is planning input only — it does not
 authorize implementation.
 **Repo:** `C:\Users\DangT\Documents\GitHub\IA-Smart-Match-Revamped`
-**As of:** 2026-08-28 (tree clean except untracked `.claude/`)
+**As of:** 2026-09-03 (G1 closed; M1 landed; decision blockers recorded in
+`docs/decisions/`)
 
 **Recent commits (relevant):**
 
@@ -132,48 +133,49 @@ Legend:
 
 ---
 
-### 1. Matching / scoring (G1) — currently fail-closed
+### 1. Matching / scoring — registry approved; engine not built
 
-**Classification:** **Blocked** on human decision **D1** (gate G1). Engineering
-sequence exists **after** approval only.
+**Classification:** **Engineering** — gate **G1 / D1 closed 2026-09-03** (Danny
+Tran @dangt). **M1 landed.** M2–M10 remain build work.
 
 **Current state:**
 
 - `python/smartmatch_domain/smartmatch_domain/factor_registry.py`:
-  - `REGISTRY_STATUS = "proposed"` (line ~59)
-  - `assert_registry_approved()` raises `RegistryNotApprovedError` until status is
-    `"approved"` (lines 256–272): *“Architecture v1.1 gate G1 blocks match scoring
-    until the program owner approves the registry contents and the golden case
-    set.”*
+  - `REGISTRY_STATUS = "approved"` (G1 closed 2026-09-03)
+  - Approved 2-factor Stage B set: `topic_relevance` 0.70, `travel_burden` 0.30
+  - `assert_registry_approved()` no-ops when status is `"approved"`
+  - **No scorer implementations** — `topic_relevance` and `travel_burden` are
+    declared but not computed (M2, M4)
 - Legacy defect documented in module header: 9 declared factors, 7 computed,
   max score **0.90** — porting legacy scores is **forbidden**
   ([`critical-path-matching-gate.md`](critical-path-matching-gate.md) §1b).
 
 **Tests locking behaviour:**
 
-- `tests/unit/test_factor_registry.py::test_registry_is_not_yet_approved` — must
-  raise until G1 closes; comment says this test **changes deliberately** on approval
+- `tests/unit/test_factor_registry.py::test_registry_is_approved_after_g1` —
+  passes since G1 closed
 - `tests/unit/test_forbidden_scanner.py` — archived caller-chosen-role patterns
 
 **Frontend surfaces still dark / dishonest if wired early:**
 
 - `apps/web/legacy-frontend/src/app/pages/AIMatching.tsx` — mock ranks (H10)
 - `Opportunities.tsx` “Run matcher” → `/ai-matching` (B31)
-- [`frontend-migration.md`](frontend-migration.md): “No match scores on any screen
-  until G1 (M1)”
+- [`frontend-migration.md`](frontend-migration.md): no truthful scores until M8
+  `match_run` persistence exists
 
-**What “done” looks like:**
+**What “done” looks like (remaining engineering):**
 
-1. Written approval of factor list, weights, golden cases (incl. MM-002 three
-   symptoms: 43% tie, Topic Relevance 0%, Match Depth 0 — each pinned as
-   measured zero **or** unknown per ADR-0011)
-2. Q6 answered: fate of `historical_conversion` and `student_interest`
-3. `REGISTRY_STATUS == "approved"`; `assert_registry_approved()` no-ops
-4. M1–M10 per [`remaining-foundation-r1-work.md`](remaining-foundation-r1-work.md)
-   (M8 `match_run` persistence, W5 control center)
+1. ~~Written approval of factor list, weights, golden cases~~ — **done** (G1
+   worksheet ratified 2026-09-03)
+2. ~~Q6 answered~~ — `historical_conversion` and `student_interest` dropped
+3. ~~`REGISTRY_STATUS == "approved"`~~ — **M1 done**
+4. **M2–M10** per [`remaining-foundation-r1-work.md`](remaining-foundation-r1-work.md)
+   — implement `topic_relevance` + `travel_burden`, eligibility, CP-SAT,
+   `match_run` persistence (M8), explanations (M9), scenario comparison (M10);
+   W5 control center after M8
 
-**Dependencies / gates:** D1 / G1 → M1 → M2–M10. D2 (ELI tuning), D3 (travel)
-block subsets, not G1 itself ([`critical-path-matching-gate.md`](critical-path-matching-gate.md)).
+**Dependencies / gates:** M1 done → M2, M4 (parallel) → M6 → M7 → M8–M10.
+D2 (ELI tuning), D3 (route-matrix provider) block subsets of tuning, not G1.
 
 **Risks:**
 
@@ -181,17 +183,17 @@ block subsets, not G1 itself ([`critical-path-matching-gate.md`](critical-path-m
 - Do not display scores without registry version + provenance “heuristic score”
 - Golden cases must distinguish unknown vs zero (ADR-0011)
 
-**Not closable without human:** Program owner workshop — **not** an engineering
-capacity limit ([`orchestrator-handoff.md`](orchestrator-handoff.md) §What Dr.
-Wang cannot be shown).
+**Not closable without human:** None for G1 — closed. Ongoing weight governance
+after G1 is a program-owner concern, not an engineering blocker.
 
 ---
 
-### 2. Crawler / event pipeline (G3 / S4 / S5)
+### 2. Crawler / event pipeline (R3 build; G3 for live crawl)
 
-**Classification:** **Blocked** on gate **G3** (agent eval set, tool allowlist,
-cost controls) and R3 threat model. Pure domain prep exists; **no crawl code**
-should ship.
+**Classification:** **Engineering** for domain prep and R3 implementation.
+**R3 threat model signed 2026-09-03** (`docs/decisions/r3-signing-decisions-2026-09-03.md`).
+**Live production crawl (S6a) deferred** in synthetic pilot. Gate **G3** still
+blocks eval-set approval and live crawl activation.
 
 **Current state:**
 
@@ -239,9 +241,9 @@ program owner for vocabulary growth process.
 
 ### 3. Shippable rewards catalog (D6 budget owner)
 
-**Classification:** **Blocked** on human decisions **D6** (name budget owner)
-and **D7** (economy calibration N — “cheapest reward reachable within N
-events”, proposed default 3 per ADR-0013).
+**Classification:** **Blocked** on human decision **D6** (name budget owner).
+**D7 earning rate decided 2026-09-03:** 100 points per verified attendance
+(calibration N=3 and reward bands remain tentative in `pilot-decisions.md`).
 
 **Current state — schema done, catalog not:**
 
@@ -265,13 +267,13 @@ events”, proposed default 3 per ADR-0013).
 **What “done” looks like:**
 
 1. D6: named `user_account` as `budget_owner_id` for each listable item
-2. D7: N chosen; test asserts cheapest item reachable within N events
+2. D7: 100 pts/event recorded (2026-09-03); calibration N and bands still tentative
 3. S8 listing API + S9 `redemption` command (requested → approved → fulfilled |
    denied | expired)
 4. Frontend: retire `studentRewardsCatalog.ts` / `studentPoints.ts` (H12–H15,
    B11)
 
-**Dependencies:** S6 attendance → S7 ledger fold → S8/S9; D6+D7 before **shipping**
+**Dependencies:** S6 attendance → S7 ledger fold → S8/S9; D6 before **shipping**
 catalog ([`remaining-foundation-r1-work.md`](remaining-foundation-r1-work.md))
 
 **Risks:**
@@ -280,7 +282,7 @@ catalog ([`remaining-foundation-r1-work.md`](remaining-foundation-r1-work.md))
 - Do not use browser formula for points (ADR-0013)
 - Progress bars only toward **reachable** rewards (engagement-model §4)
 
-**Not closable without human:** D6 owner identity; D7 calibration N.
+**Not closable without human:** D6 owner identity. D7 partial (100 pts/event only).
 
 ---
 
@@ -506,7 +508,7 @@ query, both views subscribe (S1)”* — backend **No**.
 4. Remove crawler fabrication (H21); no unresolved dates in lists (ADR-0010)
 5. Clicking N returns exactly N rows (Fix #12 / S1)
 
-**Dependencies:** S12 → funnel metrics; G1 if definition includes score floor;
+**Dependencies:** S12 → funnel metrics; M8 if definition includes score floor;
 S3–S5 for event list quality; Wave 3C drill-down UI is template
 
 **Risks:**
@@ -517,7 +519,7 @@ S3–S5 for event list quality; Wave 3C drill-down UI is template
   addressed in 3C for funnel, not opportunities)
 
 **Not closable without human:** Written metric definition for “opportunities”
-(stakeholder/product); may overlap G1 if score floor is in definition.
+(stakeholder/product); may overlap M8 if score floor is in definition.
 
 ---
 
@@ -525,15 +527,21 @@ S3–S5 for event list quality; Wave 3C drill-down UI is template
 
 ```
 Human parallel track:
-  D1/G1 (matching) | D6/D7 (rewards) | G3 (crawler) | metrics authz decision | Dr. Wang columns (5,6)
+  D6 (rewards owner) | G3 eval set (live crawl) | metrics authz decision | Dr. Wang columns (5,6)
+  ~~D1/G1~~ closed 2026-09-03 | D7 100 pts/event recorded | R3 threat model signed
 
-Engineering when unblocked:
+Engineering (not decision waits):
+  M2+M4 → M6 → M7 → M8–M10 (matching) — G1 closed, M1 done
   S12 + opportunities metric (8) after metric definition
-  M1–M10 after G1 (1)
-  R3/S4/S5 after G3 (2)
-  S8/S9 catalog after D6/D7 (3)
+  R3/S4/S5 build — threat model signed; no crawl code yet
+  S8/S9 catalog after D6 (3)
   Login cleanup + A1b (7) — can proceed in parallel on legacy or new app shell
-  columns.yaml → worker wiring — after Dr. Wang (5,6); independent of 1/2/3
+  columns.yaml → worker wiring — after Dr. Wang (5,6)
+  pipeline_record write path — funnel currently structural zero
+
+Deferred by design (synthetic pilot):
+  G2 live student data | G4 outreach | G5 Calendar | S6a production crawl |
+  S8/S9 rewards ledger | F5 cloud Terraform apply
 
 Immediate ops (user consent):
   git push friday-deliverable-828 → confirm CI green (integration proof)
@@ -547,8 +555,8 @@ Immediate ops (user consent):
 with named findings; metrics that admit unknown **with reason** + definition +
 drill-down for `pending_review_items`; rewards schema refusing unowned reward.
 
-**Cannot:** matching scores (G1); crawler-fed events (G3); shippable rewards
-catalog (D6).
+**Cannot:** truthful matching scores (M2–M8 not built); live crawler-fed events
+(S6a deferred); shippable rewards catalog (D6).
 
 ---
 
@@ -559,7 +567,7 @@ catalog (D6).
 | **Fix #2 and Fix #14** | [`frontend-migration.md`](frontend-migration.md) §4.1 — “Cannot plan” without test log rows (Q7) |
 | **Architecture v1.1 §1.5 full text** | `columns.yaml` cites F-28 — section not in tree; ratified `columns.yaml` is pilot contract, not full v1.1 |
 | **`columns.yaml` → worker wiring** | Ratified but `handlers.py` still `validate_columns(..., required=(), optional=())` — no ticket id beyond J10/import execution |
-| **Named G1 / D6 owners** | “Program owner” not a specific person in git |
+| **Named G1 / D6 owners** | G1: Danny Tran @dangt (closed 2026-09-03). D6: still unnamed. |
 | **Metrics authz decision record** | Documented as open in handoff; no ADR amendment choosing gate vs ungated |
 | **A1b live JWKS / IdP config** | Authn fixture exists; production OIDC not in tree |
 | **Event `read` HTTP API** | No route for events/pipeline/opportunities lists on OpenAPI — only metrics, imports, jobs |

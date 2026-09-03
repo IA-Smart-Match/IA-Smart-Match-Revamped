@@ -6,8 +6,11 @@ each fixture in ``docs/pilot-data/fixtures/``, runs
 ratified in ``docs/pilot-data/columns.yaml``, and asserts that the finding
 codes match what ``docs/pilot-data/README.md`` claims for that fixture. It
 does not import or modify anything in ``smartmatch_worker`` or
-``smartmatch_api`` -- the ratified contract in ``columns.yaml`` is not wired
-into either.
+``smartmatch_api``, but it is no longer checking a contract nobody applies:
+as of P9 card W1, ``smartmatch_worker.column_contract`` reads the same
+``columns.yaml`` and the worker validates real imports against it. This script
+stays the independent check that the file says what the README claims it
+says.
 
 Run from the repository root with the repo venv:
 

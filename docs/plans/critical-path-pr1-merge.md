@@ -8,6 +8,12 @@
 Planning only. Do not merge from this document; execute the checklist when the
 team is ready.
 
+**Supersession note (2026-09-02):** This is a historical merge plan. In the
+current checkout J8/J9 evidence is recorded in the existing lease-lifecycle and
+scheduled-pass suites,
+and A4/A5/J4/J17 are closed in code. External Cloud Scheduler/OIDC deployment,
+Terraform validation, and remaining F9/F2b gates remain open.
+
 ---
 
 ## (a) What this is
@@ -34,7 +40,7 @@ All of that is implemented on the PR1 branch, in 13 commits ahead of `main`
 | J17 | `6c5ba21` | Lease token. Evidence delivered. Ledger 0001 re-pointed in `691367a`. |
 | A4 | `b4450ab` | `tests/authz/test_policy_matrix.py`; 32 → 134 authz tests. Evidence delivered. |
 | README | `6a2f0ec` | Stops claiming `make check` ⇒ green CI. |
-| **J9 + J8** | `3243e00` | **No revert-check evidence.** |
+| **J9 + J8** | `3243e00` | Historical snapshot: no evidence at that commit; current recorded evidence is in the lease-lifecycle and scheduled-pass suites and the handoff. |
 | **J16** | `41d47da` | ADR-0015. **No revert-check evidence.** |
 | **F9 docs** | `3cf3284` | Manifest + F-30. **No revert-check evidence.** |
 | **F2b + F5** | `80a07ea` | License gate, CycloneDX SBOM, env isolation. **No revert-check evidence.** `terraform validate` never run. |
@@ -115,7 +121,7 @@ false retained-vocabulary / nonexistent-characterization-tests / substring-match
 claims. Status fields must still be `ported_unverified`. Confirm F-30 exists
 in `port-verification.md`.
 
-**F2b+F5 specifics.** Run `terraform validate` in each of
+**F2b+F5 specifics (still open).** Run `terraform validate` in each of
 `infra/terraform/envs/{dev,staging,prod,classroom}` — **this has never been
 run**. Run the Python env-isolation tool (`tools/env_isolation_check.py`) and
 the supply-chain tool (`tools/supply_chain.py`) and confirm CI wires them.

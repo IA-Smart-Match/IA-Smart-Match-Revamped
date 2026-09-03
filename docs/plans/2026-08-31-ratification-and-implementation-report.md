@@ -1,7 +1,7 @@
 # 31 August 2026 ratification and implementation report — R0
 
 **Date:** 31 August 2026 · **Slice:** R0 (ratification and blocker report;
-documentation only) · **Session approver:** Danny Tran (`dt110202@gmail.com`)
+documentation only) · **Session approver:** Danny Tran (@dangt)
 **Source design:**
 `docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
 **Source handoff:** `docs/plans/prep/human-decisions-handoff-831.md`
@@ -93,7 +93,7 @@ Every blocked feature, using the design's §13 required fields.
 |---|---|
 | **Decision** | Development Lead reviewer fact (Danny Tran is the named security reviewer unless a different authority is designated) plus T-07 (model-agnostic tooling; OpenRouter/Groq viable, all tools permitted in pilot scope), T-13 (project guardrail enforces egress at app runtime before outbound dispatch), T-19 (approver Danny Tran; proposers Danny, Chau / Starey Night (Janice), and their agents), T-23 (cheapest capable model by task/latency; retention terms not material to the pilot). Recorded in `docs/decisions/2026-08-31-session-ratification.md`. |
 | **Implementability** | Partial (documentation only). |
-| **Owner** | Development Lead / named security reviewer: Danny Tran (`dt110202@gmail.com`) for the reviewer fact; the R3 signature itself still requires a human signing pass. |
+| **Owner** | Development Lead / named security reviewer: Danny Tran (@dangt) for the reviewer fact; the R3 signature itself still requires a human signing pass. |
 | **Work now** | None beyond this documentation record. No provider interface, adapter, model call, fetch, persistence, review action, or claim that R3 passed. |
 | **Resumption** | Unresolved: R3 signature itself; T-19's conflict with signed G3 (single approver who also proposes vs. R3's required second approver — needs a G3 amendment); T-27 (observation scope), T-28 (reviewer identity/tenant/unit authority), T-29 (limits) remain CANNOT CLOSE by their own labelling; T-04's compressed-byte cap is unquantified. Affected modules: none yet (no provider interface exists). First concrete step: a human resolves the T-19/signed-G3 conflict (by G3 amendment or otherwise) and performs the R3 signing pass, flipping `test_g3_threat_model_remains_unsigned_draft` in the same commit. |
 
@@ -103,7 +103,7 @@ Every blocked feature, using the design's §13 required fields.
 |---|---|
 | **Decision** | `board_role` is relationship-scoped, contextual, and time-dependent rather than intrinsic. Recorded in `docs/decisions/p9-gate-a-board-role-decision-draft.md`. |
 | **Implementability** | Partial (documentation and schema-shape analysis only). |
-| **Owner** | Session approver: Danny Tran (`dt110202@gmail.com`); formal Gate A decider remains Dr. Wang. |
+| **Owner** | Session approver: Danny Tran (@dangt); formal Gate A decider remains Dr. Wang. |
 | **Work now** | Documentation and schema-shape analysis only. No flat rejection of `columns.yaml`'s current holding position, no new column-shape enforcement, no relationship-schema migration. |
 | **Resumption** | Unresolved: multiplicity, effective dates, source semantics, correction semantics, and the formal Gate A signature. Affected modules: `docs/pilot-data/columns.yaml`, any future relationship-model migration. First concrete step: Dr. Wang signs a Gate A artifact answering the four unresolved fields. |
 
@@ -113,7 +113,7 @@ Every blocked feature, using the design's §13 required fields.
 |---|---|
 | **Decision** | Collect Public URL, Point(s) of Contact, and contact email/phone when available, for IA West Coordinator follow-up. Recorded in `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §0.5. |
 | **Implementability** | Partial. Only static HTTPS URL-shape validation (V2's four rules) may proceed; contact-field collection remains fully blocked. |
-| **Owner** | Session approver: Danny Tran (`dt110202@gmail.com`); formal gate still requires Dr. Wang **plus** a named privacy owner, who does not yet exist anywhere in this repository. |
+| **Owner** | Session approver: Danny Tran (@dangt); formal gate still requires Dr. Wang **plus** a named privacy owner, who does not yet exist anywhere in this repository. |
 | **Work now** | Static URL-shape validation only (absolute URL, scheme exactly `https`, hostname present, no userinfo, no query/fragment, no IPv4/IPv6 literal host). Raw URL persistence remains blocked without an approved host/path projection. Contact data may not be collected, persisted, quarantined, copied into a finding, sent to a model, exported, or rendered. |
 | **Resumption** | Unresolved: named privacy owner; purpose; minimization; retention; correction/deletion path; viewer/exporter roles; the three per-field collect/drop decisions; the §8 signature. Affected modules: the P9 pilot-columns ingestion path, `docs/pilot-data/columns.yaml`, R3's T-14 finding, G3's MP-4 control. First concrete step: name a privacy owner (a one-sentence act per the handoff), then Dr. Wang and that owner complete and sign the worksheet. |
 
@@ -123,7 +123,7 @@ Every blocked feature, using the design's §13 required fields.
 |---|---|
 | **Decision** | Aggregate-visibility hierarchy: student sees their own class/unit summary; school coordinator sees their school summary; IA West Coordinator sees cross-unit portfolio metrics; raw rows stay restricted. Recorded in `docs/decisions/metrics-authorization-decision-draft.md` §0. |
 | **Implementability** | Partial (direction recorded; no implementation authorized). |
-| **Owner** | Session approver: Danny Tran (`dt110202@gmail.com`); formal policy still requires product and security together. |
+| **Owner** | Session approver: Danny Tran (@dangt); formal policy still requires product and security together. |
 | **Work now** | Record the hierarchy (done). Keep every **new** raw-row path fail-closed. No route, authorizer, policy-matrix, contract, or OpenAPI change. |
 | **Resumption** | Unresolved: student exact-unit vs. subtree; school coordinator exact-unit vs. subtree; `admin` treatment; whether a bare `resource_grant` can read aggregates; named raw-row roles; metric-specific exceptions; formal product+security approval. Affected modules: `services/api/smartmatch_api/routers/metrics.py`, `tests/authz/test_policy_matrix.py::INTENTIONALLY_UNGATED_OPERATIONS`. The existing intentionally-ungated raw-row route remains an explicit unresolved exception — not an approved policy, not a pattern to copy. First concrete step: a product+security workshop answers the four bounded questions in `metrics-authorization-decision-draft.md` §1. |
 
@@ -133,7 +133,7 @@ Every blocked feature, using the design's §13 required fields.
 |---|---|
 | **Decision** | Opportunity set includes hackathon, datathon, competition, guest lecturer event, and school event, recorded as an inclusive (non-exhaustive) set. Recorded in `docs/decisions/p8-opportunities-decision-draft.md`. |
 | **Implementability** | Partial (category-shape fixtures only). |
-| **Owner** | Session approver: Danny Tran (`dt110202@gmail.com`); formal gate still requires the product owner, who is not named anywhere in this repository. |
+| **Owner** | Session approver: Danny Tran (@dangt); formal gate still requires the product owner, who is not named anywhere in this repository. |
 | **Work now** | Committed in-list and out-of-list-raw-example category-shape fixtures only, independent of P1/P9. No durable assignment, approval/rejection action, metric, or publication. |
 | **Resumption** | Unresolved: whether the list is exhaustive; the canonical eligibility/count definition; the owning evidence source per registered name; T-28 identity/tenant/unit authority (for durable assignment); P6 owning persistence (for event-backed evidence); the formal product-owner signature. Affected modules: `python/smartmatch_domain/smartmatch_domain/metrics.py`, `docs/plans/2026-08-28-opportunities-s12-plan.md` card O1. First concrete step: name a product owner, then that owner ratifies the definition per the stop-gate's three required items. |
 
@@ -141,9 +141,9 @@ Every blocked feature, using the design's §13 required fields.
 
 | Field | Content |
 |---|---|
-| **Decision** | Working direction: Danny Tran (`dt110202@gmail.com`) named for D6; IA West Coordinator is the intended operational administrator; $5,000 recorded as a placeholder ceiling. D7 remains tentative. Recorded in `docs/decisions/pilot-decisions.md` §D6. |
+| **Decision** | Working direction: Danny Tran (@dangt) named for D6; IA West Coordinator is the intended operational administrator; $5,000 recorded as a placeholder ceiling. D7 remains tentative. Recorded in `docs/decisions/pilot-decisions.md` §D6. |
 | **Implementability** | Partial (formal D6 record and existing-guarantee verification only). |
-| **Owner** | Session approver: Danny Tran (`dt110202@gmail.com`) for the working direction; no institutional budget owner or funding source exists. |
+| **Owner** | Session approver: Danny Tran (@dangt) for the working direction; no institutional budget owner or funding source exists. |
 | **Work now** | The formal D6 record (done) and verification of already-authorized existing-schema/append-only guarantees (e.g. `budget_owner_id NOT NULL`, `test_reward_item_rejects_a_null_budget_owner`). If a database append-only guard is found absent, report the gap rather than add it under this session. No new budget envelope, commitment, reservation, redemption, earning, catalog, route, or UI behavior. |
 | **Resumption** | Unresolved: currency; institutional budget ownership; funded balance; budget lifecycle and effective versions; concurrency; release/refund semantics; overlap rules; item names/costs/content; earn policy and calibration N; fulfilment commitments; read/redemption roles. Affected modules: `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md` cards L1–L4/C1/R3/U1, `docs/pilot-data/rewards-catalog-worksheet.md`. First concrete step: name an institutional budget owner and confirm the funding model; the $5,000 figure and D7's numbers are not promoted until then. |
 

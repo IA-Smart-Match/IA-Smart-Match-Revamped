@@ -4,10 +4,7 @@ Architecture v1.1 §1.2 requires **one** registry before any matching port, and
 gate G1 ("factor registry + golden cases approved") blocks R1 until a named
 program owner signs off on its contents.
 
-Status: **PROPOSED — NOT APPROVED.** Nothing in this module may be used to
-produce a match score presented to a user until the G1 gate closes. The
-proposal is recorded here so the contradiction found in the legacy baseline is
-resolved in the open rather than silently inherited.
+Status: **APPROVED** — gate G1 closed 2026-09-03 (Danny Tran, @dangt).
 
 Legacy evidence (Nebiux-Team-IA-West-SmartMatch@bdce024, verified):
 
@@ -51,12 +48,12 @@ __all__ = [
     "proposed_weights",
 ]
 
-REGISTRY_VERSION: Final[str] = "1.1.0-proposed"
+REGISTRY_VERSION: Final[str] = "1.1.0-approved-g1"
 
-#: Flipped to ``"approved"`` only by the program owner named in gate G1, in a
-#: reviewed commit that also lands the golden case set. Code paths that produce
-#: user-visible scores must call :func:`assert_registry_approved` first.
-REGISTRY_STATUS: Final[str] = "proposed"
+#: Approved 2026-09-03 by Danny Tran (@dangt) per
+#: ``docs/plans/workshops/g1-workshop-output-worksheet.md`` and Dr. Wang program
+#: direction (topic_relevance + proximity; 2–3 speaker shortlist; no % display).
+REGISTRY_STATUS: Final[str] = "approved"
 
 
 class FactorKind(StrEnum):
@@ -140,95 +137,34 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         key="topic_relevance",
         display_label="Topic Relevance",
         kind=FactorKind.SUITABILITY,
-        proposed_weight=0.30,
+        proposed_weight=0.70,
         implemented=False,
         rationale=(
             "Alignment between the professional's expertise and the event_need's "
-            "required and preferred topics. Embedding models may contribute feature "
-            "inputs only with provenance and golden/shadow tests (v1.1 §1.2)."
-        ),
-    ),
-    FactorSpec(
-        key="role_fit",
-        display_label="Role Fit",
-        kind=FactorKind.SUITABILITY,
-        proposed_weight=0.25,
-        implemented=False,
-        rationale=(
-            "Whether the professional's role matches the roles the event_need "
-            "requests (speaker, judge, mentor, panelist)."
+            "required and preferred topics. Primary scoring factor per G1 "
+            "approval (2026-09-03)."
         ),
     ),
     FactorSpec(
         key="travel_burden",
-        display_label="Travel Burden",
+        display_label="Travel Burden (proximity)",
         kind=FactorKind.PENALTY,
-        proposed_weight=0.20,
+        proposed_weight=0.30,
         implemented=False,
         rationale=(
-            "Route-matrix travel time (v1.1 §3.1). Replaces the legacy "
-            "'geographic_proximity' constant table. On provider failure the system "
-            "reports 'travel estimate unavailable' and never fabricates mileage."
+            "Proximity / route-matrix travel time (v1.1 §3.1). Straight-line "
+            "interim until D3 provider. Secondary scoring factor per G1 approval."
         ),
     ),
-    FactorSpec(
-        key="engagement_load",
-        display_label="Engagement Load Index",
-        kind=FactorKind.PENALTY,
-        proposed_weight=0.15,
-        implemented=True,
-        rationale=(
-            "Operational workload only (v1.1 §1.3). Hard cap enforced in Stage A, "
-            "soft penalty applied here. Implemented in smartmatch_domain.eli."
-        ),
-    ),
-    FactorSpec(
-        key="repeat_penalty",
-        display_label="Repeat Selection Penalty",
-        kind=FactorKind.PENALTY,
-        proposed_weight=0.10,
-        implemented=False,
-        rationale=(
-            "Discourages repeatedly assigning the same professionals while others "
-            "go underutilized (v1.1 §5.2 view V6)."
-        ),
-    ),
-    # ---- Stage A eligibility filters: no Stage B weight, by construction ----
     FactorSpec(
         key="availability",
         display_label="Availability / Blackout",
         kind=FactorKind.ELIGIBILITY,
         proposed_weight=0.0,
         implemented=False,
-        rationale="Declared availability, blackout windows, overlapping assignments.",
-    ),
-    FactorSpec(
-        key="credential_check",
-        display_label="Credential and Background Check",
-        kind=FactorKind.ELIGIBILITY,
-        proposed_weight=0.0,
-        implemented=False,
-        rationale="Required credential or background check missing or expired.",
-    ),
-    FactorSpec(
-        key="contact_status",
-        display_label="Contact Confidence State",
-        kind=FactorKind.ELIGIBILITY,
-        proposed_weight=0.0,
-        implemented=False,
         rationale=(
-            "No valid contact status. Scraped or purchased contacts are never eligible (v1.1 §2.3)."
-        ),
-    ),
-    FactorSpec(
-        key="declared_cap",
-        display_label="Declared Capacity Cap",
-        kind=FactorKind.ELIGIBILITY,
-        proposed_weight=0.0,
-        implemented=False,
-        rationale=(
-            "Over the professional's declared rolling capacity. Hard constraint; "
-            "bypassable only by an authorized, expiring override (v1.1 §1.3)."
+            "Applied after shortlist per program direction: match before "
+            "availability; coordinator batch-invites and tracks responses."
         ),
     ),
 )

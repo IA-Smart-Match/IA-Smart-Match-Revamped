@@ -5,7 +5,6 @@
     "company": "Pomona Ridge Analytics",
     "title": "Director of Data Science",
     "expertise_tags": "machine learning, forecasting, Python",
-    "board_role": "Director",
     "initials": "RA"
   },
   {
@@ -14,7 +13,6 @@
     "company": "Tustin Harbor Consulting",
     "title": "Principal Software Engineer",
     "expertise_tags": "distributed systems, Kubernetes, mentoring",
-    "board_role": "Director",
     "initials": "DO"
   },
   {
@@ -23,7 +21,6 @@
     "company": "Whittier Civic Analytics",
     "title": "VP Community Programs",
     "expertise_tags": "workforce development, public policy, DEI",
-    "board_role": "VP Programs",
     "initials": "MQ"
   },
   {
@@ -32,7 +29,6 @@
     "company": "Harbor Line Robotics",
     "title": "Lead Robotics Engineer",
     "expertise_tags": "robotics, embedded systems, computer vision",
-    "board_role": "Director",
     "initials": "TB"
   },
   {
@@ -41,7 +37,6 @@
     "company": "Broncoline Health Tech",
     "title": "Chief Product Officer",
     "expertise_tags": "healthcare AI, product strategy, clinical informatics",
-    "board_role": "Director",
     "initials": "AF"
   },
   {
@@ -50,7 +45,6 @@
     "company": "Valleycrest Ventures",
     "title": "Managing Partner",
     "expertise_tags": "venture capital, startup mentorship, fintech",
-    "board_role": "Treasurer",
     "initials": "JV"
   },
   {
@@ -59,7 +53,6 @@
     "company": "Irvine Meridian Labs",
     "title": "Data Engineering Manager",
     "expertise_tags": "data engineering, cloud infrastructure, ETL",
-    "board_role": "Secretary",
     "initials": "PD"
   },
   {
@@ -68,7 +61,6 @@
     "company": "Westline Cyber Group",
     "title": "Chief Information Security Officer",
     "expertise_tags": "cybersecurity, network security, compliance",
-    "board_role": "Director",
     "initials": "CW"
   },
   {
@@ -77,7 +69,6 @@
     "company": "Diamond Bar Design Studio",
     "title": "VP Product Design",
     "expertise_tags": "UX design, user research, accessibility",
-    "board_role": "Director",
     "initials": "IB"
   },
   {
@@ -86,7 +77,6 @@
     "company": "Southgate Analytics Group",
     "title": "Senior Data Scientist",
     "expertise_tags": "statistics, A/B testing, Python",
-    "board_role": "Director",
     "initials": "SA"
   },
   {
@@ -95,7 +85,6 @@
     "company": "Fullerton Bridge Consulting",
     "title": "Director of Engineering",
     "expertise_tags": "cloud infrastructure, DevOps, platform reliability",
-    "board_role": "Director",
     "initials": "CO"
   },
   {
@@ -104,7 +93,6 @@
     "company": "Shoreline Fintech Partners",
     "title": "Head of Product",
     "expertise_tags": "fintech, blockchain, product management",
-    "board_role": "Treasurer",
     "initials": "BK"
   },
   {
@@ -113,7 +101,6 @@
     "company": "Central Line AI",
     "title": "Founder & CEO",
     "expertise_tags": "AI, machine learning, entrepreneurship",
-    "board_role": "President",
     "initials": "NO"
   },
   {
@@ -122,7 +109,6 @@
     "company": "Valley Forge Media Tech",
     "title": "VP Marketing",
     "expertise_tags": "brand strategy, media production, storytelling",
-    "board_role": "Director",
     "initials": "FD"
   },
   {
@@ -131,7 +117,6 @@
     "company": "Rowland Heights Analytics",
     "title": "Principal Data Scientist",
     "expertise_tags": "NLP, machine learning, healthcare AI",
-    "board_role": "Director",
     "initials": "WS"
   },
   {
@@ -140,7 +125,6 @@
     "company": "Westgate Robotics Lab",
     "title": "Research Scientist",
     "expertise_tags": "robotics, sensor fusion, autonomous systems",
-    "board_role": "Director",
     "initials": "RA"
   },
   {
@@ -149,7 +133,6 @@
     "company": "Anaheim Grove Ventures",
     "title": "VP Community Engagement",
     "expertise_tags": "volunteer coordination, nonprofit strategy, events",
-    "board_role": "VP Programs",
     "initials": "SB"
   },
   {
@@ -158,7 +141,6 @@
     "company": "East Valley Cyber Defense",
     "title": "Security Architect",
     "expertise_tags": "cybersecurity, cloud security, incident response",
-    "board_role": "Director",
     "initials": "TM"
   },
   {
@@ -167,7 +149,6 @@
     "company": "Long Beach Data Collective",
     "title": "Data Science Lead",
     "expertise_tags": "data engineering, analytics, Python",
-    "board_role": "Secretary",
     "initials": "AN"
   },
   {
@@ -176,7 +157,6 @@
     "company": "Encino Startup Studio",
     "title": "Managing Director",
     "expertise_tags": "startup mentorship, product strategy, growth",
-    "board_role": "Director",
     "initials": "PO"
   },
   {
@@ -185,7 +165,6 @@
     "company": "South Bay Health Analytics",
     "title": "Chief AI Officer",
     "expertise_tags": "healthcare AI, NLP, clinical informatics",
-    "board_role": "Director",
     "initials": "GA"
   },
   {
@@ -194,7 +173,6 @@
     "company": "Santa Ana River Consulting",
     "title": "Principal Engineer",
     "expertise_tags": "cloud infrastructure, DevOps, platform engineering",
-    "board_role": "Director",
     "initials": "MV"
   },
   {
@@ -203,7 +181,6 @@
     "company": "Pomona Bronco Ventures",
     "title": "Director of Innovation",
     "expertise_tags": "hackathons, entrepreneurship, mentoring",
-    "board_role": "Director",
     "initials": "OF"
   },
   {
@@ -212,7 +189,6 @@
     "company": "Westside Quant Labs",
     "title": "Head of Data Science",
     "expertise_tags": "quantitative analysis, forecasting, machine learning",
-    "board_role": "Director",
     "initials": "EN"
   },
   {
@@ -221,7 +197,6 @@
     "company": "Central Analytics Guild",
     "title": "VP Diversity Programs",
     "expertise_tags": "DEI, workforce development, education",
-    "board_role": "Director",
     "initials": "BO"
   },
   {
@@ -230,7 +205,6 @@
     "company": "Portside Robotics Ventures",
     "title": "CTO",
     "expertise_tags": "robotics, mobile, embedded systems",
-    "board_role": "Director",
     "initials": "AC"
   },
   {
@@ -239,7 +213,6 @@
     "company": "Sherman Oaks Product Lab",
     "title": "VP Product",
     "expertise_tags": "product strategy, user research, UX design",
-    "board_role": "Director",
     "initials": "TA"
   },
   {
@@ -248,7 +221,6 @@
     "company": "Costa Mesa Cyber Solutions",
     "title": "CISO",
     "expertise_tags": "cybersecurity, network security, risk management",
-    "board_role": "Director",
     "initials": "CW"
   },
   {
@@ -257,7 +229,6 @@
     "company": "Montebello Data Works",
     "title": "Data Engineering Director",
     "expertise_tags": "data engineering, ETL, cloud infrastructure",
-    "board_role": "Director",
     "initials": "YA"
   },
   {
@@ -266,7 +237,6 @@
     "company": "Claremont Analytics Partners",
     "title": "Senior Software Engineer",
     "expertise_tags": "backend systems, Python, mentoring",
-    "board_role": "Director",
     "initials": "WN"
   }
 ]

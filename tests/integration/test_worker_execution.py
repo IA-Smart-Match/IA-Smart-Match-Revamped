@@ -562,7 +562,7 @@ def test_injected_session_factory_owns_live_import_writes(
     payload = import_payload(
         unit_id=str(owning_unit_id),
         source_reference=None,
-        rows=[{"full_name": "A. Rivera"}],
+        rows=[{"name": "A. Rivera", "metro_region": "Inland Empire"}],
         dry_run=False,
     )
     job_id = accept_command(
@@ -659,7 +659,7 @@ def test_worker_lifespan_creates_and_disposes_one_engine(
         payload=import_payload(
             unit_id=str(owning_unit_id),
             source_reference=None,
-            rows=[{"full_name": "A. Rivera"}],
+            rows=[{"name": "A. Rivera", "metro_region": "Inland Empire"}],
             dry_run=False,
         ),
     )

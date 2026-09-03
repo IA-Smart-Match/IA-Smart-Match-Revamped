@@ -79,6 +79,44 @@ which branch applies:
 - **Coordination:** shares the funnel domain with plan P4 Stage 2 — the
   portfolio index gives P8 ownership of the S12 read model; P4 must consume,
   not duplicate.
+- **Status (2026-09-02): write path built at the domain+persistence layer,
+  intentionally uncalled by production code.** Migration `0011` (table +
+  `ck_pipeline_record_stage_prefix` / `ck_pipeline_record_stage_order` /
+  `ck_pipeline_record_attendance_evidence`) already existed; this update adds
+  `python/smartmatch_domain/smartmatch_domain/pipeline.py` (stage-order rule,
+  `assert_stage_reachable`) and
+  `python/smartmatch_persistence/smartmatch_persistence/pipeline.py`
+  (`PipelineRepository.record_matched` / `.advance_stage`), with unit tests
+  and `tests/integration/test_pipeline_record_writers.py` proving the writer
+  satisfies every `0011` CHECK constraint against real PostgreSQL and that
+  written rows flow through to the O3 metrics surface. **No route calls this
+  repository**, deliberately, until three blockers clear:
+  1. **This plan's own standing constraint, above: "No matcher actions before
+     G1."** `pipeline_record.matched_at` is `NOT NULL` (migration `0011`), so
+     any row in the table asserts a match occurred. G1 (plan P5, M1–M10
+     matching) has not closed — §5 of
+     `docs/status-report/2026-09-02-audit-status-report.md` lists P5 as
+     "Workshop ready — program owner named; registry not approved" — so no
+     code path in this repository originates a genuine match event yet.
+  2. **`pipeline_record.subject_id` is a hard FK to `user_account`**
+     (migration `0011`: `sa.ForeignKeyConstraint(["tenant_id", "subject_id"],
+     ["user_account.tenant_id", "user_account.id"], ondelete="RESTRICT")`),
+     but professionals — the funnel's actual subject — have no persisted
+     identity of their own. Migration `0012`
+     (`professional_unit_relationship`) says so directly in its own column
+     comment: "There is still no `professional` table in this schema."
+  3. **`attendance_record`, the evidence `ck_pipeline_record_attendance_evidence`
+     requires the Attended stage to cite, has no write path either.**
+     `services/api/smartmatch_api/routers/engagement.py` is a declared-empty
+     stub ("This module deliberately declares no handlers yet").
+
+  Net effect: the S12 funnel reads a real, honest zero in any deployment
+  today. The only non-zero evidence that exists anywhere is rows seeded
+  directly by `tests/integration/test_pipeline_record_writers.py` and the
+  constraint-level tests — never by a route a deployed instance would ever
+  call. This is not a claim that O2 is done pending a follow-up; it is the
+  infrastructure O2 asked for, correctly left disconnected until the three
+  blockers above close.
 
 ### Card O3 — bind owning query (after O2)
 
