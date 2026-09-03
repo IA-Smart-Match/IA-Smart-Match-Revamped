@@ -128,12 +128,96 @@ make run-worker     # http://localhost:8001
 The API runs against fixture providers by default and **cannot** be configured
 into a live provider without credentials that do not exist in this repository.
 
-There is also a container stack (`docker-compose.yml`) providing PostgreSQL, the
-migration step, the API, and the worker:
+There is also a container stack (`docker-compose.yml`) providing PostgreSQL, a
+migration step, a one-shot dev-only seed step, the API, the worker, and a
+dev-only scheduler sidecar. Bringing it up is not a deployment — see the file's
+own header for what it deliberately does not claim.
 
 ```bash
-docker compose up -d db migrate
-docker compose up api worker
+docker compose up --build -d
+```
+
+### Smoke-testing the full import path
+
+This is the complete path from an empty stack to one pending review item,
+with **no manual dispatch step** — the `scheduler` sidecar drives the import
+to completion on its own, the same way Cloud Scheduler would drive the real
+deployed worker (see `docs/operations/containers.md`).
+
+**1. Bring the stack up.**
+
+```bash
+docker compose up --build -d
+```
+
+Wait for it to settle (`docker compose ps` — `api`, `worker`, and `scheduler`
+should all be `running`/`healthy`; `migrate` and `seed` should be
+`exited (0)`).
+
+**2. Recover the seeded unit's UUID.** `seed` created a `pilot` org unit under
+a synthetic `pilot` tenant (`tools/seed_pilot.py`'s own defaults); look it up
+directly rather than guessing an id:
+
+```bash
+UNIT_ID=$(docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" \
+  -tAc "select id from org_unit where path = 'pilot'")
+echo "$UNIT_ID"
+```
+
+**3. Submit one valid inline `professionals` row**, with `dry_run: false` so
+it actually queues work. The bearer token below (`compose-api`) is
+the local-only dev principal `docker-compose.yml` maps to the seeded
+`coordinator` membership — see that file's `SMARTMATCH_DEV_PRINCIPALS`. The
+row uses only columns `docs/pilot-data/columns.yaml` ratifies for
+`professionals` (`name` and `metro_region` required; the rest optional), so it
+validates cleanly rather than producing findings. `Idempotency-Key` must be
+unique per attempt — reusing one replays the first response instead of
+submitting again.
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/v1/units/$UNIT_ID/imports" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: smoke-$(date +%s)" \
+  -d '{
+        "dataset": "professionals",
+        "dry_run": false,
+        "rows": [
+          {"name": "Ada Lovelace", "metro_region": "Portland"}
+        ]
+      }'
+```
+
+A `202` here means the command was accepted and queued — not that anything
+has been imported yet. The `scheduler` sidecar is what moves it the rest of
+the way, on its own two-second loop.
+
+**4. Poll `GET /v1/units/$UNIT_ID/metrics` for at most 30 seconds**, watching
+for `pending_review_items` to reach `1`:
+
+```bash
+for i in $(seq 1 30); do
+  value=$(curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+    -H "Authorization: Bearer compose-api" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"), "null"))')
+  echo "attempt $i: pending_review_items.value = $value"
+  [ "$value" = "1" ] && break
+  sleep 1
+done
+```
+
+**5. Assert the result.**
+
+```bash
+[ "$value" = "1" ] || { echo "FAILED: expected pending_review_items.value == 1, got $value"; exit 1; }
+echo "OK: one row queued through the dev-only scheduler, no manual dispatch"
+```
+
+Tear down when finished:
+
+```bash
+docker compose down -v
 ```
 
 ---

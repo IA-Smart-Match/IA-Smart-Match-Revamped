@@ -298,6 +298,23 @@ sources named beside it.
 | Supply provider credentials | No live provider adapter is implemented; construction fails before any credential check. In deployed environments credentials come from Secret Manager, never from a file | The release gate for each provider — G4 for outreach, open decision 6 for routes |
 | Configure worker task identity | The verifier is real but ships with no signature backend, no audience, and no service-account allowlist, so it refuses every delivery (`401` without a credential, `501` with one) | Finding S-001: three separate deliberate acts, listed there |
 | Schedule the outbox dispatcher | The worker endpoint exists (`POST /operations/dispatch`); Cloud Scheduler job and OIDC binding are not yet provisioned | F5 Terraform + S-001 scheduler identity |
+
+**Neither of the two rows above is closed by `docker-compose.yml`.** Slice 3
+added a `seed` service, a dev-only bearer-token verifier pair
+(`SMARTMATCH_DEV_TASK_BEARER_TOKEN` / `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN`),
+a loopback task queue, and a `scheduler` sidecar so that a compose smoke test
+can exercise `POST /operations/dispatch` and `POST /tasks/execute` without a
+human running a dispatch curl by hand (see
+`docs/operations/containers.md#the-local-scheduler-and-loopback-task-queue-compose-only`).
+**That mechanism satisfies neither cloud gate above.** A bearer-token string
+comparison refused outside `SMARTMATCH_EDITION=dev` is not OIDC verification;
+a sidecar POSTing to a fixed `http://worker:8080` address inside one compose
+network is not a provisioned Cloud Scheduler job with a minted, audience-bound
+token; and a `LocalPostgresHttpTaskQueue` that only proves one PostgreSQL row
+committed `dispatched` is not Cloud Tasks' durability guarantee. "Configure
+worker task identity" and "Schedule the outbox dispatcher" remain exactly as
+open as they were before this addition, and are closed only by Finding S-001
+and F5 Terraform, respectively — never by bringing this compose stack up.
 | Monitoring, alerting, on-call | Alert design is documented below; no environment to wire it into yet | A deployed environment |
 | Smoke test after deploy | The health endpoints exist and are probed in CI against the built images (see `containers.md`), but there is no deployed URL to probe | A deployed environment |
 

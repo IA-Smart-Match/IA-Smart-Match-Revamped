@@ -222,3 +222,100 @@ jobs:
       - name: Remove the container
         if: always()
         run: docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+  compose-smoke:
+    name: compose smoke — seed, import, scheduler-driven dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Proves the documented docker-compose.yml smoke path (INSTALL.md) works:
+    # bring the stack up, seed one principal, submit one import, and confirm
+    # it reaches pending_review_items == 1 with NO manual dispatch step — the
+    # compose `scheduler` sidecar is what drives it there. Same posture as the
+    # `images` job above: no login, no push, no registry, no cloud resource,
+    # and no permission beyond `contents: read`. The dev bearer tokens and
+    # local task queue this exercises are a developer appliance emulating
+    # Cloud Scheduler/Cloud Tasks, not an implementation of either — see
+    # docker-compose.yml's header and
+    # docs/operations/containers.md#the-local-scheduler-and-loopback-task-queue-compose-only.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Bring the stack up
+        run: docker compose up --build -d
+
+      - name: Wait for api and worker health endpoints
+        run: |
+          for i in $(seq 1 60); do
+            api_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/health || true)"
+            worker_code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/health || true)"
+            echo "attempt $i: api=$api_code worker=$worker_code"
+            [ "$api_code" = "200" ] && [ "$worker_code" = "200" ] && break
+            sleep 2
+          done
+          if [ "$api_code" != "200" ] || [ "$worker_code" != "200" ]; then
+            echo "::error::api or worker never reported healthy"
+            docker compose ps
+            docker compose logs
+            exit 1
+          fi
+
+      - name: Recover the seeded unit UUID
+        run: |
+          unit_id="$(docker compose exec -T db psql \
+            "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" \
+            -tAc "select id from org_unit where path = 'pilot'" | tr -d '[:space:]')"
+          if [ -z "$unit_id" ]; then
+            echo "::error::seed did not produce a 'pilot' org unit"
+            docker compose logs seed
+            exit 1
+          fi
+          echo "unit_id=$unit_id" >> "$GITHUB_ENV"
+
+      - name: Submit one inline professionals row (dry_run:false)
+        # The bearer token and row shape here are exactly INSTALL.md's
+        # documented smoke path: the local-only dev principal
+        # docker-compose.yml maps to the seeded coordinator membership, and a
+        # row using only columns docs/pilot-data/columns.yaml ratifies for
+        # professionals (name, metro_region required).
+        run: |
+          curl -sf -X POST "http://127.0.0.1:8080/v1/units/${unit_id}/imports" \
+            -H "Authorization: Bearer compose-api" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: ci-smoke-${{ github.run_id }}-${{ github.run_attempt }}" \
+            -d '{
+                  "dataset": "professionals",
+                  "dry_run": false,
+                  "rows": [
+                    {"name": "Ada Lovelace", "metro_region": "Portland"}
+                  ]
+                }'
+
+      - name: Poll metrics for pending_review_items == 1 (max 30s) — no manual dispatch
+        # There is deliberately no dispatch curl anywhere in this job. If this
+        # step times out, the compose `scheduler` sidecar failed to drive the
+        # import to completion on its own, which is the one thing this job
+        # exists to prove works.
+        run: |
+          value="null"
+          for i in $(seq 1 30); do
+            value="$(curl -s "http://127.0.0.1:8080/v1/units/${unit_id}/metrics" \
+              -H "Authorization: Bearer compose-api" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"), "null"))')"
+            echo "attempt $i: pending_review_items.value = $value"
+            [ "$value" = "1" ] && break
+            sleep 1
+          done
+          if [ "$value" != "1" ]; then
+            echo "::error::expected pending_review_items.value == 1, got ${value}"
+            docker compose logs api worker scheduler seed
+            exit 1
+          fi
+          echo "pending_review_items.value == 1, reached with no manual dispatch step"
+
+      - name: Stop the stack and discard the data volume
+        if: always()
+        run: docker compose down -v
