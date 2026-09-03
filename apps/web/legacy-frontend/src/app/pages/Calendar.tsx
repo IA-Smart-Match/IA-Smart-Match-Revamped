@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Building2,
   CalendarDays,
+  CalendarOff,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -20,8 +21,15 @@ import {
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
 } from "@/lib/api";
-import { DemoModeBadge } from "../components/ui/DemoModeBadge";
 import { Button } from "../components/ui/button";
+import { AccountableValue, SyntheticDataBanner } from "../components/provenance";
+import { accountableDemoMetric } from "@/lib/metrics";
+import {
+  calendarDateKey,
+  parseCalendarDate,
+  partitionByResolvedDate,
+  viewerTimeZone,
+} from "@/lib/eventDates";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -39,6 +47,54 @@ function getErrorMessage(err: unknown, fallback: string): string {
     return err;
   }
   return fallback;
+}
+
+/**
+ * Why this page can have no events at all.
+ *
+ * `GET /api/calendar/events` and `/api/calendar/assignments` are legacy
+ * routes the current API does not serve — the repository's own performance
+ * baseline records both as 404 (`docs/plans/perf-baseline-828.md`), and
+ * `services/api/smartmatch_api/routers/events.py` declares no handlers for
+ * the unit-scoped replacement yet (S3-S5). The OpenAPI contract
+ * (`contracts/openapi/smartmatch.json`) exposes no event operation either.
+ *
+ * So the honest state for this screen is *unavailable*, not *empty* and not
+ * *failed*: there is nothing to retry into. Rendering a month grid of
+ * fixtures or an ICS stub here is the "silent ICS fallback shown as success"
+ * that DESIGN.md §1.2 names outright.
+ */
+const CALENDAR_FEED_RETIRED_REASON =
+  "This calendar reads the retired legacy routes GET /api/calendar/events and /api/calendar/assignments, which the current API does not serve. Unit-scoped event endpoints are S3-S5 work and the OpenAPI contract exposes no event operation yet, so there are no event records to draw.";
+
+/** True when a rejection is the API telling us the route no longer exists. */
+function isRetiredRoute(reason: unknown): boolean {
+  return (
+    typeof reason === "object" &&
+    reason !== null &&
+    (reason as { status?: unknown }).status === 404
+  );
+}
+
+/**
+ * The designed "this data source does not exist" state.
+ *
+ * Distinct from {@link FailureState} on purpose, and deliberately without a
+ * Retry button: offering one would imply the data is coming back on this
+ * build, which it is not.
+ */
+function UnavailableState({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-300 bg-slate-50 p-8">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
+        <CalendarOff className="h-5 w-5 text-slate-600" aria-hidden="true" />
+      </div>
+      <p className="mt-3 text-center text-sm font-semibold text-slate-800">{title}</p>
+      <p className="mx-auto mt-2 max-w-2xl text-center text-sm leading-6 text-slate-600">
+        {message}
+      </p>
+    </div>
+  );
 }
 
 function FailureState({
@@ -75,22 +131,8 @@ interface DayCell {
   date: Date | null;
 }
 
-function parseLocalDate(iso: string): Date {
-  if (!iso) {
-    return new Date();
-  }
-  const [year, month, day] = iso.split("-").map(Number);
-  if ([year, month, day].some((part) => Number.isNaN(part))) {
-    return new Date(iso);
-  }
-  return new Date(year, month - 1, day);
-}
-
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")}`;
-}
+const parseLocalDate = parseCalendarDate;
+const dateKey = calendarDateKey;
 
 function sameDay(left: Date, right: Date) {
   return dateKey(left) === dateKey(right);
@@ -181,7 +223,28 @@ function formatCount(value: number | null) {
   return value === null ? "Unknown" : `${value}`;
 }
 
-function summaryCounts(events: CalendarEventSummary[], assignments: CalendarAssignmentSummary[]) {
+/** Renders a 0..1 ratio as a whole-number percentage for `AccountableValue`. */
+function formatRatioPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+/**
+ * Rolls the loaded rows up into the four header tiles.
+ *
+ * Each field is `number | null`, and `null` means the tile has no evidence
+ * behind it — either the feed that would supply it did not answer, or (for
+ * coverage rate) there is no denominator to divide by. ADR-0011 rule 1: a
+ * count of zero rows returned by a *failed* request is not a measurement of
+ * zero, and the previous version of this page rendered exactly that — an
+ * unreachable assignments feed produced "0 on cooldown", which reads as
+ * "nobody needs rest".
+ */
+function summaryCounts(
+  events: CalendarEventSummary[],
+  assignments: CalendarAssignmentSummary[],
+  eventsAvailable: boolean,
+  assignmentsAvailable: boolean,
+) {
   const covered = events.filter((event) => event.coverage_status === "covered").length;
   const needsCoverage = events.filter((event) => event.coverage_status === "needs_coverage").length;
   const knownFatigue = assignments
@@ -193,10 +256,13 @@ function summaryCounts(events: CalendarEventSummary[], assignments: CalendarAssi
   const cooldownCount = assignments.filter((assignment) => assignment.recovery_status === "Rest Recommended").length;
 
   return {
-    covered,
-    needsCoverage,
-    averageFatigue,
-    cooldownCount,
+    covered: eventsAvailable ? covered : null,
+    needsCoverage: eventsAvailable ? needsCoverage : null,
+    // A coverage *rate* with no scheduled windows has no denominator. It is
+    // unknown, not 0% — "no data yet versus zero" (DESIGN.md §1.2).
+    coverageRate: eventsAvailable && events.length > 0 ? covered / events.length : null,
+    averageFatigue: assignmentsAvailable ? averageFatigue : null,
+    cooldownCount: assignmentsAvailable ? cooldownCount : null,
   };
 }
 
@@ -210,12 +276,19 @@ export function Calendar() {
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
+  const [eventsAvailable, setEventsAvailable] = useState(false);
+  const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
+  // `/api/calendar/*` are retired legacy routes. A 404 here is not a transient
+  // failure a Retry can clear, so it gets its own designed state rather than
+  // an error banner that invites the viewer to try again forever.
+  const [feedRetired, setFeedRetired] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setLoadFailed(false);
+    setFeedRetired(false);
     setError(null);
 
     Promise.allSettled([fetchCalendarEvents(), fetchCalendarAssignments()])
@@ -229,6 +302,7 @@ export function Calendar() {
         if (eventResult.status === "fulfilled") {
           const { data, isMockData } = eventResult.value;
           setEvents(data);
+          setEventsAvailable(true);
           if (isMockData) anyMock = true;
         } else {
           // Events are the calendar's core data — without them there is
@@ -236,6 +310,9 @@ export function Calendar() {
           // substituting fixture events.
           setEvents([]);
           setAssignments([]);
+          setEventsAvailable(false);
+          setAssignmentsAvailable(false);
+          setFeedRetired(isRetiredRoute(eventResult.reason));
           setLoadFailed(true);
           setError(getErrorMessage(eventResult.reason, "Failed to load the calendar."));
           setIsMockData(false);
@@ -245,12 +322,14 @@ export function Calendar() {
         if (assignmentResult.status === "fulfilled") {
           const { data, isMockData } = assignmentResult.value;
           setAssignments(data);
+          setAssignmentsAvailable(true);
           if (isMockData) anyMock = true;
         } else {
           // Assignment overlays are supplementary — keep showing the real
           // events and surface a non-blocking warning instead of fabricating
-          // overlay rows.
+          // overlay rows. Every tile they back goes to unknown, not to zero.
           setAssignments([]);
+          setAssignmentsAvailable(false);
           setError(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
@@ -264,6 +343,9 @@ export function Calendar() {
         }
         setEvents([]);
         setAssignments([]);
+        setEventsAvailable(false);
+        setAssignmentsAvailable(false);
+        setFeedRetired(isRetiredRoute(err));
         setLoadFailed(true);
         setIsMockData(false);
         setError(getErrorMessage(err, "Failed to load calendar."));
@@ -294,21 +376,15 @@ export function Calendar() {
     return true;
   });
 
-  const assignmentByDate = new Map<string, CalendarAssignmentSummary[]>();
-  for (const assignment of assignments) {
-    const key = assignment.event_date ? dateKey(parseLocalDate(assignment.event_date)) : assignment.event_id;
-    const bucket = assignmentByDate.get(key) ?? [];
-    bucket.push(assignment);
-    assignmentByDate.set(key, bucket);
-  }
-
-  const eventByDate = new Map<string, CalendarEventSummary[]>();
-  for (const event of filteredEvents) {
-    const key = event.event_date ? dateKey(parseLocalDate(event.event_date)) : event.event_id;
-    const bucket = eventByDate.get(key) ?? [];
-    bucket.push(event);
-    eventByDate.set(key, bucket);
-  }
+  // Rows whose date does not resolve are kept *out* of the grid and listed
+  // separately below it (ADR-0010): a cell is a claim that something happens
+  // on that day, and we cannot make that claim for a record with no date.
+  const { byDateKey: assignmentByDate, unresolved: unresolvedAssignments } =
+    partitionByResolvedDate(assignments, (assignment) => assignment.event_date);
+  const { byDateKey: eventByDate, unresolved: unresolvedEvents } = partitionByResolvedDate(
+    filteredEvents,
+    (event) => event.event_date,
+  );
 
   const selectedDayEvents = eventByDate.get(activeDayKey) ?? [];
   const selectedDayAssignments = (assignmentByDate.get(activeDayKey) ?? []).filter((assignment) =>
@@ -316,7 +392,49 @@ export function Calendar() {
       (event) => event.event_id === assignment.event_id || event.event_name === assignment.event_name,
     ),
   );
-  const metrics = summaryCounts(events, assignments);
+  const metrics = summaryCounts(events, assignments, eventsAvailable, assignmentsAvailable);
+
+  // Provenance for calendar-derived tiles: a feed that answered with rows it
+  // labelled demo/csv is synthetic; one that did not answer at all is
+  // synthetic too, because whatever the tile shows is not an observation.
+  const eventProvenance = eventsAvailable && !isMockData ? ("observed" as const) : ("synthetic" as const);
+  const assignmentProvenance =
+    assignmentsAvailable && !isMockData ? ("observed" as const) : ("synthetic" as const);
+
+  const coverageRateMetric = accountableDemoMetric(
+    "Coverage rate",
+    "Share of the loaded calendar windows the feed reports as covered.",
+    metrics.coverageRate,
+    {
+      provenance: eventProvenance,
+      unknownReason: eventsAvailable
+        ? "No calendar windows are loaded, so a coverage rate has no denominator. An empty set is unknown, not 0%."
+        : CALENDAR_FEED_RETIRED_REASON,
+    },
+  );
+  const needsCoverageMetric = accountableDemoMetric(
+    "Needs coverage",
+    "Loaded calendar windows the feed reports as needing coverage.",
+    metrics.needsCoverage,
+    { provenance: eventProvenance, unknownReason: CALENDAR_FEED_RETIRED_REASON },
+  );
+  const averageFatigueMetric = accountableDemoMetric(
+    "Average fatigue",
+    "Mean of the fatigue values the assignment overlays actually carried; overlays without one are excluded rather than counted as zero.",
+    metrics.averageFatigue,
+    {
+      provenance: assignmentProvenance,
+      unknownReason: assignmentsAvailable
+        ? "No loaded assignment overlay carries a fatigue value, so there is nothing to average."
+        : CALENDAR_FEED_RETIRED_REASON,
+    },
+  );
+  const cooldownMetric = accountableDemoMetric(
+    "On cooldown",
+    "Assignment overlays whose recovery status is Rest Recommended.",
+    metrics.cooldownCount,
+    { provenance: assignmentProvenance, unknownReason: CALENDAR_FEED_RETIRED_REASON },
+  );
 
   const periodLabel =
     view === "month"
@@ -368,11 +486,18 @@ export function Calendar() {
           </p>
           <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
         </div>
-        <FailureState
-          title="The calendar could not be loaded"
-          message={error ?? "Failed to load calendar."}
-          onRetry={() => setReloadToken((token) => token + 1)}
-        />
+        {feedRetired ? (
+          <UnavailableState
+            title="The month calendar has no event source yet"
+            message={CALENDAR_FEED_RETIRED_REASON}
+          />
+        ) : (
+          <FailureState
+            title="The calendar could not be loaded"
+            message={error ?? "Failed to load calendar."}
+            onRetry={() => setReloadToken((token) => token + 1)}
+          />
+        )}
       </div>
     );
   }
@@ -383,37 +508,54 @@ export function Calendar() {
         <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
           Master calendar
         </p>
-        <h1 className="inline-flex items-center gap-2 text-3xl font-semibold text-slate-900">
-          Coordinator scheduling view{isMockData && <DemoModeBadge />}
-        </h1>
+        <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
         <p className="text-slate-600">
           Track coverage, assignment overlays, and volunteer recovery without leaving the calendar.
+          Dates are shown in {viewerTimeZone()}; the retired feed carries no per-event zone, so no
+          event time on this page is rendered in the event&apos;s own zone yet (ADR-0010).
         </p>
+        {/* DESIGN.md §1.1 singles the synthetic label out as needing to be
+            unmistakable. A chip beside the heading is not that, so a
+            fixture-backed calendar gets the full banner. */}
+        {isMockData ? (
+          <SyntheticDataBanner reason="The calendar feed answered with demo/CSV rows, not live records. Every window, overlay, and count below is fixture data." />
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {/* Every tile below routes its value through `AccountableValue`, so a
+            number the page could not measure renders as "Unknown" with the
+            reason attached rather than as a confident 0 (ADR-0011 rule 1). */}
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Coverage rate</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
-            {events.length ? formatPercent(metrics.covered / events.length) : "0%"}
+            <AccountableValue metric={coverageRateMetric} formatNumber={formatRatioPercent} />
           </p>
-          <p className="mt-1 text-sm text-slate-600">{metrics.covered} events already covered</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {metrics.covered === null
+              ? "Coverage is unknown while the calendar feed is unavailable."
+              : `${metrics.covered} event${metrics.covered === 1 ? "" : "s"} already covered`}
+          </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Needs coverage</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.needsCoverage}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            <AccountableValue metric={needsCoverageMetric} />
+          </p>
           <p className="mt-1 text-sm text-slate-600">Open windows that still need a volunteer</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average fatigue</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
-            {formatPercent(metrics.averageFatigue)}
+            <AccountableValue metric={averageFatigueMetric} formatNumber={formatRatioPercent} />
           </p>
           <p className="mt-1 text-sm text-slate-600">Recovery posture from assignment overlays</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">On cooldown</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.cooldownCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            <AccountableValue metric={cooldownMetric} />
+          </p>
           <p className="mt-1 text-sm text-slate-600">Volunteers that should be left untouched</p>
         </div>
       </div>
@@ -426,7 +568,7 @@ export function Calendar() {
             </div>
             <div>
               <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-                {periodLabel}
+                {periodLabel} · {viewerTimeZone()}
               </p>
               <h2 className="text-2xl font-semibold text-slate-900">
                 {view === "month" ? "Month grid" : view === "week" ? "Week agenda" : "Day detail"}
@@ -559,7 +701,8 @@ export function Calendar() {
                     </span>
                     {eventByDate.get(dateKey(cell.date))?.length ? (
                       <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 shadow-sm">
-                        {eventByDate.get(dateKey(cell.date))?.length} events
+                        {eventByDate.get(dateKey(cell.date))?.length}
+                        {eventByDate.get(dateKey(cell.date))?.length === 1 ? " event" : " events"}
                       </span>
                     ) : null}
                   </div>
@@ -593,6 +736,50 @@ export function Calendar() {
               ),
             )}
           </div>
+
+          {/*
+            ADR-0010 / DESIGN.md §1.8: an event whose date does not resolve
+            "renders as unresolved, not as a guess". These rows used to be
+            dropped into today's cell by a `new Date()` fallback, which made a
+            record with no date indistinguishable from one happening today.
+            They are named here instead, outside the grid.
+          */}
+          {unresolvedEvents.length || unresolvedAssignments.length ? (
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
+                  aria-hidden="true"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900">
+                    Not placed on the calendar: {unresolvedEvents.length} event
+                    {unresolvedEvents.length === 1 ? "" : "s"}
+                    {unresolvedAssignments.length
+                      ? ` and ${unresolvedAssignments.length} assignment overlay${unresolvedAssignments.length === 1 ? "" : "s"}`
+                      : ""}{" "}
+                    with an unresolved date
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-amber-800">
+                    These records carry no date that resolves, so no day cell can honestly claim
+                    them. They are listed here rather than guessed onto a date.
+                  </p>
+                  <ul className="mt-3 space-y-1 text-sm text-amber-900">
+                    {unresolvedEvents.slice(0, 8).map((event) => (
+                      <li key={`unresolved-${event.event_id}`} className="truncate">
+                        {event.event_name || "Untitled event"} · {event.region} · date unresolved
+                      </li>
+                    ))}
+                    {unresolvedEvents.length > 8 ? (
+                      <li className="font-medium">
+                        +{unresolvedEvents.length - 8} more with unresolved dates
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -600,9 +787,10 @@ export function Calendar() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-7">
             {weekDays.map((day) => {
-              const dayEvents = filteredEvents.filter((event) =>
-                event.event_date ? sameDay(parseLocalDate(event.event_date), day) : false,
-              );
+              const dayEvents = filteredEvents.filter((event) => {
+                const parsed = parseLocalDate(event.event_date);
+                return parsed ? sameDay(parsed, day) : false;
+              });
 
               return (
                 <button
@@ -711,7 +899,11 @@ export function Calendar() {
                             </span>
                             <span className="inline-flex items-center gap-2">
                               <CalendarDays className="h-4 w-4 text-blue-700" />
-                              {event.event_date}
+                              {/* A date with no resolvable value says so; it is
+                                  never printed as a raw or guessed string. */}
+                              {parseLocalDate(event.event_date)
+                                ? `${event.event_date} (${viewerTimeZone()})`
+                                : "Date unresolved"}
                             </span>
                             <span className="inline-flex items-center gap-2">
                               <ShieldCheck className="h-4 w-4 text-blue-700" />
