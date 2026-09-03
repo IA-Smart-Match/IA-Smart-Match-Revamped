@@ -12,11 +12,53 @@ import.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import uuid
+from types import ModuleType
 
 import pytest
 from smartmatch_domain import synthetic_pilot
+
+#: Score-shaped identifier fragments. Checked against *identifiers* only
+#: (see :func:`_fabricated_score_identifiers`) — never against prose — so a
+#: module is free to say, in its own docstring, that it computes none of
+#: these, without failing its own check for containing the word.
+_FABRICATED_SCORE_TOKENS = ("score", "confidence", "match_score", "rank", "weight")
+
+
+def _fabricated_score_identifiers(module: ModuleType) -> list[str]:
+    """Score-shaped names used as assignment targets, parameters, or keyword/column names.
+
+    Walks the module's AST rather than grepping its raw source text. A
+    substring scan over the whole source would also scan docstrings,
+    comments, and string literals — failing on ordinary English
+    ("underscore", "ranking", "frankly") and, worse, on this very module's
+    own prose stating that it computes none of these things. What actually
+    matters is whether the module *stores* a fabricated value under one of
+    these names: as a variable, an attribute, a function parameter, or a
+    keyword/column argument to a call (the shape ``.values(score=...)``
+    would take), or as a function's own name. Docstrings, comments, and
+    string literals are never inspected.
+    """
+    tree = ast.parse(inspect.getsource(module))
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        name: str | None
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            name = node.id
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            name = node.attr
+        elif isinstance(node, ast.arg | ast.keyword):
+            name = node.arg
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            name = node.name
+        else:
+            name = None
+        if name is not None and any(token in name.lower() for token in _FABRICATED_SCORE_TOKENS):
+            offenders.append(name)
+    return offenders
+
 
 # ---------------------------------------------------------------------------
 # synthetic_professional_subject_id
@@ -175,11 +217,9 @@ def test_synthetic_match_provenance_matches_the_persisted_vocabulary() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_module_contains_no_fabricated_score_vocabulary() -> None:
-    source = inspect.getsource(synthetic_pilot).lower()
-
-    for forbidden in ("score", "confidence", "match_score", "rank", "weight"):
-        assert forbidden not in source, f"forbidden token {forbidden!r} found in synthetic_pilot"
+def test_module_stores_no_fabricated_score_identifier() -> None:
+    offenders = _fabricated_score_identifiers(synthetic_pilot)
+    assert not offenders, f"score-shaped identifier(s) found in synthetic_pilot: {offenders}"
 
 
 # ---------------------------------------------------------------------------
