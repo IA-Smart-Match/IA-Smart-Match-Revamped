@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from smartmatch_api.routers import engagement, events
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,

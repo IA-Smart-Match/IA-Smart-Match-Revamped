@@ -47,3 +47,43 @@ in the tree and its history.
 """
 regexTarget = "match"
 regexes = ['''p4-perf-token''']
+
+[[allowlists]]
+description = """
+`INSTALL.md` and the compose smoke job in `.github/workflows/build.yml` document
+and exercise the full import -> review -> metrics loop against the local
+appliance. To be runnable both have to show the `Authorization: Bearer` header
+the loopback request actually carries, which makes `curl-auth-header` fire.
+
+`compose-api` is that header value. It is a key in the dev principal map pinned
+in `docker-compose.yml`
+(`{"compose-api":"compose-pilot-coordinator"}`), honored only by the compose
+appliance's dev edition against 127.0.0.1. No provider issued it and it
+authenticates nothing outside that stack; a quick start whose curl lines cannot
+be pasted is not a quick start.
+
+Scoped to the exact string, matching the allowlists above: both files are still
+scanned for every other secret shape, and `curl-auth-header` still fires
+everywhere else in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''compose-api''']
+
+[[allowlists]]
+description = """
+`tests/unit/test_spend_sweeper.py` builds a fake reservation row to prove
+`_snapshot_from_row` maps every column the domain type declares. One of those
+columns is `work_key` — the idempotency key a spend reservation is claimed
+under — so the fixture has to carry a literal one, and `generic-api-key` fires
+on its shape.
+
+`spend-abc123` is that literal. It is a test-local identifier for a row that
+never leaves the test process: it names a unit of work, it is not a credential,
+and nothing authenticates with it.
+
+Scoped to the exact string, matching the allowlists above: the file is still
+scanned for every other secret shape, and `generic-api-key` still fires
+everywhere else in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''spend-abc123''']

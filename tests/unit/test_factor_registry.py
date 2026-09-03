@@ -12,7 +12,6 @@ from smartmatch_domain.factor_registry import (
     PROPOSED_FACTORS,
     FactorKind,
     FactorSpec,
-    RegistryNotApprovedError,
     active_weights,
     assert_registry_approved,
     factor_keys,
