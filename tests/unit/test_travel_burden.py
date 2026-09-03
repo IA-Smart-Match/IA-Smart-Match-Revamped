@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 from smartmatch_domain.factor_registry import factor_keys
-from smartmatch_domain.factors import ZeroClassification
+from smartmatch_domain.factors import FACTOR_SCORE_PRECISION, ZeroClassification
 from smartmatch_domain.factors.travel_burden import (
+    FREE_RADIUS_KM,
+    MAX_BURDEN_KM,
     TRAVEL_BURDEN_FORMULA_VERSION,
     TRAVEL_ESTIMATE_LABEL,
     GeoPoint,
@@ -26,12 +28,11 @@ _MODULE_PATH = (
     / "travel_burden.py"
 )
 
-# One degree of latitude offset from LOS_ANGELES, used to build points at a
-# known approximate distance (~111.19 km per degree).
 LOS_ANGELES = GeoPoint(34.0522, -118.2437)
 
 
 def _north_of(point: GeoPoint, degrees_latitude: float) -> GeoPoint:
+    """Offset a point north by ``degrees_latitude`` (~111.19 km per degree)."""
     return GeoPoint(point.latitude + degrees_latitude, point.longitude)
 
 
@@ -40,6 +41,8 @@ def test_absent_origin_is_unknown_not_zero():
     assert result.value is None
     assert result.is_unknown is True
     assert result.zero_classification is ZeroClassification.UNKNOWN
+    assert result.factor_key == "travel_burden"
+    assert result.basis == "professional or event_need coordinates are absent"
 
 
 def test_absent_destination_is_unknown_not_zero():
@@ -101,6 +104,21 @@ def test_midpoint_of_the_band_is_half_burden():
     midpoint = _north_of(LOS_ANGELES, 0.7912)  # approx 88 km
     result = score_travel_burden(TravelInputs(origin=LOS_ANGELES, destination=midpoint))
     assert result.value == pytest.approx(0.5, abs=0.01)
+    assert result.factor_key == "travel_burden"
+    expected_distance = haversine_km(LOS_ANGELES, midpoint)
+    assert result.basis == f"{expected_distance:.1f} km straight-line between synthetic coordinates"
+
+
+def test_value_is_rounded_to_the_factor_score_precision():
+    # An offset picked so the raw (unrounded) burden has more decimal digits
+    # than FACTOR_SCORE_PRECISION -- if the round() in score_travel_burden
+    # were dropped, this test would catch it.
+    destination = _north_of(LOS_ANGELES, 0.31)
+    distance = haversine_km(LOS_ANGELES, destination)
+    raw_burden = (distance - FREE_RADIUS_KM) / (MAX_BURDEN_KM - FREE_RADIUS_KM)
+    result = score_travel_burden(TravelInputs(origin=LOS_ANGELES, destination=destination))
+    assert raw_burden != round(raw_burden, FACTOR_SCORE_PRECISION)
+    assert result.value == round(raw_burden, FACTOR_SCORE_PRECISION)
 
 
 def test_value_is_always_within_bounds():
@@ -134,7 +152,9 @@ def test_module_imports_no_network_or_io():
     tree = ast.parse(_MODULE_PATH.read_text(), filename=str(_MODULE_PATH))
     allowed_roots = {"__future__", "math", "dataclasses", "typing", "smartmatch_domain"}
     imported_roots: set[str] = set()
-    for node in ast.iter_child_nodes(tree):
+    # ast.walk (not iter_child_nodes) so a function-local `import httpx`
+    # buried inside a nested scope cannot slip past this guard.
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imported_roots.add(alias.name.split(".")[0])
@@ -149,3 +169,15 @@ def test_factor_key_is_declared_in_the_registry():
 
 def test_formula_version_is_pinned():
     assert TRAVEL_BURDEN_FORMULA_VERSION == "1.0.0-straight-line"
+
+
+def test_near_antipodal_points_saturate_rather_than_raise():
+    # Confirmed reproducer: floating-point error pushes the haversine
+    # intermediate `a` an ulp above 1.0 for this near-antipodal pair, which
+    # made math.asin raise ValueError: math domain error before the fix.
+    origin = GeoPoint(59.27902362555744, -62.10239505627078)
+    destination = GeoPoint(-59.27902362555729, 117.89760494372922)
+    distance = haversine_km(origin, destination)  # must not raise
+    assert distance > MAX_BURDEN_KM
+    result = score_travel_burden(TravelInputs(origin=origin, destination=destination))
+    assert result.value == pytest.approx(1.0)

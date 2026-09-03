@@ -118,7 +118,10 @@ def haversine_km(origin: GeoPoint, destination: GeoPoint) -> float:
         math.sin(delta_lat / 2) ** 2
         + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
     )
-    c = 2 * math.asin(math.sqrt(a))
+    # Clamp: floating-point error can push `a` an ulp above 1.0 for
+    # near-antipodal points, which would make math.asin raise a domain
+    # error instead of returning the (correctly saturating) distance.
+    c = 2 * math.asin(math.sqrt(min(1.0, a)))
     return EARTH_RADIUS_KM * c
 
 
