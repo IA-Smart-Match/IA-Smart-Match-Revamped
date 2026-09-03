@@ -129,12 +129,17 @@ def test_value_is_always_within_bounds():
         assert result.value is None or 0.0 <= result.value <= 1.0
 
 
-def test_every_produced_value_carries_the_coarse_estimate_label():
+def test_every_known_value_carries_the_coarse_estimate_label_and_unknown_carries_none():
+    """estimate_label is "set when the value is an explicitly coarse estimate".
+
+    An unknown result (``value=None``) has no value to estimate, so it must
+    not carry the label; every known (measured) value must.
+    """
     unknown_result = score_travel_burden(TravelInputs(origin=None, destination=LOS_ANGELES))
     known_result = score_travel_burden(
         TravelInputs(origin=LOS_ANGELES, destination=_north_of(LOS_ANGELES, 1.0))
     )
-    assert unknown_result.estimate_label == TRAVEL_ESTIMATE_LABEL
+    assert unknown_result.estimate_label is None
     assert known_result.estimate_label == TRAVEL_ESTIMATE_LABEL
 
 

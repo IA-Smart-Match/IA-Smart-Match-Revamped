@@ -184,10 +184,15 @@ def test_registry_version_is_pinned():
     assert REGISTRY_VERSION == "1.1.1-approved-g1-m6j"
 
 
-def test_availability_remains_unimplemented_and_unscored():
-    """availability is Stage A eligibility; M6j must not turn it into a scorer."""
+def test_availability_remains_unscored():
+    """availability has a real Stage A implementation but is never a Stage B scorer.
+
+    ``implemented=True`` records that smartmatch_domain.eligibility.
+    apply_availability_filter exists; ``is_scoring`` (governed by
+    ``FactorKind.ELIGIBILITY``) is what keeps it out of Stage B regardless.
+    """
     spec = next(spec for spec in PROPOSED_FACTORS if spec.key == "availability")
-    assert spec.implemented is False
+    assert spec.implemented is True
     assert spec.is_scoring is False
     assert spec.active_weight == 0.0
 

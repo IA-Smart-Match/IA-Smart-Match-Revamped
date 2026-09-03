@@ -1,7 +1,7 @@
 {
   "id": "G1-GC-007",
   "symptom_class": "depth_zero",
-  "description": "Synthetic fixture (no real professional or event data). ADR-0011 discriminating case A for the G1-GC-003 symptom, ratified: no engagement history record exists at all for this (subject, unit) pair, so match_depth is not computable — genuinely unknown, not a measured zero. No legacy engine output is asserted anywhere in this fixture.",
+  "description": "Synthetic fixture (no real professional or event data). ADR-0011 discriminating case A for the G1-GC-003 symptom, ratified: no engagement history record exists at all for this (subject, unit) pair, so match_depth is not computable — genuinely unknown, not a measured zero. No predecessor-engine output is asserted anywhere in this fixture.",
   "registry_version": "1.1.1-approved-g1-m6j",
   "stakeholder_reference": "docs/plans/workshops/g1-workshop-output-worksheet.md agenda item 3 (RATIFIED 2026-09-03)",
   "zero_classification": "unknown",

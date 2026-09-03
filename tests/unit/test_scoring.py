@@ -245,6 +245,32 @@ def test_scoring_raises_when_an_approved_factor_is_unimplemented(monkeypatch):
         score_candidate(_evidence("SYNTH-PRO-NOT-READY"))
 
 
+def test_scoring_raises_when_applied_weights_outrun_computed_factor_scores(monkeypatch):
+    """The deflating direction the fix wave closes.
+
+    scores_by_key in scoring.py is a hand-written literal of two keys;
+    applied_weights comes from the registry. If a future card widens
+    normalize_weights()'s output (e.g. a third approved+implemented factor)
+    without also updating scores_by_key, applied_weights would carry three
+    entries summing to 1.0 while factor_scores still has two — silently
+    deflating the composite, which is the legacy defect
+    (factor_registry.py's stated reason for existing) recurring here. This
+    forces exactly that divergence and asserts scoring fails closed instead
+    of composing a deflated score.
+    """
+    monkeypatch.setattr(
+        scoring,
+        "normalize_weights",
+        lambda weight_overrides=None: {
+            "topic_relevance": 0.5,
+            "travel_burden": 0.3,
+            "role_fit": 0.2,
+        },
+    )
+    with pytest.raises(RegistryNotReadyError, match=r"topic_relevance.*travel_burden"):
+        score_candidate(_evidence("SYNTH-PRO-DEFLATION"))
+
+
 def test_scoring_raises_when_an_extra_factor_is_implemented(monkeypatch):
     """The reverse direction: a future card quietly wiring in a third factor.
 

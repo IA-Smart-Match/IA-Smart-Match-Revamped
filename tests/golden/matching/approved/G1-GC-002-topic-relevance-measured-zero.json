@@ -1,7 +1,7 @@
 {
   "id": "G1-GC-002",
   "symptom_class": "zero_or_unknown",
-  "description": "Synthetic fixture (no real professional or event data). The professional's recorded expertise topics are disjoint from the event_need's required topics, producing a genuinely measured zero topic_relevance score — a recorded, computable fact, not a missing one. No legacy engine output is asserted anywhere in this fixture.",
+  "description": "Synthetic fixture (no real professional or event data). The professional's recorded expertise topics are disjoint from the event_need's required topics, producing a genuinely measured zero topic_relevance score — a recorded, computable fact, not a missing one. No predecessor-engine output is asserted anywhere in this fixture.",
   "registry_version": "1.1.1-approved-g1-m6j",
   "stakeholder_reference": "docs/plans/workshops/g1-workshop-output-worksheet.md agenda item 3 (RATIFIED 2026-09-03)",
   "zero_classification": "measured_zero",

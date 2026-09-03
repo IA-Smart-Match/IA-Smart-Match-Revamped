@@ -29,7 +29,7 @@ ADR-0011 defect in aggregate form. Presentation of partial evidence is
 M9/M10's problem, not this module's.
 
 This module never characterizes the legacy scoring engine and never asserts
-a legacy score value anywhere, including the legacy 43% tie value — that
+a legacy score value anywhere, including the legacy tie value — that
 characterization is forbidden (the legacy engine's maximum attainable score
 is 0.90, the defect the registry exists to kill).
 """
@@ -44,6 +44,7 @@ from smartmatch_domain.factor_registry import (
     PROPOSED_FACTORS,
     REGISTRY_VERSION,
     FactorKind,
+    RegistryNotReadyError,
     assert_registry_approved,
     assert_scoring_ready,
     factor_keys,
@@ -162,7 +163,11 @@ def score_candidate(
         RegistryNotApprovedError: if the factor registry has not been
             approved. Raised before any evidence is read.
         RegistryNotReadyError: if the implemented scoring set is not exactly
-            the approved scoring set. Raised before any evidence is read.
+            the approved scoring set (raised before any evidence is read), or
+            if this module's computed factor_scores keys diverge from the
+            registry's applied_weights keys (the legacy deflation defect
+            recurring in this module — see the inline comment above the
+            check).
         ValueError: if a supplied weight override is negative, if the
             resulting applied weights do not sum to 1.0 (an all-zero or
             otherwise degenerate override), or if ``evidence.subject_id`` is
@@ -193,6 +198,30 @@ def score_candidate(
         "travel_burden": score_travel_burden(evidence.travel),
     }
     factor_scores = tuple(scores_by_key[key] for key in factor_keys() if key in scores_by_key)
+
+    # scores_by_key above is a hand-written literal; applied_weights comes from
+    # the registry. Nothing else ties them together, so a future card that adds
+    # a third approved factor to both PROPOSED_FACTORS and
+    # APPROVED_SCORING_KEYS without also editing scores_by_key here would leave
+    # applied_weights with three entries summing to 1.0 while factor_scores
+    # still has two — this is the legacy deflation defect
+    # (factor_registry.py: normalizing across all nine declared keys while
+    # summing over only the seven computed ones, capping every score at 0.90)
+    # recurring inside this module instead of the registry. The reverse
+    # direction (a computed factor with no matching weight) already fails
+    # loudly below via applied_weights[score.factor_key]; this closes the
+    # silent, deflating direction.
+    scored_keys = {score.factor_key for score in factor_scores}
+    weighted_keys = set(applied_weights)
+    if scored_keys != weighted_keys:
+        raise RegistryNotReadyError(
+            "Stage B composite would silently deflate: factor_scores covers "
+            f"{sorted(scored_keys)} but applied_weights covers "
+            f"{sorted(weighted_keys)}. This is the legacy deflation defect "
+            "(factor_registry.py's stated reason for existing) recurring in "
+            "scoring.py — update scores_by_key to match the approved scoring "
+            "set before scoring can proceed."
+        )
 
     unknown_factor_keys = tuple(score.factor_key for score in factor_scores if score.is_unknown)
 

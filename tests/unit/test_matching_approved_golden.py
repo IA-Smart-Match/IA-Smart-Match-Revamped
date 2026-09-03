@@ -209,10 +209,26 @@ def test_match_depth_cases_reproduce_expected_depth(case_id: str):
 @pytest.mark.golden
 @pytest.mark.parametrize("path", _case_paths(), ids=lambda p: p.stem)
 def test_no_approved_fixture_asserts_a_legacy_score(path: Path):
+    """MM-002: no fixture may characterize the legacy engine, anywhere in it.
+
+    Scans the whole case — not just ``expected`` — so a description, a
+    stakeholder reference, or any future field is covered too. A prior
+    version of this guard scanned only ``json.dumps(case["expected"])``,
+    which let a description carrying "43%" and "legacy" pass silently.
+
+    The forbidden legacy tie value is checked as "43%" / "0.43", its two
+    natural textual representations, rather than the bare digit pair "43":
+    every approved fixture's synthetic coordinates include Los Angeles'
+    longitude (``-118.2437``), which contains "43" as a harmless numeric
+    coincidence once the scan covers ``inputs`` too. A bare-substring check
+    would flag that coordinate on every fixture without ever catching a
+    real legacy-value reference more precisely than "43%"/"0.43" already do.
+    """
     case = _load_case(path)
-    expected_text = json.dumps(case["expected"]).lower()
-    assert "43" not in expected_text
-    assert "legacy" not in expected_text
+    case_text = json.dumps(case).lower()
+    assert "legacy" not in case_text
+    assert "43%" not in case_text
+    assert "0.43" not in case_text
 
 
 @pytest.mark.golden

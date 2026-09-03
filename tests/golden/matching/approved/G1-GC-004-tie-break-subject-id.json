@@ -1,7 +1,7 @@
 {
   "id": "G1-GC-004",
   "symptom_class": "tie",
-  "description": "Synthetic fixture (no real professional, student, or event data). Ratified reproducing inputs for the G1-GC-001 exact-tie symptom: two candidates are symmetric on every Stage B factor input, so any weight vector over the approved factor set produces an exact tie. The tie-break rule sorts lexicographic-ascending by subject_id, exercised here by listing the candidates in reverse (SYNTH-PRO-0002 first) so the test proves the rank sorts rather than preserving input order. The legacy 43% tie value is deliberately NOT asserted anywhere in this fixture — characterizing the defective legacy engine is forbidden.",
+  "description": "Synthetic fixture (no real professional, student, or event data). Ratified reproducing inputs for the G1-GC-001 exact-tie symptom: two candidates are symmetric on every Stage B factor input, so any weight vector over the approved factor set produces an exact tie. The tie-break rule sorts lexicographic-ascending by subject_id, exercised here by listing the candidates in reverse (SYNTH-PRO-0002 first) so the test proves the rank sorts rather than preserving input order. The predecessor engine's tie value is deliberately NOT asserted anywhere in this fixture — characterizing the defective predecessor engine is forbidden.",
   "registry_version": "1.1.1-approved-g1-m6j",
   "stakeholder_reference": "docs/plans/workshops/g1-workshop-output-worksheet.md agenda item 3 (RATIFIED 2026-09-03)",
   "inputs": {

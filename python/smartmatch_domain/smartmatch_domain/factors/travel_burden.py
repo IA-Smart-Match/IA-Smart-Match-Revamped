@@ -142,11 +142,15 @@ def score_travel_burden(inputs: TravelInputs) -> FactorScore:
         produced value carries :data:`TRAVEL_ESTIMATE_LABEL`.
     """
     if inputs.origin is None or inputs.destination is None:
+        # No estimate_label here: FactorScore.estimate_label is "set when the
+        # value is an explicitly coarse estimate" — an unknown result has no
+        # value to estimate, so leave it at its FactorScore default of None
+        # rather than attaching a label that describes a value this result
+        # does not carry.
         return FactorScore(
             "travel_burden",
             None,
             basis="professional or event_need coordinates are absent",
-            estimate_label=TRAVEL_ESTIMATE_LABEL,
         )
 
     distance = haversine_km(inputs.origin, inputs.destination)

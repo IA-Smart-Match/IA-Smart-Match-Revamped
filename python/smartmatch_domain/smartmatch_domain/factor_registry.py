@@ -104,6 +104,12 @@ class FactorSpec:
         proposed_weight: The Stage B weight this registry proposes, pending gate
             G1 approval. Zero for eligibility factors, which are not scored.
         implemented: Whether a verified implementation exists in this package.
+            Active Stage B weight is governed by ``is_scoring and
+            implemented`` together, not by this flag alone: an ELIGIBILITY
+            factor may be ``implemented=True`` (a real Stage A filter exists
+            for it) yet still carry zero Stage B weight, because
+            :attr:`active_weight` and :func:`implemented_scoring_keys` both
+            filter on :attr:`is_scoring` before they ever look at this flag.
         rationale: Why the factor exists, in operational terms.
     """
 
@@ -172,10 +178,13 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         display_label="Availability / Blackout",
         kind=FactorKind.ELIGIBILITY,
         proposed_weight=0.0,
-        implemented=False,
+        implemented=True,
         rationale=(
             "Applied after shortlist per program direction: match before "
-            "availability; coordinator batch-invites and tracks responses."
+            "availability; coordinator batch-invites and tracks responses. "
+            "Implemented by smartmatch_domain.eligibility."
+            "apply_availability_filter — a Stage A filter, never a Stage B "
+            "scorer, so it stays weight 0 regardless of this flag."
         ),
     ),
 )
