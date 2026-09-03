@@ -36,6 +36,19 @@ records the interim position taken while the block stands.
 
 ---
 
+## 2026-09-03 decision records
+
+| Artifact | Status | Topic |
+|---|---|---|
+| [`synthetic-pilot-development-authorization-2026-09-03.md`](synthetic-pilot-development-authorization-2026-09-03.md) | RATIFIED | Synthetic pilot scope, D5 dev retention, F-25, F5 |
+| [`r3-signing-decisions-2026-09-03.md`](r3-signing-decisions-2026-09-03.md) | RATIFIED | R3 T-19, T-27–T-29, T-04, C-1 vs T-14, T-23 |
+| [`f5-deploy-target-note-2026-09-03.md`](f5-deploy-target-note-2026-09-03.md) | Decision note | Classroom vs `dev` deploy target |
+| [`a1b-gcp-console-guide.md`](a1b-gcp-console-guide.md) | In progress | A1b IdP console steps (worksheet Part 1 outstanding) |
+| [`../architecture/v1.1-pin-record.md`](../architecture/v1.1-pin-record.md) | PINNED BY REFERENCE | CP-V11 architecture v1.1 pin |
+| [`../plans/workshops/g1-workshop-output-worksheet.md`](../plans/workshops/g1-workshop-output-worksheet.md) | RATIFIED | G1 / D1 factor registry closure |
+
+---
+
 ## Q1 — CLOSED (handling decided; nothing erased)
 
 **Decision: the archived legacy repository stays read-only reference material.**
@@ -72,7 +85,7 @@ Consequences that follow directly:
 
 | # | Item | Interim position | Still required from IA West |
 |---|---|---|---|
-| **D1** | Factor registry contents and golden case set (gate G1) | **Program owner named 2026-09-02:** Danny Tran (@dangt). G1 workshop may run. No substantive registry approved until workshop outputs are committed. Scoring continues fail-closed. | Approval of registry contents and golden cases in workshop. **Longest remaining product pole.** |
+| **D1** | Factor registry contents and golden case set (gate G1) | **CLOSED 2026-09-03** — see worksheet + `REGISTRY_STATUS = "approved"`. M2 implements factors. | IA West review (parallel). |
 | **D2** | ELI formula parameters (decay half-life, window, caps) | The parameters implemented today stand as the tentative values. The open sub-question — whether committed future engagements count toward load — stays open; current behaviour refuses them explicitly rather than dropping them silently. | Confirmation or replacement of the parameters. |
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
@@ -84,28 +97,27 @@ Consequences that follow directly:
 
 ---
 
-## D1 — G1 factor-registry workshop record (TEMPLATE — UNFILLED, NOT RATIFIED)
+## D1 — G1 factor-registry workshop record — **CLOSED 2026-09-03**
 
-**Ratification status:** **OPEN. No workshop has been held and no registry has
-been approved.** This section is a *template*, prepared in advance so that the
-G1 workshop produces a signature rather than a work session. Every decision
-field below is deliberately blank. A blank field means the decision has not been
-made — it does not mean "no", and it must not be filled in by engineering.
-
-**Ratifier required:** **Danny Tran (@dangt)**, program owner named 2026-09-02
-(`../plans/workshops/g1-factor-registry-workshop-packet.md`). This is the same
-person as the interim owner recorded at the top of this file; the two roles are
-recorded separately on purpose, because the interim-owner self-assignment
-confers no authority to close a gate.
-
-**Gate state, unchanged by this template:**
+**Ratification status:** **CLOSED.** Danny Tran (@dangt) ratified
+`docs/plans/workshops/g1-workshop-output-worksheet.md` per Dr. Wang program
+direction.
 
 | Artifact | State |
 |---|---|
-| `python/smartmatch_domain/smartmatch_domain/factor_registry.py` | `REGISTRY_STATUS = "proposed"` |
-| `assert_registry_approved()` | raises `RegistryNotApprovedError` |
-| `tests/unit/test_factor_registry.py::test_registry_is_not_yet_approved` | passes (gate open) |
-| Match scoring | fail-closed; no scored fixture exists |
+| `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.0-approved-g1"` |
+| `assert_registry_approved()` | succeeds |
+| `test_registry_is_approved_after_g1` | passes |
+| Match scoring in API/UI | **M2+** — registry approved; implementations and routes pending |
+
+**Approved scoring factors:** `topic_relevance` (0.70), `travel_burden` (0.30).
+**Stage A:** `availability` after shortlist. **Presentation:** 2–3 speakers, no %.
+
+---
+
+## D1 — historical template (superseded by closure above)
+
+**Ratification status:** **SUPERSEDED** — see closure record above.
 
 **Prepared inputs to be reviewed and ratified in the workshop:**
 
@@ -289,12 +301,15 @@ the reverse.
 
 ---
 
-## D-0 and the frontend decisions D-1..D-11 — deferred
+## D-0 and the frontend decisions D-1..D-11 — split scope (2026-09-03)
 
-**D-0 (assign a `DESIGN.md` owner) is deferred, not decided.**
-[`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) **stays unresolved** —
-Part 2's eleven open decisions (D-1..D-11) remain open, and this document does
-not answer any of them. They wait on the UI team.
+**D-0 (assign a `DESIGN.md` owner) is partially closed for legacy-only work.**
+Danny Tran (@dangt) is named owner in
+[`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) for **legacy frontend**
+engineering (synthetic pilot: metrics truthfulness, discovery feed, events
+calendar). **New product UI** under `apps/web/` stays blocked until Part 2's
+eleven open decisions (D-1..D-11) are ratified. This document does not answer
+any of D-1..D-11.
 
 Nothing in this file, and nothing in
 [`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), closes
@@ -325,7 +340,7 @@ control, not a commitment to a date.
 
 | Phase | What it covers | State in code |
 |---|---|---|
-| Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Blocked on D1 / gate G1. |
+| Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Registry approved (D1 / G1 closed 2026-09-03); M2 implements factors. |
 | Rewards | Catalog, point ledger, redemption, fulfilment tickets | Not implemented. |
 | Consent | Disclosure records, consent recheck, revocation | Not implemented. |
 | Gmail / Calendar | Outreach send, delivery status, meeting proposals, calendar sync | Not implemented. No provider is connected. |

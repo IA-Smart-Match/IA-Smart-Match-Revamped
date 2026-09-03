@@ -43,18 +43,18 @@ export const OPPORTUNITIES_METRIC_NAME = "opportunities";
 export const OPPORTUNITIES_UNKNOWN_REASON =
   "The registered `opportunities` metric could not be read from /v1/units/{unit_id}/metrics, so no count is available. This page never derives one from local CSV or crawler rows.";
 
-/** Matches `factor_registry.REGISTRY_STATUS == "proposed"` — no scores until G1 closes. */
+/** G1 closed 2026-09-03; M2 scoring routes and factor implementations pending. */
 export const MATCHING_UNAVAILABLE_REASON =
-  "Match scoring, ranks, and factor explanations remain blocked until gate G1 approves the factor registry and golden cases.";
+  "The factor registry is approved, but match scoring is not yet available: topic_relevance and travel_burden implementations (M2) and match API routes are still in progress.";
 
-/** Placeholder until D1/G1 approves the factor registry and match_run exists. */
+/** Placeholder until match_run exists and M2 scoring is wired. */
 export function unavailableMatchingMetric(
   reason: string = MATCHING_UNAVAILABLE_REASON,
 ): AccountableMetric {
   return {
     name: "Match score",
     definition:
-      "Heuristic match score from an approved factor registry and match_run (pending gate G1).",
+      "Heuristic shortlist from approved factors (topic_relevance, travel_burden); no percentage display.",
     value: unknownValue(reason),
     provenance: "observed",
   };

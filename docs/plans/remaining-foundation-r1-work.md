@@ -7,24 +7,23 @@ sequencing is visible rather than rediscovered.
 
 ## Blocked on decisions outside engineering
 
-These cannot be started by engineering alone. They are listed first because
-several downstream items wait on them, and the calendar cost of a late decision
-is larger than the work itself.
+These cannot be started by engineering alone. Several downstream items wait on
+them; the calendar cost of a late decision is larger than the work itself.
 
 | # | Item | Blocked on | Owner | Blocks |
 |---|---|---|---|---|
-| D1 | Approve the factor registry contents and golden case set | Gate G1 | Program owner | All matching work (R1) |
+| ~~D1~~ | ~~Approve the factor registry contents and golden case set~~ | ~~Gate G1~~ | ~~Program owner~~ | **Closed 2026-09-03** — Danny Tran (@dangt); see `docs/plans/workshops/g1-workshop-output-worksheet.md` and `REGISTRY_STATUS = "approved"` (M1) |
 | D2 | Confirm ELI formula parameters (decay half-life, window, caps) | Open decision 2 | Program owner | R1 tuning; not R1 delivery |
 | D3 | Route-matrix provider terms and per-run call budget | Open decision 6 | Procurement + engineering | `travel_burden` factor |
 | D4 | Domain registration and DNS control | Open decision 8 | Institutional IT | All mail work (R4) |
 | D5 | Retention periods per evidence table | Open decision 5 | Privacy / legal / records | R2 evidence tables |
 | D6 | Name a rewards budget owner | Test log Fix #15 | Program owner | A shipped rewards catalog (S9) |
-| D7 | Set the points-economy calibration N — "the cheapest reward is reachable within N events" | Test log Fix #15 | Program owner | A shipped rewards catalog (S9) |
+| D7 | Set the points-economy calibration N — "the cheapest reward is reachable within N events" | Test log Fix #15 | Program owner | A shipped rewards catalog (S9) — **100 pts/event decided 2026-09-03**; N=3 tentative in `pilot-decisions.md` |
 | D8 | Disclosure-consent policy, and what the phrase "FERPA-aware" actually asserts | Test log Fix #11, Q31, Q35 | Privacy / legal / records | S10; QR data minimization |
 | D9 | Licensing and whether the repository may be open-sourced | Test log Q11 | Program owner | F13's `LICENSE`; **gated by MM-A09** |
 
-**D1 is the critical path.** Everything in "Matching" below waits on it, and
-matching is the product's reason for existing.
+**~~D1~~ is closed (G1, 2026-09-03).** Matching implementation (M2–M10) is
+engineering work, not a decision wait.
 
 **D9 is gated by a decision that has no owner.** Kickoff Q11 asks whether the
 repository may be open-sourced, and it cannot be answered before MM-A09's six
@@ -60,17 +59,21 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 
 ## R1 — Matching foundation
 
-### Blocked on D1
+### Engineering (G1 closed 2026-09-03; M1 landed)
+
+Approved 2-factor Stage B set: `topic_relevance` 0.70, `travel_burden` 0.30.
+Dropped for pilot: `role_fit`, `repeat_penalty`, `engagement_load`, and other
+legacy factors per the G1 worksheet.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| M1 | Flip `REGISTRY_STATUS` to `approved` in a reviewed commit | D1 | Also lands the golden case set; `test_registry_is_not_yet_approved` changes here, deliberately |
+| ~~M1~~ | ~~Flip `REGISTRY_STATUS` to `approved` in a reviewed commit~~ | ~~D1~~ | **Done 2026-09-03.** Golden case set ratified; `test_registry_is_approved_after_g1` |
 | M2 | Implement `topic_relevance` | M1 | Embedding models may contribute feature inputs only with provenance and golden/shadow tests |
-| M3 | Implement `role_fit` | M1 | The legacy's alias/fuzzy approach is a reasonable starting point; it needs golden cases, not a port |
+| ~~M3~~ | ~~Implement `role_fit`~~ | — | **Dropped** at G1 — not in the approved pilot factor set |
 | M4 | Implement `travel_burden` over the route matrix | M1, D3 | Interim: straight-line distance labeled "estimate quality: coarse". Never fabricate mileage. |
-| M5 | Implement `repeat_penalty` | M1 | Feeds control-center view V6 (repeatedly selected vs underutilized) |
-| M6 | Stage A eligibility filter | M1 | The four eligibility factors are declared in the registry and unimplemented |
-| M7 | Stage B CP-SAT portfolio optimization | M2–M6 | OR-Tools. The LLM never solves the schedule. |
+| ~~M5~~ | ~~Implement `repeat_penalty`~~ | — | **Dropped** at G1 — deferred post-pilot |
+| M6 | Stage A eligibility filter | M1 | Eligibility factors declared in the registry remain unimplemented |
+| M7 | Stage B CP-SAT portfolio optimization | M2, M4, M6 | OR-Tools. The LLM never solves the schedule. |
 | M8 | Immutable `match_run` persistence with full version pinning | M7 | Input snapshot, eligibility policy, registry, weight set, optimizer version, route-estimate timestamp |
 | M9 | Per-factor and per-penalty explanations | M7, M8 | Must separately show the ELI hard cap and soft penalty (v1.1 §1.3) |
 | M10 | Scenario comparison | M8 | Six objectives per v1.1 §5.3 |
@@ -106,10 +109,11 @@ Work that finishes the scaffold itself. None is blocked on a decision.
 
 ---
 
-## R1 — Frontend — **ON HOLD**
+## R1 — Frontend — **ON HOLD** (new product UI)
 
-**Blocked on `apps/web/DESIGN.md`**, which is a brief, not a design, and has no
-owner. Nothing in `apps/web` is built until a standardized design system exists.
+**Owner assigned 2026-09-03:** Danny Tran (@dangt) — legacy-frontend synthetic
+pilot scope only. **New product UI** under `apps/web/` remains blocked until
+`apps/web/DESIGN.md` Part 2 (D-1..D-11) is ratified.
 
 This is a deliberate hold, not a backlog item waiting its turn. Three reasons,
 set out in full in that document:
@@ -119,9 +123,9 @@ set out in full in that document:
    behind them; rebuilding without a standard reproduces that.
 2. The generated TypeScript client does not exist yet, and building screens
    against a hand-written client recreates the coupling v1.1 §5.1 forbids.
-3. Most screens have nothing truthful to show — the control center depends on
-   match runs, which are blocked on gate G1. A screen built early gets filled
-   with placeholder content, which is the exact habit this revamp exists to end.
+3. Most screens have nothing truthful to show for **new** product UI — the
+   control center depends on match runs (M8), which waits on M2–M7. Legacy
+   frontend work for the synthetic pilot is authorized separately.
 
 `DESIGN.md` already records the constraints that are *settled* (provenance
 labelling, truthful failure states, guards-are-UX-only, no hard-coded identity,
@@ -130,13 +134,13 @@ redesign starts from them rather than rediscovering them.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| **D-0** | **Assign a DESIGN.md owner and settle the eleven open decisions** | — | **Blocks everything below.** See `apps/web/DESIGN.md` Part 2. |
+| **D-0** | **Assign a DESIGN.md owner and settle the eleven open decisions** | — | **Owner assigned 2026-09-03** (Danny Tran @dangt, legacy scope). Part 2 D-1..D-11 still open for new product UI. |
 | W1 | Scaffold `apps/web` — React 18, TypeScript, Vite | D-0 | |
 | W2 | Generate the TypeScript client from OpenAPI; add a drift check to CI | W1 | Routes now exist (`/imports`, `/v1/jobs/*`), so this is unblocked once W1 is |
 | W4 | Provenance and truthful-state components | W1 | **Before W3 and W5, deliberately.** These enforce the labelling rule; anything built before them needs revisiting. |
 | W3 | Port presentational components (MM-F01) | W1, W2, W4 | Confirm upstream shadcn/ui licensing first. Leave `mockData.ts` and `mockProfilePhotos.ts` behind. |
 | W6 | Accessibility: WCAG 2.2 AA, plus a11y smoke tests in CI | W1 | |
-| W5 | Matching control center — 13 views | M8, W2, W4 | Also blocked on gate G1 via M8 |
+| W5 | Matching control center — 13 views | M8, W2, W4 | Blocked on M8 (engineering), not G1 |
 | W7 | Add web gates to CI (npm ci, tsc, vitest, bundle budget, Playwright) | W1 | Listed as deferred in `.github/workflows/verify.yml` |
 
 ---
@@ -149,7 +153,7 @@ means stakeholder-derived, so provenance is readable from the identifier — eve
 other prefix in this document means a phase.
 
 These are **not** ordered ahead of the existing backlog. `Suggested next three`
-below still names J10 and D1, and adding twelve rows does not change that.
+below still names M2; adding twelve rows does not change that.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
@@ -197,21 +201,15 @@ command is authenticated, authorized, rate-limited, recorded, dispatched,
 delivered, claimed, and run to a terminal state a client can follow over SSE.
 See `docs/architecture/command-path.md` for the diagrammed version.
 
-1. **J10** — a durable command payload. `/imports` is the only real command
-   resource wired end-to-end today, and every import job that reaches the
-   worker fails immediately with `failed_policy`, because the parameters the
-   caller submitted were never recorded anywhere the worker can read them.
-   Without this, the one implemented command cannot do anything.
-2. **D1** — start the factor-registry approval conversation. Still the longest
-   pole and still the only thing blocking the product's core.
+1. **M2 + M4** — implement the two approved scoring factors (`topic_relevance`,
+   `travel_burden`). G1 closed 2026-09-03; registry is approved (M1 landed).
+   This is the critical engineering path for matching.
+2. **M6** — Stage A eligibility filter (unblocks honest shortlists before CP-SAT).
+3. **Pipeline `pipeline_record` write path** — until one exists, funnel metrics
+   measure real zeros (S12).
 
-This list was three items and is now two. **J8** left it because it is closed:
-the pass, the endpoint and the heartbeat exist and are tested, and what remains
-of that row — a Cloud Scheduler job on a deployed URL — is F5's work and not a
-backlog item of its own. **J9** is closed with it, so the worker now recovers
-from a crash mid-execution rather than leaving the job `running` until someone
-notices.
+**J10** (durable command payload) is **done** in README and code; if this row
+still describes the old gap, treat README as authoritative.
 
-**D-0** (assign a DESIGN.md owner) and **F3** (independent review of the four
-ports) remain cheap, unblocked, and worth doing whenever an owner or a reviewer
-is free.
+**D-0** owner is assigned; **F3** port review is done. Remaining frontend
+decisions (D-1..D-11) are product design work, not engineering blockers.

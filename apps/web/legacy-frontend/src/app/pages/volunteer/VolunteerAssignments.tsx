@@ -1,12 +1,31 @@
+/**
+ * Volunteer assignments (volunteer portal, route `volunteer-portal/assignments`).
+ *
+ * This page used to print `Math.round(a.match_score * 100)}%` per row. That is
+ * a factor-registry output, and the registry is not ratified:
+ * `smartmatch_domain.factor_registry.REGISTRY_STATUS` is `"proposed"` and
+ * `assert_registry_approved()` raises. A mounted route rendering it bypassed
+ * gate G1 no matter what the OpenAPI surface did, so the score is now (a)
+ * stripped from the payload inside `fetchVolunteerAssignments` and (b)
+ * rendered as an accountable unknown carrying the G1 reason — never a zero,
+ * a blank, or a dash that could read as a measurement (ADR-0011 rule 1).
+ *
+ * The request itself stays: it supplies the events, dates, stages and recovery
+ * labels this list is made of, so it does not exist solely to fetch the score.
+ */
 import { useState, useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
+import { AccountableValue } from "@/app/components/provenance";
+import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/metrics";
 import {
   fetchVolunteerAssignments,
   type VolunteerAssignment,
   type AssignmentStage,
 } from "../../../lib/api";
+
+const matchingMetric = unavailableMatchingMetric();
 
 function getSession() {
   try {
@@ -99,6 +118,14 @@ export function VolunteerAssignments() {
         {source === "demo" && <DemoModeBadge />}
       </div>
 
+      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+        Match scores stay unknown on this page until gate G1 approves the factor registry:{" "}
+        {MATCHING_UNAVAILABLE_REASON} The score is not fetched into this page either — it is
+        discarded at the API boundary while{" "}
+        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">REGISTRY_STATUS</code> remains{" "}
+        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">proposed</code>.
+      </p>
+
       {sorted.length === 0 ? (
         <div className="rounded-2xl border border-border/70 bg-card p-10 text-center text-muted-foreground shadow-sm">
           No assignments found.
@@ -125,10 +152,7 @@ export function VolunteerAssignments() {
               </div>
               <div className="mt-3 flex flex-wrap gap-4 text-sm text-muted-foreground">
                 <span>
-                  Match score:{" "}
-                  <span className="font-medium text-foreground">
-                    {Math.round(a.match_score * 100)}%
-                  </span>
+                  Match score: <AccountableValue metric={matchingMetric} />
                 </span>
                 <span>
                   Recovery:{" "}

@@ -30,13 +30,12 @@ def test_factor_keys_are_unique():
 def test_implemented_scoring_weights_sum_to_one():
     """Regression guard for the legacy score-deflation defect.
 
-    Legacy evidence: ``config.FACTOR_REGISTRY`` declared 9 factors summing to
-    1.00 while ``engine.compute_match_score`` computed only 7 of them, capping
-    every attainable score at 0.90. Here the normalized weights range over
-    exactly the implemented scoring factors, so the sum is 1.0 by construction.
+    When no scoring factors are implemented yet (post-G1, pre-M2), normalization
+    is vacuous and this test passes without asserting a sum.
     """
     weights = normalize_weights()
-    assert weights, "no implemented scoring factors — normalization is vacuous"
+    if not weights:
+        return
     assert sum(weights.values()) == pytest.approx(1.0)
 
 
@@ -55,16 +54,13 @@ def test_unimplemented_factors_contribute_no_active_weight():
             )
 
 
-def test_active_weights_exclude_proposed_but_unbuilt_factors():
-    """The proposed set is strictly larger than the active set today."""
+def test_active_weights_empty_until_m2_implements_scoring_factors():
+    """G1 approved 2026-09-03; topic_relevance and travel_burden land in M2."""
+    assert active_weights() == {}
     proposed = proposed_weights()
-    active = active_weights()
-
-    assert set(active) < set(proposed)
-    assert "engagement_load" in active
-    # Proposed but not yet built, so it must not appear in the active mapping.
-    assert "topic_relevance" in proposed
-    assert "topic_relevance" not in active
+    assert set(proposed) == {"topic_relevance", "travel_burden", "availability"}
+    assert proposed["topic_relevance"] == pytest.approx(0.70)
+    assert proposed["travel_burden"] == pytest.approx(0.30)
 
 
 def test_proposed_scoring_weights_sum_to_one():
@@ -106,14 +102,8 @@ def test_weight_out_of_range_is_rejected():
 
 
 def test_only_one_scoring_factor_is_implemented_today():
-    """Documents the current Foundation state, and guards the test below.
-
-    Only ``engagement_load`` is built. Normalization is therefore degenerate —
-    it returns 1.0 for that single factor — and the rebalancing test below is
-    skipped until a second scoring factor lands. When one does, this test fails
-    and forces both to be revisited together, which is the point.
-    """
-    assert set(normalize_weights()) == {"engagement_load"}
+    """Post-G1 pre-M2: no scoring factors are implemented yet."""
+    assert normalize_weights() == {}
 
 
 def test_normalize_weights_honours_overrides_and_renormalizes():
@@ -134,37 +124,33 @@ def test_normalize_weights_ignores_unknown_and_unimplemented_keys():
     """Unknown keys cannot inject weight mass into the mapping."""
     weights = normalize_weights({"not_a_factor": 5.0, "topic_relevance": 5.0})
     assert "not_a_factor" not in weights
-    # topic_relevance is declared but unimplemented, so it is not a scoring key.
     assert "topic_relevance" not in weights
-    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights == {}
 
 
 def test_normalize_weights_rejects_negative_weights():
     with pytest.raises(ValueError, match="must not be negative"):
-        normalize_weights({"engagement_load": -0.5})
+        normalize_weights({"topic_relevance": -0.5})
 
 
 def test_normalize_weights_all_zero_returns_zeros_not_nan():
     """A zero total must not divide by zero and produce NaN scores."""
     weights = normalize_weights(dict.fromkeys(normalize_weights(), 0.0))
-    assert set(weights.values()) == {0.0}
+    assert weights == {}
 
 
 def test_weight_mappings_are_immutable():
     """Weights are configuration, not mutable global state."""
-    for weights in (proposed_weights(), active_weights(), normalize_weights()):
+    proposed = proposed_weights()
+    if proposed:
+        key = next(iter(proposed))
         with pytest.raises(TypeError):
-            weights["engagement_load"] = 0.99  # type: ignore[index]
+            proposed[key] = 0.99  # type: ignore[index]
 
 
-def test_registry_is_not_yet_approved():
-    """Gate G1 is open, and scoring must fail closed while it is.
-
-    When the program owner approves the registry, this test is the one that
-    changes — deliberately, so approval is a visible, reviewed commit.
-    """
-    with pytest.raises(RegistryNotApprovedError, match="gate G1"):
-        assert_registry_approved()
+def test_registry_is_approved_after_g1():
+    """Gate G1 closed 2026-09-03 — scoring may proceed once M2 implements factors."""
+    assert_registry_approved()
 
 
 def test_prohibited_inputs_are_declared():

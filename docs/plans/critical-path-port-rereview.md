@@ -51,8 +51,11 @@ requires the two-stage ELI cap or that Appendix B requires shadow mode.
 
 ### (b) Status
 
-Open. Program owner. PR1 adds `contract_refs_status: UNVERIFIABLE` — labels
-the ceiling, does not raise it.
+**Partially closed 2026-09-03.** [`docs/architecture/v1.1-pin-record.md`](../architecture/v1.1-pin-record.md)
+records pin-by-reference (`PINNED_BY_REFERENCE`). Full vendoring under
+`docs/architecture/v1.1/` plus `tests/unit/test_contract_refs.py` still required
+for clean `verified`. PR1 `contract_refs_status: UNVERIFIABLE` labels the
+ceiling until vendoring lands.
 
 ### (c) Plan
 
@@ -69,7 +72,8 @@ return it and the cycle repeats (`defect-remediation.md` §5).
 
 ### (d) Dependencies
 
-Program owner. Unblocks a clean `verified`. Does not unblock matching (G1).
+Program owner. Unblocks a clean `verified`. G1 closed 2026-09-03; matching
+implementation is M2+.
 
 ### (e) Acceptance
 
@@ -235,3 +239,23 @@ for `eli.py` (`defect-remediation.md` §1).
 - Do not add an F-25 aggregate bound "to finish the entry". An earlier agent
   did; it was reverted (`pr1-blockers-handoff.md`).
 - Do not treat F-21 as closed because the first review and the corrector agree.
+
+---
+
+## 6. Independent re-review record — 2026-09-03
+
+**Reviewer:** Independent review agent (gpt-5.6-sol-medium), **authorized by Danny Tran (@dangt)**.
+**Date:** 2026-09-03.
+**Scope:** Read-only manifest/port status; no `verified` flips in this record.
+
+| Entry | Manifest status | Evidence assessment | Recommended status after CP-V11 pin |
+|---|---|---|---|
+| MM-003 ELI | `ported_unverified` | Code fixes on PR1 branch; docstring copies may remain stale; D2/F-9 tentative | `verified except contract_refs` → `verified` once v1.1 vendored + docstrings closed |
+| MM-004 ingest | `ported_unverified` | Code fixed; characterization path honest | Same ceiling |
+| MM-005 feedback | `ported_unverified` | F-25 now decided (normalize on apply, 2026-09-03); implementation may proceed post-G1 | `verified except F-25 consumer` until M8 lands |
+
+**CP-V11:** `docs/architecture/v1.1-pin-record.md` records pin-by-reference (2026-09-03). Full vendoring + section test still required for clean `verified`.
+
+**Blockers:** Legacy SHA `bdce024` access for F-21 re-derivation; leftover docstring copies per §4.
+
+**Corrector ≠ reviewer:** Satisfied for this read-only pass; formal manifest YAML update awaits human commit on PR1 merge.

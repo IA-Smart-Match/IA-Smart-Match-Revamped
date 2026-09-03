@@ -29,7 +29,7 @@ was kept, what was rejected, and why.
 | Durable job state machine | `smartmatch_domain.jobs` | 14 |
 | Import validation and normalization | `smartmatch_domain.ingest` | 13 |
 | Shadow-mode feedback → weight proposals | `smartmatch_domain.feedback` | 16 |
-| Factor registry (proposal; scoring fails closed) | `smartmatch_domain.factor_registry` | 17 |
+| Factor registry — G1 approved 2026-09-03 (`topic_relevance` 0.70, `travel_burden` 0.30); scoring factors unimplemented (M2–M3) | `smartmatch_domain.factor_registry` | 17 |
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
 | Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
@@ -70,17 +70,17 @@ The no-database run also did not complete in that environment because
 
 | Capability | State | Gated on |
 |---|---|---|
-| Matching / scoring | **Blocked** — registry proposed, scoring fails closed | Gate G1 (see finding F-001) |
-| CP-SAT portfolio assignment | Not started | Gate G1, then R1 |
+| Matching / scoring | **Registry approved (G1 closed 2026-09-03); scoring engine not implemented** — `assert_registry_approved()` passes; no `topic_relevance` or `travel_burden` scorer yet | M2–M3 (build); see `docs/plans/workshops/g1-workshop-output-worksheet.md` |
+| CP-SAT portfolio assignment | Not started | M2–M6, then M7 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
 | Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
 | Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery. The only thing that accepts a task today is the dev-only fixed-token verifier, which will not boot outside `SMARTMATCH_EDITION=dev` | R1 (before worker deploy) |
 | Live identity verifier for user requests (JWKS) | **Fixture verifier only; no JWKS verifier implementation is committed.** Accepts registered fixture tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
-| Research agents / crawler | Not scaffolded | Gate G3, R3 |
+| Research agents / crawler | Threat model signed 2026-09-03; **no crawl code scaffolded** | R3 build; live production crawl (S6a) deferred in synthetic pilot |
 | Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
-| `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
+| `apps/web` frontend | **On hold** for new product UI — legacy-frontend authorized for synthetic pilot only; see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | Part 2 design decisions (D-1..D-11); owner assigned 2026-09-03 |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Student engagement — attendance, points ledger, rewards, disclosure consent | **Base schema and design only.** No catalog repository, earning service, ledger fold, or rewards routes are committed — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
 | Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Schema and read path only.** `pipeline_record` exists (migration `0011`) and the five ADR-0011 metrics read it through `pipeline_funnel_rows_v1`; **no application code writes `pipeline_record` yet**, so every stage measures a real zero | A `pipeline_record` write path — until one exists the funnel is structurally zero |
@@ -260,13 +260,13 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
                G1      G2     G3    G4,G5
 ```
 
-| Gate | Blocks | Owner |
-|---|---|---|
-| G1 — factor registry + golden cases approved | R1 | Program owner |
-| G2 — privacy, records, data-owner approval for live records | R2 | Privacy / legal / records |
-| G3 — agent eval set, tool allowlist, cost controls | R3 | Engineering ADR + program owner |
-| G4 — consent-origin policy, recipient policy, deliverability | R4 | Program owner + privacy/legal |
-| G5 — Calendar authorization model | R4 direct Calendar | Workspace admin + security |
+| Gate | Blocks | Owner | Status |
+|---|---|---|---|
+| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @dangt) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed |
+| G2 — privacy, records, data-owner approval for live records | R2 live student data | Privacy / legal / records | Open — deferred in synthetic pilot |
+| G3 — agent eval set, tool allowlist, cost controls | R3 live crawl | Engineering ADR + program owner | Open — R3 threat model signed; eval set not started |
+| G4 — consent-origin policy, recipient policy, deliverability | R4 outreach | Program owner + privacy/legal | Open — deferred in synthetic pilot |
+| G5 — Calendar authorization model | R4 direct Calendar | Workspace admin + security | Open — deferred in synthetic pilot |
 
 Gate owners sit outside engineering and are never inferred from technical
 readiness.

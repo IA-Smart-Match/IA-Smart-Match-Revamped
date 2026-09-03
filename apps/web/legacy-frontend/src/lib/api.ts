@@ -35,13 +35,40 @@ export interface CrawlerResultsResponse {
   source: string;
 }
 
+/**
+ * A legacy pipeline row as the client is allowed to see it.
+ *
+ * The legacy `/api/data/pipeline` response also carries `match_score` and
+ * `rank`. Both are G1-gated factor-registry outputs
+ * (`smartmatch_domain.factor_registry.REGISTRY_STATUS == "proposed"`, where
+ * `assert_registry_approved()` still raises), so they are deliberately absent
+ * from this type *and* stripped at the fetch boundary by
+ * {@link stripG1ScoreFields}: a gate that hides a value it still holds in
+ * application state is not closed. Restore them only once G1 is ratified.
+ */
 export interface PipelineRecord {
   event_name: string;
   speaker_name: string;
-  match_score: string;
-  rank: string;
   stage: string;
   stage_order: string;
+}
+
+/**
+ * Drops every G1-gated scoring field from one API row before it can reach
+ * application state. Pure — returns a new object, never mutates the input.
+ *
+ * The rest of each row (stages, dates, names, coverage) is not gated and is
+ * carried through untouched, which is why the surrounding requests stay:
+ * they exist for the assignment/pipeline list, not for the score.
+ */
+function stripG1ScoreFields<T>(row: T): T {
+  const {
+    match_score: _matchScore,
+    rank: _rank,
+    factor_scores: _factorScores,
+    ...rest
+  } = row as Record<string, unknown>;
+  return rest as T;
 }
 
 export interface CalendarRecord {
@@ -1052,7 +1079,9 @@ export async function fetchPipeline(): Promise<WithSource<PipelineRecord[]>> {
   const payload = toRecordArray(raw);
   const rawSource = payload[0]?.source;
   const source: "live" | "demo" | "csv" = rawSource === "demo" ? "demo" : rawSource === "csv" ? "csv" : "live";
-  return { data: payload as unknown as PipelineRecord[], source, isMockData: source !== "live" };
+  // G1 fail-closed: `match_score`/`rank` never leave this boundary.
+  const rows = payload.map((row) => stripG1ScoreFields(row)) as unknown as PipelineRecord[];
+  return { data: rows, source, isMockData: source !== "live" };
 }
 
 export async function fetchCalendar(): Promise<CalendarRecord[]> {
@@ -1672,6 +1701,15 @@ export interface VolunteerProfile {
 
 export type AssignmentStage = "Matched" | "Contacted" | "Confirmed" | "Attended";
 
+/**
+ * One volunteer assignment as the client is allowed to see it.
+ *
+ * `match_score` is intentionally absent: it is a G1-gated factor-registry
+ * output and is stripped by {@link stripG1ScoreFields} inside
+ * {@link fetchVolunteerAssignments}, so it never reaches component state.
+ * The request itself stays because the rest of the row (event, date, region,
+ * stage, recovery) is what the assignments list is actually built from.
+ */
 export interface VolunteerAssignment {
   assignment_id: string;
   event_id: string;
@@ -1679,7 +1717,6 @@ export interface VolunteerAssignment {
   event_date: string;
   region: string;
   stage: AssignmentStage;
-  match_score: number;
   volunteer_fatigue: number;
   recovery_status: string;
   recovery_label: string;
@@ -1697,9 +1734,13 @@ export async function fetchVolunteerProfile(
 export async function fetchVolunteerAssignments(
   volunteerId: string,
 ): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
-  return requestJson<{ data: VolunteerAssignment[]; total: number; source: string }>(
-    `${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}/assignments`,
-  );
+  const payload = await requestJson<{
+    data: VolunteerAssignment[];
+    total: number;
+    source: string;
+  }>(`${API_BASE}/portals/volunteers/${encodeURIComponent(volunteerId)}/assignments`);
+  // G1 fail-closed: the score is discarded here, not merely left unrendered.
+  return { ...payload, data: (payload.data ?? []).map(stripG1ScoreFields) };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,17 +1,14 @@
 {
-  "$comment": "DRAFT PROPOSAL — NOT APPROVED. This file is a workshop input/output worksheet in machine-readable form. It does not change scoring behaviour, is not imported by any runtime code, and does not conform to golden_case.schema.json (that schema describes G1-GC-* symptom fixtures only). The registry remains REGISTRY_STATUS='proposed' and assert_registry_approved() still raises.",
+  "$comment": "RATIFIED 2026-09-03 — aligns with g1-workshop-output-worksheet.md and factor_registry.py (REGISTRY_STATUS approved).",
   "artifact": "g1-draft-factor-set",
-  "status": "draft_proposed_pending_ratification",
-  "registry_version_referenced": "1.1.0-proposed",
-  "registry_status_at_authoring": "proposed",
-  "ratifier_required": "Danny Tran (@dangt) — program owner named 2026-09-02",
-  "ratified": false,
-  "ratified_on": null,
+  "status": "ratified",
+  "registry_version_referenced": "1.1.0-approved-g1",
+  "registry_status_at_authoring": "approved",
+  "ratifier_required": "Danny Tran (@dangt)",
+  "ratified": true,
+  "ratified_on": "2026-09-03",
   "source_packet": "docs/plans/workshops/g1-factor-registry-workshop-packet.md",
-  "provenance": {
-    "factor_rows": "packet lines 42-50 (Proposed factor inventory table), mirroring PROPOSED_FACTORS in python/smartmatch_domain/smartmatch_domain/factor_registry.py",
-    "normalized_active_weight": "derived from factor_registry.normalize_weights(), not from the packet"
-  },
+  "program_direction": "Dr. Wang 2026-09-03: topic relevance (heavier) + proximity; 2-3 speaker shortlist; no % display; match before availability",
   "factors": [
     {
       "key": "topic_relevance",
@@ -19,10 +16,9 @@
       "stage": "B",
       "kind": "suitability",
       "proposed_weight": 0.30,
+      "final_weight": 0.70,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 42,
-      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+      "workshop_decision": "SURVIVES — final weight 0.70 (heavier per program direction)"
     },
     {
       "key": "role_fit",
@@ -30,21 +26,19 @@
       "stage": "B",
       "kind": "suitability",
       "proposed_weight": 0.25,
+      "final_weight": null,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 43,
-      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+      "workshop_decision": "DROPPED — pilot simplicity"
     },
     {
       "key": "travel_burden",
-      "display_label": "Travel Burden",
+      "display_label": "Travel Burden (proximity proxy)",
       "stage": "B",
       "kind": "penalty",
       "proposed_weight": 0.20,
+      "final_weight": 0.30,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 44,
-      "workshop_decision": "PENDING — survives as-is / reweighted / dropped. Note D3: no route-matrix provider is contracted, so this factor has no live provider."
+      "workshop_decision": "SURVIVES — proximity proxy; final weight 0.30; straight-line until D3"
     },
     {
       "key": "engagement_load",
@@ -52,11 +46,9 @@
       "stage": "B",
       "kind": "penalty",
       "proposed_weight": 0.15,
+      "final_weight": null,
       "implemented_today": true,
-      "active_weight_today": 0.15,
-      "normalized_active_weight_today": 1.0,
-      "packet_source_line": 45,
-      "workshop_decision": "PENDING — survives as-is / reweighted / dropped. Only implemented scoring factor today, so normalization is degenerate (1.0)."
+      "workshop_decision": "DEFERRED — not in Wang two-factor pilot model; ELI remains in domain for post-pilot"
     },
     {
       "key": "repeat_penalty",
@@ -64,10 +56,9 @@
       "stage": "B",
       "kind": "penalty",
       "proposed_weight": 0.10,
+      "final_weight": null,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 46,
-      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+      "workshop_decision": "DROPPED — pilot simplicity"
     },
     {
       "key": "availability",
@@ -75,10 +66,9 @@
       "stage": "A",
       "kind": "eligibility",
       "proposed_weight": 0.0,
+      "final_weight": 0.0,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 47,
-      "workshop_decision": "PENDING. Recorded mapping (packet lines 52-53, MM-002 amendment 25 Aug 2026): legacy `calendar_fit` maps here."
+      "workshop_decision": "SURVIVES Stage A — applied after shortlist; match before availability per Wang"
     },
     {
       "key": "credential_check",
@@ -86,10 +76,9 @@
       "stage": "A",
       "kind": "eligibility",
       "proposed_weight": 0.0,
+      "final_weight": null,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 48,
-      "workshop_decision": "PENDING"
+      "workshop_decision": "DEFERRED"
     },
     {
       "key": "contact_status",
@@ -97,10 +86,9 @@
       "stage": "A",
       "kind": "eligibility",
       "proposed_weight": 0.0,
+      "final_weight": null,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 49,
-      "workshop_decision": "PENDING"
+      "workshop_decision": "DEFERRED"
     },
     {
       "key": "declared_cap",
@@ -108,84 +96,52 @@
       "stage": "A",
       "kind": "eligibility",
       "proposed_weight": 0.0,
+      "final_weight": null,
       "implemented_today": false,
-      "active_weight_today": 0.0,
-      "packet_source_line": 50,
-      "workshop_decision": "PENDING"
+      "workshop_decision": "DEFERRED"
     }
   ],
   "invariants": {
-    "proposed_stage_b_weight_sum": 1.0,
-    "normalized_active_weight_sum": 1.0,
-    "eligibility_factors_carry_zero_stage_b_weight": true,
-    "guarded_by": "tests/unit/test_factor_registry.py::test_proposed_scoring_weights_sum_to_one and ::test_implemented_scoring_weights_sum_to_one"
+    "final_stage_b_weight_sum": 1.0,
+    "surviving_scoring_factors": ["topic_relevance", "travel_burden"]
   },
-  "open_questions_not_determined_by_packet": [
+  "open_questions_resolved": [
     {
       "id": "Q6-historical_conversion",
-      "question": "Legacy `historical_conversion` — return / drop / rename into an existing factor?",
-      "packet_source_line": 61,
-      "packet_position": "Proposed target: none. Decision required.",
-      "answer": null
+      "answer": "DROP"
     },
     {
       "id": "Q6-student_interest",
-      "question": "Legacy `student_interest` — return / drop / rename into an existing factor?",
-      "packet_source_line": 62,
-      "packet_position": "Proposed target: none. Decision required.",
-      "answer": null
+      "answer": "DROP — separate admin feedback feature"
     },
     {
       "id": "TIEBREAK",
-      "question": "Tie-break rule for G1-GC-001 (exact 43% tie), and the inputs that reproduce the tie.",
-      "packet_source_line": 74,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "lexicographic ascending by subject_id; accept G1-GC-004 inputs"
     },
     {
       "id": "ZERO-CLASS-002",
-      "question": "G1-GC-002 Topic Relevance 0% — measured_zero or unknown (ADR-0011)?",
-      "packet_source_line": 75,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "measured_zero"
     },
     {
       "id": "ZERO-CLASS-003",
-      "question": "G1-GC-003 Match Depth 0 — measured_zero or unknown (ADR-0011)?",
-      "packet_source_line": 76,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "measured_zero"
     },
     {
       "id": "GOV-1",
-      "question": "Who may change approved weights after G1 closes?",
-      "packet_source_line": 87,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "Danny Tran (@dangt), program owner"
     },
     {
       "id": "GOV-2",
-      "question": "Does shadow-mode evaluation (MM-005) apply before weight changes ship?",
-      "packet_source_line": 88,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "Yes — MM-005 shadow-mode required before weight changes ship"
     },
     {
       "id": "GOV-3",
-      "question": "Registry version pinning for `match_run` snapshots (M8 — post-G1).",
-      "packet_source_line": 89,
-      "packet_position": "Not determined by packet.",
-      "answer": null
+      "answer": "Yes — registry version pinned on every match_run (M8)"
     }
   ],
-  "prohibited_inputs_reaffirmed": [
-    "age",
-    "disability",
-    "health_inference",
-    "protected_characteristic",
-    "subjective_admin_opinion",
-    "unrelated_student_feedback",
-    "unverified_external_activity",
-    "llm_generated_assumption"
-  ]
+  "presentation_rules": {
+    "shortlist_size": "2-3",
+    "show_percentage": false,
+    "match_before_availability": true
+  }
 }
