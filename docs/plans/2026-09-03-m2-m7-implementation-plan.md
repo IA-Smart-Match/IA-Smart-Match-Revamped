@@ -188,7 +188,7 @@ class ZeroClassification(StrEnum):
 class EvidenceState(StrEnum):
     """Whether the underlying record exists at all."""
 
-    ABSENT = "absent"      # no record -> unknown
+    ABSENT = "absent"  # no record -> unknown
     RECORDED = "recorded"  # record exists, possibly empty -> measurable
 
 
@@ -228,11 +228,13 @@ TOPIC_RELEVANCE_FORMULA_VERSION: Final[str] = "1.0.0"
 REQUIRED_TOPIC_SUBWEIGHT: Final[float] = 0.75
 PREFERRED_TOPIC_SUBWEIGHT: Final[float] = 0.25
 
+
 @dataclass(frozen=True, slots=True)
 class TopicRelevanceInputs:
-    expertise_topics: tuple[str, ...] | None   # None == no record == unknown
+    expertise_topics: tuple[str, ...] | None  # None == no record == unknown
     required_topics: tuple[str, ...]
     preferred_topics: tuple[str, ...] = ()
+
 
 def score_topic_relevance(inputs: TopicRelevanceInputs) -> FactorScore: ...
 ```
@@ -241,22 +243,23 @@ File: `factors/travel_burden.py` (Task 2)
 
 ```python
 TRAVEL_BURDEN_FORMULA_VERSION: Final[str] = "1.0.0-straight-line"
-TRAVEL_ESTIMATE_LABEL: Final[str] = (
-    "coarse straight-line estimate; D3 route matrix deferred"
-)
+TRAVEL_ESTIMATE_LABEL: Final[str] = "coarse straight-line estimate; D3 route matrix deferred"
 FREE_RADIUS_KM: Final[float] = 16.0
 MAX_BURDEN_KM: Final[float] = 160.0
 EARTH_RADIUS_KM: Final[float] = 6371.0088
+
 
 @dataclass(frozen=True, slots=True)
 class GeoPoint:
     latitude: float
     longitude: float
 
+
 @dataclass(frozen=True, slots=True)
 class TravelInputs:
-    origin: GeoPoint | None        # professional's synthetic coordinates
-    destination: GeoPoint | None   # event_need's synthetic coordinates
+    origin: GeoPoint | None  # professional's synthetic coordinates
+    destination: GeoPoint | None  # event_need's synthetic coordinates
+
 
 def haversine_km(origin: GeoPoint, destination: GeoPoint) -> float: ...
 def score_travel_burden(inputs: TravelInputs) -> FactorScore: ...
@@ -270,21 +273,25 @@ class AvailabilityState(StrEnum):
     BLACKED_OUT = "blacked_out"
     UNKNOWN = "unknown"
 
+
 class EligibilityOutcome(StrEnum):
     ELIGIBLE = "eligible"
     EXCLUDED = "excluded"
     UNDETERMINED = "undetermined"
+
 
 @dataclass(frozen=True, slots=True)
 class AvailabilityEvidence:
     subject_id: str
     state: AvailabilityState
 
+
 @dataclass(frozen=True, slots=True)
 class EligibilityDecision:
     subject_id: str
     outcome: EligibilityOutcome
     reason: str
+
 
 def apply_availability_filter(
     shortlist: tuple[str, ...],
@@ -299,17 +306,19 @@ File: `match_depth.py` (Task 3)
 class EngagementHistoryEvidence:
     subject_id: str
     unit_id: str
-    engagement_ids: tuple[str, ...] | None   # None == absent record == unknown
+    engagement_ids: tuple[str, ...] | None  # None == absent record == unknown
+
 
 @dataclass(frozen=True, slots=True)
 class MatchDepth:
     subject_id: str
     unit_id: str
-    count: int | None                        # None == unknown
+    count: int | None  # None == unknown
     basis: str
 
     @property
     def zero_classification(self) -> ZeroClassification | None: ...
+
 
 def derive_match_depth(evidence: EngagementHistoryEvidence) -> MatchDepth: ...
 ```
@@ -894,11 +903,13 @@ legacy score value is asserted anywhere.
 ```python
 STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0"
 
+
 @dataclass(frozen=True, slots=True)
 class CandidateEvidence:
     subject_id: str
     topic: TopicRelevanceInputs
     travel: TravelInputs
+
 
 @dataclass(frozen=True, slots=True)
 class StageBScore:
@@ -910,11 +921,13 @@ class StageBScore:
     registry_version: str
     formula_version: str
 
+
 def score_candidate(
     evidence: CandidateEvidence,
     *,
     weight_overrides: Mapping[str, float] | None = None,
 ) -> StageBScore: ...
+
 
 def rank_candidates(
     candidates: Sequence[CandidateEvidence],
@@ -1351,14 +1364,14 @@ class PortfolioStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class PortfolioCandidate:
     subject_id: str
-    utility: float          # a known StageBScore.value; must be in [0.0, 1.0]
+    utility: float  # a known StageBScore.value; must be in [0.0, 1.0]
 
 
 @dataclass(frozen=True, slots=True)
 class PortfolioRequest:
     event_need_id: str
     candidates: tuple[PortfolioCandidate, ...]
-    portfolio_size: int     # required; no default
+    portfolio_size: int  # required; no default
     random_seed: int = 0
 
 
