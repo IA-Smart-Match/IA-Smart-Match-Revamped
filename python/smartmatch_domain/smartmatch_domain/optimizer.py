@@ -10,15 +10,18 @@ demand.
 
 **Determinism.** :func:`solve_portfolio` is deterministic for identical
 inputs and seed: the same :class:`PortfolioRequest` solved twice, in any
-process, returns byte-identical :class:`PortfolioResult` fields. This rests
-on three things together: the solver is pinned to a single worker
-(``num_workers = 1`` — CP-SAT's parallel portfolio search is not
-reproducible), the random seed is set explicitly from
+process, on any machine, returns byte-identical :class:`PortfolioResult`
+fields. This rests on three things together: the solver is pinned to a
+single worker (``num_workers = 1`` — CP-SAT's parallel portfolio search is
+not reproducible), the random seed is set explicitly from
 :attr:`PortfolioRequest.random_seed` rather than left to the solver's
-default, and the objective itself is constructed with a strict lexicographic
-tie-break (see the ``coefficients`` computation in :func:`solve_portfolio`)
-so the optimum is mathematically unique — determinism does not rest on which
-of several equally-good optima the solver happens to return.
+default, the solve is bounded by :data:`SOLVE_DETERMINISTIC_TIME_LIMIT` — a
+deterministic work unit, not wall-clock time, so the bound itself cannot make
+the result machine-speed-dependent — and the objective itself is constructed
+with a strict lexicographic tie-break (see the ``coefficients`` computation
+in :func:`solve_portfolio`) so the optimum is mathematically unique —
+determinism does not rest on which of several equally-good optima the solver
+happens to return.
 
 **Reproducible evidence.** Every :class:`PortfolioResult` records
 :attr:`~PortfolioResult.solver_name`, :attr:`~PortfolioResult.solver_version`
@@ -26,7 +29,11 @@ of several equally-good optima the solver happens to return.
 :attr:`~PortfolioResult.model_version`. A stored assignment (M8's
 ``match_run``) that cannot say which solver produced it is not reproducible
 evidence, so a result carrying none of these is not a result this module
-will construct.
+will construct. :class:`PortfolioStatus` distinguishes a claim about the
+*model* (:attr:`~PortfolioStatus.INFEASIBLE` — no selection satisfies the
+constraints) from a claim about the *search* stopping early
+(:attr:`~PortfolioStatus.UNKNOWN`); collapsing the two would let a stalled
+search be misread, after the fact, as proof no valid portfolio existed.
 
 **Unknown utility is not zero (ADR-0011).** :class:`PortfolioCandidate` takes
 a known ``utility`` in ``[0.0, 1.0]`` — the caller's already-resolved
@@ -56,7 +63,7 @@ from ortools.sat.python import cp_model
 __all__ = [
     "OPTIMIZER_MODEL_VERSION",
     "SOLVER_NAME",
-    "SOLVE_TIME_LIMIT_SECONDS",
+    "SOLVE_DETERMINISTIC_TIME_LIMIT",
     "UTILITY_SCALE",
     "PortfolioCandidate",
     "PortfolioRequest",
@@ -80,9 +87,16 @@ SOLVER_NAME: Final[str] = "ortools-cpsat"
 #: StageBScore.value is rounded to.
 UTILITY_SCALE: Final[int] = 1_000_000
 
-#: Wall-clock ceiling. A deterministic model this small never approaches it; the
-#: bound exists so a pathological input cannot hang a worker.
-SOLVE_TIME_LIMIT_SECONDS: Final[float] = 10.0
+#: Deterministic-time ceiling — CP-SAT's own internal, machine-independent
+#: work unit, *not* wall-clock seconds. A wall-clock bound
+#: (``max_time_in_seconds``) would make the result machine-speed-dependent
+#: for any input that actually approaches it, contradicting this module's
+#: unconditional determinism guarantee ("the same request, in any process, on
+#: any machine, returns byte-identical fields"). A deterministic model this
+#: small never approaches the bound either way; it exists only so a
+#: pathological input cannot hang a worker, without ever letting hardware
+#: speed decide the answer.
+SOLVE_DETERMINISTIC_TIME_LIMIT: Final[float] = 10.0
 
 
 class PortfolioStatus(StrEnum):
@@ -91,11 +105,19 @@ class PortfolioStatus(StrEnum):
     #: The solver proved the returned selection maximizes the objective.
     OPTIMAL = "optimal"
     #: The solver found a feasible selection but could not prove optimality
-    #: before :data:`SOLVE_TIME_LIMIT_SECONDS`.
+    #: before :data:`SOLVE_DETERMINISTIC_TIME_LIMIT`.
     FEASIBLE = "feasible"
     #: No selection satisfies the constraints. ``selected_subject_ids`` is
-    #: empty.
+    #: empty. A claim about the *model*.
     INFEASIBLE = "infeasible"
+    #: The solver stopped without a verdict: no feasible selection was found
+    #: and none was ruled out (CP-SAT ``UNKNOWN``), or the model itself was
+    #: judged invalid (CP-SAT ``MODEL_INVALID``). ``selected_subject_ids`` is
+    #: empty. A claim about the *search* stopping early, never conflated with
+    #: :attr:`INFEASIBLE`: a stored ``match_run`` (M8) reads this status back
+    #: as reproducible evidence, and reporting a stalled search as "no valid
+    #: portfolio exists" would be false, and unrecoverable after the fact.
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,9 +128,9 @@ class PortfolioCandidate:
         subject_id: Stable identifier for the professional. Non-empty.
         utility: A known score in ``[0.0, 1.0]`` — typically
             :attr:`smartmatch_domain.scoring.StageBScore.value`. Must not be
-            ``None`` or ``NaN``: an unknown utility is rejected here, never
-            coerced to ``0.0`` (ADR-0011). The caller decides how an
-            unknown-utility candidate is presented before it ever reaches
+            ``None``, ``NaN``, or a ``bool``: an unknown utility is rejected
+            here, never coerced to ``0.0`` (ADR-0011). The caller decides how
+            an unknown-utility candidate is presented before it ever reaches
             this type.
     """
 
@@ -118,7 +140,18 @@ class PortfolioCandidate:
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
             raise ValueError("subject_id: must not be empty or blank")
-        # `self.utility is None` first: comparing None to a float raises
+        # `bool` is a subclass of `int` and duck-types as a `float` in
+        # comparisons, so `utility=True`/`utility=False` would otherwise pass
+        # the range check below as `1.0`/`0.0` — checked first and separately
+        # so the message names the actual defect (wrong type, not out of
+        # range).
+        if isinstance(self.utility, bool):
+            raise ValueError(
+                f"utility: must be a float, not bool, got {self.utility!r} for "
+                f"subject_id={self.subject_id!r} (bool is a subclass of int and "
+                "would otherwise silently pass the numeric range check below)"
+            )
+        # `self.utility is None` next: comparing None to a float raises
         # TypeError rather than returning False, and a candidate constructed
         # at runtime from an un-narrowed `StageBScore.value` can carry None
         # despite the `float` annotation. `or` short-circuits, so the range
@@ -143,8 +176,8 @@ class PortfolioRequest:
             unique; order does not affect the result (see
             :func:`solve_portfolio`).
         portfolio_size: How many candidates to select. Required — has no
-            default. Presentation rules (such as "2-3 speakers") belong to
-            card M10, not the caller of this type.
+            default, and must not be a ``bool``. Presentation rules (such as
+            "2-3 speakers") belong to card M10, not the caller of this type.
         random_seed: Seed passed verbatim to the CP-SAT solver. Defaults to
             ``0`` for callers that have no reason to vary it; the same seed
             with the same ``candidates`` and ``portfolio_size`` always
@@ -159,6 +192,15 @@ class PortfolioRequest:
     def __post_init__(self) -> None:
         if not self.event_need_id.strip():
             raise ValueError("event_need_id: must not be empty or blank")
+        # `bool` is a subclass of `int`, so `portfolio_size=True` would
+        # otherwise silently pass the `>= 1` check below as `1`. Checked
+        # first and separately, same reasoning as PortfolioCandidate.utility.
+        if isinstance(self.portfolio_size, bool):
+            raise ValueError(
+                f"portfolio_size: must be an int, not bool, got {self.portfolio_size!r} "
+                "(bool is a subclass of int and would otherwise silently pass the "
+                ">= 1 check below)"
+            )
         if self.portfolio_size < 1:
             raise ValueError(f"portfolio_size: must be >= 1, got {self.portfolio_size!r}")
         subject_ids = [candidate.subject_id for candidate in self.candidates]
@@ -173,9 +215,10 @@ class PortfolioResult:
     Attributes:
         event_need_id: Echoed from the request.
         selected_subject_ids: The selected candidates' ``subject_id`` values,
-            sorted lexicographically ascending. Empty when
-            :attr:`status` is :attr:`PortfolioStatus.INFEASIBLE` or the
-            request's candidate pool was empty.
+            sorted lexicographically ascending. Empty when :attr:`status` is
+            :attr:`PortfolioStatus.INFEASIBLE` or
+            :attr:`PortfolioStatus.UNKNOWN`, or the request's candidate pool
+            was empty.
         objective_value: The CP-SAT objective value achieved. ``0`` when no
             candidates were selected.
         status: The solver outcome.
@@ -200,19 +243,32 @@ class PortfolioResult:
     portfolio_size: int
 
 
-def _empty_result(request: PortfolioRequest) -> PortfolioResult:
-    """Build the trivial result for a request with no candidates."""
-    return PortfolioResult(
-        event_need_id=request.event_need_id,
-        selected_subject_ids=(),
-        objective_value=0,
-        status=PortfolioStatus.OPTIMAL,
-        solver_name=SOLVER_NAME,
-        solver_version=ortools.__version__,
-        model_version=OPTIMIZER_MODEL_VERSION,
-        random_seed=request.random_seed,
-        portfolio_size=request.portfolio_size,
-    )
+#: Statuses for which the solver produced a selection worth reading back.
+#: Everything else (INFEASIBLE, UNKNOWN) reports an empty portfolio.
+_STATUSES_WITH_A_SOLUTION: Final[frozenset[PortfolioStatus]] = frozenset(
+    {PortfolioStatus.OPTIMAL, PortfolioStatus.FEASIBLE}
+)
+
+
+def _map_solve_status(solve_status: cp_model.CpSolverStatus) -> PortfolioStatus:
+    """Map a raw CP-SAT status to the outcome :class:`PortfolioResult` reports.
+
+    ``INFEASIBLE`` is the only outcome that claims no selection satisfies the
+    constraints — a claim about the model. Every other non-solution status
+    CP-SAT can return (``UNKNOWN``: the search stopped, for example at
+    :data:`SOLVE_DETERMINISTIC_TIME_LIMIT`, without finding or ruling out a
+    solution; ``MODEL_INVALID``: the model itself was judged invalid) is a
+    claim about the search stopping early, not about the model, and is
+    reported as :attr:`PortfolioStatus.UNKNOWN` rather than folded into
+    :attr:`PortfolioStatus.INFEASIBLE`.
+    """
+    if solve_status == cp_model.OPTIMAL:
+        return PortfolioStatus.OPTIMAL
+    if solve_status == cp_model.FEASIBLE:
+        return PortfolioStatus.FEASIBLE
+    if solve_status == cp_model.INFEASIBLE:
+        return PortfolioStatus.INFEASIBLE
+    return PortfolioStatus.UNKNOWN
 
 
 def solve_portfolio(request: PortfolioRequest) -> PortfolioResult:
@@ -228,60 +284,79 @@ def solve_portfolio(request: PortfolioRequest) -> PortfolioResult:
 
     Returns:
         A :class:`PortfolioResult`. With an empty candidate pool this
-        returns immediately: ``status=PortfolioStatus.OPTIMAL``,
-        ``selected_subject_ids=()``, ``objective_value=0`` — an empty
+        reports ``status=PortfolioStatus.OPTIMAL``, ``selected_subject_ids=
+        ()``, ``objective_value=0`` without building a model — an empty
         portfolio is not an error, it is the correct answer to "select from
         nothing".
     """
     ordered = sorted(request.candidates, key=lambda c: (-c.utility, c.subject_id))
     candidate_count = len(ordered)
+
     if candidate_count == 0:
-        return _empty_result(request)
-
-    target = min(request.portfolio_size, candidate_count)
-
-    model = cp_model.CpModel()
-    selectors = [model.NewBoolVar(f"select_{i}") for i in range(candidate_count)]
-    model.Add(sum(selectors) == target)
-
-    # Strict lexicographic tie-break: `(n - i)` lies in `[1, n]`, always
-    # strictly less than the `(n + 1)` utility multiplier, so it can never
-    # outweigh a utility difference of one scale unit. It ranks equal-utility
-    # candidates by ascending subject_id (their position `i` in `ordered`,
-    # which is already sorted that way), matching the ratified tie-break and
-    # making the optimum unique — without it CP-SAT may return either of two
-    # equally good portfolios, and "deterministic given identical inputs and
-    # seed" would rest on solver internals instead of the model.
-    coefficients = [
-        round(ordered[i].utility * UTILITY_SCALE) * (candidate_count + 1) + (candidate_count - i)
-        for i in range(candidate_count)
-    ]
-    model.Maximize(sum(coefficients[i] * selectors[i] for i in range(candidate_count)))
-
-    solver = cp_model.CpSolver()
-    solver.parameters.num_workers = 1
-    solver.parameters.random_seed = request.random_seed
-    solver.parameters.max_time_in_seconds = SOLVE_TIME_LIMIT_SECONDS
-
-    solve_status = solver.Solve(model)
-
-    if solve_status == cp_model.OPTIMAL:
         status = PortfolioStatus.OPTIMAL
-    elif solve_status == cp_model.FEASIBLE:
-        status = PortfolioStatus.FEASIBLE
-    else:
-        status = PortfolioStatus.INFEASIBLE
-
-    if status is PortfolioStatus.INFEASIBLE:
         selected_subject_ids: tuple[str, ...] = ()
         objective_value = 0
     else:
-        selected_subject_ids = tuple(
-            sorted(
-                ordered[i].subject_id for i in range(candidate_count) if solver.Value(selectors[i])
+        target = min(request.portfolio_size, candidate_count)
+
+        model = cp_model.CpModel()
+        selectors = [model.NewBoolVar(f"select_{i}") for i in range(candidate_count)]
+        model.Add(sum(selectors) == target)
+
+        # Tie-break coefficient, chosen to make `ordered[:target]` the UNIQUE
+        # optimum. This is NOT because any single tie-break term is smaller
+        # than the utility multiplier — the objective sums up to
+        # `candidate_count` such terms, which can itself reach
+        # `candidate_count * (candidate_count + 1) / 2`, larger than one
+        # utility scale unit. It holds by domination instead: `ordered` is
+        # sorted descending by `(-utility, subject_id)`, so the first
+        # `target` indices are exactly the `target` candidates with the
+        # largest utility values, ties broken toward the smallest index
+        # (smallest subject_id). For any other size-`target` selection, the
+        # `(candidate_count + 1)`-scaled utility-term sum of
+        # `ordered[:target]` is therefore *weakly* greater — it can only tie
+        # when the two selections share the same multiset of utility values
+        # — and among selections that tie on the utility-term sum,
+        # `ordered[:target]`'s tie-break sum (`candidate_count - i`, strictly
+        # decreasing in `i`) is *strictly* greater, because it is the only
+        # such selection built from the smallest available indices.
+        # `ordered[:target]` therefore dominates every alternative, making
+        # the optimum unique: without a tie-break at all, CP-SAT may return
+        # any of several equally good portfolios, and "deterministic given
+        # identical inputs and seed" would rest on solver internals instead
+        # of the model.
+        coefficients = [
+            round(ordered[i].utility * UTILITY_SCALE) * (candidate_count + 1)
+            + (candidate_count - i)
+            for i in range(candidate_count)
+        ]
+        model.Maximize(sum(coefficients[i] * selectors[i] for i in range(candidate_count)))
+
+        solver = cp_model.CpSolver()
+        solver.parameters.num_workers = 1
+        solver.parameters.random_seed = request.random_seed
+        solver.parameters.max_deterministic_time = SOLVE_DETERMINISTIC_TIME_LIMIT
+
+        status = _map_solve_status(solver.Solve(model))
+
+        if status in _STATUSES_WITH_A_SOLUTION:
+            selected_subject_ids = tuple(
+                sorted(
+                    ordered[i].subject_id
+                    for i in range(candidate_count)
+                    if solver.Value(selectors[i])
+                )
             )
-        )
-        objective_value = int(solver.ObjectiveValue())
+            # round(), not int(): an exactly-integer CP-SAT objective can
+            # round-trip through the solver's C++ double as e.g.
+            # 6999999.999999998, which int() truncates to 6999999 instead of
+            # the intended 7000000. round() with no ndigits returns the
+            # nearest int, which is what the coefficient arithmetic actually
+            # produced.
+            objective_value = round(solver.ObjectiveValue())
+        else:
+            selected_subject_ids = ()
+            objective_value = 0
 
     return PortfolioResult(
         event_need_id=request.event_need_id,

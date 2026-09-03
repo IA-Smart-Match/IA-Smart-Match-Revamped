@@ -9,6 +9,7 @@ import random
 
 import ortools
 import pytest
+from ortools.sat.python import cp_model
 from smartmatch_domain import optimizer as optimizer_module
 from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs
 from smartmatch_domain.factors.travel_burden import GeoPoint, TravelInputs
@@ -34,6 +35,18 @@ _FIVE_CANDIDATES = (
     PortfolioCandidate(subject_id="SYNTH-PORT-C", utility=0.80),
     PortfolioCandidate(subject_id="SYNTH-PORT-B", utility=0.65),
     PortfolioCandidate(subject_id="SYNTH-PORT-D", utility=0.50),
+)
+
+#: Three candidates with identical utility, supplied in reverse id order, so
+#: a pass can only be explained by the tie-break actually running — used both
+#: to test the tie-break directly and to test that a genuinely tied problem
+#: (not just a problem with a unique optimum) is deterministic across repeat
+#: solves, which a nondeterministic multi-worker search could pass by luck.
+_TIED_UTILITY = 0.5
+_TIED_CANDIDATES = (
+    PortfolioCandidate(subject_id="SYNTH-PORT-TIE-C", utility=_TIED_UTILITY),
+    PortfolioCandidate(subject_id="SYNTH-PORT-TIE-B", utility=_TIED_UTILITY),
+    PortfolioCandidate(subject_id="SYNTH-PORT-TIE-A", utility=_TIED_UTILITY),
 )
 
 
@@ -111,11 +124,18 @@ def test_empty_candidate_pool_returns_an_empty_portfolio():
     assert result.status == PortfolioStatus.OPTIMAL
 
 
-def test_result_is_deterministic_across_repeated_solves():
+@pytest.mark.parametrize(
+    ("candidates", "portfolio_size"),
+    [
+        pytest.param(_FIVE_CANDIDATES, 3, id="unique_optimum"),
+        pytest.param(_TIED_CANDIDATES, 2, id="tied_optimum"),
+    ],
+)
+def test_result_is_deterministic_across_repeated_solves(candidates, portfolio_size):
     request = PortfolioRequest(
         event_need_id="SYNTH-EVENT-REPEAT",
-        candidates=_FIVE_CANDIDATES,
-        portfolio_size=3,
+        candidates=candidates,
+        portfolio_size=portfolio_size,
         random_seed=7,
     )
     results = [solve_portfolio(request) for _ in range(20)]
@@ -150,19 +170,40 @@ def test_result_is_deterministic_regardless_of_input_order():
 
 
 def test_ties_are_broken_lexicographically_by_subject_id():
-    tied_utility = 0.5
-    candidates = (
-        PortfolioCandidate(subject_id="SYNTH-PORT-TIE-C", utility=tied_utility),
-        PortfolioCandidate(subject_id="SYNTH-PORT-TIE-B", utility=tied_utility),
-        PortfolioCandidate(subject_id="SYNTH-PORT-TIE-A", utility=tied_utility),
-    )
     request = PortfolioRequest(
         event_need_id="SYNTH-EVENT-TIE",
-        candidates=candidates,
+        candidates=_TIED_CANDIDATES,
         portfolio_size=2,
     )
     result = solve_portfolio(request)
     assert result.selected_subject_ids == ("SYNTH-PORT-TIE-A", "SYNTH-PORT-TIE-B")
+
+
+def test_infeasible_solve_status_is_reported_as_infeasible(monkeypatch):
+    monkeypatch.setattr(cp_model.CpSolver, "Solve", lambda self, model: cp_model.INFEASIBLE)
+    request = PortfolioRequest(
+        event_need_id="SYNTH-EVENT-STATUS-INFEASIBLE",
+        candidates=_FIVE_CANDIDATES,
+        portfolio_size=3,
+    )
+    result = solve_portfolio(request)
+    assert result.status == PortfolioStatus.INFEASIBLE
+    assert result.selected_subject_ids == ()
+    assert result.objective_value == 0
+
+
+@pytest.mark.parametrize("raw_status", [cp_model.UNKNOWN, cp_model.MODEL_INVALID])
+def test_a_stalled_or_invalid_search_is_reported_as_unknown_not_infeasible(monkeypatch, raw_status):
+    monkeypatch.setattr(cp_model.CpSolver, "Solve", lambda self, model: raw_status)
+    request = PortfolioRequest(
+        event_need_id="SYNTH-EVENT-STATUS-UNKNOWN",
+        candidates=_FIVE_CANDIDATES,
+        portfolio_size=3,
+    )
+    result = solve_portfolio(request)
+    assert result.status == PortfolioStatus.UNKNOWN
+    assert result.selected_subject_ids == ()
+    assert result.objective_value == 0
 
 
 def test_result_records_the_solver_version():
@@ -193,6 +234,15 @@ def test_utility_out_of_range_is_rejected(utility):
         PortfolioCandidate(subject_id="SYNTH-PORT-OOR", utility=utility)
 
 
+@pytest.mark.parametrize("utility", [True, False])
+def test_utility_bool_is_rejected(utility):
+    # bool is a subclass of int and duck-types as a float in comparisons, so
+    # True/False would silently pass the [0.0, 1.0] range check as 1.0/0.0
+    # unless rejected by type explicitly.
+    with pytest.raises(ValueError):
+        PortfolioCandidate(subject_id="SYNTH-PORT-BOOL", utility=utility)  # type: ignore[arg-type]
+
+
 def test_duplicate_subject_id_is_rejected():
     candidates = (
         PortfolioCandidate(subject_id="SYNTH-PORT-DUP", utility=0.5),
@@ -213,6 +263,18 @@ def test_portfolio_size_below_one_is_rejected(size):
             event_need_id="SYNTH-EVENT-BADSIZE",
             candidates=_FIVE_CANDIDATES,
             portfolio_size=size,
+        )
+
+
+@pytest.mark.parametrize("size", [True, False])
+def test_portfolio_size_bool_is_rejected(size):
+    # bool is a subclass of int, so True/False would silently pass the >= 1
+    # check as 1/0 unless rejected by type explicitly.
+    with pytest.raises(ValueError):
+        PortfolioRequest(
+            event_need_id="SYNTH-EVENT-BOOL-SIZE",
+            candidates=_FIVE_CANDIDATES,
+            portfolio_size=size,  # type: ignore[arg-type]
         )
 
 
