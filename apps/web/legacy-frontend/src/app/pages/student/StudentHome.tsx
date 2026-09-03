@@ -15,20 +15,16 @@ import {
   type RetentionNudge,
   type CalendarEventSummary,
 } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 export function StudentHome() {
-  const session = getSession();
-  const studentId = String((session.user as Record<string, unknown> | undefined)?.student_id ?? "stu-001");
+  // The portal subject is the server-assigned principal from
+  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
+  // this page renders only inside a session-gated layout, so a visitor
+  // without a verified token never reaches it.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal);
 
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
   const [nudge, setNudge] = useState<(RetentionNudge & { source: string }) | null>(null);

@@ -11,6 +11,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { SessionGate } from "./SessionGate";
+import { useSession, useSignOut } from "../hooks/useSession";
+import {
+  principalDisplayName,
+  principalInitials,
+  principalOrgUnitLabel,
+} from "../../lib/principal";
 
 const navigation = [
   { name: "Home", href: "/student-portal", icon: House, exact: true },
@@ -25,31 +32,23 @@ export function StudentLayout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const session = (() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-        user?: Record<string, unknown>;
-        role?: string;
-      };
-    } catch {
-      return {};
-    }
-  })();
-
-  const user = session.user ?? {};
-  const displayName = String(user.name ?? "Student");
-  const school = String(user.school ?? "IA West");
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const session = useSession();
+  const signOut = useSignOut();
 
   function handleSignOut() {
-    sessionStorage.removeItem("iaw_session");
+    signOut();
     navigate("/");
   }
+
+  if (session.status !== "signed-in") {
+    return <SessionGate state={session} />;
+  }
+
+  // Every value below comes from `GET /v1/me`. There is no fallback name,
+  // school, or id: an unverified visitor never reaches this line.
+  const displayName = principalDisplayName(session.me);
+  const school = principalOrgUnitLabel(session.me);
+  const initials = principalInitials(session.me);
 
   return (
     <div className="min-h-screen bg-background">

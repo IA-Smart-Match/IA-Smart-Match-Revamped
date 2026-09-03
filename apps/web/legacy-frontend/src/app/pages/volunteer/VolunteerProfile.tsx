@@ -3,16 +3,8 @@ import { AlertTriangle, MapPin, Star } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { fetchVolunteerProfile, splitTags, type VolunteerProfile } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const RECOVERY_COLORS: Record<string, string> = {
   Available: "bg-green-100 text-green-700",
@@ -21,10 +13,12 @@ const RECOVERY_COLORS: Record<string, string> = {
 };
 
 export function VolunteerProfile() {
-  const session = getSession();
-  const volunteerId = String(
-    (session.user as Record<string, unknown> | undefined)?.volunteer_id ?? "shana-demarinis",
-  );
+  // The portal subject is the server-assigned principal from
+  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
+  // this page renders only inside a session-gated layout, so a visitor
+  // without a verified token never reaches it.
+  const principal = useAuthenticatedPrincipal();
+  const volunteerId = portalSubjectId(principal);
 
   const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
   const [loading, setLoading] = useState(true);

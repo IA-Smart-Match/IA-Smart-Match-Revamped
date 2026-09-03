@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { SessionGate } from "./SessionGate";
+import { useSession } from "../hooks/useSession";
 import { SyntheticDataBanner } from "./provenance";
 import {
   Tooltip,
@@ -43,6 +45,7 @@ const allNavItems = navigationSections.flatMap((s) => s.items);
 
 export function Layout() {
   const location = useLocation();
+  const session = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const currentPage = allNavItems.find(
@@ -50,6 +53,13 @@ export function Layout() {
       location.pathname === item.href ||
       (item.href !== "/dashboard" && location.pathname.startsWith(item.href)),
   );
+
+  // The admin shell is a signed-in surface (it carries a sign-out control),
+  // so it is gated exactly like the three portals: no verified principal,
+  // no chrome. `/v1` authorization stays authoritative for the data itself.
+  if (session.status !== "signed-in") {
+    return <SessionGate state={session} />;
+  }
 
   return (
     <div className="min-h-screen bg-background">

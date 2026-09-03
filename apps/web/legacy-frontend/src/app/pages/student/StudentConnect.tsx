@@ -7,6 +7,7 @@ import {
   fetchPipeline,
   fetchSpecialists,
   fetchStudentConnectionSuggestions,
+  fetchStudentProfile,
   type StudentConnectionSuggestionsResponse,
   type StudentConnectionSuggestion,
   type PipelineRecord,
@@ -14,6 +15,8 @@ import {
   type StudentSpeakerSuggestion,
 } from "../../../lib/api";
 import { getInitials, getMockProfilePhoto } from "../../../lib/mockProfilePhotos";
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 function getSharedInterests(a: string, b: string): string[] {
   const setA = new Set(a.split(",").map((s) => s.trim().toLowerCase()));
@@ -23,25 +26,20 @@ function getSharedInterests(a: string, b: string): string[] {
     .filter((s) => s.length > 0 && setA.has(s.toLowerCase()));
 }
 
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
-
 export function StudentConnect() {
-  const session = getSession();
-  const rawId = (session.user as Record<string, unknown> | undefined)?.student_id;
-  const studentId =
-    rawId !== undefined && rawId !== null && String(rawId).trim() !== "" && String(rawId) !== "undefined"
-      ? String(rawId).trim()
-      : "stu-001";
+  // The portal subject is the server-assigned principal from
+  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
+  // this page renders only inside a session-gated layout, so a visitor
+  // without a verified token never reaches it.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal);
 
   const [payload, setPayload] = useState<StudentConnectionSuggestionsResponse | null>(null);
+  // The viewer's own interests, as the server records them. This used to be
+  // read out of the browser-written session blob, which nothing ever wrote —
+  // so the overlap chips below were permanently empty. It now comes from the
+  // student's server-held profile, or stays empty when the server has none.
+  const [viewerInterests, setViewerInterests] = useState("");
   const [speakerSuggestions, setSpeakerSuggestions] = useState<StudentSpeakerSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +52,17 @@ export function StudentConnect() {
       setLoading(true);
       setError(null);
       try {
-        const [data, pipelineRes, specialistsRes] = await Promise.all([
+        const [data, pipelineRes, specialistsRes, profile] = await Promise.all([
           fetchStudentConnectionSuggestions(studentId),
           fetchPipeline(),
           fetchSpecialists(),
+          // Optional: the overlap chips are an enhancement, so a profile the
+          // legacy backend cannot serve must not fail the whole page.
+          fetchStudentProfile(studentId).catch(() => null),
         ]);
         if (!mounted) return;
         setPayload(data);
+        setViewerInterests(profile?.interests ?? "");
         setSpeakerSuggestions(
           buildSpeakerSuggestions(data.attended_past_events, pipelineRes.data, specialistsRes.data),
         );
@@ -103,7 +105,7 @@ export function StudentConnect() {
 
   const { attended_past_events } = payload;
   const serviceUnavailable = payload.source === "unavailable";
-  const focusInterests = String((session.user as Record<string, unknown> | undefined)?.interests ?? "");
+  const focusInterests = viewerInterests;
 
   return (
     <div className="space-y-6">

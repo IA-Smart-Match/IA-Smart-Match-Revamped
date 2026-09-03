@@ -82,6 +82,12 @@ prevent. They stay blank until the provisioner commits them.
 
 ## Part 2 — Fallback-identity audit (card A0 output)
 
+> **Superseded as a to-do list, retained as the record (2026-09-03).** The
+> fence below was closed on branch `claude/fix-7-identity-leftovers-twpqe6`;
+> Part 5 records the re-run and what replaced each site. Part 2 stays as
+> written so the closure can be checked against the inventory it was measured
+> from.
+
 Ripgrep of `apps/web/legacy-frontend/src/` on 2026-08-28, branch
 `plan/a1b-sign-in`. This is the **exact fence for card A3**.
 
@@ -179,3 +185,72 @@ uses the existing fixture verifier and accepts only registered fixture tokens.
 Card A1 remains blocked until Part 1 records and a named owner approves the
 issuer, audience, JWKS retrieval and rotation policy, accepted algorithms,
 clock-skew tolerance, client-flow contract, and configuration ownership.
+
+
+---
+
+## Part 5 — Card A3 closed; card A1 still blocked (2026-09-03)
+
+### 5.1 The inventory, re-run
+
+`apps/web/legacy-frontend/src/`, this branch, against the same four search
+terms card A0 used:
+
+| Search | Part 2 (2026-08-28) | Now |
+|---|---|---|
+| `getItem("iaw_session")` | 15 reads, 15 files | **0** |
+| `removeItem("iaw_session")` | 4 clears, 4 files | **0** |
+| files mentioning `iaw_session` at all | 16 | **0** |
+| fallback identity literals (three ids) | 12 sites, 12 files | **0** |
+
+One site Part 2 did not list also read the same blob: `StudentConnect.tsx`
+took the viewer's *interests* from `session.user.interests` for its shared-
+interest chips. Because nothing ever wrote the blob, that value was
+permanently empty and the chips never rendered. It now comes from the
+student's server-held profile.
+
+`tests/unit/test_frontend_auth_contract.py` asserts all four rows stay at
+zero, so this table cannot quietly go stale again.
+
+### 5.2 What replaced them
+
+- `src/lib/session.ts` — the one caller of `fetchMe()`. A bearer token
+  (build-time `VITE_SMARTMATCH_BEARER_TOKEN`, or `sessionStorage`) is sent to
+  `GET /v1/me`; whatever it answers is the session. No token, or a token the
+  API rejects, is signed out. There is no third state and no fallback
+  principal.
+- `src/app/hooks/useSession.tsx` — React access to that answer, and a
+  sign-out that clears the browser-held token and re-asks the server. It
+  exposes no way to *set* an identity.
+- `src/app/components/SessionGate.tsx` — what the four shells render when
+  there is no verified principal: a neutral placeholder while `/v1/me` is in
+  flight, and a redirect to `/login` otherwise.
+- `src/lib/principal.ts` — every displayed value derived from the `/v1/me`
+  response, with truthful blanks (`No active membership`) where the server
+  says nothing.
+
+### 5.3 Part 1 is unchanged, and card A1 is still blocked
+
+Nothing in this branch fills, infers, or works around a Part 1 field. No
+JWKS verifier was written; the API still accepts only fixture tokens, and
+the worker's local bearer verifiers still refuse to activate outside
+`SMARTMATCH_EDITION=dev` (`tests/unit/test_dev_principals.py`,
+`tests/unit/test_worker_local_mode.py`, both green on this branch).
+
+**Still outstanding — external dependency, for a provisioner, not an agent:**
+
+- §1.1 tenant/directory identifier.
+- §1.2 (card A1, all seven): issuer URL, audience, JWKS retrieval approach,
+  JWKS cache TTL / refresh trigger, accepted signing algorithms,
+  key-rotation policy, clock-skew tolerance.
+- §1.3 (card A2, all twelve): client ID, public-client+PKCE confirmation,
+  token-exchange model, authorization endpoint (or discovery URL), token
+  endpoint, registered redirect URI(s), requested scopes, browser token
+  storage policy, refresh policy, session lifetime, logout endpoint,
+  post-logout redirect URI.
+- §1.4 (all three): approving owner, approval date, where the configuration
+  is administered.
+
+That is 23 fields across four sections. Card A2's real sign-in flow stays
+unbuilt until they are recorded and approved; `/login` continues to say
+institutional sign-in is not connected yet, which is the truth.

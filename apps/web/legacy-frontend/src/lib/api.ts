@@ -353,19 +353,55 @@ async function throwApiRequestError(response: Response): Promise<never> {
   throw new ApiRequestError(message, response.status, code, details);
 }
 
-function smartmatchAuthHeaders(): Record<string, string> {
+/** The sessionStorage key the browser may hold a `/v1` bearer token under. */
+export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
+
+/**
+ * The bearer token `/v1` requests are sent with, or `null` when none is
+ * configured.
+ *
+ * Two sources, in order: the build-time `VITE_SMARTMATCH_BEARER_TOKEN` (the
+ * fixture token a compose/dev build is started with) and
+ * `sessionStorage["smartmatch_bearer_token"]`. Both are *credentials* — the
+ * server decides what they mean. Nothing here, and nothing downstream of
+ * here, lets the browser assert a tenant, user, or role; that is the whole
+ * point of Fix #7. See `src/lib/session.ts` for the identity the server
+ * returns for a token.
+ *
+ * Exported so `src/lib/principalKey.ts` can derive its cache key from the
+ * same lookup rather than keeping a second copy of it.
+ */
+export function readSmartmatchBearerToken(): string | null {
   const envToken = import.meta.env.VITE_SMARTMATCH_BEARER_TOKEN;
   const sessionToken =
     typeof sessionStorage !== "undefined"
-      ? sessionStorage.getItem("smartmatch_bearer_token")
+      ? sessionStorage.getItem(SMARTMATCH_BEARER_STORAGE_KEY)
       : null;
-  const token =
-    (typeof envToken === "string" && envToken.trim().length > 0
-      ? envToken.trim()
-      : null) ??
+
+  return (
+    (typeof envToken === "string" && envToken.trim().length > 0 ? envToken.trim() : null) ??
     (typeof sessionToken === "string" && sessionToken.trim().length > 0
       ? sessionToken.trim()
-      : null);
+      : null)
+  );
+}
+
+/**
+ * Drops the browser-held bearer token.
+ *
+ * Only clears `sessionStorage`. A token supplied at build time through
+ * `VITE_SMARTMATCH_BEARER_TOKEN` is baked into the bundle and cannot be
+ * revoked from inside the page — sign-out says so rather than pretending
+ * otherwise (`src/lib/session.ts`).
+ */
+export function clearStoredSmartmatchBearerToken(): void {
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.removeItem(SMARTMATCH_BEARER_STORAGE_KEY);
+  }
+}
+
+function smartmatchAuthHeaders(): Record<string, string> {
+  const token = readSmartmatchBearerToken();
 
   if (!token) {
     return {};

@@ -4,16 +4,8 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AppIcon } from "../../../components/AppIcon";
 import { fetchStudentRegistrations, type StudentRegistration } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const STATUS_LABELS: Record<StudentRegistration["status"], string> = {
   registered: "Registered",
@@ -28,8 +20,12 @@ const STATUS_COLORS: Record<StudentRegistration["status"], string> = {
 };
 
 export function StudentEvents() {
-  const session = getSession();
-  const studentId = String((session.user as Record<string, unknown> | undefined)?.student_id ?? "stu-001");
+  // The portal subject is the server-assigned principal from
+  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
+  // this page renders only inside a session-gated layout, so a visitor
+  // without a verified token never reaches it.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal);
 
   const [registrations, setRegistrations] = useState<StudentRegistration[]>([]);
   const [allRegistrations, setAllRegistrations] = useState<StudentRegistration[]>([]);

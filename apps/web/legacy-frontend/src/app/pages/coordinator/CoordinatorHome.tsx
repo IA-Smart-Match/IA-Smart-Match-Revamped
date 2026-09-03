@@ -14,16 +14,8 @@ import {
   type MeetingBooking,
   type CalendarEventSummary,
 } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const THREAD_STATUS_COLORS: Record<OutreachThread["status"], string> = {
   confirmed: "bg-primary/10 text-primary",
@@ -33,8 +25,12 @@ const THREAD_STATUS_COLORS: Record<OutreachThread["status"], string> = {
 };
 
 export function CoordinatorHome() {
-  const session = getSession();
-  const coordinatorId = String((session.user as Record<string, unknown> | undefined)?.coordinator_id ?? "coord-001");
+  // The portal subject is the server-assigned principal from
+  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
+  // this page renders only inside a session-gated layout, so a visitor
+  // without a verified token never reaches it.
+  const principal = useAuthenticatedPrincipal();
+  const coordinatorId = portalSubjectId(principal);
 
   const [profile, setProfile] = useState<(EventCoordinator & { source: string }) | null>(null);
   const [events, setEvents] = useState<(CalendarEventSummary & { staffing_open: boolean })[]>([]);
