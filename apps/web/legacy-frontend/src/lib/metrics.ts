@@ -29,9 +29,19 @@ export const PIPELINE_FUNNEL_STAGE_LABELS: Record<PipelineFunnelMetricName, stri
   pipeline_member_inquiry: "Member Inquiry",
 };
 
-/** Matches backend `PIPELINE_UNKNOWN_REASON` plus the missing opportunities definition. */
+/** Canonical name of the registered opportunities metric (`METRIC_REGISTER`). */
+export const OPPORTUNITIES_METRIC_NAME = "opportunities";
+
+/**
+ * Why the opportunities number can be missing on the client.
+ *
+ * The metric itself *is* registered and bound server-side
+ * (`_opportunities_rows_v1`), so the client never decides the value: it
+ * either renders what `/v1/units/{id}/metrics` measured, or says it could
+ * not read the register. It never substitutes a locally merged count.
+ */
 export const OPPORTUNITIES_UNKNOWN_REASON =
-  "No evidence source yet: S12 Pipeline persistence is not started, and the canonical opportunities metric is not registered.";
+  "The registered `opportunities` metric could not be read from /v1/units/{unit_id}/metrics, so no count is available. This page never derives one from local CSV or crawler rows.";
 
 /** Matches `factor_registry.REGISTRY_STATUS == "proposed"` — no scores until G1 closes. */
 export const MATCHING_UNAVAILABLE_REASON =
@@ -178,4 +188,59 @@ export function assertDrilldownMatchesAggregate(
     return drilldown.rows.length === 0;
   }
   return drilldown.rows.length === drilldown.aggregate_value;
+}
+
+/**
+ * Stage-to-stage conversion between two *registered* funnel metrics.
+ *
+ * Both endpoints come from the same metrics API, so the ratio inherits their
+ * accountability: unknown at either end (or a zero denominator, which is a
+ * measured "nothing entered this stage" rather than a rate of zero) yields an
+ * unknown value, never a fabricated `0.0%`.
+ */
+export function stageConversionMetric(
+  from: PipelineFunnelMetricName,
+  to: PipelineFunnelMetricName,
+  metricsByName: Record<string, MetricSummary>,
+  unavailableReason: string,
+): AccountableMetric {
+  const fromLabel = PIPELINE_FUNNEL_STAGE_LABELS[from];
+  const toLabel = PIPELINE_FUNNEL_STAGE_LABELS[to];
+  const name = `${fromLabel} → ${toLabel}`;
+  const definition =
+    `Registered \`${to}\` divided by registered \`${from}\`. ` +
+    "Both operands come from the metrics register; no client-side row merge is involved.";
+
+  const fromSummary = metricsByName[from];
+  const toSummary = metricsByName[to];
+
+  function unknown(reason: string): AccountableMetric {
+    return { name, definition, value: unknownValue(reason), provenance: "observed" };
+  }
+
+  if (!fromSummary || !toSummary) {
+    return unknown(unavailableReason);
+  }
+  if (fromSummary.value === null) {
+    return unknown(
+      fromSummary.unknown_reason ?? `\`${from}\` is unknown, so the ratio is unknown.`,
+    );
+  }
+  if (toSummary.value === null) {
+    return unknown(
+      toSummary.unknown_reason ?? `\`${to}\` is unknown, so the ratio is unknown.`,
+    );
+  }
+  if (fromSummary.value === 0) {
+    return unknown(
+      `No records have reached ${fromLabel}, so there is no denominator for this conversion rate.`,
+    );
+  }
+
+  return {
+    name,
+    definition,
+    value: knownValue(toSummary.value / fromSummary.value),
+    provenance: "observed",
+  };
 }
