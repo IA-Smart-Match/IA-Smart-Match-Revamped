@@ -26,6 +26,7 @@ name the fabrications these pages must never regain, and O4 added more of them.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +36,7 @@ DASHBOARD_PAGE = FRONTEND_SRC / "app" / "pages" / "Dashboard.tsx"
 METRICS_LIB = FRONTEND_SRC / "lib" / "metrics.ts"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 DRILLDOWN_SHEET = FRONTEND_SRC / "app" / "components" / "provenance" / "MetricDrilldownSheet.tsx"
+PIPELINE_PAGE = FRONTEND_SRC / "app" / "pages" / "Pipeline.tsx"
 
 OPPORTUNITIES_FORBIDDEN_PATTERNS = (
     "fetchCrawlerResults",
@@ -79,9 +81,44 @@ ZERO_COERCION_PATTERNS = (
     "total_generated ?? 0",
 )
 
+# Conversion rates need their own registered definitions and server-owned
+# queries. Dividing registered counts in the browser is still client-owned
+# metric logic and must not return as a helper or a visible tile.
+CLIENT_SIDE_PIPELINE_CONVERSION_PATTERNS = (
+    "stageConversionMetric",
+    "STAGE_TRANSITIONS",
+    "Stage-to-Stage Conversion Rates",
+    "toSummary.value / fromSummary.value",
+)
+
+# Generic member-value division catches renamed helpers such as
+# `pipelineRate = downstream.value / upstream.value`. Server-returned rates may
+# be formatted in the browser, but two metric values may not be divided there.
+CLIENT_SIDE_VALUE_DIVISION = re.compile(
+    r"\b[A-Za-z_$][\w$]*\.value\s*/\s*[A-Za-z_$][\w$]*\.value\b"
+)
+PIPELINE_METRIC_CONTEXT = (
+    "PIPELINE_FUNNEL_METRIC_NAMES",
+    "PipelineFunnelMetricName",
+    "pipeline_matched",
+    "pipeline_contacted",
+    "pipeline_confirmed",
+    "pipeline_attended",
+    "pipeline_member_inquiry",
+)
+
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _frontend_value_divisions(sources: dict[str, str]) -> list[str]:
+    return [
+        f"{name}: {match.group(0)}"
+        for name, source in sources.items()
+        if any(marker in source for marker in PIPELINE_METRIC_CONTEXT)
+        for match in CLIENT_SIDE_VALUE_DIVISION.finditer(source)
+    ]
 
 
 def test_opportunities_page_does_not_fabricate_legacy_merge() -> None:
@@ -152,6 +189,53 @@ def test_metrics_lib_binds_opportunities_to_the_register() -> None:
     assert "return unknownValue(" in source
     for pattern in ZERO_COERCION_PATTERNS:
         assert pattern not in source, f"metrics.ts coerces an unmeasured value to zero: {pattern!r}"
+
+
+def test_pipeline_does_not_compute_unregistered_conversion_metrics_in_browser() -> None:
+    metrics = _read(METRICS_LIB)
+    pipeline = _read(PIPELINE_PAGE)
+
+    for pattern in CLIENT_SIDE_PIPELINE_CONVERSION_PATTERNS:
+        assert pattern not in metrics, (
+            f"metrics.ts contains client-owned pipeline conversion logic: {pattern!r}"
+        )
+        assert pattern not in pipeline, (
+            f"Pipeline page renders an unregistered conversion metric: {pattern!r}"
+        )
+
+    # The five registered funnel metrics and their drill-down surface remain.
+    assert "PIPELINE_FUNNEL_METRIC_NAMES" in metrics
+    assert "PipelineFunnelTiles" in pipeline
+
+    frontend_sources = {
+        str(path.relative_to(FRONTEND_SRC)): _read(path)
+        for extension in ("*.ts", "*.tsx")
+        for path in FRONTEND_SRC.rglob(extension)
+    }
+    assert _frontend_value_divisions(frontend_sources) == [], (
+        "frontend computes a browser-owned metric rate by dividing two .value operands: "
+        f"{_frontend_value_divisions(frontend_sources)}"
+    )
+
+
+def test_pipeline_conversion_guard_catches_generically_named_helper() -> None:
+    """Mutation check: renaming the old helper and operands cannot evade the guard."""
+    mutated_source = {
+        "lib/renamedMetrics.ts": (
+            "const stages = PIPELINE_FUNNEL_METRIC_NAMES;\n"
+            "const pipelineRate = downstream.value / upstream.value;"
+        )
+    }
+
+    assert _frontend_value_divisions(mutated_source) == [
+        "lib/renamedMetrics.ts: downstream.value / upstream.value"
+    ]
+
+
+def test_pipeline_conversion_guard_ignores_unrelated_value_division() -> None:
+    unrelated_source = {"components/ImageSizer.tsx": "const scale = image.value / container.value;"}
+
+    assert _frontend_value_divisions(unrelated_source) == []
 
 
 def test_dashboard_reads_registered_opportunities_without_fabricating() -> None:

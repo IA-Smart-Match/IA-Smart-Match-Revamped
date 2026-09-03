@@ -467,36 +467,14 @@ point_ledger_entry = sa.Table(
     # Nullable, no foreign key: mirrors job.actor_id. Automatic derivation
     # from attendance — the ordinary case — has no human actor to name.
     sa.Column("actor_id", _UUID, nullable=True),
-    # The entry this one compensates for — ADR-0013's "names what it reverses"
-    # (migration 0014). NULL on an ordinary earning entry, set on a
-    # compensating one, with no server default in either direction: which of
-    # the two it is defines what kind of entry the row is, so there is no value
-    # that could be defaulted without misstating the row. Naming only the
-    # shared source_attendance_id was ambiguous once two entries derived from
-    # one attendance — see 0014's docstring.
-    sa.Column("reverses_entry_id", _UUID, nullable=True),
     sa.Column("occurred_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="point_ledger_entry_pkey"),
-    # What this table's own reversal foreign key below references. Added by
-    # 0014 rather than 0009 because nothing referenced it until 0014 did —
-    # 0009's stated rule for not adding a constraint on spec.
-    sa.UniqueConstraint("tenant_id", "id", name="uq_point_ledger_entry_tenant_id"),
     # RESTRICT: the attendance record an entry derives from must not
     # disappear out from under the entry that cites it as its source.
     sa.ForeignKeyConstraint(
         ["tenant_id", "source_attendance_id"],
         ["attendance_record.tenant_id", "attendance_record.id"],
         ondelete="RESTRICT",
-    ),
-    # Composite and self-referencing: a reversal must not be able to name an
-    # entry in another tenant, the same argument reward_item.budget_owner_id's
-    # composite key makes. RESTRICT: a reversal must not outlive the entry it
-    # explains.
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "reverses_entry_id"],
-        ["point_ledger_entry.tenant_id", "point_ledger_entry.id"],
-        ondelete="RESTRICT",
-        name="fk_point_ledger_entry_reverses_entry",
     ),
     sa.CheckConstraint("amount <> 0", name="ck_point_ledger_entry_amount_nonzero"),
 )

@@ -4,8 +4,16 @@ Revision ID: 0014_ledger_reversal_target
 Revises: 0013_review_decision
 Create Date: 2026-09-03
 
-ADR-0013, backlog S7. Closes a defect in the reversal path added alongside
-``smartmatch_persistence.rewards`` (task 8, this batch), found in review.
+Historical prototype note
+-------------------------
+This migration and the rewards repository were prototyped in commit
+``c075817``. The repository and its domain helpers were removed by the
+subsequent Batch B realignment because their authorization gates were still
+closed; see
+``docs/superpowers/specs/2026-09-03-batch-b-gate-realignment-design.md``.
+Migration 0014's identity and DDL remain unchanged for developer databases that
+may already report it applied; corrective migration 0015 removes the prototype
+schema additions again.
 
 The defect
 ----------
@@ -13,9 +21,9 @@ ADR-0013 §"A reversal is a compensating entry, never a delete" says the
 correction is "an offsetting ledger entry that **names what it reverses**"
 (``docs/architecture/decisions/ADR-0013-attendance-derived-engagement.md``:69,
 restated at ``docs/architecture/engagement-model.md``:99). Migration ``0009``
-gave ``point_ledger_entry`` no column capable of doing that, and the repository
-written against it carried the original's ``source_attendance_id`` forward as
-the only link between the pair.
+gave ``point_ledger_entry`` no column capable of doing that. The historical
+prototype repository in ``c075817`` carried the original's
+``source_attendance_id`` forward as the only link between the pair.
 
 That is ambiguous exactly when it matters. Nothing constrains
 ``point_ledger_entry`` to one row per ``attendance_record`` — there is no unique
@@ -36,16 +44,16 @@ therefore not merely permitted to be null; **which of the two it is *defines*
 what kind of entry the row is**, which is why it takes no server default in
 either direction. There is no safe value to default to: a default of ``NULL``
 would silently turn a miswritten reversal into an unexplained debit, and there
-is obviously no non-null value to invent. ``smartmatch_domain.rewards``'s
-``assert_reversal_target`` refuses both mistakes before a statement is issued —
-a reversal with no target, and a non-reversal that names one.
+is obviously no non-null value to invent. The historical prototype's
+``assert_reversal_target`` helper refused both mistakes before a statement was
+issued — a reversal with no target, and a non-reversal that names one. That
+helper is not present after the subsequent Batch B realignment.
 
 This is additive and **not backfilled**. Every ``point_ledger_entry`` row
 existing before this migration gets ``NULL``, which is the correct and honest
-value: those rows are earning entries, and no reversal has ever been written by
-any code path in this repository (the repository that would write one has no
-production caller — ``smartmatch_persistence/rewards.py``'s docstring). Guessing
-a target for a historical row would be the fabricated-evidence defect ADR-0011
+value: those rows are earning entries, and the historical prototype repository
+in ``c075817`` had no production caller and was never deployed. Guessing a
+target for a historical row would be the fabricated-evidence defect ADR-0011
 exists to refuse, and there would be nothing to guess from in any case.
 
 Why ``uq_point_ledger_entry_tenant_id`` arrives here

@@ -45,13 +45,13 @@ prevent. They stay blank until the provisioner commits them.
 
 | Field | Value |
 |---|---|
-| Issuer URL (`iss`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** Consumed as `SMARTMATCH_JWKS_ISSUER`; no default exists in the tree. |
-| Audience (`aud`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** Consumed as `SMARTMATCH_JWKS_AUDIENCE`; no default exists in the tree. |
-| JWKS retrieval approach (discovery document URL, or static JWKS URI) | **OUTSTANDING — EXTERNAL DEPENDENCY.** Consumed as `SMARTMATCH_JWKS_URI`; no default exists in the tree, and no fetching implementation ships (see Part 4). |
-| JWKS cache TTL / refresh trigger | **OUTSTANDING — EXTERNAL DEPENDENCY.** Deliberately not defaulted: caching lives behind the `JwksSource` port, which has no fetching implementation until this value is recorded. |
-| Signing algorithms accepted (e.g. RS256) | **OUTSTANDING — EXTERNAL DEPENDENCY** for the tenant's actual answer. The verifier's shipped default is the single algorithm `RS256`, overridable by `SMARTMATCH_JWKS_ALGORITHMS`; unsigned (`none`) and symmetric (`HS*`) algorithms are refused unconditionally and cannot be configured back on. |
-| Key-rotation policy (cadence, overlap window, rollover procedure) | **OUTSTANDING — EXTERNAL DEPENDENCY.** The verifier's behaviour on an unknown `kid` is fixed regardless: reject. Making the next attempt succeed is a refreshing `JwksSource`'s job, which this policy defines. |
-| Clock-skew tolerance | **OUTSTANDING — EXTERNAL DEPENDENCY** for the tenant's actual answer. The verifier's shipped default is 60 seconds, overridable by `SMARTMATCH_JWKS_LEEWAY_SECONDS`. |
+| Issuer URL (`iss`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Audience (`aud`) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| JWKS retrieval approach (discovery document URL, or static JWKS URI) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it, and no JWKS implementation is committed. |
+| JWKS cache TTL / refresh trigger | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Signing algorithms accepted (e.g. RS256) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states the tenant's accepted algorithms. |
+| Key-rotation policy (cadence, overlap window, rollover procedure) | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
+| Clock-skew tolerance | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository states it. |
 
 ### 1.3 Client flow (card A2 needs these; issuer/audience/JWKS alone is NOT enough)
 
@@ -172,51 +172,10 @@ The 16 files in §2.2. Card A3's test (`iaw_session`, `stu-001`, `coord-001`,
 
 ---
 
-## Part 4 — What card A1 landed while Part 1 is outstanding (2026-09-03)
+## Part 4 — Card A1 remains blocked (2026-09-03)
 
-Card A1's verifier is in the tree, switched off. It exists now so that the day
-Part 1 is filled in, the remaining work is configuration and a signature
-backend — not design, and not code written under time pressure against a live
-tenant.
-
-**Module.** `python/smartmatch_providers/smartmatch_providers/identity_jwks.py`,
-tested by `tests/unit/test_identity_jwks_verifier.py` (68 cases, all offline).
-
-**Feature flag.** `SMARTMATCH_JWKS_VERIFIER_ENABLED`, default **off** — unset,
-blank, `false`, `0`, `no`, `off`, and any unrecognised value all mean off, so a
-typo cannot switch live verification on. With the flag off,
-`build_jwks_token_verifier(fallback)` returns the verifier it was handed,
-unchanged and unwrapped; the fixture path that `tests/contract/test_me.py`
-exercises is byte-identical.
-
-**Configuration**, read from the environment and validated when the flag is on:
-`SMARTMATCH_JWKS_ISSUER`, `SMARTMATCH_JWKS_AUDIENCE`, `SMARTMATCH_JWKS_URI`
-(all three required, no defaults), plus optional `SMARTMATCH_JWKS_ALGORITHMS`
-and `SMARTMATCH_JWKS_LEEWAY_SECONDS`. Flag on with any required value missing
-raises `ProviderConfigurationError` naming every absent variable at once, and
-**never** falls back to the fixture: a deployment that believes it checks
-signatures and does not is the outcome worth failing a boot to avoid.
-
-**What it verifies**, in this order: the token is a well-formed, size-bounded
-three-part JWS; the header's algorithm is not `none`/`HS*`/`dir` (banned
-unconditionally, before any backend is consulted), is configured here, and is
-supported by the backend; the `kid` resolves to a published key whose own `alg`
-agrees with the header; the **signature** verifies — before any claim is read;
-then `iss` equals the configured issuer, `aud` matches (string or array), `exp`
-is present and not past beyond the leeway, `nbf`/`iat` are not in the future,
-and `sub` is a non-blank string. It returns only `VerifiedIdentity(subject,
-email)`, and the email only when the issuer set `email_verified`. Any tenant,
-role, or membership claim in the token is ignored — that is MM-A01 in a JWT.
-
-**What it deliberately does not do.** It does not fetch: `JwksSource` is a
-port, and the only implementation shipped is `StaticJwksSource`, so caching,
-TTL, and refresh-on-unknown-`kid` wait on §1.2's blank cells. It ships **no
-signature backend** — `requirements/runtime.txt` still carries no asymmetric
-primitive (the same S-001/CP-A1B gap the worker records), and with the flag on
-and no backend supplied, construction refuses. It runs no browser flow: card
-A2's authorization-code/PKCE work is untouched and stays blocked on §1.3. And
-it is **not wired in** — the provider registry, API settings, and app bootstrap
-are another track's files this session, so selecting it at startup is a
-follow-up change of a few lines in
-`python/smartmatch_providers/smartmatch_providers/registry.py`,
-`services/api/smartmatch_api/config.py`, and the app's lifespan.
+No institutional JWKS verifier implementation is committed. The runtime still
+uses the existing fixture verifier and accepts only registered fixture tokens.
+Card A1 remains blocked until Part 1 records and a named owner approves the
+issuer, audience, JWKS retrieval and rotation policy, accepted algorithms,
+clock-skew tolerance, client-flow contract, and configuration ownership.

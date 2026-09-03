@@ -75,14 +75,14 @@ The no-database run also did not complete in that environment because
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
 | Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
 | Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery. The only thing that accepts a task today is the dev-only fixed-token verifier, which will not boot outside `SMARTMATCH_EDITION=dev` | R1 (before worker deploy) |
-| Live identity verifier for user requests (JWKS) | Fixture only; accepts registered tokens only | R1 |
+| Live identity verifier for user requests (JWKS) | **Fixture verifier only; no JWKS verifier implementation is committed.** Accepts registered fixture tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
 | Research agents / crawler | Not scaffolded | Gate G3, R3 |
 | Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
 | `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
 | Terraform | Skeleton only; **nothing deployed** | Later |
-| Student engagement — attendance, points ledger, rewards, disclosure consent | **Designed, not built** — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
+| Student engagement — attendance, points ledger, rewards, disclosure consent | **Base schema and design only.** No catalog repository, earning service, ledger fold, or rewards routes are committed — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
 | Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Schema and read path only.** `pipeline_record` exists (migration `0011`) and the five ADR-0011 metrics read it through `pipeline_funnel_rows_v1`; **no application code writes `pipeline_record` yet**, so every stage measures a real zero | A `pipeline_record` write path — until one exists the funnel is structurally zero |
 | Local `docker compose` appliance — db, migrate, seed, api, worker, scheduler sidecar | **Dev-only, local compose only.** The seed, the loopback task queue, the fixed bearer tokens, and `smartmatch_worker.local_scheduler` each refuse to start unless `SMARTMATCH_EDITION=dev`; they *emulate* Cloud Scheduler and Cloud Tasks and deploy nothing | Cloud Scheduler + OIDC provisioning, an IdP, and Terraform (F5) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |

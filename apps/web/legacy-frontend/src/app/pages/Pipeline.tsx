@@ -14,9 +14,6 @@
  * through `AccountableValue` so a missing measurement renders as unknown rather
  * than as zero.
  *
- * Stage-to-stage conversion is computed from two registered aggregates and
- * renders as unknown whenever either operand is unknown or the denominator is a
- * measured zero. Unknown is never coerced to 0 or to 0.0%.
  */
 import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
@@ -45,10 +42,6 @@ import { Button } from "@/app/components/ui/button";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import {
   accountableDemoMetric,
-  PIPELINE_FUNNEL_METRIC_NAMES,
-  PIPELINE_FUNNEL_STAGE_LABELS,
-  stageConversionMetric,
-  type PipelineFunnelMetricName,
 } from "@/lib/metrics";
 
 /**
@@ -95,14 +88,6 @@ function FailureState({
   );
 }
 
-/** Adjacent registered stages, in funnel order. */
-const STAGE_TRANSITIONS: ReadonlyArray<
-  readonly [PipelineFunnelMetricName, PipelineFunnelMetricName]
-> = PIPELINE_FUNNEL_METRIC_NAMES.slice(0, -1).map((from, index) => [
-  from,
-  PIPELINE_FUNNEL_METRIC_NAMES[index + 1],
-]);
-
 function formatFactorName(value: string): string {
   return value
     .split("_")
@@ -134,7 +119,6 @@ export function Pipeline() {
     status: metricsStatus,
     loadError,
     metricsUnavailableReason,
-    metricsByName,
   } = useUnitMetrics(reloadToken);
 
   const unavailableReason =
@@ -345,45 +329,6 @@ export function Pipeline() {
       ) : null}
 
       <PipelineFunnelTiles reloadToken={reloadToken} />
-
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-gray-900">Stage-to-Stage Conversion Rates</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Each rate divides one registered aggregate by the registered aggregate of the stage before
-          it. When a stage is unknown, or nothing has reached the upstream stage, the rate is
-          unknown rather than 0%.
-        </p>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {STAGE_TRANSITIONS.map(([from, to]) => {
-            const metric = stageConversionMetric(from, to, metricsByName, unavailableReason);
-
-            return (
-              <div
-                key={`${from}-${to}`}
-                className="rounded-xl border border-blue-200 bg-blue-50 p-6"
-              >
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-700">
-                    {PIPELINE_FUNNEL_STAGE_LABELS[from]}
-                  </p>
-                  <TrendingUp className="h-5 w-5 shrink-0 text-blue-600" />
-                  <p className="text-sm font-medium text-gray-700">
-                    {PIPELINE_FUNNEL_STAGE_LABELS[to]}
-                  </p>
-                </div>
-                <p className="text-center text-2xl font-bold text-blue-600">
-                  <AccountableValue
-                    metric={metric}
-                    formatNumber={(value) => `${(value * 100).toFixed(1)}%`}
-                  />
-                </p>
-                <p className="mt-1 text-center text-xs text-gray-600">conversion rate</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
       {loading ? (
         <div className="h-80 animate-pulse rounded-xl border border-gray-200 bg-white shadow-sm" />

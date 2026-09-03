@@ -541,16 +541,6 @@ def test_the_ledger_carries_no_column_an_application_could_legitimately_update(
     these would silently retract it, so the column set is asserted exactly
     rather than checked for the absences alone.
 
-    ``reverses_entry_id`` (migration ``0014``) joined the list and does not
-    weaken the claim. It is written once, at insert, by the statement that
-    creates a compensating entry, and there is no honest reason to ``UPDATE``
-    it afterwards: which entry a correction reverses is a fact about the moment
-    the correction was made, not a status that later moves. It is the opposite
-    of the columns named above — it exists so a *new row* can say what it is
-    doing, which is the append-only mechanism working rather than an exception
-    to it. See ``0014_ledger_reversal_target.py``'s docstring for why naming the
-    shared ``source_attendance_id`` alone was not enough to satisfy ADR-0013's
-    "an offsetting ledger entry that names what it reverses".
     """
     with engine.begin() as conn:
         columns = {
@@ -567,7 +557,6 @@ def test_the_ledger_carries_no_column_an_application_could_legitimately_update(
         "id",
         "tenant_id",
         "amount",
-        "reverses_entry_id",
         "source_attendance_id",
         "reason",
         "actor_id",

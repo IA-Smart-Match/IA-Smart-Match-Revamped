@@ -36,6 +36,17 @@ This correction does not add a reward route, catalog seed, earn policy,
 redemption path, or database append-only trigger. The prototype can later be
 recovered from `c075817` and revised against the ratified D7 and role decisions.
 
+This removal is a narrow rolling-deploy exception to ADR-0009. The repository's
+deployment boundary in `CONTRIBUTING.md` states that nothing here is deployed,
+so no deployed release or older running process ever included either the
+`c075817` rewards repository or migration `0014`; no runtime can depend on
+`reverses_entry_id`. Revision `0015` exists only to preserve continuity for
+local developer databases that may already report `0014` applied. If `0014`
+had reached a deployed environment, removing its contract would require a
+later release after all older processes had stopped depending on it. This
+exception clarifies only the approved `0015` correction and is not a general
+waiver of ADR-0009's expand/contract rule.
+
 ### Institutional JWKS
 
 Remove the verifier module and its focused tests. Keep the A0 worksheet and its
