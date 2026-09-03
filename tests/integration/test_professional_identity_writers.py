@@ -14,16 +14,24 @@ Requires a live database, and is skipped when none is reachable.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from types import ModuleType
 
 import pytest
 
 pytest.importorskip("sqlalchemy")
 
 from conftest import JOB_OWNING_UNIT_PATH, ensure_owning_unit, unique_subject
+from smartmatch_domain.synthetic_pilot import (
+    SYNTHETIC_BOARD_ROLE,
+    synthetic_professional_email,
+    synthetic_professional_external_subject,
+    synthetic_professional_subject_id,
+)
 from smartmatch_persistence import professionals as professionals_module
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.pipeline import (
@@ -36,6 +44,39 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
+
+#: Score-shaped identifier fragments — see
+#: :func:`_fabricated_score_identifiers`'s own docstring for why these are
+#: checked against identifiers only, never against prose.
+_FABRICATED_SCORE_TOKENS = ("score", "confidence", "match_score", "rank", "weight")
+
+
+def _fabricated_score_identifiers(module: ModuleType) -> list[str]:
+    """Score-shaped names used as assignment targets, parameters, or keyword/column names.
+
+    Walks the module's AST rather than grepping its raw source text, so a
+    docstring or comment stating that the module computes no score of any
+    kind cannot fail this check for containing the word. Only identifiers —
+    variables, attributes, function parameters, keyword/column arguments to
+    a call, and function names — are inspected.
+    """
+    tree = ast.parse(inspect.getsource(module))
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        name: str | None
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            name = node.id
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            name = node.attr
+        elif isinstance(node, ast.arg | ast.keyword):
+            name = node.arg
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            name = node.name
+        else:
+            name = None
+        if name is not None and any(token in name.lower() for token in _FABRICATED_SCORE_TOKENS):
+            offenders.append(name)
+    return offenders
 
 
 @pytest.fixture(autouse=True)
@@ -174,7 +215,7 @@ def test_link_to_unit_creates_once_and_is_idempotent(
             tenant_id=tenant_id,
             professional_id=professional_id,
             unit_id=unit_id,
-            board_role="synthetic_pilot_participant",
+            board_role=SYNTHETIC_BOARD_ROLE,
         )
         session.commit()
 
@@ -184,7 +225,7 @@ def test_link_to_unit_creates_once_and_is_idempotent(
             tenant_id=tenant_id,
             professional_id=professional_id,
             unit_id=unit_id,
-            board_role="synthetic_pilot_participant",
+            board_role=SYNTHETIC_BOARD_ROLE,
         )
         session.commit()
 
@@ -201,7 +242,7 @@ def test_link_to_unit_creates_once_and_is_idempotent(
         ).all()
 
     assert len(rows) == 1
-    assert rows[0].board_role == "synthetic_pilot_participant"
+    assert rows[0].board_role == SYNTHETIC_BOARD_ROLE
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +271,7 @@ def test_professional_ids_for_unit_returns_linked_ids_ascending_and_honours_limi
                 tenant_id=tenant_id,
                 professional_id=professional_id,
                 unit_id=unit_id,
-                board_role="synthetic_pilot_participant",
+                board_role=SYNTHETIC_BOARD_ROLE,
             )
         session.commit()
 
@@ -266,7 +307,7 @@ def test_professional_ids_for_unit_returns_empty_for_a_unit_with_no_links(
             tenant_id=tenant_id,
             professional_id=professional_id,
             unit_id=linked_unit_id,
-            board_role="synthetic_pilot_participant",
+            board_role=SYNTHETIC_BOARD_ROLE,
         )
         session.commit()
 
@@ -287,6 +328,143 @@ def test_professional_ids_for_unit_refuses_a_non_positive_limit(
         pytest.raises(ValueError, match="limit must be at least 1"),
     ):
         repo.professional_ids_for_unit(session, tenant_id=tenant_id, unit_id=uuid.uuid4(), limit=0)
+
+
+# ---------------------------------------------------------------------------
+# Derived values — Card 2's derivation exercised against this writer, live
+# ---------------------------------------------------------------------------
+#
+# Every test above mints its own ad hoc external_subject/email pair via
+# _account_kwargs, never the real derivation a production caller would use.
+# The two tests below close that gap: they call
+# smartmatch_domain.synthetic_pilot's actual derivation functions and assert
+# on the persistence-layer consequences ensure_account's own docstring
+# claims for each direction of the "external_subject derived from
+# subject_id" argument.
+
+
+def test_ensure_account_with_derived_values_does_not_collide_across_tenants(
+    tenant_id: uuid.UUID,
+    engine: Engine,
+    repo: ProfessionalIdentityRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """The safe direction: two tenants, one name, real derived values, no collision.
+
+    ``synthetic_professional_subject_id`` folds ``tenant_id`` into its hash
+    input precisely so that two tenants' same-named professionals derive
+    different subject ids — and therefore, because ``external_subject`` is
+    derived *from* ``subject_id``, different external subjects. This is what
+    keeps ``uq_user_account_external_subject`` (globally unique, not
+    per-tenant) from firing here. Proven against a live database, not just
+    asserted at the derivation layer (``test_synthetic_pilot_identity.py``
+    already covers that the *ids* differ; this covers that the *persisted
+    rows* do not collide).
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+
+    other_tenant = uuid.uuid4()
+    slug = f"test-professionals-derived-{other_tenant.hex[:8]}"
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenant (id, slug, display_name) VALUES (:id, :slug, :name)"),
+            {"id": other_tenant, "slug": slug, "name": slug},
+        )
+        other_unit_id = _make_unit(conn, other_tenant, JOB_OWNING_UNIT_PATH)
+
+    name = "Ada Lovelace"
+    subject_id_a = synthetic_professional_subject_id(
+        tenant_id=tenant_id, unit_id=unit_id, name=name
+    )
+    subject_id_b = synthetic_professional_subject_id(
+        tenant_id=other_tenant, unit_id=other_unit_id, name=name
+    )
+    assert subject_id_a != subject_id_b, "the derivation itself must separate tenants"
+
+    try:
+        with db_session_factory() as session:
+            created_a = repo.ensure_account(
+                session,
+                tenant_id=tenant_id,
+                subject_id=subject_id_a,
+                external_subject=synthetic_professional_external_subject(subject_id_a),
+                email=synthetic_professional_email(subject_id_a),
+            )
+            created_b = repo.ensure_account(
+                session,
+                tenant_id=other_tenant,
+                subject_id=subject_id_b,
+                external_subject=synthetic_professional_external_subject(subject_id_b),
+                email=synthetic_professional_email(subject_id_b),
+            )
+            session.commit()
+    finally:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM user_account WHERE tenant_id = :tid"), {"tid": other_tenant}
+            )
+            conn.execute(text("DELETE FROM org_unit WHERE tenant_id = :tid"), {"tid": other_tenant})
+            conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": other_tenant})
+
+    assert created_a is True
+    assert created_b is True
+
+
+def test_ensure_account_keeps_first_external_subject_on_repeat(
+    tenant_id: uuid.UUID,
+    engine: Engine,
+    repo: ProfessionalIdentityRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """The unsafe direction ``ensure_account``'s own docstring now names.
+
+    A repeated call for the same ``subject_id`` conflicts on
+    ``user_account_pkey`` before ``uq_user_account_external_subject`` is
+    ever consulted, so a *different* ``external_subject`` on the second call
+    is silently discarded: the method returns ``False``, and the row keeps
+    the first call's value. This is intentional first-write-wins behaviour —
+    the same idiom ``PipelineRepository.record_matched`` documents for
+    ``matched_provenance`` under idempotency — proven here rather than left
+    as an unchecked assumption in the module's docstring.
+    """
+    first_kwargs = _account_kwargs("divergence-first")
+    subject_id = first_kwargs["subject_id"]
+    assert isinstance(subject_id, uuid.UUID)
+
+    with db_session_factory() as session:
+        first = repo.ensure_account(session, tenant_id=tenant_id, **first_kwargs)
+        session.commit()
+
+    different_external_subject = unique_subject(
+        f"synthetic-professional-divergence-second-{subject_id.hex[:8]}"
+    )
+    different_email = f"different-{subject_id}@synthetic.invalid"
+
+    with db_session_factory() as session:
+        second = repo.ensure_account(
+            session,
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            external_subject=different_external_subject,
+            email=different_email,
+        )
+        session.commit()
+
+    assert first is True
+    assert second is False
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT external_subject, email FROM user_account WHERE id = :id"),
+            {"id": subject_id},
+        ).one()
+
+    assert row.external_subject == first_kwargs["external_subject"], (
+        "the second call's differing external_subject must not overwrite the first"
+    )
+    assert row.email == first_kwargs["email"]
+    assert row.external_subject != different_external_subject
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +555,7 @@ def test_professional_ids_for_unit_does_not_reach_a_foreign_tenants_unit(
                 tenant_id=foreign_tenant,
                 professional_id=foreign_kwargs["subject_id"],
                 unit_id=foreign_unit_id,
-                board_role="synthetic_pilot_participant",
+                board_role=SYNTHETIC_BOARD_ROLE,
             )
             session.commit()
 
@@ -407,8 +585,6 @@ def test_professional_ids_for_unit_does_not_reach_a_foreign_tenants_unit(
 # ---------------------------------------------------------------------------
 
 
-def test_module_contains_no_fabricated_score_vocabulary() -> None:
-    source = inspect.getsource(professionals_module).lower()
-
-    for forbidden in ("score", "confidence", "match_score", "rank", "weight"):
-        assert forbidden not in source, f"forbidden token {forbidden!r} found in professionals.py"
+def test_module_stores_no_fabricated_score_identifier() -> None:
+    offenders = _fabricated_score_identifiers(professionals_module)
+    assert not offenders, f"score-shaped identifier(s) found in professionals.py: {offenders}"

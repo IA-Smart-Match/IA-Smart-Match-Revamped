@@ -64,19 +64,41 @@ class ProfessionalIdentityRepository:
         """Create ``user_account`` for ``subject_id`` if it does not already exist.
 
         ``ON CONFLICT`` targets ``user_account_pkey`` — the row's own id —
-        and deliberately not ``uq_user_account_external_subject``. This is
-        safe only because ``external_subject`` is *derived from*
-        ``subject_id`` (see
-        ``smartmatch_domain.synthetic_pilot.synthetic_professional_external_subject``):
-        the two constraints can never disagree about which row a given
-        ``subject_id`` names, so conflicting on the primary key alone is
-        sufficient to make a repeated call a no-op. If a caller ever passes
-        an ``external_subject`` that is *not* derived from ``subject_id``,
-        ``uq_user_account_external_subject`` raises ``IntegrityError``
-        rather than being silently absorbed by this method's
-        ``ON CONFLICT`` — and that is correct: two different subjects
-        claiming the same external identity is a real conflict, not one
-        this method should swallow.
+        and deliberately not ``uq_user_account_external_subject``. This
+        choice is safe in exactly one direction, and this docstring states
+        both, having previously stated only the safe one.
+
+        **Safe direction: a colliding ``external_subject`` under a
+        *different* ``subject_id``.** Because every legitimate caller derives
+        ``external_subject`` *from* ``subject_id``
+        (``smartmatch_domain.synthetic_pilot.synthetic_professional_external_subject``),
+        two different subjects can only collide on ``external_subject`` if a
+        caller passed one that is not so derived. That case is **not**
+        absorbed by this method's ``ON CONFLICT`` — the pkey conflict target
+        does not cover ``external_subject`` at all — so
+        ``uq_user_account_external_subject`` still fires and raises
+        ``IntegrityError``. Correct: two different subjects claiming the same
+        external identity is a real conflict, not one this method should
+        swallow.
+
+        **Unsafe direction: the same ``subject_id`` called again with a
+        *different* ``external_subject``.** This hits the ``user_account_pkey``
+        conflict *first* — the row already exists — so the insert is a no-op,
+        this method returns ``False``, and the row keeps whichever
+        ``external_subject`` its first-ever insert wrote. No exception is
+        raised and no signal distinguishes this from an identical repeat
+        call; the caller's *new* ``external_subject`` is silently discarded.
+        This mirrors ``PipelineRepository.record_matched``'s own documented
+        "first call wins, not overwritten" treatment of
+        ``matched_provenance`` under idempotency, and is intentional for the
+        same reason: an ``ON CONFLICT DO NOTHING`` writer never overwrites,
+        by construction. It is *not* safe to rely on unless every caller
+        keeps the derivation discipline above — a caller that ever computes
+        ``external_subject`` some other way, or recomputes it after a
+        derivation rule changes, gets this silent divergence instead of an
+        error. See
+        ``tests/integration/test_professional_identity_writers.py::test_ensure_account_keeps_first_external_subject_on_repeat``
+        for this behaviour proven against a live database.
 
         Writes only ``id``, ``tenant_id``, ``external_subject``, and
         ``email``. ``suspended``, ``created_at``, and ``version`` all carry
