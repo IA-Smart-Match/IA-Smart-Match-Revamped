@@ -163,13 +163,30 @@ def score_candidate(
             approved. Raised before any evidence is read.
         RegistryNotReadyError: if the implemented scoring set is not exactly
             the approved scoring set. Raised before any evidence is read.
-        ValueError: if a supplied weight override is negative, or if
-            ``evidence.subject_id`` is empty or blank.
+        ValueError: if a supplied weight override is negative, if the
+            resulting applied weights do not sum to 1.0 (an all-zero or
+            otherwise degenerate override), or if ``evidence.subject_id`` is
+            empty or blank.
     """
     assert_registry_approved()
     assert_scoring_ready()
 
     applied_weights = normalize_weights(weight_overrides)
+    # assert_scoring_ready() only validates the *default* normalize_weights()
+    # call — it has no way to see caller-supplied weight_overrides. A
+    # degenerate override (e.g. every implemented factor zeroed) makes
+    # normalize_weights() fall back to all-zero weights rather than raising,
+    # which would otherwise let a well-evidenced candidate silently compose
+    # to a fabricated 0.0 that is indistinguishable from a genuine measured
+    # zero. Re-checking the sum-to-one invariant here, on the weights this
+    # call actually applies, closes that path.
+    applied_total = sum(applied_weights.values())
+    if abs(applied_total - 1.0) > _BOUND_TOLERANCE:
+        raise ValueError(
+            f"applied weights sum to {applied_total!r}, not 1.0 "
+            f"(weight_overrides={weight_overrides!r}); refusing to compose a "
+            "score from weights that do not sum to one"
+        )
 
     scores_by_key: dict[str, FactorScore] = {
         "topic_relevance": score_topic_relevance(evidence.topic),

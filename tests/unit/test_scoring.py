@@ -91,6 +91,23 @@ def test_weights_are_normalized_on_apply_not_hardcoded():
     }
 
 
+def test_all_zero_weight_override_is_rejected_not_scored():
+    """A degenerate all-zero override must not silently compose to 0.0.
+
+    normalize_weights({"topic_relevance": 0.0, "travel_burden": 0.0}) returns
+    weights summing to 0.0, not 1.0 (see
+    test_normalize_weights_all_zero_returns_zeros_not_nan in
+    test_factor_registry.py). Feeding that override to score_candidate must
+    raise rather than produce a composite indistinguishable from a genuine
+    measured zero.
+    """
+    with pytest.raises(ValueError, match="sum to"):
+        score_candidate(
+            _evidence("SYNTH-PRO-ALL-ZERO"),
+            weight_overrides={"topic_relevance": 0.0, "travel_burden": 0.0},
+        )
+
+
 def test_perfect_candidate_scores_one():
     result = score_candidate(_evidence("SYNTH-PRO-PERFECT"))
     assert result.value == pytest.approx(1.0)
@@ -145,8 +162,11 @@ def test_composite_is_always_within_bounds(expertise_topics, destination):
     result = score_candidate(
         _evidence("SYNTH-PRO-BOUNDS", expertise_topics=expertise_topics, destination=destination)
     )
-    if result.value is not None:
-        assert 0.0 <= result.value <= 1.0
+    # Every parameter set here has known evidence, so the composite must be a
+    # known value; asserting that first stops this test passing vacuously if
+    # scoring ever regressed to all-unknown.
+    assert result.value is not None
+    assert 0.0 <= result.value <= 1.0
 
 
 def test_penalty_enters_as_its_complement():
@@ -223,3 +243,18 @@ def test_scoring_raises_when_an_approved_factor_is_unimplemented(monkeypatch):
     )
     with pytest.raises(RegistryNotReadyError):
         score_candidate(_evidence("SYNTH-PRO-NOT-READY"))
+
+
+def test_scoring_raises_when_an_extra_factor_is_implemented(monkeypatch):
+    """The reverse direction: a future card quietly wiring in a third factor.
+
+    assert_scoring_ready() must fail closed on implemented - APPROVED_SCORING_KEYS
+    just as it does on the reverse (APPROVED_SCORING_KEYS - implemented).
+    """
+    monkeypatch.setattr(
+        factor_registry,
+        "implemented_scoring_keys",
+        lambda: frozenset({"topic_relevance", "travel_burden", "role_fit"}),
+    )
+    with pytest.raises(RegistryNotReadyError):
+        score_candidate(_evidence("SYNTH-PRO-EXTRA-FACTOR"))

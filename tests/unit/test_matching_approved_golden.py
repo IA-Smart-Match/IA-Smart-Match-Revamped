@@ -12,14 +12,20 @@ agenda item 3.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
+from smartmatch_domain.factor_registry import factor_keys
 from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs
 from smartmatch_domain.factors.travel_burden import GeoPoint, TravelInputs
 from smartmatch_domain.match_depth import EngagementHistoryEvidence, derive_match_depth
 from smartmatch_domain.scoring import CandidateEvidence, rank_candidates, score_candidate
+
+#: Mirrors approved_case.schema.json's own `id` pattern — a hand-rolled check
+#: rather than a jsonschema dependency, matching test_matching_golden_case_schema.py.
+_CASE_ID_PATTERN = re.compile(r"G1-GC-[0-9]{3}")
 
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "golden" / "matching"
 APPROVED_DIR = GOLDEN_DIR / "approved"
@@ -71,9 +77,13 @@ def _candidate_from_inputs(
             preferred_topics=tuple(event_need.get("preferred_topics", ())),
         ),
         travel=TravelInputs(
-            origin=GeoPoint(origin["latitude"], origin["longitude"]) if origin else None,
+            origin=(
+                GeoPoint(origin["latitude"], origin["longitude"]) if origin is not None else None
+            ),
             destination=(
-                GeoPoint(destination["latitude"], destination["longitude"]) if destination else None
+                GeoPoint(destination["latitude"], destination["longitude"])
+                if destination is not None
+                else None
             ),
         ),
     )
@@ -102,7 +112,7 @@ def test_every_ratified_case_id_has_a_fixture():
 @pytest.mark.parametrize("path", _case_paths(), ids=lambda p: p.stem)
 def test_approved_cases_have_required_shape(path: Path):
     case = _load_case(path)
-    assert case["id"].startswith("G1-GC-")
+    assert _CASE_ID_PATTERN.fullmatch(case["id"])
     assert case["symptom_class"] in {"tie", "zero_or_unknown", "depth_zero"}
     assert case["description"]
     assert "inputs" in case
@@ -159,7 +169,17 @@ def test_tie_case_reproduces_the_ratified_tie_break():
 
     assert len(ranked) == 2
     assert ranked[0].value == pytest.approx(ranked[1].value)
+    assert ranked[0].value == pytest.approx(case["expected"]["stage_b_score"])
     assert [result.subject_id for result in ranked] == case["expected"]["ranking"]
+
+    expected_factor_scores = case["expected"]["factor_scores"]
+    scores_by_key = {
+        factor_score.factor_key: factor_score for factor_score in ranked[0].factor_scores
+    }
+    for key, expected_factor in expected_factor_scores.items():
+        actual = scores_by_key[key]
+        assert actual.value == pytest.approx(expected_factor["value"])
+        assert actual.zero_classification == expected_factor["zero_classification"]
 
 
 @pytest.mark.golden
@@ -178,6 +198,12 @@ def test_match_depth_cases_reproduce_expected_depth(case_id: str):
 
     assert depth.count == expected["count"]
     assert depth.zero_classification == expected["zero_classification"]
+
+    # match_depth is a derived display quantity, never a registry factor —
+    # assert both the fixture's own ratified expectation and the registry
+    # fact it records, so neither can silently go unread.
+    assert case["expected"]["match_depth_is_a_registry_factor"] is False
+    assert "match_depth" not in factor_keys()
 
 
 @pytest.mark.golden
