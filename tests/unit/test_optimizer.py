@@ -62,6 +62,9 @@ def test_selects_the_highest_utility_candidates():
         "SYNTH-PORT-C",
         "SYNTH-PORT-E",
     )
+    # Also pins the OPTIMAL branch of `_map_solve_status`: a real, unforced
+    # solve on a model this small always proves optimality, so this is the
+    # one status this suite can assert without monkeypatching `Solve`.
     assert result.status == PortfolioStatus.OPTIMAL
 
 
@@ -177,6 +180,33 @@ def test_ties_are_broken_lexicographically_by_subject_id():
     )
     result = solve_portfolio(request)
     assert result.selected_subject_ids == ("SYNTH-PORT-TIE-A", "SYNTH-PORT-TIE-B")
+
+
+def test_feasible_solve_status_is_reported_as_feasible_with_its_selection(monkeypatch):
+    # Solving to completion normally proves optimality on a model this small,
+    # so nothing forces the FEASIBLE branch of `_map_solve_status` without
+    # help. Let the real solve run (so the solver's internal state — and
+    # therefore Value()/ObjectiveValue() — is genuinely populated), then
+    # report FEASIBLE instead of the OPTIMAL CP-SAT actually found. This
+    # tests that a feasible-but-unproven status still returns its selection
+    # rather than discarding it — dropping a real solution would be a
+    # different defect from misreporting INFEASIBLE.
+    real_solve = cp_model.CpSolver.Solve
+
+    def solve_but_report_feasible(self, model):
+        real_solve(self, model)
+        return cp_model.FEASIBLE
+
+    monkeypatch.setattr(cp_model.CpSolver, "Solve", solve_but_report_feasible)
+    request = PortfolioRequest(
+        event_need_id="SYNTH-EVENT-STATUS-FEASIBLE",
+        candidates=_FIVE_CANDIDATES,
+        portfolio_size=3,
+    )
+    result = solve_portfolio(request)
+    assert result.status == PortfolioStatus.FEASIBLE
+    assert result.selected_subject_ids == ("SYNTH-PORT-B", "SYNTH-PORT-C", "SYNTH-PORT-E")
+    assert result.objective_value != 0
 
 
 def test_infeasible_solve_status_is_reported_as_infeasible(monkeypatch):
