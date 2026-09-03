@@ -22,12 +22,10 @@ function formatDuration(checkIn: string | null, checkOut: string | null): string
 }
 
 export function StudentHistory() {
-  // The portal subject is the server-assigned principal from
-  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
-  // this page renders only inside a session-gated layout, so a visitor
-  // without a verified token never reaches it.
+  // `/v1/me` verifies the account but does not provide a legacy student id;
+  // the API client rejects the empty value locally instead of guessing one.
   const principal = useAuthenticatedPrincipal();
-  const studentId = portalSubjectId(principal);
+  const studentId = portalSubjectId(principal, "student") ?? "";
 
   const [registrations, setRegistrations] = useState<StudentRegistration[]>([]);
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);

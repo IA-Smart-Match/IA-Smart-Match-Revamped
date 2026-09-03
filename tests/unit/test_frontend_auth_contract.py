@@ -98,6 +98,8 @@ PORTAL_PAGES = (
 #: token `/v1` requests are sent with. One module touches it, for that key and
 #: nothing else — no identity, no role, no tenant.
 BEARER_TOKEN_MODULE = "lib/api.ts"
+PRINCIPAL_HELPERS = WEB_SRC / "lib" / "principal.ts"
+API_CLIENT = WEB_SRC / "lib" / "api.ts"
 
 #: A real read/write, as opposed to a mention of the API in prose.
 STORAGE_ACCESS = re.compile(r"sessionStorage\.(?:get|set|remove)Item\(")
@@ -112,9 +114,14 @@ def _web_sources() -> list[Path]:
     )
 
 
+def _web_relative(path: Path) -> str:
+    """Return one stable path spelling on Windows and POSIX runners."""
+    return path.relative_to(WEB_SRC).as_posix()
+
+
 def test_the_archived_session_blob_is_read_and_written_nowhere() -> None:
     offenders = [
-        str(path.relative_to(WEB_SRC))
+        _web_relative(path)
         for path in _web_sources()
         if ARCHIVED_SESSION_KEY in path.read_text(encoding="utf-8")
     ]
@@ -140,10 +147,10 @@ def test_no_fallback_identity_literal_remains() -> None:
 def test_sessionstorage_is_only_used_for_the_bearer_token() -> None:
     """Storage may hold a credential. It may never hold an identity."""
     offenders = [
-        str(path.relative_to(WEB_SRC))
+        _web_relative(path)
         for path in _web_sources()
         if STORAGE_ACCESS.search(path.read_text(encoding="utf-8"))
-        and str(path.relative_to(WEB_SRC)) != BEARER_TOKEN_MODULE
+        and _web_relative(path) != BEARER_TOKEN_MODULE
     ]
     assert not offenders, (
         f"unexpected sessionStorage access in: {offenders}. Only "
@@ -154,7 +161,7 @@ def test_sessionstorage_is_only_used_for_the_bearer_token() -> None:
 def test_only_the_session_module_resolves_identity() -> None:
     """`fetchMe()` has one caller, so there is one place identity can come from."""
     callers = sorted(
-        str(path.relative_to(WEB_SRC))
+        _web_relative(path)
         for path in _web_sources()
         if FETCH_ME_CALL.search(path.read_text(encoding="utf-8"))
     )
@@ -192,16 +199,28 @@ def test_the_session_gate_sends_unverified_visitors_to_login() -> None:
     assert 'state.reason === "suspended"' in source
 
 
-def test_every_portal_page_takes_its_subject_from_the_session() -> None:
+def test_every_portal_page_uses_the_server_mapping_seam() -> None:
     for relative in PORTAL_PAGES:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
         assert "useAuthenticatedPrincipal()" in source, (
             f"{relative} does not resolve its principal from GET /v1/me"
         )
-        assert "portalSubjectId(principal)" in source, (
-            f"{relative} does not derive its subject id from the server principal"
+        assert "portalSubjectId(principal," in source, (
+            f"{relative} bypasses the account-to-portal mapping seam"
         )
         assert "getSession" not in source, f"{relative} still has a local session reader"
+
+
+def test_account_uuid_is_not_reused_as_a_legacy_portal_id() -> None:
+    """No mapping is safer than crossing two unrelated identifier namespaces."""
+    principal_source = PRINCIPAL_HELPERS.read_text(encoding="utf-8")
+    api_source = API_CLIENT.read_text(encoding="utf-8")
+
+    assert "return me.user_id" not in principal_source
+    assert "portalSubjectId(_me: MeResponse, _portal: PortalKind)" in principal_source
+    assert "return null;" in principal_source
+    assert "PortalSubjectUnavailableError" in api_source
+    assert "portalSubjectPath" in api_source
 
 
 def test_the_session_module_admits_only_a_verified_active_principal() -> None:
@@ -225,7 +244,7 @@ def test_the_archived_browser_login_shim_is_absent() -> None:
     guard.
     """
     offenders = [
-        str(path.relative_to(WEB_SRC))
+        _web_relative(path)
         for path in _web_sources()
         if "mockLogin" in path.read_text(encoding="utf-8")
     ]

@@ -19,12 +19,11 @@ import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 import { portalSubjectId } from "../../../lib/principal";
 
 export function StudentHome() {
-  // The portal subject is the server-assigned principal from
-  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
-  // this page renders only inside a session-gated layout, so a visitor
-  // without a verified token never reaches it.
+  // `/v1/me` authenticates the account but does not yet map it to a legacy
+  // student record. The empty transport value is rejected by the API client
+  // before any caller-selectable `/api/portals/*` request is issued.
   const principal = useAuthenticatedPrincipal();
-  const studentId = portalSubjectId(principal);
+  const studentId = portalSubjectId(principal, "student") ?? "";
 
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
   const [nudge, setNudge] = useState<(RetentionNudge & { source: string }) | null>(null);

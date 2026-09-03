@@ -13,12 +13,10 @@ import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 import { portalSubjectId } from "../../../lib/principal";
 
 export function VolunteerHome() {
-  // The portal subject is the server-assigned principal from
-  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
-  // this page renders only inside a session-gated layout, so a visitor
-  // without a verified token never reaches it.
+  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
+  // the API client rejects the empty value locally instead of guessing one.
   const principal = useAuthenticatedPrincipal();
-  const volunteerId = portalSubjectId(principal);
+  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
 
   const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
   const [assignments, setAssignments] = useState<VolunteerAssignment[]>([]);

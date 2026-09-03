@@ -17,12 +17,10 @@ const STATUS_LABELS: Record<MeetingBooking["status"], string> = {
 };
 
 export function CoordinatorMeetings() {
-  // The portal subject is the server-assigned principal from
-  // `GET /v1/me` — see `src/lib/principal.ts`. There is no fallback id:
-  // this page renders only inside a session-gated layout, so a visitor
-  // without a verified token never reaches it.
+  // `/v1/me` verifies the account but does not provide a legacy coordinator
+  // id; the API client rejects the empty value locally instead of guessing.
   const principal = useAuthenticatedPrincipal();
-  const coordinatorId = portalSubjectId(principal);
+  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
 
   const [meetings, setMeetings] = useState<MeetingBooking[]>([]);
   const [source, setSource] = useState<string>("");

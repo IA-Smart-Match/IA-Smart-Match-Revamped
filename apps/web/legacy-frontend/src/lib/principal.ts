@@ -56,18 +56,24 @@ export function principalRoleLabel(me: MeResponse): string {
   return roles.length > 0 ? roles.join(", ") : "No active role";
 }
 
+export type PortalKind = "student" | "coordinator" | "volunteer";
+
 /**
- * The id the legacy `/api/portals/*` routes are called with.
+ * The server-owned legacy record id for a portal, when one exists.
  *
- * `GET /v1/me` carries no legacy portal id. The per-portal ids this code used
- * to fall back to were browser-side fixtures, not identifiers the server ever
- * issued, which is precisely why they are gone (the literals themselves live
- * only in `tests/unit/test_frontend_auth_contract.py`, which asserts they
- * appear nowhere in `src/`). The only subject the server hands the browser is
- * `user_id`, so that is what these routes are called with. Where the legacy
- * backend holds no record under it, the page surfaces that failure — it does
- * not substitute a canned id to make the screen fill in.
+ * `GET /v1/me` currently returns an account UUID, not the distinct
+ * `student_id`, `coordinator_id`, or `volunteer_id` consumed by the legacy
+ * `/api/portals/*` routes. Reusing `me.user_id` would silently change one id
+ * namespace into another and would still leave the browser choosing the path
+ * subject sent to an unauthenticated legacy route.
+ *
+ * Until the API exposes an authenticated self-service portal route or an
+ * authoritative account-to-portal mapping, the only truthful answer is that
+ * no portal subject is available. Callers convert this to an empty transport
+ * value; the API client rejects it locally before any legacy request is sent.
+ * Keeping the principal and portal kind in this seam makes the eventual
+ * server-owned mapping explicit without inventing one in the browser today.
  */
-export function portalSubjectId(me: MeResponse): string {
-  return me.user_id;
+export function portalSubjectId(_me: MeResponse, _portal: PortalKind): string | null {
+  return null;
 }
