@@ -39,7 +39,12 @@ import type { MetricValue } from "../app/components/provenance/types.ts";
  * gets a visual treatment, and the treatment for "we could not measure this"
  * is distinct from all three measured outcomes.
  */
-export type SignalTone = "critical" | "watch" | "clear" | "unknown";
+export type SignalTone =
+  | "critical"
+  | "watch_or_worse"
+  | "watch"
+  | "clear"
+  | "unknown";
 
 /**
  * Where the cut points sit, and why.
@@ -83,15 +88,16 @@ export function toneForBacklog(
       }
       return "clear";
     case "at_least":
-      // A truncated count is evidence only for the severity it already
-      // reaches. Below that, the true count is unconstrained upward, so
-      // reporting "clear" or "watch" would be reporting an absence of
-      // evidence as evidence of absence.
+      // A truncated count is evidence only for the minimum severity it has
+      // already reached. Once the lower bound reaches critical, "critical"
+      // is certain. Between the watch and critical cut points the true count
+      // may still be critical, so the badge must say "At least watch" rather
+      // than presenting "Watch" as an exact classification.
       if (value.value >= thresholds.criticalAtOrAbove) {
         return "critical";
       }
       if (value.value >= thresholds.watchAtOrAbove) {
-        return "watch";
+        return "watch_or_worse";
       }
       return "unknown";
   }
@@ -100,6 +106,7 @@ export function toneForBacklog(
 /** Human label for a tone. Carries the meaning without relying on colour (WCAG 2.2 AA). */
 export const SIGNAL_TONE_LABELS: Readonly<Record<SignalTone, string>> = {
   critical: "Needs attention",
+  watch_or_worse: "At least watch",
   watch: "Watch",
   clear: "Clear",
   unknown: "Not measured",
@@ -114,6 +121,7 @@ export const SIGNAL_TONE_LABELS: Readonly<Record<SignalTone, string>> = {
  */
 export const SIGNAL_TONE_CLASSES: Readonly<Record<SignalTone, string>> = {
   critical: "border-rose-200 bg-rose-50 text-rose-800",
+  watch_or_worse: "border-amber-300 bg-amber-50 text-amber-950",
   watch: "border-amber-200 bg-amber-50 text-amber-900",
   clear: "border-emerald-200 bg-emerald-50 text-emerald-800",
   unknown: "border-slate-200 bg-slate-50 text-slate-700",
@@ -122,6 +130,7 @@ export const SIGNAL_TONE_CLASSES: Readonly<Record<SignalTone, string>> = {
 /** Icon-well classes per tone, matched to {@link SIGNAL_TONE_CLASSES}. */
 export const SIGNAL_TONE_ICON_CLASSES: Readonly<Record<SignalTone, string>> = {
   critical: "border-rose-200 bg-white text-rose-700",
+  watch_or_worse: "border-amber-300 bg-white text-amber-800",
   watch: "border-amber-200 bg-white text-amber-700",
   clear: "border-emerald-200 bg-white text-emerald-700",
   unknown: "border-slate-200 bg-white text-slate-600",
@@ -130,7 +139,8 @@ export const SIGNAL_TONE_ICON_CLASSES: Readonly<Record<SignalTone, string>> = {
 /** Sort order for the feed: unresolved severity first, measured calm last. */
 export const SIGNAL_TONE_RANK: Readonly<Record<SignalTone, number>> = {
   critical: 0,
-  watch: 1,
-  unknown: 2,
-  clear: 3,
+  watch_or_worse: 1,
+  watch: 2,
+  unknown: 3,
+  clear: 4,
 };

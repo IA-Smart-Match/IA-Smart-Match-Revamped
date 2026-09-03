@@ -71,6 +71,7 @@ import {
   unavailablePendingReviewMetric,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
+import { summarizeCalendarCoverage } from "@/lib/calendarCoverage";
 import type { SignalThresholds } from "@/lib/signals";
 import {
   DiscoveryFeed,
@@ -199,6 +200,7 @@ type RegionalPulseRow = {
   eventCount: number;
   coveredCount: number;
   openCount: number;
+  unknownCount: number;
   assignmentCount: number;
   uniqueVolunteers: number;
   coveragePercent: number | null;
@@ -255,28 +257,29 @@ function buildRegionalPulse(
   return regions
     .map((region) => {
       const eventsInRegion = calendarEvents.filter((event) => event.region === region);
+      const coverage = summarizeCalendarCoverage(
+        eventsInRegion.map((event) => event.coverage_status),
+      );
       const assignmentsInRegion = calendarAssignments.filter(
         (assignment) => assignment.region === region,
       );
-      const coveredCount = eventsInRegion.filter(
-        (event) => event.coverage_status === "covered",
-      ).length;
       const eventCount = eventsInRegion.length;
-      const openCount = eventsInRegion.filter(
-        (event) => event.coverage_status !== "covered",
-      ).length;
       const assignmentCount = assignmentsInRegion.length;
       const uniqueVolunteers = new Set(
         assignmentsInRegion.map((assignment) => assignment.volunteer_name),
       ).size;
-      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : null;
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.`;
+      const coveragePercent =
+        coverage.coverageRatio === null
+          ? null
+          : Math.round(coverage.coverageRatio * 100);
+      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.${coverage.unknown ? ` ${coverage.unknown} window${coverage.unknown === 1 ? " has" : "s have"} unresolved coverage.` : ""}`;
 
       return {
         region,
         eventCount,
-        coveredCount,
-        openCount,
+        coveredCount: coverage.covered,
+        openCount: coverage.explicitlyOpen,
+        unknownCount: coverage.unknown,
         assignmentCount,
         uniqueVolunteers,
         coveragePercent,
@@ -497,12 +500,13 @@ export function Dashboard() {
   const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
 
-  const coveredCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status === "covered",
-  ).length;
-  const openCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status !== "covered",
-  ).length;
+  const calendarCoverage = summarizeCalendarCoverage(
+    calendarEvents.map((event) => event.coverage_status),
+  );
+  const coveredCalendarCount = calendarCoverage.covered;
+  const unknownCalendarCoverageCount = calendarCoverage.unknown;
+  const openCalendarCount = calendarCoverage.explicitlyOpen;
+  const calendarCoverageFullyResolved = calendarCoverage.fullyResolved;
 
   const upcomingEventsMetric = accountableDemoMetric(
     "Upcoming events",
@@ -524,25 +528,30 @@ export function Dashboard() {
   );
   const openEventsMetric = accountableDemoMetric(
     "Open events",
-    "Calendar windows the feed reports as not yet covered.",
-    calendarAvailable ? openCalendarCount : null,
+    "Calendar windows the feed explicitly reports as partially covered or needing coverage.",
+    calendarAvailable && calendarCoverageFullyResolved ? openCalendarCount : null,
     {
       provenance: calendarProvenance,
-      unknownReason: "The calendar feed is unavailable, so open windows are unknown.",
+      // A row with coverage_status=unknown cannot safely be counted as either
+      // open or covered. Propagating that uncertainty prevents the discovery
+      // feed from turning missing evidence into an amber/red operational alert.
+      unknownReason: !calendarAvailable
+        ? "The calendar feed is unavailable, so open windows are unknown."
+        : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the total number of open windows is unknown.`,
     },
   );
   const coverageRateMetric = accountableDemoMetric(
     "Coverage rate",
     "Covered calendar windows divided by all calendar windows.",
-    calendarAvailable && calendarEvents.length > 0
-      ? coveredCalendarCount / calendarEvents.length
-      : null,
+    calendarAvailable ? calendarCoverage.coverageRatio : null,
     {
       provenance: calendarProvenance,
       unknownReason:
-        calendarAvailable && calendarEvents.length === 0
-          ? "No calendar windows yet, so there is no denominator for a coverage rate."
-          : "The calendar feed is unavailable, so the coverage rate is unknown.",
+        !calendarAvailable
+          ? "The calendar feed is unavailable, so the coverage rate is unknown."
+          : calendarEvents.length === 0
+            ? "No calendar windows yet, so there is no denominator for a coverage rate."
+            : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the coverage rate is unknown.`,
     },
   );
 
@@ -671,7 +680,9 @@ export function Dashboard() {
       metric: openEventsMetric,
       thresholds: UNCOVERED_WINDOW_THRESHOLDS,
       detail: calendarAvailable
-        ? "Scheduled windows the calendar feed reports as not yet covered."
+        ? calendarCoverageFullyResolved
+          ? "Scheduled windows the calendar feed explicitly reports as partially covered or needing coverage."
+          : `${unknownCalendarCoverageCount} window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so this backlog cannot be graded.`
         : CALENDAR_FEED_UNAVAILABLE_REASON,
     },
     {
@@ -1111,7 +1122,11 @@ export function Dashboard() {
                       <div
                         className="h-2 rounded-full border border-dashed border-[#cfd8e5] bg-white/80"
                         role="img"
-                        aria-label="Coverage ratio unknown — this region has no scheduled windows to measure against."
+                        aria-label={
+                          region.unknownCount
+                            ? `Coverage ratio unknown — ${region.unknownCount} window${region.unknownCount === 1 ? " has" : "s have"} unresolved coverage.`
+                            : "Coverage ratio unknown — this region has no scheduled windows to measure against."
+                        }
                       />
                     ) : (
                       <div className="h-2 rounded-full bg-white/80">
@@ -1126,7 +1141,7 @@ export function Dashboard() {
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Open windows
+                        Explicitly open
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
                     </div>

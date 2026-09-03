@@ -68,11 +68,14 @@ test("unknown stays unknown no matter where the cut points sit", () => {
   }
 });
 
-test("a lower bound that already clears a cut point is graded at it", () => {
+test("a lower bound names uncertainty until critical severity is guaranteed", () => {
   // The true count is >= the bound, so a bound of 20 guarantees critical.
   assert.equal(toneForBacklog(atLeastValue(20), THRESHOLDS), "critical");
   assert.equal(toneForBacklog(atLeastValue(45), THRESHOLDS), "critical");
-  assert.equal(toneForBacklog(atLeastValue(1), THRESHOLDS), "watch");
+  // A bound between the cut points guarantees watch but may conceal a
+  // critical total, so it must not receive the exact "Watch" classification.
+  assert.equal(toneForBacklog(atLeastValue(1), THRESHOLDS), "watch_or_worse");
+  assert.equal(toneForBacklog(atLeastValue(19), THRESHOLDS), "watch_or_worse");
 });
 
 test("a lower bound below every cut point is unknown, not clear", () => {
@@ -93,13 +96,20 @@ test("a lower bound never grades softer than the same number known", () => {
 });
 
 test("every tone has a text label, so colour is never the only channel", () => {
-  for (const tone of ["critical", "watch", "clear", "unknown"] as const) {
+  for (const tone of [
+    "critical",
+    "watch_or_worse",
+    "watch",
+    "clear",
+    "unknown",
+  ] as const) {
     assert.ok(SIGNAL_TONE_LABELS[tone].length > 0);
   }
 });
 
 test("feed ordering puts unresolved severity ahead of measured calm", () => {
-  assert.ok(SIGNAL_TONE_RANK.critical < SIGNAL_TONE_RANK.watch);
+  assert.ok(SIGNAL_TONE_RANK.critical < SIGNAL_TONE_RANK.watch_or_worse);
+  assert.ok(SIGNAL_TONE_RANK.watch_or_worse < SIGNAL_TONE_RANK.watch);
   assert.ok(SIGNAL_TONE_RANK.watch < SIGNAL_TONE_RANK.unknown);
   assert.ok(SIGNAL_TONE_RANK.unknown < SIGNAL_TONE_RANK.clear);
 });

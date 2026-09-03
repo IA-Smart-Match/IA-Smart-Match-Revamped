@@ -55,6 +55,10 @@ import {
   partitionByResolvedDate,
   viewerTimeZone,
 } from "@/lib/eventDates";
+import {
+  calendarSourceProvenance,
+  calendarSyntheticReason,
+} from "@/lib/calendarProvenance";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -300,7 +304,12 @@ export function Calendar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [isMockData, setIsMockData] = useState(false);
+  // Keep provenance per endpoint. The two legacy routes can legitimately
+  // return different source kinds during migration, so one combined flag
+  // would mislabel live event metrics when only assignment overlays are demo
+  // data (and vice versa).
+  const [eventsAreMockData, setEventsAreMockData] = useState(false);
+  const [assignmentsAreMockData, setAssignmentsAreMockData] = useState(false);
   const [eventsAvailable, setEventsAvailable] = useState(false);
   const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
   // `/api/calendar/*` are retired legacy routes. A 404 here is not a transient
@@ -322,13 +331,11 @@ export function Calendar() {
           return;
         }
 
-        let anyMock = false;
-
         if (eventResult.status === "fulfilled") {
           const { data, isMockData } = eventResult.value;
           setEvents(data);
           setEventsAvailable(true);
-          if (isMockData) anyMock = true;
+          setEventsAreMockData(isMockData);
         } else {
           // Events are the calendar's core data — without them there is
           // nothing honest to render, so surface a failure state instead of
@@ -337,10 +344,11 @@ export function Calendar() {
           setAssignments([]);
           setEventsAvailable(false);
           setAssignmentsAvailable(false);
+          setEventsAreMockData(false);
+          setAssignmentsAreMockData(false);
           setFeedRetired(isRetiredRoute(eventResult.reason));
           setLoadFailed(true);
           setError(getErrorMessage(eventResult.reason, "Failed to load the calendar."));
-          setIsMockData(false);
           return;
         }
 
@@ -348,19 +356,19 @@ export function Calendar() {
           const { data, isMockData } = assignmentResult.value;
           setAssignments(data);
           setAssignmentsAvailable(true);
-          if (isMockData) anyMock = true;
+          setAssignmentsAreMockData(isMockData);
         } else {
           // Assignment overlays are supplementary — keep showing the real
           // events and surface a non-blocking warning instead of fabricating
           // overlay rows. Every tile they back goes to unknown, not to zero.
           setAssignments([]);
           setAssignmentsAvailable(false);
+          setAssignmentsAreMockData(false);
           setError(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
 
-        setIsMockData(anyMock);
       })
       .catch((err: unknown) => {
         if (!active) {
@@ -370,9 +378,10 @@ export function Calendar() {
         setAssignments([]);
         setEventsAvailable(false);
         setAssignmentsAvailable(false);
+        setEventsAreMockData(false);
+        setAssignmentsAreMockData(false);
         setFeedRetired(isRetiredRoute(err));
         setLoadFailed(true);
-        setIsMockData(false);
         setError(getErrorMessage(err, "Failed to load calendar."));
       })
       .finally(() => {
@@ -422,9 +431,15 @@ export function Calendar() {
   // Provenance for calendar-derived tiles: a feed that answered with rows it
   // labelled demo/csv is synthetic; one that did not answer at all is
   // synthetic too, because whatever the tile shows is not an observation.
-  const eventProvenance = eventsAvailable && !isMockData ? ("observed" as const) : ("synthetic" as const);
-  const assignmentProvenance =
-    assignmentsAvailable && !isMockData ? ("observed" as const) : ("synthetic" as const);
+  const eventProvenance = calendarSourceProvenance(eventsAvailable, eventsAreMockData);
+  const assignmentProvenance = calendarSourceProvenance(
+    assignmentsAvailable,
+    assignmentsAreMockData,
+  );
+  const syntheticDataReason = calendarSyntheticReason(
+    eventsAreMockData,
+    assignmentsAreMockData,
+  );
 
   const coverageRateMetric = accountableDemoMetric(
     "Coverage rate",
@@ -542,8 +557,8 @@ export function Calendar() {
         {/* DESIGN.md §1.1 singles the synthetic label out as needing to be
             unmistakable. A chip beside the heading is not that, so a
             fixture-backed calendar gets the full banner. */}
-        {isMockData ? (
-          <SyntheticDataBanner reason="The calendar feed answered with demo/CSV rows, not live records. Every window, overlay, and count below is fixture data." />
+        {syntheticDataReason ? (
+          <SyntheticDataBanner reason={syntheticDataReason} />
         ) : null}
       </div>
 
