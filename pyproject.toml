@@ -73,6 +73,28 @@ explicit_package_bases = true
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# OR-Tools ships partial type information; its generated protobuf modules are
+# not typed. Narrow to the one package rather than relaxing strict mode.
+#
+# `follow_imports = "skip"` is required, not optional: ortools.sat.python.
+# cp_model imports numpy at module level, and numpy's bundled stub
+# (numpy/__init__.pyi) uses PEP 695 `type` statement syntax, which mypy only
+# accepts under `python_version = "3.12"` — this project pins "3.11" above.
+# Without this line, mypy aborts with a syntax error inside numpy's stub
+# before it ever reaches our code ("errors prevented further checking"),
+# because `ignore_missing_imports` alone only suppresses "stub not found"
+# errors, not a syntax error inside a stub it did find. `follow_imports =
+# "skip"` stops mypy from analyzing ortools' internals — and therefore from
+# ever following into numpy's stub — at all, treating the package as Any at
+# its import boundary. This is a stricter containment of ortools than
+# `ignore_missing_imports` alone, not a relaxation of strict mode: numpy is
+# not imported anywhere else in python/, services/, or tests/, so this has no
+# effect outside the one import path it targets.
+[[tool.mypy.overrides]]
+module = ["ortools.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
