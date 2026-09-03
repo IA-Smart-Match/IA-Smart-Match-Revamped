@@ -7,7 +7,7 @@ history.
 
 | Date | Report | Notes |
 |------|--------|-------|
-| 2026-09-02 | [2026-09-02-audit-status-report.md](2026-09-02-audit-status-report.md) | Initial consolidated audit (pilot readiness, deploy, docs, features) |
+| 2026-09-02 | [2026-09-02-audit-status-report.md](2026-09-02-audit-status-report.md) | Consolidated audit; third pass (review API, O3 binding, compose scheduler, CI smoke) |
 
 **Authoritative blocker index** (between reports): `docs/decisions/2026-08-31-session-ratification.md`
 
