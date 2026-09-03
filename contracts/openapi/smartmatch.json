@@ -504,6 +504,55 @@
         ],
         "title": "RedriveRequest",
         "type": "object"
+      },
+      "ReviewDecisionRequest": {
+        "description": "A coordinator's decision on one pending review item.",
+        "properties": {
+          "decision": {
+            "description": "Whether the row is accepted into the dataset or rejected.",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ReviewDecisionRequest",
+        "type": "object"
+      },
+      "ReviewDecisionResponse": {
+        "description": "What changed, and nothing this response does not own.\n\nDeliberately **not** carrying `pending_review_items` for the item's unit.\nA caller who wants that count has a route that owns it \u2014\n`GET /v1/units/{unit_id}/metrics` \u2014 and ADR-0011 rule 4 is that a number\nwith an owning query is read from that query, not recomputed by a second\nhandler that would have to stay in step with it by hand. Folding the count\nin here would create exactly that second copy, and the first time the two\ndisagreed \u2014 a decision recorded here, a metrics query cached or read from\na replica a beat behind it \u2014 there would be no way to tell which one was\nwrong.",
+        "properties": {
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "decided_at"
+        ],
+        "title": "ReviewDecisionResponse",
+        "type": "object"
       }
     }
   },
@@ -1455,6 +1504,146 @@
         "summary": "Get the caller's own identity",
         "tags": [
           "identity"
+        ]
+      }
+    },
+    "/v1/review-items/{review_item_id}/decision": {
+      "post": {
+        "description": "Accept or reject one pending review item.\n\n`200`, not `202`: unlike `POST /v1/units/{unit_id}/imports` this starts\nnothing durable. `ReviewRepository.decide`'s `UPDATE` either lands inside\nthis handler's own request or it does not, and there is no worker on the\nother end of it to follow \u2014 see the module docstring for why this route\nis not shaped as a command.\n\nAuthorization runs against the unit `_load_owning_unit_or_404` reads off\nthe review item's own batch \u2014 after loading it, which is why it happens\nhere rather than in a dependency (a dependency cannot authorize a resource\nit has not fetched; `imports.py::create_import` makes the identical point\nabout its own unit load).\n\nQuota is charged before any of that (ADR-0015), so a caller producing 404s\nagainst review-item ids they invented, or 403s against an item they hold\nno role over, spends exactly what a caller submitting a real decision\nspends \u2014 the same ordering `create_import` and `redrive_job` both apply,\nfor the same reason: those are the refusals cheapest to produce in bulk.",
+        "operationId": "decide_review_item_v1_review_items__review_item_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "review_item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Accept or reject a pending review item",
+        "tags": [
+          "review"
         ]
       }
     },

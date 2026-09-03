@@ -117,6 +117,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("review_item", "ck_review_item_status"): (
         "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
     ),
+    ("review_item", "ck_review_item_decision_evidence"): (
+        "CHECK ((((status = 'pending'::text) = (decided_at IS NULL)) AND "
+        "((decided_at IS NULL) = (decided_by IS NULL))))"
+    ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "CHECK ((points_cost > 0))",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
         "CHECK ((fulfilment_cost >= (0)::numeric))"
@@ -180,6 +184,7 @@ BEHAVIOURAL_COVERAGE = {
     ("redrive_record", "ck_redrive_authorship_complete"): "this file",
     ("resource_grant", "ck_resource_grant_effect"): "this file",
     ("review_item", "ck_review_item_status"): "test_import_review_constraints.py",
+    ("review_item", "ck_review_item_decision_evidence"): "test_import_review_constraints.py",
     ("tenant_budget", "ck_budget_non_negative"): "this file",
     ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_type"): "this file",
     ("spend_ceiling_bucket", "ck_spend_ceiling_bucket_non_negative"): "this file",

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -108,11 +109,21 @@ def metric_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str,
             {"id": batch_id, "tid": tenant_id, "unit": unit_id, "job": job_id},
         )
         for row_index, status in enumerate(("pending", "accepted", "pending")):
+            # migration 0013's ck_review_item_decision_evidence: a non-pending
+            # row must name who decided it and when, in the same INSERT --
+            # this fixture predates that constraint, and this is the minimal
+            # fix to keep seeding a mixed pending/accepted population legal
+            # under it. `user_id` (the coordinator created above) stands in
+            # for the deciding user; nothing in this file is testing *who*
+            # decided.
+            decided = status != "pending"
             conn.execute(
                 text(
                     "INSERT INTO review_item "
-                    "(id, tenant_id, import_batch_id, row_index, row_data, status) "
-                    "VALUES (:id, :tid, :batch, :idx, CAST(:data AS jsonb), :status)"
+                    "(id, tenant_id, import_batch_id, row_index, row_data, status, "
+                    "decided_at, decided_by) "
+                    "VALUES (:id, :tid, :batch, :idx, CAST(:data AS jsonb), :status, "
+                    ":decided_at, :decided_by)"
                 ),
                 {
                     "id": uuid.uuid4(),
@@ -121,6 +132,8 @@ def metric_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str,
                     "idx": row_index,
                     "data": f'{{"full_name": "Person {row_index}"}}',
                     "status": status,
+                    "decided_at": datetime.now(UTC) if decided else None,
+                    "decided_by": user_id if decided else None,
                 },
             )
 
@@ -266,7 +279,15 @@ def test_pending_review_drill_down_count_equals_real_aggregate(metric_context) -
     assert {row["status"] for row in drill_down["rows"]} == {"pending"}
 
 
-def test_pipeline_unknown_is_null_with_an_empty_drill_down(metric_context) -> None:
+def test_pipeline_with_no_records_is_a_measured_zero_not_unknown(metric_context) -> None:
+    """P8 card O3: an empty ``pipeline_record`` table is a measured 0.
+
+    ``metric_context`` writes no ``pipeline_record`` rows, so this is exactly
+    the empty-table case the card exists to distinguish from the old
+    honest-unknown stub: ``value`` is ``0``, not ``None``, and
+    ``unknown_reason`` is absent, because the query ran against a real table
+    rather than refusing to answer.
+    """
     client, unit_id, token, _tenant_id = metric_context
 
     aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", token)
@@ -274,9 +295,8 @@ def test_pipeline_unknown_is_null_with_an_empty_drill_down(metric_context) -> No
     by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
     matched = by_name["pipeline_matched"]
 
-    assert matched["value"] is None
-    assert matched["value"] != 0
-    assert "S12" in matched["unknown_reason"]
+    assert matched["value"] == 0
+    assert matched["unknown_reason"] is None
 
     drill_response = _get(
         client,
@@ -285,9 +305,9 @@ def test_pipeline_unknown_is_null_with_an_empty_drill_down(metric_context) -> No
     )
     assert drill_response.status_code == 200
     drill_down = drill_response.json()
-    assert drill_down["aggregate_value"] is None
+    assert drill_down["aggregate_value"] == 0
     assert drill_down["rows"] == []
-    assert "S12" in drill_down["unknown_reason"]
+    assert drill_down["unknown_reason"] is None
 
 
 def test_a_student_reads_aggregates_but_is_refused_drill_down(
@@ -582,7 +602,17 @@ def test_unauthorized_unit_never_short_circuits_to_304(metric_context) -> None:
     assert wildcard_replay.status_code == 404
 
 
-def test_unknown_metric_stays_null_through_the_cache_layer(metric_context) -> None:
+def test_measured_zero_metric_stays_zero_through_the_cache_layer(metric_context) -> None:
+    """The ETag/conditional-request path must not corrupt a measured 0.
+
+    Before card O3, this test proved ``None`` survived caching without being
+    coerced to ``0``. Now that Pipeline is bound to storage, the risk runs the
+    other way: a caching bug could as easily coerce a real ``0`` into
+    ``null``. Both are wrong for the same reason -- unknown and zero are
+    different claims -- so this still asserts the exact value ``pipeline_matched``
+    measures (0, ``metric_context`` writes no ``pipeline_record`` rows) comes
+    back unchanged.
+    """
     client, unit_id, token, _tenant_id = metric_context
 
     response = _get(client, f"/v1/units/{unit_id}/metrics", token)
@@ -590,7 +620,5 @@ def test_unknown_metric_stays_null_through_the_cache_layer(metric_context) -> No
     by_name = {item["name"]: item for item in response.json()["metrics"]}
     matched = by_name["pipeline_matched"]
 
-    assert matched["value"] is None
-    assert matched["value"] != 0
-    assert matched["unknown_reason"] is not None
-    assert "S12" in matched["unknown_reason"]
+    assert matched["value"] == 0
+    assert matched["unknown_reason"] is None

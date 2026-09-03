@@ -32,7 +32,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
-from smartmatch_api.routers import engagement, events, imports, jobs, me, metrics, redrive
+from smartmatch_api.routers import engagement, events, imports, jobs, me, metrics, redrive, review
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
 #: application entirely. Shares its value with
@@ -207,6 +207,7 @@ app.include_router(me.router)
 app.include_router(metrics.router)
 app.include_router(events.router)
 app.include_router(engagement.router)
+app.include_router(review.router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")

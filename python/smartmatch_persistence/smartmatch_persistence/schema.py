@@ -646,12 +646,27 @@ review_item = sa.Table(
     sa.Column("row_data", postgresql.JSONB, nullable=False),
     sa.Column("status", sa.Text, nullable=False, server_default="pending"),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # migration 0013. NULL while pending, set once by the one conditional
+    # UPDATE ... WHERE status = 'pending' this schema allows to leave that
+    # state (ReviewRepository.decide). Biconditional with both status and
+    # decided_by below — see ck_review_item_decision_evidence.
+    sa.Column("decided_at", _TS, nullable=True),
+    sa.Column("decided_by", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="review_item_pkey"),
     # CASCADE: a review item cannot outlive the batch that quarantined it.
     sa.ForeignKeyConstraint(
         ["tenant_id", "import_batch_id"],
         ["import_batch.tenant_id", "import_batch.id"],
         ondelete="CASCADE",
+    ),
+    # RESTRICT: deleting the user_account behind a recorded decision must not
+    # silently turn a cited decision back into an uncited one — the same
+    # fabricated-field state ck_review_item_decision_evidence exists to make
+    # unstorable in the first place (migration 0013).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "decided_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
     ),
     # Mirrors uq_job_event_sequence: a monotonic position within one parent,
     # and the parent id alone is already globally unique, so no tenant_id is
@@ -662,6 +677,16 @@ review_item = sa.Table(
     sa.CheckConstraint(
         "status IN ('pending','accepted','rejected')",
         name="ck_review_item_status",
+    ),
+    # A decision that names nobody and no time is the fabricated-field defect
+    # (Fix #15, H21) one table over from pipeline_record's own attendance
+    # evidence (migration 0011). Two independent biconditionals, ANDed rather
+    # than chained — see migration 0013's docstring for why a chained
+    # three-way `=` would not say what it looks like it says.
+    sa.CheckConstraint(
+        "(status = 'pending') = (decided_at IS NULL) "
+        "AND (decided_at IS NULL) = (decided_by IS NULL)",
+        name="ck_review_item_decision_evidence",
     ),
 )
 

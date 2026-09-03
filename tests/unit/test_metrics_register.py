@@ -39,12 +39,20 @@ def test_every_metric_has_one_name_definition_query_and_drill_down() -> None:
         "pipeline_member_inquiry",
     ],
 )
-def test_pipeline_metrics_explain_why_they_are_unknown(name: str) -> None:
+def test_pipeline_metrics_are_bound_and_no_longer_unknown(name: str) -> None:
+    """P8 card O3: the register itself no longer carries an unknown reason.
+
+    Migration ``0011`` gave Pipeline a real evidence table and card O3 bound
+    the owning query to it, so every Pipeline entry's ``unknown_reason`` is
+    gone from the register — the adapter, not the definition, is where the
+    "no application code writes pipeline_record yet" caveat now lives (see
+    ``smartmatch_domain.metrics``'s module docstring and
+    ``_pipeline_funnel_rows_v1``).
+    """
     metric = get_metric(name)
 
     assert metric is not None
-    assert metric.unknown_reason is not None
-    assert "S12" in metric.unknown_reason
+    assert metric.unknown_reason is None
 
 
 def test_register_entries_are_frozen() -> None:
@@ -54,13 +62,13 @@ def test_register_entries_are_frozen() -> None:
         metric.canonical_name = "changed"  # type: ignore[misc]
 
 
-def test_opportunities_is_registered_and_unknown_naming_s12() -> None:
+def test_opportunities_is_registered_and_bound_not_unknown() -> None:
+    """P8 card O3: ``opportunities`` is bound to storage; the register agrees."""
     metric = get_metric("opportunities")
 
     assert metric is not None
     assert metric.display_name == "Opportunities"
-    assert metric.unknown_reason is not None
-    assert "S12" in metric.unknown_reason
+    assert metric.unknown_reason is None
 
 
 def test_opportunities_owning_query_is_exact() -> None:

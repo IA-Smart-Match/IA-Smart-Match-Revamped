@@ -573,6 +573,25 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="job",
         unit_scoped=True,
     ),
+    # Same shape as `import.create` in every respect that matters here: loads
+    # a unit (off the review item's own import batch rather than off a path
+    # parameter — see `routers/review.py`'s module docstring for why the unit
+    # is derived, not named), then calls `assert_allowed` against an
+    # `org_unit` Resource built from it, with the same two roles. No
+    # `require_membership`, no `tenant_wide_roles` — deciding a review item
+    # never widens past ordinary subtree containment.
+    Operation(
+        key="review.decide",
+        method="POST",
+        path="/v1/review-items/{review_item_id}/decision",
+        module="smartmatch_api.routers.review",
+        authorizer="assert_allowed",
+        roles_constant="_REVIEW_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # ``metrics.read`` and ``metrics.drill_down`` now name two different
     # authorizers in ``routers/metrics.py``, per the ratified metrics
     # authorization decision (Option B, CLOSED 2026-09-02) — they no longer
@@ -1113,6 +1132,77 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="abandon shares `authorize_job_command` with re-drive, at the same tightness",
         ),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+    },
+    # Same shape as `import.create`'s own row, cell for cell: both operations
+    # authorize an `org_unit` resource through the same `assert_allowed` call
+    # with the same two required roles, no `require_membership`, no
+    # `tenant_wide_roles`. The only thing that differs between the two routes
+    # is *how* the unit is found — a path parameter for `import.create`, a
+    # join through the review item's own batch for `review.decide` — and
+    # `_authorize` never exercises that difference: both reach `evaluate`
+    # through an identically-shaped `Resource`.
+    "review.decide": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "unit scoping works here exactly as it does for import.create: "
+                "a review item names the unit its batch was imported into, and "
+                "a sibling department's coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "admin is a required role here and the membership is active, so "
+                "the only thing refusing this principal is the path: a sibling "
+                "department does not contain the owning unit. `review.decide` "
+                "passes no `tenant_wide_roles` — deciding a review item is not "
+                "the aggregate-reads exception `metrics.read` carries."
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="deciding a submitted record is role-gated, not membership-gated",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a review decision has no actor path — the shape degenerates to "
+                "a role-less member, and that is correct: this operation is not "
+                "reachable through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason above; "
+                "what is left is a deny on the unit, which beats inheritance"
+            ),
+        ),
     },
     # The two metrics rows no longer share an outcome on every shape, because
     # they no longer share a policy: `metrics.read` is membership-only

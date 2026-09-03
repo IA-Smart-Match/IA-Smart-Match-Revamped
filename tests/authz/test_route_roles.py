@@ -45,17 +45,20 @@ import pytest
 from smartmatch_api import job_authz
 from smartmatch_api.routers import imports as imports_router
 from smartmatch_api.routers import me as me_router
+from smartmatch_api.routers import review as review_router
 
-#: The two role sets every gated route in this ledger currently reads from,
+#: The three role sets every gated route in this ledger currently reads from,
 #: written as literals rather than as ``job_authz.JOB_OVERSIGHT_ROLES`` /
-#: ``imports_router._IMPORT_ROLES``. A literal is what makes
-#: :func:`test_job_oversight_roles_matches_the_live_constant` and
-#: :func:`test_import_roles_matches_the_live_constant` real comparisons: an
+#: ``imports_router._IMPORT_ROLES`` / ``review_router._REVIEW_ROLES``. A
+#: literal is what makes :func:`test_job_oversight_roles_matches_the_live_constant`,
+#: :func:`test_import_roles_matches_the_live_constant`, and
+#: :func:`test_review_roles_matches_the_live_constant` real comparisons: an
 #: alias to the constant would still be equal to itself after the constant
 #: changed underneath it, and the drift this ledger exists to catch would pass
 #: silently.
 _JOB_OVERSIGHT = frozenset({"admin", "coordinator"})
 _IMPORT = frozenset({"admin", "coordinator"})
+_REVIEW = frozenset({"admin", "coordinator"})
 
 #: method, path -> the role set that route requires, or ``None`` when the
 #: route requires only authentication and nothing further. Every route this
@@ -69,6 +72,7 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("POST", "/v1/jobs/{job_id}/redrive"): _JOB_OVERSIGHT,
     ("POST", "/v1/jobs/{job_id}/abandon"): _JOB_OVERSIGHT,
     ("POST", "/v1/units/{unit_id}/imports"): _IMPORT,
+    ("POST", "/v1/review-items/{review_item_id}/decision"): _REVIEW,
     ("GET", "/v1/me"): None,
 }
 
@@ -95,6 +99,16 @@ def test_import_roles_matches_the_live_constant() -> None:
         f"this ledger still expects {sorted(_IMPORT)} for POST "
         f"/v1/units/{{unit_id}}/imports. Update ROUTE_ROLE_LEDGER and _IMPORT "
         f"deliberately if the change is intended."
+    )
+
+
+def test_review_roles_matches_the_live_constant() -> None:
+    """A widened or narrowed ``_REVIEW_ROLES`` must fail here."""
+    assert review_router._REVIEW_ROLES == _REVIEW, (
+        f"review.py's _REVIEW_ROLES is now {sorted(review_router._REVIEW_ROLES)}; "
+        f"this ledger still expects {sorted(_REVIEW)} for POST "
+        f"/v1/review-items/{{review_item_id}}/decision. Update ROUTE_ROLE_LEDGER "
+        f"and _REVIEW deliberately if the change is intended."
     )
 
 
@@ -177,5 +191,6 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("POST", "/v1/jobs/{job_id}/redrive"),
         ("POST", "/v1/jobs/{job_id}/abandon"),
         ("POST", "/v1/units/{unit_id}/imports"),
+        ("POST", "/v1/review-items/{review_item_id}/decision"),
         ("GET", "/v1/me"),
     }
