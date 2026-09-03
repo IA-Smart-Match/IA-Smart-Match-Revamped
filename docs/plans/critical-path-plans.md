@@ -13,6 +13,17 @@ preserve their 26-August historical snapshot. This checkout now closes J8/J9
 Scheduler/OIDC deployment, Terraform/F5, live identity, and remaining product
 and review gates remain open.
 
+Three later slices land in the same checkout and are reflected in `README.md`:
+the review-decision route (`POST /v1/review-items/{id}/decision` plus migration
+`0013`), the S12/P8 **O3** binding of all three metric owning queries to
+storage, and a **dev-only** `docker compose` appliance whose seed, loopback task
+queue, dev bearer tokens, and `smartmatch_worker.local_scheduler` sidecar each
+refuse to start outside `SMARTMATCH_EDITION=dev`. None of that closes the
+deployment items: the compose scheduler **emulates** Cloud Scheduler and
+provisions nothing, and **no application code writes `pipeline_record`**, so the
+five funnel metrics measure a real zero rather than an unknown. Writers for
+`pipeline_record` are in progress elsewhere and are not claimed here.
+
 **How to read status.** Two trees are in play, and several backlog files have
 not caught up with either:
 

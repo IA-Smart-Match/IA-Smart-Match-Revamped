@@ -278,7 +278,13 @@ Deploy packaging        ██████░░░░  ~55%  (compose appliance
 
 | Doc | Drift |
 |-----|-------|
-| `README.md` pipeline funnel row | Still says "**Not started**"; O3 binding is implemented — update README |
+| `README.md` pipeline funnel row | **Resolved 2026-09-02.** Was "**Not started**"; now "schema and read path only" — `pipeline_record` (migration `0011`) plus the `pipeline_funnel_rows_v1` binding, with **no application writer**, so every stage measures a real zero |
+| `README.md` review decision API | **Resolved 2026-09-02.** `POST /v1/review-items/{id}/decision` and migration `0013` were absent from the capability table; a row now cites the route, the repository, and the migration |
+| `README.md` metric register | **Resolved 2026-09-02.** All three owning queries read storage; the table said nothing about metrics at all |
+| `README.md` compose appliance | **Resolved 2026-09-02.** Added to *Proposed, scaffolded, or deliberately absent* as **dev-only, local compose only** — the seed, loopback queue, dev bearer tokens, and scheduler sidecar all refuse to start outside `SMARTMATCH_EDITION=dev` and deploy nothing |
+| `README.md` task-identity rows | **Resolved 2026-09-02.** Both rows now name the dev-only `LocalBearerTaskVerifier` alongside the unconfigured OIDC path, so "refuses every delivery" is not read as "nothing can accept a task in compose" |
+| `README.md` ADR-index test count | **Resolved 2026-09-02.** Said 145; `pytest tests/unit/test_adr_index.py` collects and passes **155** |
+| `README.md` suite totals | **Open, bounded.** The 1,817 / 1,266 / 551 figures predate the 2026-09-02 slices and are now labelled a floor, not a current measurement. Re-collecting needs a working local environment (the checked-in `.venv` interpreter and its `site-packages` are on different Python versions) |
 | `README.md` J10 | **Accurate** — marked Done; first-draft report stale claim removed |
 | First-draft report | Incorrectly stated no `docker-compose` and column contract not wired — corrected in this revision |
 

@@ -44,19 +44,24 @@ was kept, what was rejected, and why.
 | API health + non-mutating unsubscribe GET | `services/api` | 10 contract |
 | Standard error envelope across the API | `services/api` | 13 contract |
 | Worker command execution — claim, run to a terminal state, job events | `smartmatch_worker.execution` | 31 integration |
-| OIDC task-identity verification, ships with no signature backend | `smartmatch_worker.identity` | included above + 4 contract |
+| Task-identity verification — the OIDC path is real but ships with no signature backend, so it refuses every delivery; a fixed-token `LocalBearerTaskVerifier` exists for `docker compose` and refuses to boot outside `SMARTMATCH_EDITION=dev` | `smartmatch_worker.identity` | included above + 4 contract |
 | Re-drive and abandon commands for parked work | `services/api/.../routers/redrive.py` | 30 integration |
+| Review decision — `POST /v1/review-items/{id}/decision`; a conditional `UPDATE` on `pending` rows only, `409` on a second decision; migration `0013` adds `decided_at`/`decided_by` under `ck_review_item_decision_evidence` | `services/api/.../routers/review.py`, `smartmatch_persistence.review`, `db/migrations` | `tests/contract/test_review_decision.py` + `tests/integration/test_import_review_constraints.py`; not collected in this environment |
+| Metric register bound to storage — all three owning queries (`pipeline_funnel_rows_v1`, `pending_review_item_rows_v1`, `opportunities_rows_v1`) read real tables, so an empty answer is a measured zero rather than an honest unknown | `services/api/.../routers/metrics.py`, `smartmatch_domain.metrics` | `tests/contract/test_metrics.py` + `tests/integration/test_metrics_storage_binding.py`; not collected in this environment |
 | Forbidden-legacy-behavior scanner | `tools/scan_forbidden.py` | 25 self-tests |
-| ADR index checked against the ADR files | `docs/architecture/decisions`, `tests/unit/test_adr_index.py` | 145 |
+| ADR index checked against the ADR files | `docs/architecture/decisions`, `tests/unit/test_adr_index.py` | 155 |
 | Agent-memory ledger validation | `tools/agent_memory_check.py` | 80 |
 | CHECK constraints exercised behaviourally — the forbidden write *and* the permitted one | `db/migrations` | 50 integration |
 | One transaction per Alembic revision (ADR-0009) | `db/migrations/env.py` | 3 |
 
 **1,817 tests collected: 1,266 in the no-database lane and 551 marked for the
-integration lane.** These are fresh collection measurements from
-`pytest tests/ --collect-only -q` and `pytest tests/ -m integration`. They are
-not a passing-test claim: PostgreSQL was unavailable in the latest local run,
-so all 551 integration tests skipped, including the 14 spend-reservation tests.
+integration lane.** These came from `pytest tests/ --collect-only -q` and
+`pytest tests/ -m integration`, and they **predate the 2 September 2026 slices**
+— the review-decision route, the metrics storage binding, and the local task
+queue and scheduler each added test files the totals do not include. Treat the
+numbers as a floor, not a current measurement. They are also not a passing-test
+claim: PostgreSQL was unavailable in the latest local run, so all 551
+integration tests skipped, including the 14 spend-reservation tests.
 The no-database run also did not complete in that environment because
 `tests/contract/test_api_health.py::test_health_reports_ok` blocked; see the
 [A1 verification record](docs/testing/adr0015-a1-spend-persistence-verification.md).
@@ -69,7 +74,7 @@ The no-database run also did not complete in that environment because
 | CP-SAT portfolio assignment | Not started | Gate G1, then R1 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
 | Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
-| Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery | R1 (before worker deploy) |
+| Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery. The only thing that accepts a task today is the dev-only fixed-token verifier, which will not boot outside `SMARTMATCH_EDITION=dev` | R1 (before worker deploy) |
 | Live identity verifier for user requests (JWKS) | Fixture only; accepts registered tokens only | R1 |
 | Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
@@ -78,7 +83,8 @@ The no-database run also did not complete in that environment because
 | `apps/web` frontend | **On hold** — see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | A DESIGN.md owner |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Student engagement — attendance, points ledger, rewards, disclosure consent | **Designed, not built** — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
-| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Not started.** Five registered metrics with one owning query, per ADR-0011 | S12, behind the metric register (S1) |
+| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Schema and read path only.** `pipeline_record` exists (migration `0011`) and the five ADR-0011 metrics read it through `pipeline_funnel_rows_v1`; **no application code writes `pipeline_record` yet**, so every stage measures a real zero | A `pipeline_record` write path — until one exists the funnel is structurally zero |
+| Local `docker compose` appliance — db, migrate, seed, api, worker, scheduler sidecar | **Dev-only, local compose only.** The seed, the loopback task queue, the fixed bearer tokens, and `smartmatch_worker.local_scheduler` each refuse to start unless `SMARTMATCH_EDITION=dev`; they *emulate* Cloud Scheduler and Cloud Tasks and deploy nothing | Cloud Scheduler + OIDC provisioning, an IdP, and Terraform (F5) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
 Nothing here has been deployed, no live provider has been called, and no live
