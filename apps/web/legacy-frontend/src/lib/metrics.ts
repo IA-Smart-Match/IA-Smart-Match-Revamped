@@ -43,6 +43,36 @@ export const OPPORTUNITIES_METRIC_NAME = "opportunities";
 export const OPPORTUNITIES_UNKNOWN_REASON =
   "The registered `opportunities` metric could not be read from /v1/units/{unit_id}/metrics, so no count is available. This page never derives one from local CSV or crawler rows.";
 
+/**
+ * Canonical name of the registered pending-review metric (`METRIC_REGISTER`).
+ *
+ * This is the coordinator's discovery queue: `pending_review_item_rows_v1`
+ * counts the review items this unit owns whose review status is still
+ * pending — the rows a coordinator has to categorise before they can count
+ * as opportunities under the approved counting rule. It is the one
+ * registered metric that answers "what has discovery put in front of me",
+ * which is why the discovery feed is built on it rather than on a number
+ * assembled in the browser.
+ */
+export const PENDING_REVIEW_ITEMS_METRIC_NAME = "pending_review_items";
+
+/** Why the pending-review count can be missing on the client. */
+export const PENDING_REVIEW_UNKNOWN_REASON =
+  "The registered `pending_review_items` metric could not be read from /v1/units/{unit_id}/metrics, so the size of the review queue is unknown. This feed never estimates it.";
+
+/** Unknown-state stand-in for the registered pending-review metric. */
+export function unavailablePendingReviewMetric(
+  reason: string = PENDING_REVIEW_UNKNOWN_REASON,
+): AccountableMetric {
+  return {
+    name: "Pending review items",
+    definition:
+      "Review items owned by this organizational unit whose review status is pending.",
+    value: unknownValue(reason),
+    provenance: "observed",
+  };
+}
+
 /** G1 closed 2026-09-03; M2 scoring routes and factor implementations pending. */
 export const MATCHING_UNAVAILABLE_REASON =
   "The factor registry is approved, but match scoring is not yet available: topic_relevance and travel_burden implementations (M2) and match API routes are still in progress.";
