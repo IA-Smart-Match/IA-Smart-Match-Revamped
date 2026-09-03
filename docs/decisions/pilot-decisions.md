@@ -84,6 +84,72 @@ Consequences that follow directly:
 
 ---
 
+## D1 — G1 factor-registry workshop record (TEMPLATE — UNFILLED, NOT RATIFIED)
+
+**Ratification status:** **OPEN. No workshop has been held and no registry has
+been approved.** This section is a *template*, prepared in advance so that the
+G1 workshop produces a signature rather than a work session. Every decision
+field below is deliberately blank. A blank field means the decision has not been
+made — it does not mean "no", and it must not be filled in by engineering.
+
+**Ratifier required:** **Danny Tran (@dangt)**, program owner named 2026-09-02
+(`../plans/workshops/g1-factor-registry-workshop-packet.md`). This is the same
+person as the interim owner recorded at the top of this file; the two roles are
+recorded separately on purpose, because the interim-owner self-assignment
+confers no authority to close a gate.
+
+**Gate state, unchanged by this template:**
+
+| Artifact | State |
+|---|---|
+| `python/smartmatch_domain/smartmatch_domain/factor_registry.py` | `REGISTRY_STATUS = "proposed"` |
+| `assert_registry_approved()` | raises `RegistryNotApprovedError` |
+| `tests/unit/test_factor_registry.py::test_registry_is_not_yet_approved` | passes (gate open) |
+| Match scoring | fail-closed; no scored fixture exists |
+
+**Prepared inputs to be reviewed and ratified in the workshop:**
+
+- [`../plans/workshops/g1-workshop-output-worksheet.md`](../plans/workshops/g1-workshop-output-worksheet.md)
+  — the unfilled decision worksheet, one row per item the packet requires.
+- `tests/golden/matching/g1-draft-factor-set.proposed.json` — machine-readable
+  draft factor list and proposed weights, every decision field `PENDING`/`null`,
+  each row carrying its packet source line.
+- `tests/golden/matching/symptoms/G1-GC-004..008` — draft input-only fixtures:
+  reproducing inputs for the exact-tie symptom, and two ADR-0011 discriminating
+  pairs (absent data vs. measured-empty data) for the two zero symptoms. All
+  synthetic. None carries `zero_classification`, and none carries expected
+  scores.
+
+**Decision fields — TO BE FILLED BY THE RATIFIER, NOT BY ENGINEERING:**
+
+| Field | Packet requirement | Recorded decision |
+|---|---|---|
+| Surviving factor keys | packet lines 42–50 | *(blank — not decided)* |
+| Final Stage B weights (sum 1.0 over implemented scoring factors) | packet line 100 | *(blank — not decided)* |
+| Q6 `historical_conversion` | packet line 61 | *(blank — not decided)* |
+| Q6 `student_interest` | packet line 62 | *(blank — not decided)* |
+| Tie-break rule for the 43% tie | packet line 74 | *(blank — not decided)* |
+| `zero_classification` for topic-relevance zero | packet line 75 | *(blank — not decided)* |
+| `zero_classification` for match-depth zero | packet line 76 | *(blank — not decided)* |
+| Who may change approved weights after G1 | packet line 87 | *(blank — not decided)* |
+| Shadow-mode (MM-005) gate on weight changes | packet line 88 | *(blank — not decided)* |
+| Registry version pinning for `match_run` (M8) | packet line 89 | *(blank — not decided)* |
+| Named owner for ongoing weight governance | packet line 103 | *(blank — not decided)* |
+
+**Sign-off — UNSIGNED:**
+
+- Ratified by: ____________________ (must be Danny Tran, @dangt)
+- Date: ____________
+- Commit recording ratification: ____________
+
+Until that block is signed and the fields above are filled, the D1 row in the
+table remains open, scoring remains fail-closed, and the M1 sequence — flipping
+`REGISTRY_STATUS` to `"approved"`, inverting `test_registry_is_not_yet_approved`,
+landing scored golden cases — is **not authorized**. Preparing these artifacts
+does not authorize it and must not be cited as if it did.
+
+---
+
 ## D6 — session-recorded working direction (31 August 2026)
 
 **Ratification status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran

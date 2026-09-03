@@ -1,0 +1,191 @@
+{
+  "$comment": "DRAFT PROPOSAL — NOT APPROVED. This file is a workshop input/output worksheet in machine-readable form. It does not change scoring behaviour, is not imported by any runtime code, and does not conform to golden_case.schema.json (that schema describes G1-GC-* symptom fixtures only). The registry remains REGISTRY_STATUS='proposed' and assert_registry_approved() still raises.",
+  "artifact": "g1-draft-factor-set",
+  "status": "draft_proposed_pending_ratification",
+  "registry_version_referenced": "1.1.0-proposed",
+  "registry_status_at_authoring": "proposed",
+  "ratifier_required": "Danny Tran (@dangt) — program owner named 2026-09-02",
+  "ratified": false,
+  "ratified_on": null,
+  "source_packet": "docs/plans/workshops/g1-factor-registry-workshop-packet.md",
+  "provenance": {
+    "factor_rows": "packet lines 42-50 (Proposed factor inventory table), mirroring PROPOSED_FACTORS in python/smartmatch_domain/smartmatch_domain/factor_registry.py",
+    "normalized_active_weight": "derived from factor_registry.normalize_weights(), not from the packet"
+  },
+  "factors": [
+    {
+      "key": "topic_relevance",
+      "display_label": "Topic Relevance",
+      "stage": "B",
+      "kind": "suitability",
+      "proposed_weight": 0.30,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 42,
+      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+    },
+    {
+      "key": "role_fit",
+      "display_label": "Role Fit",
+      "stage": "B",
+      "kind": "suitability",
+      "proposed_weight": 0.25,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 43,
+      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+    },
+    {
+      "key": "travel_burden",
+      "display_label": "Travel Burden",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.20,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 44,
+      "workshop_decision": "PENDING — survives as-is / reweighted / dropped. Note D3: no route-matrix provider is contracted, so this factor has no live provider."
+    },
+    {
+      "key": "engagement_load",
+      "display_label": "Engagement Load Index",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.15,
+      "implemented_today": true,
+      "active_weight_today": 0.15,
+      "normalized_active_weight_today": 1.0,
+      "packet_source_line": 45,
+      "workshop_decision": "PENDING — survives as-is / reweighted / dropped. Only implemented scoring factor today, so normalization is degenerate (1.0)."
+    },
+    {
+      "key": "repeat_penalty",
+      "display_label": "Repeat Selection Penalty",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.10,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 46,
+      "workshop_decision": "PENDING — survives as-is / reweighted / dropped"
+    },
+    {
+      "key": "availability",
+      "display_label": "Availability / Blackout",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 47,
+      "workshop_decision": "PENDING. Recorded mapping (packet lines 52-53, MM-002 amendment 25 Aug 2026): legacy `calendar_fit` maps here."
+    },
+    {
+      "key": "credential_check",
+      "display_label": "Credential and Background Check",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 48,
+      "workshop_decision": "PENDING"
+    },
+    {
+      "key": "contact_status",
+      "display_label": "Contact Confidence State",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 49,
+      "workshop_decision": "PENDING"
+    },
+    {
+      "key": "declared_cap",
+      "display_label": "Declared Capacity Cap",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "implemented_today": false,
+      "active_weight_today": 0.0,
+      "packet_source_line": 50,
+      "workshop_decision": "PENDING"
+    }
+  ],
+  "invariants": {
+    "proposed_stage_b_weight_sum": 1.0,
+    "normalized_active_weight_sum": 1.0,
+    "eligibility_factors_carry_zero_stage_b_weight": true,
+    "guarded_by": "tests/unit/test_factor_registry.py::test_proposed_scoring_weights_sum_to_one and ::test_implemented_scoring_weights_sum_to_one"
+  },
+  "open_questions_not_determined_by_packet": [
+    {
+      "id": "Q6-historical_conversion",
+      "question": "Legacy `historical_conversion` — return / drop / rename into an existing factor?",
+      "packet_source_line": 61,
+      "packet_position": "Proposed target: none. Decision required.",
+      "answer": null
+    },
+    {
+      "id": "Q6-student_interest",
+      "question": "Legacy `student_interest` — return / drop / rename into an existing factor?",
+      "packet_source_line": 62,
+      "packet_position": "Proposed target: none. Decision required.",
+      "answer": null
+    },
+    {
+      "id": "TIEBREAK",
+      "question": "Tie-break rule for G1-GC-001 (exact 43% tie), and the inputs that reproduce the tie.",
+      "packet_source_line": 74,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    },
+    {
+      "id": "ZERO-CLASS-002",
+      "question": "G1-GC-002 Topic Relevance 0% — measured_zero or unknown (ADR-0011)?",
+      "packet_source_line": 75,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    },
+    {
+      "id": "ZERO-CLASS-003",
+      "question": "G1-GC-003 Match Depth 0 — measured_zero or unknown (ADR-0011)?",
+      "packet_source_line": 76,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    },
+    {
+      "id": "GOV-1",
+      "question": "Who may change approved weights after G1 closes?",
+      "packet_source_line": 87,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    },
+    {
+      "id": "GOV-2",
+      "question": "Does shadow-mode evaluation (MM-005) apply before weight changes ship?",
+      "packet_source_line": 88,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    },
+    {
+      "id": "GOV-3",
+      "question": "Registry version pinning for `match_run` snapshots (M8 — post-G1).",
+      "packet_source_line": 89,
+      "packet_position": "Not determined by packet.",
+      "answer": null
+    }
+  ],
+  "prohibited_inputs_reaffirmed": [
+    "age",
+    "disability",
+    "health_inference",
+    "protected_characteristic",
+    "subjective_admin_opinion",
+    "unrelated_student_feedback",
+    "unverified_external_activity",
+    "llm_generated_assumption"
+  ]
+}

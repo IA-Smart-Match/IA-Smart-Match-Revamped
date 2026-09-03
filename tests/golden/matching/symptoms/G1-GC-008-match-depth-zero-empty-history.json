@@ -1,0 +1,30 @@
+{
+  "id": "G1-GC-008",
+  "symptom_class": "depth_zero",
+  "description": "DRAFT PROPOSAL — NOT RATIFIED. ADR-0011 discriminating case B for the G1-GC-003 'Match Depth 0' symptom: an engagement history record exists and is empty for this unit — the professional has verifiably never been engaged here. Depth is computable and is genuinely zero, unlike G1-GC-007 where it is not computable. zero_classification is deliberately ABSENT — the packet does not determine it (packet line 76). No expected scores until G1 closes.",
+  "stakeholder_reference": "docs/plans/workshops/g1-factor-registry-workshop-packet.md line 76; ADR-0011 Fix #8; MM-002 golden case",
+  "inputs": {
+    "_draft_status": "proposed_pending_ratification_by_danny_tran",
+    "_data_provenance": "synthetic; no real professional or event data",
+    "professional": {
+      "professional_id": "SYNTH-PRO-0008",
+      "engagement_history": [],
+      "engagement_history_state": "recorded_empty",
+      "engagement_history_verified_through": "2026-09-01",
+      "roles": ["mentor"]
+    },
+    "event_need": {
+      "event_need_id": "SYNTH-EN-0008",
+      "requested_roles": ["mentor"],
+      "unit_id": "SYNTH-UNIT-0001"
+    },
+    "context": {
+      "registry_version_referenced": "1.1.0-proposed",
+      "registry_status_at_authoring": "proposed"
+    },
+    "workshop_must_decide": [
+      "zero_classification for this case: measured_zero or unknown — NOT DETERMINED BY PACKET (packet line 76).",
+      "Whether a verified-empty history is presented differently from an absent one in coordinator-facing explanations (M9, post-G1)."
+    ]
+  }
+}
