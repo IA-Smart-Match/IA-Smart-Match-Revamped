@@ -84,6 +84,9 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence import schema
 
 __all__ = [
+    "MATCH_PROVENANCE_MATCH_ENGINE",
+    "MATCH_PROVENANCE_SYNTHETIC_COORDINATOR",
+    "MATCH_PROVENANCE_VALUES",
     "ConflictingOwningUnitError",
     "PipelineRecordRow",
     "PipelineRepository",
@@ -91,6 +94,28 @@ __all__ = [
     "PipelineStageOutcome",
     "UnknownAttendanceEvidenceError",
 ]
+
+#: A coordinator accepted a synthetic, in-list opportunity row in the pilot
+#: appliance — no matching engine ran. This is the exact string the program
+#: owner directed, and the one string this module, the database column, and
+#: the provisioning service's log line all share; see migration ``0016``'s
+#: module docstring for why a tidier ``snake_case`` spelling would be a second
+#: source of truth for the same fact.
+MATCH_PROVENANCE_SYNTHETIC_COORDINATOR: Final[str] = "synthetic / coordinator-accepted"
+
+#: The row was produced by the real matching engine (G1 / M1-M10, landing on
+#: ``pilot/match-engine-m2-m7``). A reserved slot: **nothing in this
+#: repository writes this value.** Reserving it is not depending on that
+#: branch.
+MATCH_PROVENANCE_MATCH_ENGINE: Final[str] = "match-engine"
+
+#: The closed vocabulary ``ck_pipeline_record_matched_provenance`` admits.
+#: :meth:`PipelineRepository.record_matched` checks a caller's argument
+#: against this set in application code before any statement reaches the
+#: database — the CHECK constraint remains the backstop.
+MATCH_PROVENANCE_VALUES: Final[frozenset[str]] = frozenset(
+    {MATCH_PROVENANCE_SYNTHETIC_COORDINATOR, MATCH_PROVENANCE_MATCH_ENGINE}
+)
 
 
 #: ``pipeline_record``'s five stage columns, keyed by the domain stage each
@@ -180,6 +205,7 @@ class PipelineRecordRow:
     subject_id: uuid.UUID
     opportunity_event_id: uuid.UUID
     matched_at: datetime
+    matched_provenance: str
     contacted_at: datetime | None
     confirmed_at: datetime | None
     attended_at: datetime | None
@@ -264,6 +290,7 @@ class PipelineRepository:
         subject_id: uuid.UUID,
         opportunity_event_id: uuid.UUID,
         matched_at: datetime,
+        matched_provenance: str,
     ) -> PipelineRecordRow:
         """Open one journey: ``subject_id`` matched to ``opportunity_event_id``.
 
@@ -287,6 +314,31 @@ class PipelineRepository:
         depending on what that offset happens to be — refused here rather than
         left to that accident.
 
+        ``matched_provenance`` is a required argument with **no default**, for
+        the same reason ``matched_at`` is required rather than assumed: a
+        default would let a caller write a row that asserts a match happened
+        without saying where it came from, which is exactly the fabricated-
+        field shape this column exists to make unstorable (migration
+        ``0016``'s own module docstring). It is checked against
+        :data:`MATCH_PROVENANCE_VALUES` before any statement is issued, so a
+        caller gets a catchable ``ValueError`` naming the constraint rather
+        than an ``IntegrityError`` naming a column it may not recognize — the
+        database's own CHECK remains the backstop.
+
+        **Provenance under idempotency.** This method conflicts ``DO
+        NOTHING`` against ``uq_pipeline_record_subject_opportunity``, so
+        ``matched_provenance`` is written exactly once, by whichever call
+        first creates the row for a given ``(tenant_id, subject_id,
+        opportunity_event_id)``. A later call naming a *different*
+        provenance for that same journey does **not** overwrite it — the
+        read-back below returns the row as the first call left it, silently
+        for provenance the same way it already does for ``matched_at``. This
+        method deliberately has no ``ON CONFLICT DO UPDATE`` path: one would
+        let a synthetic re-accept relabel a row the matching engine produced,
+        or the reverse, and if a row's provenance ever genuinely needs to
+        change that is a separate, deliberate operation this method does not
+        provide.
+
         **Assumes READ COMMITTED** (PostgreSQL's default, and what this
         codebase runs under). The insert below and the read-back that follows
         it are two statements, not one: under READ COMMITTED a concurrent
@@ -305,16 +357,27 @@ class PipelineRepository:
                 ``owning_unit_id`` argument. Must agree with the unit an
                 earlier call already wrote for this exact journey — see
                 :class:`ConflictingOwningUnitError`.
+            matched_provenance: Where this match came from. Must be one of
+                :data:`MATCH_PROVENANCE_VALUES`. Not overwritten by a later
+                call for the same journey — see "Provenance under
+                idempotency" above.
 
         Returns:
             The row as it now stands — freshly inserted, or the one an
             earlier call already wrote for this exact journey.
 
         Raises:
-            ValueError: ``matched_at`` is a naive ``datetime``.
+            ValueError: ``matched_at`` is a naive ``datetime``, or
+                ``matched_provenance`` is not one of
+                :data:`MATCH_PROVENANCE_VALUES`.
             ConflictingOwningUnitError: this journey already exists under a
                 different ``owning_unit_id``.
         """
+        if matched_provenance not in MATCH_PROVENANCE_VALUES:
+            raise ValueError(
+                f"matched_provenance must be one of {sorted(MATCH_PROVENANCE_VALUES)}, "
+                f"not {matched_provenance!r} (ck_pipeline_record_matched_provenance)"
+            )
         if matched_at.tzinfo is None:
             raise ValueError(
                 "matched_at must be timezone-aware — a naive datetime can silently "
@@ -331,6 +394,7 @@ class PipelineRepository:
                 subject_id=subject_id,
                 opportunity_event_id=opportunity_event_id,
                 matched_at=matched_at,
+                matched_provenance=matched_provenance,
             )
             .on_conflict_do_nothing(constraint="uq_pipeline_record_subject_opportunity")
         )
@@ -624,6 +688,7 @@ def _to_row(row: sa.Row[Any]) -> PipelineRecordRow:
         subject_id=row.subject_id,
         opportunity_event_id=row.opportunity_event_id,
         matched_at=row.matched_at,
+        matched_provenance=row.matched_provenance,
         contacted_at=row.contacted_at,
         confirmed_at=row.confirmed_at,
         attended_at=row.attended_at,

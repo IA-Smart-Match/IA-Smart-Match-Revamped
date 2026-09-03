@@ -530,6 +530,14 @@ pipeline_record = sa.Table(
     # and a stalled journey has still reached the stages it passed. Only the
     # first is NOT NULL — a record exists because a match does.
     sa.Column("matched_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Where the match came from. NOT NULL, no server default (migration
+    # 0016): a default would let a caller omit provenance and still write a
+    # row, which is exactly what this column exists to make impossible. Full
+    # rationale — why the vocabulary is closed to exactly these two members,
+    # why the first is spelled with a space and a slash, why a third member is
+    # always a new revision — lives in that migration's module docstring;
+    # only what a reader of this mirror needs is repeated here.
+    sa.Column("matched_provenance", sa.Text, nullable=False),
     sa.Column("contacted_at", _TS, nullable=True),
     sa.Column("confirmed_at", _TS, nullable=True),
     sa.Column("attended_at", _TS, nullable=True),
@@ -591,6 +599,13 @@ pipeline_record = sa.Table(
     sa.CheckConstraint(
         "(attended_at IS NULL) = (attended_attendance_id IS NULL)",
         name="ck_pipeline_record_attendance_evidence",
+    ),
+    # The provenance vocabulary is closed to exactly these two members; full
+    # rationale lives in migration 0016's module docstring, only what a
+    # reader of this mirror needs is repeated here.
+    sa.CheckConstraint(
+        "matched_provenance IN ('synthetic / coordinator-accepted', 'match-engine')",
+        name="ck_pipeline_record_matched_provenance",
     ),
 )
 

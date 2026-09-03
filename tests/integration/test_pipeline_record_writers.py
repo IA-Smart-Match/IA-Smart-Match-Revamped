@@ -41,6 +41,7 @@ from smartmatch_api.main import app
 from smartmatch_domain.pipeline import InvalidPipelineStageTransitionError, PipelineStage
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.pipeline import (
+    MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
     ConflictingOwningUnitError,
     PipelineRepository,
     PipelineStageOrderError,
@@ -171,6 +172,7 @@ def test_record_matched_writes_a_valid_row_and_is_idempotent(
             subject_id=subject_id,
             opportunity_event_id=opportunity_id,
             matched_at=matched_at,
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -189,11 +191,75 @@ def test_record_matched_writes_a_valid_row_and_is_idempotent(
             subject_id=subject_id,
             opportunity_event_id=opportunity_id,
             matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
     assert second.id == first.id
     assert second.matched_at == matched_at, "the second call must not overwrite the first row"
+
+
+def test_record_matched_round_trips_the_provenance_it_was_given(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """The stored value is exactly the string the caller passed, not a stand-in.
+
+    ``PipelineRecordRow.matched_provenance`` is read off the row this method
+    itself just inserted — this is the narrow claim that the write and the
+    read agree, distinct from ``test_record_matched_writes_a_valid_row_and_is_idempotent``,
+    which does not inspect this field at all.
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+        subject_id = _make_user(conn, tenant_id)
+
+    with db_session_factory() as session:
+        record = repo.record_matched(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            opportunity_event_id=uuid.uuid4(),
+            matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
+        )
+        session.commit()
+
+    assert record.matched_provenance == MATCH_PROVENANCE_SYNTHETIC_COORDINATOR
+
+
+def test_record_matched_refuses_an_unknown_provenance_in_python(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """A caller gets a catchable ``ValueError`` naming the constraint, not a database round-trip.
+
+    ``ck_pipeline_record_matched_provenance`` is the backstop, proven at the
+    database layer in ``test_pipeline_provenance_migration.py``; this is the
+    application-code refusal that fires before any statement is issued.
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+        subject_id = _make_user(conn, tenant_id)
+
+    with (
+        db_session_factory() as session,
+        pytest.raises(ValueError, match="ck_pipeline_record_matched_provenance"),
+    ):
+        repo.record_matched(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            opportunity_event_id=uuid.uuid4(),
+            matched_at=datetime.now(UTC),
+            matched_provenance="fabricated",
+        )
 
 
 def test_advance_stage_walks_the_full_funnel_writing_valid_stage_timestamps(
@@ -215,6 +281,7 @@ def test_advance_stage_walks_the_full_funnel_writing_valid_stage_timestamps(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=base,
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -264,6 +331,7 @@ def test_advance_stage_refuses_a_stage_whose_prerequisite_is_unreached(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -296,6 +364,7 @@ def test_advance_stage_refuses_attended_without_real_evidence(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC) - timedelta(hours=3),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
         repo.advance_stage(
@@ -366,6 +435,7 @@ def test_advance_stage_reports_already_reached_without_transitioning(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC) - timedelta(hours=2),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -424,6 +494,7 @@ def test_advance_stage_refuses_reached_at_before_the_prerequisite(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=matched_at,
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -476,6 +547,7 @@ def test_get_and_advance_stage_refuse_a_valid_record_id_under_a_foreign_tenant(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -564,6 +636,7 @@ def test_advance_stage_refuses_a_bogus_attended_attendance_id(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC) - timedelta(hours=3),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
         repo.advance_stage(
@@ -625,6 +698,7 @@ def test_record_matched_refuses_a_naive_matched_at(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
 
 
@@ -646,6 +720,7 @@ def test_advance_stage_refuses_a_naive_reached_at(
             subject_id=subject_id,
             opportunity_event_id=uuid.uuid4(),
             matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -686,6 +761,7 @@ def test_record_matched_refuses_a_conflicting_owning_unit_id(
             subject_id=subject_id,
             opportunity_event_id=opportunity_id,
             matched_at=datetime.now(UTC),
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
         session.commit()
 
@@ -697,6 +773,7 @@ def test_record_matched_refuses_a_conflicting_owning_unit_id(
                 subject_id=subject_id,
                 opportunity_event_id=opportunity_id,
                 matched_at=datetime.now(UTC),
+                matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
             )
 
 
@@ -803,6 +880,7 @@ def test_metrics_aggregate_and_drill_down_each_return_n_rows_for_n_pipeline_reco
                 subject_id=subject_id,
                 opportunity_event_id=uuid.uuid4(),
                 matched_at=base,
+                matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
             )
             session.commit()
 

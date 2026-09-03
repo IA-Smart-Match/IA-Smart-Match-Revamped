@@ -95,6 +95,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "CHECK (((attended_at IS NULL) = (attended_attendance_id IS NULL)))"
     ),
+    ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
+        "CHECK ((matched_provenance = ANY (ARRAY['synthetic / coordinator-accepted'::text, "
+        "'match-engine'::text])))"
+    ),
     ("pipeline_record", "ck_pipeline_record_stage_order"): (
         "CHECK ((((contacted_at IS NULL) OR (contacted_at >= matched_at)) AND "
         "((confirmed_at IS NULL) OR (confirmed_at >= contacted_at)) AND "
@@ -172,6 +176,9 @@ BEHAVIOURAL_COVERAGE = {
     ("pipeline_record", "ck_pipeline_record_stage_order"): "test_pipeline_record_constraints.py",
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "test_pipeline_record_constraints.py"
+    ),
+    ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
+        "test_pipeline_provenance_migration.py"
     ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
