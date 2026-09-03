@@ -34,9 +34,7 @@ OPPORTUNITIES_PAGE = FRONTEND_SRC / "app" / "pages" / "Opportunities.tsx"
 DASHBOARD_PAGE = FRONTEND_SRC / "app" / "pages" / "Dashboard.tsx"
 METRICS_LIB = FRONTEND_SRC / "lib" / "metrics.ts"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
-DRILLDOWN_SHEET = (
-    FRONTEND_SRC / "app" / "components" / "provenance" / "MetricDrilldownSheet.tsx"
-)
+DRILLDOWN_SHEET = FRONTEND_SRC / "app" / "components" / "provenance" / "MetricDrilldownSheet.tsx"
 
 OPPORTUNITIES_FORBIDDEN_PATTERNS = (
     "fetchCrawlerResults",
@@ -153,9 +151,7 @@ def test_metrics_lib_binds_opportunities_to_the_register() -> None:
     assert "if (summary.value === null)" in source
     assert "return unknownValue(" in source
     for pattern in ZERO_COERCION_PATTERNS:
-        assert pattern not in source, (
-            f"metrics.ts coerces an unmeasured value to zero: {pattern!r}"
-        )
+        assert pattern not in source, f"metrics.ts coerces an unmeasured value to zero: {pattern!r}"
 
 
 def test_dashboard_reads_registered_opportunities_without_fabricating() -> None:
@@ -185,9 +181,7 @@ def test_dashboard_reads_registered_opportunities_without_fabricating() -> None:
     assert "unavailableOpportunitiesMetric" in source
 
     for pattern in ZERO_COERCION_PATTERNS:
-        assert pattern not in source, (
-            f"Dashboard coerces an unmeasured value to zero: {pattern!r}"
-        )
+        assert pattern not in source, f"Dashboard coerces an unmeasured value to zero: {pattern!r}"
 
 
 def test_api_lib_exposes_the_metrics_and_drill_down_routes() -> None:
