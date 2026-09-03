@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+#
+# End-to-end smoke path for the docker compose appliance (docker-compose.yml).
+#
+# It proves ONE sentence, in order, against the running stack:
+#
+#   import  ->  scheduler dispatch  ->  pending_review_items == 1
+#           ->  review decision     ->  pending_review_items == 0
+#
+# ...with no manual dispatch step anywhere in it. The compose `scheduler`
+# sidecar is what drives the queued import to completion; if it does not, this
+# script fails rather than papering over it with a longer wait.
+#
+# This is the same sequence INSTALL.md documents command by command. It is not
+# a deployment, publishes no image, pushes to no registry, and reaches nothing
+# outside this compose network — see docker-compose.yml's header.
+#
+# Usage:
+#
+#   docker compose up --build -d
+#   scripts/compose_smoke.sh
+#   docker compose down -v        # teardown is the caller's, not this script's
+#
+# This script deliberately does NOT bring the stack up or tear it down. CI owns
+# `up` and an always-run `down -v` so logs survive a failure, and a developer
+# running it by hand wants the stack still standing to look at.
+#
+# Exit codes: 0 = the whole path held. 1 = a stage failed; the failing stage is
+# named on stderr and the relevant `docker compose logs` are dumped.
+#
+# Rules this file holds itself to:
+#   * No `|| true`, and no swallowed exit code on any assertion. The only
+#     tolerated failure anywhere is a connection refusal *inside a readiness
+#     poll*, which is the condition being polled for, and every such loop still
+#     ends in a hard check that exits 1.
+#   * No bare `sleep` standing in for readiness. Every wait is a bounded poll
+#     of the actual condition, and reports what it saw on each attempt.
+
+set -Eeuo pipefail
+
+# --- Local-only identities, matching docker-compose.yml exactly ---------------
+# These are the compose file's own literals (its x-compose-dev-identity
+# anchors). They authenticate nothing outside that network and are not secrets;
+# see docker-compose.yml's header note on why they are short, plain strings.
+API_BASE="${API_BASE:-http://127.0.0.1:8080}"
+WORKER_BASE="${WORKER_BASE:-http://127.0.0.1:8081}"
+API_BEARER="${API_BEARER:-compose-api}"
+UNIT_PATH="${UNIT_PATH:-pilot}"
+DB_URL="postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
+
+# Bounded poll budgets, in attempts. Each attempt prints what it observed.
+READY_ATTEMPTS="${READY_ATTEMPTS:-60}"     # x2s — image start + migrate + seed
+SCHEDULER_ATTEMPTS="${SCHEDULER_ATTEMPTS:-15}"  # x2s — one accepted pass
+METRIC_ATTEMPTS="${METRIC_ATTEMPTS:-30}"   # x1s — the scheduler's 2s loop
+
+log() { printf '%s\n' "$*"; }
+
+fail() {
+  # Named stage, then the logs that explain it. `::error::` is a GitHub Actions
+  # annotation and is harmless noise in a local terminal.
+  printf '::error::compose smoke failed: %s\n' "$*" >&2
+  docker compose ps || true
+  docker compose logs --no-color --tail=200 api worker scheduler seed migrate || true
+  exit 1
+}
+
+# `docker compose logs` in the failure path is best-effort diagnostics only —
+# it runs after the verdict is already "failed" and cannot change it. Every
+# assertion above uses no such tolerance.
+
+require_json_number() {
+  # Reads stdin, prints the named metric's value, or the literal string `null`
+  # when the metric is absent or its value is unknown. Never invents a 0:
+  # unknown is not zero (see smartmatch_api/routers/metrics.py).
+  python3 -c '
+import json, sys
+name = sys.argv[1]
+doc = json.load(sys.stdin)
+print(next((m["value"] for m in doc["metrics"] if m["name"] == name), "null"))
+' "$1"
+}
+
+metric_value() {
+  # $1 = unit id, $2 = metric name. A transport failure here is a real failure:
+  # the API is already known-healthy by the time this is called.
+  curl -sf "${API_BASE}/v1/units/${1}/metrics" \
+    -H "Authorization: Bearer ${API_BEARER}" | require_json_number "$2"
+}
+
+psql_scalar() {
+  docker compose exec -T db psql "$DB_URL" -tAc "$1" | tr -d '[:space:]'
+}
+
+# =============================================================================
+# Stage 1 — readiness. A real poll of both health endpoints, not a sleep.
+# =============================================================================
+log "== stage 1: api + worker readiness =="
+api_code=000
+worker_code=000
+for attempt in $(seq 1 "$READY_ATTEMPTS"); do
+  # A connection refusal is the condition being polled for, so a non-zero curl
+  # here is data, not an error — hence the explicit default rather than a
+  # blanket `|| true`. The hard check after the loop is what decides.
+  if ! api_code="$(curl -s -o /dev/null -w '%{http_code}' "${API_BASE}/api/health")"; then
+    api_code=000
+  fi
+  if ! worker_code="$(curl -s -o /dev/null -w '%{http_code}' "${WORKER_BASE}/health")"; then
+    worker_code=000
+  fi
+  log "  attempt ${attempt}: api=${api_code} worker=${worker_code}"
+  if [ "$api_code" = "200" ] && [ "$worker_code" = "200" ]; then
+    break
+  fi
+  sleep 2
+done
+[ "$api_code" = "200" ] && [ "$worker_code" = "200" ] \
+  || fail "api or worker never reported healthy (api=${api_code} worker=${worker_code})"
+
+# =============================================================================
+# Stage 2 — scheduler misconfiguration guard. THIS IS THE LOUD ONE.
+#
+# The sidecar exits 1 on 401/403/501 from POST /operations/dispatch — a token
+# that drifted from the worker's SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN, or a
+# worker with no dispatch configured (smartmatch_worker/local_scheduler.py's
+# _FATAL_STATUSES). Without this stage that failure would surface later as a
+# timeout on stage 5, which reads like "slow" rather than "misconfigured".
+#
+# Two independent assertions: the container is still running, AND it logged at
+# least one accepted pass. Either alone can pass while the path is broken —
+# a sidecar that has not yet been refused is still "running", and a stale log
+# line could outlive a container that has since exited.
+# =============================================================================
+log "== stage 2: scheduler sidecar is running and dispatching =="
+accepted=""
+scheduler_state=""
+for attempt in $(seq 1 "$SCHEDULER_ATTEMPTS"); do
+  # `-a`: a container that has already exited is absent from a bare
+  # `compose ps`, and "absent" is exactly the state this stage must name out
+  # loud rather than report as an empty string.
+  scheduler_state="$(docker compose ps -a --format '{{.State}}' scheduler)"
+  [ -n "$scheduler_state" ] || scheduler_state="absent"
+  if [ "$scheduler_state" != "running" ]; then
+    fail "scheduler sidecar is '${scheduler_state}', not running. It exits rather \
+than looping against a worker that will never accept it (401/403/501), so this \
+is a scheduler/worker bearer-token or dispatch misconfiguration — check that \
+SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN and the worker's \
+SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN still resolve to the same compose anchor, \
+and that the worker's SMARTMATCH_EDITION is dev. This is not a slow start."
+  fi
+  # awk, not `grep -c`, because grep exits 1 on zero matches and zero matches is
+  # the expected state on the first attempt — this counts, it does not assert.
+  accepted="$(docker compose logs --no-color scheduler \
+    | awk '/dispatch pass accepted/ {n++} END {print n+0}')"
+  log "  attempt ${attempt}: state=${scheduler_state} accepted_passes=${accepted}"
+  if [ "${accepted:-0}" -ge 1 ]; then
+    break
+  fi
+  sleep 2
+done
+[ "${accepted:-0}" -ge 1 ] \
+  || fail "scheduler sidecar never logged an accepted dispatch pass; the worker \
+is not answering POST /operations/dispatch 2xx for it"
+
+# =============================================================================
+# Stage 3 — the seeded unit. Looked up, never guessed.
+# =============================================================================
+log "== stage 3: recover the seeded '${UNIT_PATH}' unit =="
+unit_id="$(psql_scalar "select id from org_unit where path = '${UNIT_PATH}'")"
+[ -n "$unit_id" ] || fail "seed did not produce a '${UNIT_PATH}' org unit"
+log "  unit_id=${unit_id}"
+
+# Baseline, so stage 5's "== 1" is a measured change and not an accident of a
+# stack that was already carrying a pending item from an earlier run.
+baseline="$(metric_value "$unit_id" pending_review_items)"
+log "  baseline pending_review_items=${baseline}"
+[ "$baseline" = "0" ] \
+  || fail "expected a clean stack (pending_review_items == 0), got ${baseline}; \
+run 'docker compose down -v' first"
+
+# =============================================================================
+# Stage 4 — import. One inline professionals row, dry_run:false.
+# =============================================================================
+log "== stage 4: submit one inline professionals row =="
+import_code="$(curl -s -o /dev/null -w '%{http_code}' \
+  -X POST "${API_BASE}/v1/units/${unit_id}/imports" \
+  -H "Authorization: Bearer ${API_BEARER}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${SMOKE_IDEMPOTENCY_KEY:-smoke-$(date +%s)-$$}" \
+  -d '{
+        "dataset": "professionals",
+        "dry_run": false,
+        "rows": [
+          {"name": "Ada Lovelace", "metro_region": "Portland"}
+        ]
+      }')"
+log "  POST /imports -> ${import_code}"
+[ "$import_code" = "202" ] || fail "import was not accepted (expected 202, got ${import_code})"
+
+# =============================================================================
+# Stage 5 — scheduler-driven dispatch lands the row in review.
+# There is deliberately no dispatch curl anywhere in this file.
+# =============================================================================
+log "== stage 5: poll for pending_review_items == 1 (no manual dispatch) =="
+value=null
+for attempt in $(seq 1 "$METRIC_ATTEMPTS"); do
+  value="$(metric_value "$unit_id" pending_review_items)"
+  log "  attempt ${attempt}: pending_review_items=${value}"
+  [ "$value" = "1" ] && break
+  sleep 1
+done
+[ "$value" = "1" ] \
+  || fail "expected pending_review_items == 1 after scheduler-driven dispatch, got ${value}"
+
+# =============================================================================
+# Stage 6 — the review item itself. There is no list route for review items
+# (services/api/smartmatch_api/routers/review.py exposes only the decision
+# endpoint), so the id is read from the database the same way the unit id is.
+# =============================================================================
+log "== stage 6: recover the pending review item =="
+review_item_id="$(psql_scalar "
+  select ri.id
+    from review_item ri
+    join import_batch ib
+      on ib.tenant_id = ri.tenant_id and ib.id = ri.import_batch_id
+    join org_unit ou
+      on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
+   where ou.path = '${UNIT_PATH}' and ri.status = 'pending'
+   order by ri.row_index
+   limit 1")"
+[ -n "$review_item_id" ] \
+  || fail "pending_review_items reported 1 but no pending review_item row joins to unit '${UNIT_PATH}'"
+log "  review_item_id=${review_item_id}"
+
+# =============================================================================
+# Stage 7 — the decision. 200, not 202: it starts nothing durable.
+# =============================================================================
+log "== stage 7: accept the review item =="
+decision_body="$(curl -sf -X POST "${API_BASE}/v1/review-items/${review_item_id}/decision" \
+  -H "Authorization: Bearer ${API_BEARER}" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "accepted"}')" \
+  || fail "POST /v1/review-items/${review_item_id}/decision did not return 2xx"
+log "  response: ${decision_body}"
+decided_status="$(printf '%s' "$decision_body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+[ "$decided_status" = "accepted" ] \
+  || fail "decision response reported status '${decided_status}', expected 'accepted'"
+
+# =============================================================================
+# Stage 8 — the metric reflects the decision. This is the whole point: the
+# count is read back from its owning route (ADR-0011 rule 4), not recomputed.
+# =============================================================================
+log "== stage 8: poll for pending_review_items == 0 (metrics reflect the decision) =="
+value=null
+for attempt in $(seq 1 "$METRIC_ATTEMPTS"); do
+  value="$(metric_value "$unit_id" pending_review_items)"
+  log "  attempt ${attempt}: pending_review_items=${value}"
+  [ "$value" = "0" ] && break
+  sleep 1
+done
+[ "$value" = "0" ] \
+  || fail "expected pending_review_items == 0 after the accept decision, got ${value}"
+
+log ""
+log "OK: import -> scheduler dispatch -> pending_review_items 0->1 -> accept -> 1->0"
+log "    (no manual dispatch step, no registry, nothing outside the compose network)"

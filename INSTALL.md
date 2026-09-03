@@ -139,10 +139,18 @@ docker compose up --build -d
 
 ### Smoke-testing the full import path
 
-This is the complete path from an empty stack to one pending review item,
-with **no manual dispatch step** — the `scheduler` sidecar drives the import
-to completion on its own, the same way Cloud Scheduler would drive the real
-deployed worker (see `docs/operations/containers.md`).
+This is the complete path from an empty stack through a coordinator's review
+decision and back out to the metric that decision moved:
+
+    import  ->  scheduler dispatch  ->  pending_review_items == 1
+            ->  review decision     ->  pending_review_items == 0
+
+with **no manual dispatch step** anywhere in it — the `scheduler` sidecar
+drives the import to completion on its own, the same way Cloud Scheduler would
+drive the real deployed worker (see `docs/operations/containers.md`). The last
+two steps are the ones worth insisting on: an import that reaches review only
+proves ingestion, and a decision is only real once the count it is supposed to
+change actually changes.
 
 **1. Bring the stack up.**
 
@@ -205,13 +213,70 @@ for i in $(seq 1 30); do
   [ "$value" = "1" ] && break
   sleep 1
 done
-```
-
-**5. Assert the result.**
-
-```bash
 [ "$value" = "1" ] || { echo "FAILED: expected pending_review_items.value == 1, got $value"; exit 1; }
 echo "OK: one row queued through the dev-only scheduler, no manual dispatch"
+```
+
+If this never reaches `1`, check the `scheduler` sidecar **before** blaming the
+poll budget — it exits rather than retrying when the worker answers `401`,
+`403`, or `501`, so a stopped sidecar is a misconfiguration, not a slow start:
+
+```bash
+docker compose ps -a scheduler                      # 'exited' means misconfigured
+docker compose logs scheduler | tail -5
+```
+
+**5. Recover the pending review item's UUID.** The API exposes no list route
+for review items — `POST /v1/review-items/{id}/decision` is the only route in
+`smartmatch_api/routers/review.py` — so read the id from the database the same
+way step 2 read the unit id:
+
+```bash
+REVIEW_ITEM_ID=$(docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc "
+  select ri.id
+    from review_item ri
+    join import_batch ib
+      on ib.tenant_id = ri.tenant_id and ib.id = ri.import_batch_id
+    join org_unit ou
+      on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
+   where ou.path = 'pilot' and ri.status = 'pending'
+   order by ri.row_index
+   limit 1")
+echo "$REVIEW_ITEM_ID"
+```
+
+**6. Accept the row.** `200`, not `202`: a decision starts nothing durable —
+it is one conditional `UPDATE` that either lands in this request or does not
+(see `routers/review.py`). The response deliberately carries no count; the
+count has an owning route, and step 7 reads it from there.
+
+```bash
+curl -sf -X POST "http://127.0.0.1:8080/v1/review-items/$REVIEW_ITEM_ID/decision" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "accepted"}'
+```
+
+Expect `{"id":"...","status":"accepted","decided_at":"..."}`. Repeating the
+same call answers `409 review_item_already_decided` — a decision may not be
+recorded twice.
+
+**7. Confirm the metric moved.** This is the half the smoke path exists for:
+a decision that does not change `pending_review_items` has not been recorded
+anywhere that matters.
+
+```bash
+for i in $(seq 1 30); do
+  value=$(curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+    -H "Authorization: Bearer compose-api" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"), "null"))')
+  echo "attempt $i: pending_review_items.value = $value"
+  [ "$value" = "0" ] && break
+  sleep 1
+done
+[ "$value" = "0" ] || { echo "FAILED: expected pending_review_items.value == 0, got $value"; exit 1; }
+echo "OK: import -> scheduler dispatch -> review -> decision -> metric"
 ```
 
 Tear down when finished:
@@ -219,6 +284,24 @@ Tear down when finished:
 ```bash
 docker compose down -v
 ```
+
+### The same path, non-interactively
+
+`scripts/compose_smoke.sh` runs steps 2 through 7 above as one command, with
+every assertion made explicit and the relevant `docker compose logs` dumped on
+the first failure. It is what the `compose smoke` CI job
+(`.github/workflows/build.yml`) runs, so the documented path and the enforced
+path are one sequence rather than two that can drift:
+
+```bash
+docker compose up --build -d
+scripts/compose_smoke.sh
+docker compose down -v
+```
+
+It deliberately does not bring the stack up or tear it down — CI wants the
+containers alive after a failure so it can read their logs, and so does anyone
+debugging by hand.
 
 ---
 
@@ -232,6 +315,8 @@ docker compose down -v
 | Integration tests report `skipped` | No reachable database. Verify with the `psql` checks above. |
 | `ModuleNotFoundError: No module named 'sqlalchemy'` | You used the system `python3`. Use `.venv/bin/python` and `.venv/bin/pytest`. |
 | `alembic_version` behind the newest migration file | `make migrate`. |
+| Smoke path never reaches `pending_review_items == 1` | Check `docker compose ps -a scheduler` first. `exited` means the sidecar was refused (`401`/`403`/`501`) and stopped rather than looping — a bearer-token or dispatch misconfiguration, not a slow start. `docker compose logs scheduler` names the status. |
+| `409 review_item_already_decided` | That item was already accepted or rejected. Submit a fresh import, or `docker compose down -v` and start clean. |
 
 Error-keyed troubleshooting beyond this table is in
 [`CONTRIBUTING.md`](CONTRIBUTING.md#troubleshooting).

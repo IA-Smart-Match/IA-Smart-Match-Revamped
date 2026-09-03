@@ -18,7 +18,15 @@
 #   docker compose up -d db          # just the database, for pytest
 #   docker compose up --build        # the full appliance, for image-level checks
 #   docker compose up --build -d     # same, detached — see the smoke path in INSTALL.md
+#   scripts/compose_smoke.sh         # the full import -> review -> metrics path
 #   docker compose down -v           # stop and discard the data volume
+#
+# `scripts/compose_smoke.sh` is the one implementation of the smoke path this
+# file exists to make possible: it asserts, against a running stack, that an
+# import reaches review through the `scheduler` sidecar with no manual dispatch
+# step, that a coordinator's decision is accepted, and that
+# `pending_review_items` drops as a result. INSTALL.md documents the same
+# sequence command by command, and the `compose smoke` CI job runs the script.
 #
 # PICK ONE DATABASE. This stack publishes 5432, and so does a native
 # `apt-get install postgresql-16`. Running both means `docker compose up -d db`
