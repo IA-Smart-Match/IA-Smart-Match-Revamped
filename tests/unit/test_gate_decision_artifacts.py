@@ -19,8 +19,8 @@ D6_WORKSHEET = REPO_ROOT / "docs/pilot-data/rewards-catalog-worksheet.md"
 def test_g1_packet_remains_unapproved_prep() -> None:
     """G1 workshop packet must not be mistaken for D1/G1 ratification."""
     text = G1_PACKET.read_text(encoding="utf-8").lower()
-    assert "preparation only" in text
-    assert "does not approve" in text
+    assert "ready to schedule" in text
+    assert "remain blocked" in text
 
 
 def test_g1_packet_names_required_decision_fields() -> None:
