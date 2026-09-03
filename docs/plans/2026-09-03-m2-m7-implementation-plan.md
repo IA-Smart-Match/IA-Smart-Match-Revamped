@@ -801,6 +801,20 @@ factor modules from Tasks 1–3, or `contracts/openapi/smartmatch.json`.
 1. Flip `implemented=False` → `implemented=True` on the `topic_relevance` and
    `travel_burden` `FactorSpec` entries. **`availability` stays
    `implemented=False`** — it is `ELIGIBILITY`, weight 0, and never scored.
+
+   **Superseded 2026-09-03 by the whole-branch review fix wave (controller
+   ruling, Fix 2):** `availability` was later flipped to `implemented=True`
+   too. `FactorSpec.implemented` is documented as "whether a verified
+   implementation exists in this package", and Task 3's `eligibility.py`
+   (`apply_availability_filter`) *is* that implementation — leaving the flag
+   at `False` made the registry misreport built state, the mirror image of
+   the legacy defect this registry exists to prevent. `is_scoring` (not
+   `implemented`) is what keeps `availability` at weight 0 regardless —
+   `active_weight` and `implemented_scoring_keys()` both filter on
+   `is_scoring` before ever consulting `implemented`, so this reversal is
+   inert to Stage B scoring. See
+   `.superpowers/sdd/2026-09-03-m2-m7-implementation-plan/final-fix-report.md`
+   (Fix 2).
 2. **Do not change `REGISTRY_STATUS`.** It is already `"approved"` on main and
    `assert_registry_approved()` already passes. Leave both alone.
 3. Bump `REGISTRY_VERSION` from `"1.1.0-approved-g1"` to

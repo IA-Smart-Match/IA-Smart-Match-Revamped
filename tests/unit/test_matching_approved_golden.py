@@ -216,18 +216,27 @@ def test_no_approved_fixture_asserts_a_legacy_score(path: Path):
     version of this guard scanned only ``json.dumps(case["expected"])``,
     which let a description carrying "43%" and "legacy" pass silently.
 
-    The forbidden legacy tie value is checked as "43%" / "0.43", its two
-    natural textual representations, rather than the bare digit pair "43":
-    every approved fixture's synthetic coordinates include Los Angeles'
-    longitude (``-118.2437``), which contains "43" as a harmless numeric
-    coincidence once the scan covers ``inputs`` too. A bare-substring check
-    would flag that coordinate on every fixture without ever catching a
-    real legacy-value reference more precisely than "43%"/"0.43" already do.
+    The forbidden legacy tie value is checked as "43%" / "43 percent" /
+    "0.43", its natural textual representations, rather than the bare digit
+    pair "43": every approved fixture's synthetic coordinates include Los
+    Angeles' longitude (``-118.2437``), which contains "43" as a harmless
+    numeric coincidence once the scan covers ``inputs`` too. A
+    bare-substring check would flag that coordinate on every fixture without
+    ever catching a real legacy-value reference more precisely than these
+    checks already do.
+
+    "legacy" itself stays checked too, even though every current fixture
+    says "predecessor" instead — the point is to catch the *value*
+    (43%/0.43), whatever word introduces it, so a future description reading
+    "the predecessor engine's 43 percent tie value" cannot slip past this
+    guard the way it would if only "legacy" were checked.
     """
     case = _load_case(path)
     case_text = json.dumps(case).lower()
     assert "legacy" not in case_text
     assert "43%" not in case_text
+    assert "43 percent" not in case_text
+    assert "43-percent" not in case_text
     assert "0.43" not in case_text
 
 

@@ -40,19 +40,41 @@ def test_implemented_scoring_weights_sum_to_one():
     assert sum(weights.values()) == pytest.approx(1.0)
 
 
-def test_unimplemented_factors_contribute_no_active_weight():
+def test_active_weight_is_zero_unless_scoring_and_implemented():
     """The structural half of the same guard.
 
     A factor may be *proposed* with a nonzero weight before it is built — that
-    is what a proposal is for. What it must never do is contribute active weight,
-    because active weight is what normalization divides by.
+    is what a proposal is for. What it must never do is contribute active
+    weight, because active weight is what normalization divides by. The
+    invariant is ``not (is_scoring and implemented) => active_weight == 0.0``
+    — the same statement :class:`~smartmatch_domain.factor_registry.
+    FactorSpec`'s ``implemented`` docstring now makes explicitly.
+
+    A prior version of this test only checked ``not spec.implemented``, which
+    was correct while ``availability`` was the registry's one
+    ``implemented=False`` entry, but went vacuous the moment every
+    ``PROPOSED_FACTORS`` entry became ``implemented=True`` (fix wave, Fix 2):
+    the loop body stopped running at all, so the assertion inside it stopped
+    proving anything, while still reading as a live regression guard. This
+    version checks the real invariant — is_scoring, not implemented, is what
+    keeps availability at weight 0 — and asserts the loop body actually ran
+    at least once, so it can never again silently pass without checking
+    anything.
     """
+    checked = 0
     for spec in PROPOSED_FACTORS:
-        if not spec.implemented:
+        if not (spec.is_scoring and spec.implemented):
+            checked += 1
             assert spec.active_weight == 0.0, (
-                f"{spec.key} is unimplemented but contributes active weight "
-                f"{spec.active_weight} — this is the legacy deflation defect"
+                f"{spec.key} is not both a scoring factor and implemented, "
+                f"but contributes active weight {spec.active_weight} — this "
+                "is the legacy deflation defect"
             )
+    assert checked > 0, (
+        "no PROPOSED_FACTORS entry is outside (is_scoring and implemented) — "
+        "this guard would otherwise pass vacuously, as it did before this "
+        "fix wave once every factor became implemented=True"
+    )
 
 
 def test_active_weights_are_the_approved_scoring_set_after_m6j():
