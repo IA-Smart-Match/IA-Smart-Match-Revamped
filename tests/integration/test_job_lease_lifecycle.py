@@ -347,9 +347,7 @@ def test_a_job_the_executor_finished_carries_no_deadline(session_factory, jobs, 
 # ---------------------------------------------------------------------------
 
 
-def test_the_sweep_times_out_a_job_whose_lease_ran_out(
-    non_utc_session_factory, jobs, tenant_id
-):
+def test_the_sweep_times_out_a_job_whose_lease_ran_out(non_utc_session_factory, jobs, tenant_id):
     """The recovery J9 exists for: a claim with nothing behind it.
 
     The job is claimed and then abandoned — no exception, no outcome, nothing.
