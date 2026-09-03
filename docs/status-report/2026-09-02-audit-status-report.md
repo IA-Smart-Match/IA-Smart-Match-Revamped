@@ -353,16 +353,42 @@ owner worksheets. They do **not** constitute pilot readiness.
 
 | Slice | What works today | What remains |
 |-------|------------------|--------------|
-| **Import + column contract** | Inline-rows import enforces `columns.yaml`; quarantine + **review decision API** | Pipeline writers for full funnel |
+| **Import + column contract** | Inline-rows import enforces `columns.yaml`; quarantine + **review decision API** | A production caller for the pipeline writers (see below) |
 | **Metrics (authorized)** | All three metrics measured from storage (O3) | Pipeline record writers for non-zero funnel |
 | **Compose dev stack** | `docker compose up` — db, migrate, seed, api, worker, scheduler on :8080/:8081 | IdP, frontend |
 | **Dispatcher code path** | `ScheduledPass`, lease lifecycle, compose scheduler, CI smoke | External Scheduler + OIDC provisioning |
 | **S12 schema + O3** | `pipeline_record` table + metrics binding | App writers to populate `pipeline_record` |
+| **P8 O2 pipeline_record app writers** | **Write path built, intentionally uncalled by production code** — `python/smartmatch_domain/smartmatch_domain/pipeline.py` + `python/smartmatch_persistence/smartmatch_persistence/pipeline.py` (`PipelineRepository.record_matched` / `.advance_stage`), unit tests, and `tests/integration/test_pipeline_record_writers.py` proving every migration `0011` CHECK constraint holds against real PostgreSQL and that written rows flow through to the O3 metrics surface | A legitimate production caller — gated on three unresolved blockers (below) |
 | **P6 Stage 0** | Parsers + `ContactFreeEventCandidate` wrapper + unit tests | API export; G3/R3 for live fetch |
+
+**P8 O2 write path — why it stays uncalled.** Three blockers, each with its
+own evidence, must clear before any production route may call
+`PipelineRepository`:
+
+1. `docs/plans/2026-08-28-opportunities-s12-plan.md`'s standing constraint
+   "No matcher actions before G1" — `pipeline_record.matched_at` is `NOT
+   NULL` (migration `0011`), so any row asserts a match occurred, and G1 (P5,
+   §5 above) has not closed.
+2. `pipeline_record.subject_id` is a hard FK to `user_account` (migration
+   `0011`), but professionals — the funnel's actual subject — have no
+   persisted identity: migration `0012`'s own comment states "There is still
+   no `professional` table in this schema."
+3. `attendance_record`, which `ck_pipeline_record_attendance_evidence`
+   requires the Attended stage to cite, has no write path either —
+   `services/api/smartmatch_api/routers/engagement.py` is a declared-empty
+   stub.
+
+**The funnel therefore reads a real zero in any deployment.** The only
+non-zero evidence anywhere is rows seeded by the integration test above and
+the migration `0011` constraint tests — never by a route a deployed instance
+would call.
 
 **Suggested next E2E engineering sequence (ordered):**
 
-1. `pipeline_record` app writers (populate funnel stages beyond measured zero)
+1. A production caller for the `pipeline_record` writers — blocked on G1
+   closing, professional identity, and `attendance_record`'s own write path
+   (see above); populate funnel stages beyond the measured zero once
+   unblocked
 2. A1b live JWKS verifier (replace fixture tokens)
 3. M1–M10 matching (after G1 workshop)
 4. Compose IdP sidecar or documented institutional auth path
