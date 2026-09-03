@@ -1,3 +1,28 @@
+/**
+ * Admin / coordinator master calendar (legacy synthetic-pilot surface).
+ *
+ * **Before replacing this month grid with an agenda, read
+ * `apps/web/DESIGN.md` §2.1.** Two authorised documents look like they
+ * disagree here, and each is convincing on its own:
+ *
+ * - `docs/architecture/engagement-model.md` §5 (D-11) says "Not a month
+ *   grid" — but scoped to the *student* surface, and argued from a
+ *   student-specific harm (Fix #10: a sparse grid reads as a dead chapter to
+ *   someone deciding whether to attend).
+ * - The ratified G1 worksheet records the stakeholder directive "Month
+ *   calendar bottom of events page | Legacy events UI | Presentation".
+ *
+ * A coordinator opens this page to find *gaps*, so an empty cell is the
+ * signal they came for rather than a discouraging void. That is why the shape
+ * that is wrong on the student agenda is right here. D-11 has not settled
+ * whether the agenda rule binds every audience; until it does, this grid
+ * stays and the student surface does not get one.
+ *
+ * What this file must hold regardless of that outcome (ADR-0010, and §5
+ * insists on it too): dates render in a named zone, `date_only` renders as a
+ * date, and a record whose date does not resolve is listed *outside* the grid
+ * rather than guessed onto a day — see `@/lib/eventDates`.
+ */
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
