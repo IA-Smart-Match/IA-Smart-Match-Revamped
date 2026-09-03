@@ -105,7 +105,7 @@ direction.
 
 | Artifact | State |
 |---|---|
-| `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.0-approved-g1"` |
+| `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.1-approved-g1-m6j"` |
 | `assert_registry_approved()` | succeeds |
 | `test_registry_is_approved_after_g1` | passes |
 | Match scoring in API/UI | **M2+** — registry approved; implementations and routes pending |

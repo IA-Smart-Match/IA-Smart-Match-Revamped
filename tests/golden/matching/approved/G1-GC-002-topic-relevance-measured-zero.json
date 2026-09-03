@@ -1,0 +1,30 @@
+{
+  "id": "G1-GC-002",
+  "symptom_class": "zero_or_unknown",
+  "description": "Synthetic fixture (no real professional or event data). The professional's recorded expertise topics are disjoint from the event_need's required topics, producing a genuinely measured zero topic_relevance score — a recorded, computable fact, not a missing one. No legacy engine output is asserted anywhere in this fixture.",
+  "registry_version": "1.1.1-approved-g1-m6j",
+  "stakeholder_reference": "docs/plans/workshops/g1-workshop-output-worksheet.md agenda item 3 (RATIFIED 2026-09-03)",
+  "zero_classification": "measured_zero",
+  "inputs": {
+    "candidate": {
+      "subject_id": "SYNTH-PRO-0002A"
+    },
+    "professional": {
+      "expertise_topics": ["municipal_finance"],
+      "coordinates": { "latitude": 34.0522, "longitude": -118.2437 }
+    },
+    "event_need": {
+      "required_topics": ["artificial_intelligence"],
+      "preferred_topics": [],
+      "coordinates": { "latitude": 34.0522, "longitude": -118.2437 }
+    }
+  },
+  "expected": {
+    "factor_scores": {
+      "topic_relevance": { "value": 0.0, "zero_classification": "measured_zero" },
+      "travel_burden": { "value": 0.0, "zero_classification": "measured_zero" }
+    },
+    "unknown_factor_keys": [],
+    "stage_b_score": 0.3
+  }
+}

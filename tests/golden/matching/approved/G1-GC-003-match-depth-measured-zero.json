@@ -1,0 +1,17 @@
+{
+  "id": "G1-GC-003",
+  "symptom_class": "depth_zero",
+  "description": "Synthetic fixture (no real professional or event data). An engagement history record exists for this (subject, unit) pair and is empty, so match_depth (a derived display quantity, not a registry factor) is genuinely and measurably zero. No legacy engine output is asserted anywhere in this fixture.",
+  "registry_version": "1.1.1-approved-g1-m6j",
+  "stakeholder_reference": "docs/plans/workshops/g1-workshop-output-worksheet.md agenda item 3 (RATIFIED 2026-09-03)",
+  "zero_classification": "measured_zero",
+  "inputs": {
+    "subject_id": "SYNTH-PRO-0003",
+    "unit_id": "SYNTH-UNIT-0001",
+    "engagement_ids": []
+  },
+  "expected": {
+    "match_depth": { "count": 0, "zero_classification": "measured_zero" },
+    "match_depth_is_a_registry_factor": false
+  }
+}

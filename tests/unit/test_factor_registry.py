@@ -6,14 +6,18 @@ which encodes the defect found in the legacy baseline so it cannot recur.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from smartmatch_domain.factor_registry import (
     PROHIBITED_INPUTS,
     PROPOSED_FACTORS,
+    REGISTRY_VERSION,
     FactorKind,
     FactorSpec,
     active_weights,
     assert_registry_approved,
+    assert_scoring_ready,
     factor_keys,
     normalize_weights,
     proposed_weights,
@@ -29,12 +33,10 @@ def test_factor_keys_are_unique():
 def test_implemented_scoring_weights_sum_to_one():
     """Regression guard for the legacy score-deflation defect.
 
-    When no scoring factors are implemented yet (post-G1, pre-M2), normalization
-    is vacuous and this test passes without asserting a sum.
+    Post-M6j, topic_relevance and travel_burden are both implemented, so this
+    actually asserts the sum rather than passing vacuously.
     """
     weights = normalize_weights()
-    if not weights:
-        return
     assert sum(weights.values()) == pytest.approx(1.0)
 
 
@@ -53,13 +55,16 @@ def test_unimplemented_factors_contribute_no_active_weight():
             )
 
 
-def test_active_weights_empty_until_m2_implements_scoring_factors():
-    """G1 approved 2026-09-03; topic_relevance and travel_burden land in M2."""
-    assert active_weights() == {}
+def test_active_weights_are_the_approved_scoring_set_after_m6j():
+    """M6j implements topic_relevance and travel_burden; availability stays unscored."""
+    active = active_weights()
+    assert set(active) == {"topic_relevance", "travel_burden"}
+    assert active["topic_relevance"] == pytest.approx(0.70)
+    assert active["travel_burden"] == pytest.approx(0.30)
+
     proposed = proposed_weights()
     assert set(proposed) == {"topic_relevance", "travel_burden", "availability"}
-    assert proposed["topic_relevance"] == pytest.approx(0.70)
-    assert proposed["travel_burden"] == pytest.approx(0.30)
+    assert proposed["availability"] == 0.0
 
 
 def test_proposed_scoring_weights_sum_to_one():
@@ -100,17 +105,18 @@ def test_weight_out_of_range_is_rejected():
         )
 
 
-def test_only_one_scoring_factor_is_implemented_today():
-    """Post-G1 pre-M2: no scoring factors are implemented yet."""
-    assert normalize_weights() == {}
+def test_both_approved_scoring_factors_are_implemented():
+    """Post-M6j: both approved Stage B scoring factors are implemented."""
+    weights = normalize_weights()
+    assert set(weights) == {"topic_relevance", "travel_burden"}
+    assert weights["topic_relevance"] == pytest.approx(0.70)
+    assert weights["travel_burden"] == pytest.approx(0.30)
+    assert sum(weights.values()) == pytest.approx(1.0)
 
 
 def test_normalize_weights_honours_overrides_and_renormalizes():
     """An override changes the balance but never breaks the sum-to-one invariant."""
     base = normalize_weights()
-    if len(base) < 2:
-        pytest.skip("needs two implemented scoring factors to observe rebalancing")
-
     key, other = list(base)[:2]
     bumped = normalize_weights({key: base[key] * 10.0})
 
@@ -120,11 +126,12 @@ def test_normalize_weights_honours_overrides_and_renormalizes():
 
 
 def test_normalize_weights_ignores_unknown_and_unimplemented_keys():
-    """Unknown keys cannot inject weight mass into the mapping."""
-    weights = normalize_weights({"not_a_factor": 5.0, "topic_relevance": 5.0})
+    """Unknown and unimplemented (eligibility) keys cannot inject weight mass."""
+    weights = normalize_weights({"not_a_factor": 5.0, "availability": 5.0})
     assert "not_a_factor" not in weights
-    assert "topic_relevance" not in weights
-    assert weights == {}
+    assert "availability" not in weights
+    assert set(weights) == {"topic_relevance", "travel_burden"}
+    assert weights == normalize_weights()
 
 
 def test_normalize_weights_rejects_negative_weights():
@@ -134,8 +141,11 @@ def test_normalize_weights_rejects_negative_weights():
 
 def test_normalize_weights_all_zero_returns_zeros_not_nan():
     """A zero total must not divide by zero and produce NaN scores."""
-    weights = normalize_weights(dict.fromkeys(normalize_weights(), 0.0))
-    assert weights == {}
+    weights = normalize_weights({"topic_relevance": 0.0, "travel_burden": 0.0})
+    assert weights == {"topic_relevance": 0.0, "travel_burden": 0.0}
+    for value in weights.values():
+        assert value == 0.0
+        assert not math.isnan(value)
 
 
 def test_weight_mappings_are_immutable():
@@ -162,3 +172,37 @@ def test_prohibited_inputs_are_declared():
 def test_no_factor_key_collides_with_a_prohibited_input():
     """A factor must never be named for something it is forbidden to consider."""
     assert not set(factor_keys()) & PROHIBITED_INPUTS
+
+
+def test_assert_scoring_ready_passes():
+    """M6j: the implemented scoring set matches the approved set exactly."""
+    assert assert_scoring_ready() is None
+
+
+def test_registry_version_is_pinned():
+    """The version bump records that the implemented scoring set changed."""
+    assert REGISTRY_VERSION == "1.1.1-approved-g1-m6j"
+
+
+def test_availability_remains_unimplemented_and_unscored():
+    """availability is Stage A eligibility; M6j must not turn it into a scorer."""
+    spec = next(spec for spec in PROPOSED_FACTORS if spec.key == "availability")
+    assert spec.implemented is False
+    assert spec.is_scoring is False
+    assert spec.active_weight == 0.0
+
+
+def test_no_dropped_factor_reappeared():
+    """Factors dropped for this PR must never be wired back into the registry."""
+    dropped_factors = {
+        "role_fit",
+        "engagement_load",
+        "repeat_penalty",
+        "credential_check",
+        "contact_status",
+        "declared_cap",
+        "historical_conversion",
+        "student_interest",
+        "match_depth",
+    }
+    assert not dropped_factors & set(factor_keys())
