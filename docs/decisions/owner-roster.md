@@ -7,6 +7,10 @@
 **Prepared:** 2 September 2026, from
 `docs/plans/2026-08-31-ratification-and-implementation-report.md` §5 item 2.
 
+**Note (4 September 2026):** rows 1–7 remain closed exactly as named below.
+This update adds decision-signing authority for two additional people — see
+"Authorized decision signers" — and does not reopen any gate.
+
 **How to use this file:** fill a row's *Named* cell with a person, commit, and
 open the artifact in that row's *Closes* cell. Naming a person here does not
 close their gate — it makes the gate runnable.
@@ -27,6 +31,49 @@ close their gate — it makes the gate runnable.
 |---|---|---|---|
 | 6 | **Google Cloud IdP provisioner** (P2) | **Danny Tran (@dangt)** — named 2026-09-03 | Worksheet Part 1 fields still required; see `docs/decisions/a1b-gcp-console-guide.md`. |
 | 7 | **Legacy-PII remediation owner** (CP-PII / D9) | **Danny Tran (@dangt)** — named 2026-09-03 | `MM-A09.blocking_owner`. Strategy: read-only archive (Q1). **Non-blocking** for Revamped private-repo engineering; gates D9/LICENSE only. |
+
+## Authorized decision signers
+
+Effective 4 September 2026, Danny Tran (@dangt), as this roster's approver,
+authorizes two additional people to make changes to architecture decision
+records and the project's other decision artifacts. Both are already
+repository collaborators — confirmed via the GitHub API — so this entry
+records *decision-signing authority*, which neither previously held in
+writing; it does not grant, request, or change repository permissions.
+
+| Person | GitHub | Effective | Authorized by |
+|---|---|---|---|
+| **Chau Nguyen** | `@Chau-Nguyen-Developer` | 4 September 2026 | Danny Tran (@dangt) |
+| **Janice H.** | `@starey6789` | 4 September 2026 | Danny Tran (@dangt) |
+
+(`@dangt` above is the group's internal shorthand for Danny Tran, not a
+GitHub handle — unlike `@Chau-Nguyen-Developer` and `@starey6789`, which are.)
+
+**A third collaborator account, `@BrooklynD23`, is not a fourth signer.**
+`gh api users/BrooklynD23` resolves to profile name "Danny Tran", and
+`gh api repos/.../collaborators/BrooklynD23/permission` returns `admin`. It is
+the same account this roster already credits as approver and as the named
+owner of rows 1–7 above, and it authors 10 of the last 30 commits on `main`
+as `Danny Tran <91554483+BrooklynD23@users.noreply.github.com>`, alongside 20
+as `DangT <dt110202@gmail.com>`. `@BrooklynD23` is Danny Tran's own GitHub
+account, recorded here for completeness — not a new person added to this
+table.
+
+**Scope.** This authority covers ADR-0001 through ADR-0015 and the decision
+artifacts under `docs/decisions/`. ADR-0016 does not exist yet — it is
+reserved for agent-memory Slice 1 per
+`docs/architecture/decisions/README.md`, and this entry does not create it or
+imply otherwise — but the authority extends to it once that number is filed.
+
+**What this does not change.** `docs/architecture/decisions/README.md` states
+that an ADR is immutable once accepted: a decision that stops being true is
+replaced by a new ADR that supersedes it, or refined by a recorded amendment,
+never rewritten in place. Being named here means Chau Nguyen and Janice H.
+may author amendments and superseding ADRs with the same standing as any
+other authorized signer — it does not grant authority to edit an accepted
+ADR's history. Rows 1–7 above are unchanged; Danny Tran remains the named
+owner of every existing gate, and none of those gates are reopened by this
+entry.
 
 ## Next actions (post-naming)
 
