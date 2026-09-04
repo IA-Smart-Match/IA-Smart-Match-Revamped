@@ -1,160 +1,56 @@
 /**
- * Volunteer assignments (volunteer portal, route `volunteer-portal/assignments`).
+ * Assignments — volunteer portal.
  *
- * This page used to print `Math.round(a.match_score * 100)}%` per row. That is
- * a factor-registry output, and the registry is not ratified:
- * `smartmatch_domain.factor_registry.REGISTRY_STATUS` is `"proposed"` and
- * `assert_registry_approved()` raises. A mounted route rendering it bypassed
- * gate G1 no matter what the OpenAPI surface did, so the score is now (a)
- * stripped from the payload inside `fetchVolunteerAssignments` and (b)
- * rendered as an accountable unknown carrying the G1 reason — never a zero,
- * a blank, or a dash that could read as a measurement (ADR-0011 rule 1).
+ * This page used to load your assignments from the legacy `/api/portals/*` backend.
+ * That backend is not part of this repository, so there is no request here
+ * that could succeed and no data to render. Rather than a red failure banner
+ * blaming an outage for a capability that was never present, each section
+ * says plainly what it would have shown and where that would have come from
+ * (`PortalDatasetUnavailable`).
  *
- * The request itself stays: it supplies the events, dates, stages and recovery
- * labels this list is made of, so it does not exist solely to fetch the score.
+ * What *is* real on this page comes from two `/v1` routes and nothing else:
+ * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
+ * the server granted them and the role and unit behind it. Neither is derived
+ * in the browser, and no identifier on this page is chosen by it.
  */
-import { useState, useEffect } from "react";
-import { AlertTriangle } from "lucide-react";
-import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
-import { AccountableValue } from "@/app/components/provenance";
-import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/metrics";
-import {
-  fetchVolunteerAssignments,
-  type VolunteerAssignment,
-  type AssignmentStage,
-} from "../../../lib/api";
+
+import { PortalDatasetUnavailable } from "../../components/PortalContent";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
-
-const matchingMetric = unavailableMatchingMetric();
-
-const STAGE_COLORS: Record<AssignmentStage, string> = {
-  Confirmed: "bg-primary/10 text-primary",
-  Contacted: "bg-amber-100 text-amber-700",
-  Matched: "bg-muted text-muted-foreground",
-  Attended: "bg-green-100 text-green-700",
-};
-
-const STAGE_ORDER: Record<AssignmentStage, number> = {
-  Confirmed: 0,
-  Contacted: 1,
-  Matched: 2,
-  Attended: 3,
-};
 
 export function VolunteerAssignments() {
-  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
-  // the API client rejects the empty value locally instead of guessing one.
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
-  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
+  // `GET /v1/me/portals` — the only source of what the server granted them.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "volunteer");
 
-  const [assignments, setAssignments] = useState<VolunteerAssignment[]>([]);
-  const [source, setSource] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await fetchVolunteerAssignments(volunteerId);
-        if (!mounted) return;
-        setAssignments(result.data);
-        setSource(result.source);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load assignments");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [volunteerId]);
-
-  const sorted = [...assignments].sort(
-    (a, b) =>
-      (STAGE_ORDER[a.stage] ?? 99) - (STAGE_ORDER[b.stage] ?? 99) ||
-      new Date(a.event_date).getTime() - new Date(b.event_date).getTime(),
-  );
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-48 rounded-xl" />
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 w-full rounded-2xl" />
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
-        <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
-      </div>
-    );
+  // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
+  // no such portal, so reaching here without a grant means the mapping is
+  // still resolving. Render nothing rather than a header about a portal that
+  // may turn out not to be assigned.
+  if (grant === null) {
+    return null;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">My Assignments</h1>
-        {source === "demo" && <DemoModeBadge />}
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold text-foreground">Assignments</h1>
+        <p className="text-sm text-muted-foreground">Events you have been matched to.</p>
+        <p className="text-xs text-muted-foreground">
+          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+        </p>
+      </header>
+
+      <div className="space-y-4">
+        <PortalDatasetUnavailable
+          dataset="Your assignments"
+          endpoints={["/api/portals/volunteers/{id}/assignments"]}
+        />
       </div>
-
-      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-        Match scores stay unknown on this page until gate G1 approves the factor registry:{" "}
-        {MATCHING_UNAVAILABLE_REASON} The score is not fetched into this page either — it is
-        discarded at the API boundary while{" "}
-        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">REGISTRY_STATUS</code> remains{" "}
-        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">proposed</code>.
-      </p>
-
-      {sorted.length === 0 ? (
-        <div className="rounded-2xl border border-border/70 bg-card p-10 text-center text-muted-foreground shadow-sm">
-          No assignments found.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {sorted.map((a) => (
-            <div
-              key={a.assignment_id}
-              className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">{a.event_name}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {a.region} · {new Date(a.event_date).toLocaleDateString()}
-                  </p>
-                </div>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${STAGE_COLORS[a.stage] ?? "bg-muted text-muted-foreground"}`}
-                >
-                  {a.stage}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-4 text-sm text-muted-foreground">
-                <span>
-                  Match score: <AccountableValue metric={matchingMetric} />
-                </span>
-                <span>
-                  Recovery:{" "}
-                  <span className="font-medium text-foreground">{a.recovery_label}</span>
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

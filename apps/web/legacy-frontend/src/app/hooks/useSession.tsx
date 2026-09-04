@@ -64,16 +64,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // can be served to another principal; card A2 wires the tracker to the real
   // sign-in/out flow when one exists.
   const signOut = useCallback(() => {
-    const { stillAuthenticated } = signOutOfSession();
-    if (!stillAuthenticated) {
-      setState({ status: "signed-out", reason: "no-token" });
-      return;
-    }
-    // The bundle was built with VITE_SMARTMATCH_BEARER_TOKEN, so clearing
-    // sessionStorage revoked nothing. Ask the server again rather than
-    // showing a signed-out screen it would contradict.
+    // `signOutOfSession` is asynchronous now, because it revokes the session
+    // server-side before clearing the local credential (see `lib/session.ts`).
+    // The state moves to `loading` first so the UI cannot keep rendering a
+    // portal while the revocation is still in flight.
     setState({ status: "loading" });
-    loadSession().then(setState);
+    void signOutOfSession().then(({ stillAuthenticated }) => {
+      if (!stillAuthenticated) {
+        setState({ status: "signed-out", reason: "no-token" });
+        return;
+      }
+      // The bundle was built with VITE_SMARTMATCH_BEARER_TOKEN, so clearing
+      // sessionStorage revoked nothing. Ask the server again rather than
+      // showing a signed-out screen it would contradict.
+      loadSession().then(setState);
+    });
   }, []);
 
   const retry = useCallback(() => {

@@ -154,6 +154,14 @@ migrate-check: ## Verify migrations apply cleanly from an empty database
 seed-pilot: ## Seed one synthetic local-pilot principal; set SEED_PILOT_ARGS="--subject ... --email ... --role ..."
 	PYTHONPATH="$(DOMAIN_PATH):services/api" $(PY) tools/seed_pilot.py $(SEED_PILOT_ARGS)
 
+.PHONY: seed-pilot-logins
+seed-pilot-logins: ## Seed the four pilot logins from SMARTMATCH_PILOT_*_EMAIL/_PASSWORD in .env
+	# Credentials come from the environment and nowhere else. A role whose pair
+	# is unset is not created and is named on stderr; no default password is
+	# invented. See .env.example and
+	# docs/decisions/pilot-login-decision-2026-09-04.md.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_logins.py $(SEED_PILOT_LOGIN_ARGS)
+
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------

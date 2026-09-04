@@ -1,160 +1,56 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, MapPin, Star } from "lucide-react";
-import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
-import { fetchVolunteerProfile, splitTags, type VolunteerProfile } from "../../../lib/api";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
+/**
+ * Profile — volunteer portal.
+ *
+ * This page used to load your volunteer profile from the legacy `/api/portals/*` backend.
+ * That backend is not part of this repository, so there is no request here
+ * that could succeed and no data to render. Rather than a red failure banner
+ * blaming an outage for a capability that was never present, each section
+ * says plainly what it would have shown and where that would have come from
+ * (`PortalDatasetUnavailable`).
+ *
+ * What *is* real on this page comes from two `/v1` routes and nothing else:
+ * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
+ * the server granted them and the role and unit behind it. Neither is derived
+ * in the browser, and no identifier on this page is chosen by it.
+ */
 
-const RECOVERY_COLORS: Record<string, string> = {
-  Available: "bg-green-100 text-green-700",
-  "Needs Rest": "bg-amber-100 text-amber-700",
-  "Rest Recommended": "bg-red-100 text-red-700",
-};
+import { PortalDatasetUnavailable } from "../../components/PortalContent";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 
 export function VolunteerProfile() {
-  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
-  // the API client rejects the empty value locally instead of guessing one.
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
-  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
+  // `GET /v1/me/portals` — the only source of what the server granted them.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "volunteer");
 
-  const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const prof = await fetchVolunteerProfile(volunteerId);
-        if (!mounted) return;
-        setProfile(prof);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load profile");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [volunteerId]);
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-40 w-full rounded-2xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
-      </div>
-    );
+  // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
+  // no such portal, so reaching here without a grant means the mapping is
+  // still resolving. Render nothing rather than a header about a portal that
+  // may turn out not to be assigned.
+  if (grant === null) {
+    return null;
   }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
-        <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
-      </div>
-    );
-  }
-
-  if (!profile) return null;
-
-  const fatiguePercent = Math.round(profile.volunteer_fatigue * 100);
-  const recoveryColor =
-    RECOVERY_COLORS[profile.recovery_status] ?? "bg-muted text-muted-foreground";
-  const tags = splitTags(profile.expertise_tags);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-foreground">My Profile</h1>
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold text-foreground">Profile</h1>
+        <p className="text-sm text-muted-foreground">Your volunteer record.</p>
+        <p className="text-xs text-muted-foreground">
+          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+        </p>
+      </header>
 
-      {/* Profile header */}
-      <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm">
-        <div className="flex flex-wrap items-start gap-5">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary text-xl font-semibold text-primary-foreground">
-            {profile.initials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-semibold text-foreground">{profile.name}</h2>
-              {profile.source === "demo" && <DemoModeBadge />}
-            </div>
-            <p className="mt-1 text-muted-foreground">
-              {profile.title} at {profile.company}
-            </p>
-            <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
-              {profile.board_role}
-            </span>
-          </div>
-        </div>
+      <div className="space-y-4">
+        <PortalDatasetUnavailable
+          dataset="Your volunteer profile"
+          endpoints={["/api/portals/volunteers/{id}"]}
+        />
       </div>
-
-      {/* Details grid */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <div className="mb-2 flex items-center gap-2 text-muted-foreground">
-            <MapPin className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wide">Metro Region</span>
-          </div>
-          <p className="font-semibold text-foreground">{profile.metro_region}</p>
-        </div>
-
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <div className="mb-2 flex items-center gap-2 text-muted-foreground">
-            <Star className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wide">Board Role</span>
-          </div>
-          <p className="font-semibold text-foreground">{profile.board_role}</p>
-        </div>
-
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-            Recovery Status
-          </p>
-          <span
-            className={`rounded-full px-3 py-1 text-sm font-semibold ${recoveryColor}`}
-          >
-            {profile.recovery_status}
-          </span>
-        </div>
-
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-            Fatigue Index
-          </p>
-          <p className="mb-2 text-2xl font-bold text-foreground">{fatiguePercent}%</p>
-          <div className="h-2 w-full rounded-full bg-muted">
-            <div
-              className="h-2 rounded-full bg-primary transition-all"
-              style={{ width: `${fatiguePercent}%` }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Expertise tags */}
-      {tags.length > 0 && (
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
-            Expertise
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

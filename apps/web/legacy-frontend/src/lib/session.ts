@@ -31,6 +31,7 @@ import {
   clearStoredSmartmatchBearerToken,
   fetchMe,
   hasSmartmatchAuth,
+  postLogout,
   type MeResponse,
 } from "@/lib/api";
 
@@ -130,18 +131,48 @@ export function resetSession(): void {
 }
 
 /**
- * Signs out: drops the browser-held bearer token and forgets the cached
- * `/v1/me` answer.
+ * Signs out: **revokes the session server-side**, then drops the browser-held
+ * bearer token and forgets the cached `/v1/me` answer.
  *
- * Returns whether the browser can still authenticate afterwards. That is
- * `true` when the running bundle was built with `VITE_SMARTMATCH_BEARER_TOKEN`
- * — a compose/dev fixture build holds its token in the bundle, so sign-out
- * cannot revoke it and the next `/v1/me` will succeed again. Callers show
- * that outcome rather than a signed-out screen the server would disagree
- * with.
+ * The server call comes first and is the part that matters. Clearing
+ * `sessionStorage` alone only makes *this browser* forget a credential that
+ * would still work anywhere it had been copied; `POST /v1/auth/logout` sets
+ * `revoked_at` on the session row, after which every instance refuses it. A
+ * sign-out that only forgot would be the fake-success shape (v1.1 §3.6 N2)
+ * applied to security.
+ *
+ * A failed revocation does **not** stop the local clear. The person asked to
+ * be signed out of this browser, and refusing to do the half that works
+ * because the other half did not would leave them more signed in than they
+ * asked to be. The outcome is reported rather than swallowed.
+ *
+ * Returns:
+ *   `revoked` — whether the server confirmed it withdrew a live session.
+ *     `false` for a dev fixture token (there is no row to revoke) and for a
+ *     logout the server never received.
+ *   `stillAuthenticated` — whether the browser can still authenticate
+ *     afterwards. `true` when the running bundle was built with
+ *     `VITE_SMARTMATCH_BEARER_TOKEN`: a compose/dev fixture build holds its
+ *     token in the bundle, so clearing storage revokes nothing and the next
+ *     `/v1/me` will succeed again. Callers show that outcome rather than a
+ *     signed-out screen the server would disagree with.
  */
-export function signOutOfSession(): { stillAuthenticated: boolean } {
+export async function signOutOfSession(): Promise<{
+  stillAuthenticated: boolean;
+  revoked: boolean;
+}> {
+  let revoked = false;
+  try {
+    // Sent while the credential is still in storage — `postLogout()` reads it
+    // from there to authenticate, so clearing first would make this a 401.
+    revoked = (await postLogout()).ended;
+  } catch {
+    // Already expired, already revoked, never a pilot session, or the network
+    // failed. None of those is a reason to keep the token in this browser.
+    revoked = false;
+  }
+
   clearStoredSmartmatchBearerToken();
   resetSession();
-  return { stillAuthenticated: hasSmartmatchAuth() };
+  return { stillAuthenticated: hasSmartmatchAuth(), revoked };
 }

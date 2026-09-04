@@ -247,6 +247,74 @@ services:
     restart: "no"
 
   # -------------------------------------------------------------------------
+  # Seed-logins — one-shot, dev-only. Creates the four pilot logins the
+  # `/login` screen signs in with, from credentials the OWNER supplies in a
+  # gitignored `.env` (see `.env.example`).
+  #
+  # Nothing here is a credential. The eight `${...}` references below read the
+  # host environment / `.env` and default to empty, and empty means the role is
+  # NOT created — tools/seed_pilot_logins.py names each skipped role on stderr
+  # rather than inventing a password for it. So a checkout with no `.env` brings
+  # this stack up with zero logins and says so, which is the correct behaviour:
+  # a default password committed here would be a credential in the repository,
+  # and a compose file is the most likely place for one to be copied from.
+  #
+  # `--require-all` is deliberately NOT passed. An owner who has filled in only
+  # the coordinator pair should still get a working coordinator login and a
+  # clear report about the other three, rather than a stack that refuses to
+  # finish starting.
+  #
+  # Same pattern as `seed` above: the API image with its CMD overridden, and
+  # both scripts mounted read-only (this one imports seed_pilot's edition guard
+  # and row helpers rather than restating them, so a change to what "dev
+  # fixture settings" means applies to both).
+  # -------------------------------------------------------------------------
+  seed-logins:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_logins.py"
+      # --tenant-slug, --unit-path and the rest stay at the script's defaults
+      # (pilot / pilot), the same ones `seed` above relies on, so every pilot
+      # principal lands in one tenant and one unit.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      # seed_pilot_logins.py imports seed_pilot, and both are mounted here
+      # rather than baked into the image.
+      PYTHONPATH: /home/smartmatch
+      # Passed through from the host environment or `.env`; empty by default,
+      # and empty means "do not create this role".
+      SMARTMATCH_PILOT_COORDINATOR_EMAIL: ${SMARTMATCH_PILOT_COORDINATOR_EMAIL:-}
+      SMARTMATCH_PILOT_COORDINATOR_PASSWORD: ${SMARTMATCH_PILOT_COORDINATOR_PASSWORD:-}
+      SMARTMATCH_PILOT_STUDENT_EMAIL: ${SMARTMATCH_PILOT_STUDENT_EMAIL:-}
+      SMARTMATCH_PILOT_STUDENT_PASSWORD: ${SMARTMATCH_PILOT_STUDENT_PASSWORD:-}
+      SMARTMATCH_PILOT_ADMIN_EMAIL: ${SMARTMATCH_PILOT_ADMIN_EMAIL:-}
+      SMARTMATCH_PILOT_ADMIN_PASSWORD: ${SMARTMATCH_PILOT_ADMIN_PASSWORD:-}
+      SMARTMATCH_PILOT_VOLUNTEER_EMAIL: ${SMARTMATCH_PILOT_VOLUNTEER_EMAIL:-}
+      SMARTMATCH_PILOT_VOLUNTEER_PASSWORD: ${SMARTMATCH_PILOT_VOLUNTEER_PASSWORD:-}
+    # This container serves nothing, so the API image's /api/health probe could
+    # only ever fail. Disabled for `seed-review`'s reason: a one-shot reporting
+    # `health: starting` is a misleading signal about a container whose only
+    # meaningful state is its exit code.
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_logins.py:/home/smartmatch/seed_pilot_logins.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Exits 2 when nothing is configured, which is a true report rather than a
+    # transient failure to retry.
+    restart: "no"
+
+  # -------------------------------------------------------------------------
   # API.
   # -------------------------------------------------------------------------
   api:

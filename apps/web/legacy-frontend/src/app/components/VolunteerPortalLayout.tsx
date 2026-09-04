@@ -10,12 +10,10 @@ import {
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
+import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
-import {
-  principalDisplayName,
-  principalInitials,
-  principalOrgUnitLabel,
-} from "../../lib/principal";
+import { usePortalAccess } from "../hooks/usePortalAccess";
+import { principalDisplayName, principalInitials } from "../../lib/principal";
 
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
@@ -29,6 +27,10 @@ export function VolunteerPortalLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const session = useSession();
+  // The account-to-portal mapping, from `GET /v1/me/portals`. The shell used
+  // to have no way to ask whether this account was actually assigned this
+  // portal, which is what the pages inside it rendered a banner about.
+  const portalAccess = usePortalAccess();
   const signOut = useSignOut();
 
   function handleSignOut() {
@@ -40,10 +42,23 @@ export function VolunteerPortalLayout() {
     return <SessionGate state={session} />;
   }
 
+  // Second gate, and a different question from the first: the caller is
+  // verified, but did the server grant them *this* portal? Answered by
+  // `GET /v1/me/portals` and never by reading a role here — see
+  // `lib/principal.ts`'s `portalGrant()`. Route guarding is UX only; `/v1`
+  // authorization remains the authority.
+  const grant = grantedPortal(portalAccess, "volunteer");
+  if (grant === null) {
+    return <PortalGate state={portalAccess} me={session.me} />;
+  }
+
   // Every value below comes from `GET /v1/me`. There is no fallback name,
   // company, or id: an unverified visitor never reaches this line.
   const displayName = principalDisplayName(session.me);
-  const company = principalOrgUnitLabel(session.me);
+  // The unit the granting membership covers, as the server reported it —
+  // not whichever active membership `principalOrgUnitLabel` happened to list
+  // first, which for an account holding two roles could name the wrong one.
+  const company = grant.org_unit_path;
   const initials = principalInitials(session.me);
 
   return (
