@@ -56,6 +56,7 @@ __all__ = [
     "point_ledger_entry",
     "professional_unit_relationship",
     "rate_limit_counter",
+    "redemption",
     "redrive_record",
     "resource_grant",
     "review_item",
@@ -474,8 +475,20 @@ point_ledger_entry = sa.Table(
     # else in this schema — a balance is a fold over this ledger, computed
     # server-side, never stored.
     sa.Column("amount", sa.Integer, nullable=False),
+    # Which of the three shapes this row is: an attendance credit, a
+    # compensating reversal, or a redemption debit. NOT NULL with no server
+    # default — every writer names the kind it is writing (migration 0019).
+    # Derivable from the sign and the source, and tied to that derivation by
+    # ck_point_ledger_entry_kind below, so the two cannot drift.
+    sa.Column("kind", sa.Text, nullable=False),
     # The attendance record this entry derives from — ADR-0013's "source".
-    sa.Column("source_attendance_id", _UUID, nullable=False),
+    # Nullable since migration 0019: a redemption debit derives from a
+    # redemption, not from an attendance, and borrowing an unrelated
+    # attendance id to satisfy a NOT NULL would be fabricated evidence.
+    sa.Column("source_attendance_id", _UUID, nullable=True),
+    # The redemption this entry debits for. Set on exactly the rows where
+    # source_attendance_id is null, and null on every other row.
+    sa.Column("source_redemption_id", _UUID, nullable=True),
     sa.Column("reason", sa.Text, nullable=False),
     # Nullable, no foreign key: mirrors job.actor_id. Automatic derivation
     # from attendance — the ordinary case — has no human actor to name.
@@ -489,7 +502,27 @@ point_ledger_entry = sa.Table(
         ["attendance_record.tenant_id", "attendance_record.id"],
         ondelete="RESTRICT",
     ),
+    # RESTRICT: the redemption a debit was taken for must not disappear out
+    # from under the entry that cites it, or the debit becomes unexplainable.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "source_redemption_id"],
+        ["redemption.tenant_id", "redemption.id"],
+        ondelete="RESTRICT",
+    ),
     sa.CheckConstraint("amount <> 0", name="ck_point_ledger_entry_amount_nonzero"),
+    # Exactly one of three shapes, each carrying the fields its kind requires
+    # (migration 0019). This is what keeps source_attendance_id's nullability
+    # from being a hole: a row naming neither source, or both, or a kind
+    # outside the three, satisfies none of the disjuncts.
+    sa.CheckConstraint(
+        "(kind = 'attendance_credit' AND source_attendance_id IS NOT NULL "
+        "AND source_redemption_id IS NULL AND amount > 0) "
+        "OR (kind = 'reversal' AND source_attendance_id IS NOT NULL "
+        "AND source_redemption_id IS NULL AND amount < 0) "
+        "OR (kind = 'redemption_debit' AND source_attendance_id IS NULL "
+        "AND source_redemption_id IS NOT NULL AND amount < 0)",
+        name="ck_point_ledger_entry_kind",
+    ),
 )
 
 
@@ -514,6 +547,11 @@ reward_item = sa.Table(
     sa.Column("funded", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="reward_item_pkey"),
+    # What redemption.item_id references (migration 0019). Deferred by 0009,
+    # which said "nothing in this migration references reward_item by
+    # composite key" -- something now does, so it is added by the migration
+    # that creates the reference.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_reward_item_tenant_id"),
     sa.ForeignKeyConstraint(
         ["tenant_id", "budget_owner_id"],
         ["user_account.tenant_id", "user_account.id"],
@@ -521,6 +559,103 @@ reward_item = sa.Table(
     ),
     sa.CheckConstraint("points_cost > 0", name="ck_reward_item_points_cost_positive"),
     sa.CheckConstraint("fulfilment_cost >= 0", name="ck_reward_item_fulfilment_cost_non_negative"),
+)
+
+
+# ---------------------------------------------------------------------------
+# redemption (migration 0019, plan cards L2/L4). One of the two tables
+# docs/architecture/engagement-model.md §1 describes that migration 0009
+# deferred and 0017 did not settle -- disclosure_consent, gated on ADR-0014, is
+# the other. 0009 deferred this one behind D6's shipped-catalog gate, which
+# closed for pilot scope on 2026-09-02.
+#
+# Deliberately mutable, unlike point_ledger_entry and match_run: a redemption's
+# purpose is to move through requested -> approved -> fulfilled | denied |
+# expired, and each move is an UPDATE. What keeps that honest is the pair of
+# evidence CHECKs below, which hold on an UPDATE exactly as on an INSERT.
+#
+# The two partial unique / access indexes have no representation in SQLAlchemy
+# Core and so are absent from this mirror, as every other index is;
+# tests/integration/test_redemption_durability.py is what holds them to
+# account. So is the append-only trigger 0019 puts on point_ledger_entry.
+# ---------------------------------------------------------------------------
+
+redemption = sa.Table(
+    "redemption",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # The student redeeming.
+    sa.Column("subject_id", _UUID, nullable=False),
+    sa.Column("item_id", _UUID, nullable=False),
+    # D7's two "consequences that must survive into any implementation":
+    # existing redemptions retain their point-cost snapshot, and a deactivated
+    # reward stays visible on existing tickets. Columns, not a join back to
+    # reward_item -- a join returns today's price and today's name.
+    sa.Column("item_name_snapshot", sa.Text, nullable=False),
+    sa.Column("points_cost_snapshot", sa.Integer, nullable=False),
+    sa.Column("state", sa.Text, nullable=False),
+    sa.Column("requested_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # The approval hop, recorded as evidence rather than inferred from state.
+    sa.Column("approved_at", _TS, nullable=True),
+    sa.Column("approved_by", _UUID, nullable=True),
+    # The terminal hop. closed_by stays null for an expiry: time is not a
+    # person, and naming one would be a fabricated field.
+    sa.Column("closed_at", _TS, nullable=True),
+    sa.Column("closed_by", _UUID, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="redemption_pkey"),
+    # What point_ledger_entry.source_redemption_id references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_redemption_tenant_id"),
+    # RESTRICT throughout: a redemption is a promise made to a named student
+    # against a named reward, and neither may vanish out from under it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "item_id"],
+        ["reward_item.tenant_id", "reward_item.id"],
+        ondelete="RESTRICT",
+    ),
+    # Constrained, unlike point_ledger_entry.actor_id: a credit is derived and
+    # usually has no human author, but an approval is something a person did.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "approved_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "closed_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # ADR-0013's vocabulary, and the spelling
+    # smartmatch_domain.rewards.RedemptionState carries.
+    sa.CheckConstraint(
+        "state IN ('requested','approved','fulfilled','denied','expired')",
+        name="ck_redemption_state",
+    ),
+    # The structural statement of "fulfilled is reachable only from approved":
+    # a fulfilled row with no approval behind it cannot be written or updated
+    # into existence.
+    sa.CheckConstraint(
+        "(approved_at IS NULL) = (approved_by IS NULL) "
+        "AND (state <> 'fulfilled' OR approved_at IS NOT NULL) "
+        "AND (state <> 'requested' OR approved_at IS NULL)",
+        name="ck_redemption_approval_evidence",
+    ),
+    # A terminal state has a close time; a live one does not.
+    sa.CheckConstraint(
+        "(state IN ('fulfilled','denied','expired')) = (closed_at IS NOT NULL) "
+        "AND (closed_by IS NULL OR closed_at IS NOT NULL)",
+        name="ck_redemption_closure_evidence",
+    ),
+    # A snapshot that says nothing is not a snapshot.
+    sa.CheckConstraint(
+        "points_cost_snapshot > 0 AND length(btrim(item_name_snapshot)) > 0",
+        name="ck_redemption_snapshot_present",
+    ),
 )
 
 
