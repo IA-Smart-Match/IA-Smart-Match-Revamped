@@ -53,6 +53,9 @@ __all__ = [
     "membership",
     "org_unit",
     "outbox_record",
+    "pilot_credential",
+    "pilot_login_attempt",
+    "pilot_session",
     "point_ledger_entry",
     "professional_unit_relationship",
     "rate_limit_counter",
@@ -1333,4 +1336,100 @@ match_run = sa.Table(
         "portfolio_status IN ('optimal','feasible','infeasible','unknown')",
         name="ck_match_run_portfolio_status",
     ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Pilot login (migration 0020)
+#
+# The storage behind the owner-authorized, pilot-scoped substitute for
+# institutional sign-in — see ``docs/decisions/pilot-login-decision-2026-09-04.md``
+# and the migration's own docstring, which carries the reasoning these mirrors
+# deliberately do not restate.
+#
+# Note what is absent from all three tables: any column naming a **role**, a
+# tenant the caller chose, or a unit. A credential resolves *who*; ``membership``
+# above decides *what*, and it is written by an administrator rather than by
+# anyone signing in.
+# ---------------------------------------------------------------------------
+
+
+pilot_credential = sa.Table(
+    "pilot_credential",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("user_id", _UUID, nullable=False),
+    # Stored, not assumed: verify_password compares this against the one
+    # identifier it knows and refuses anything else rather than re-deriving an
+    # unfamiliar row under today's defaults.
+    sa.Column("algorithm", sa.Text, nullable=False),
+    sa.Column("iterations", sa.Integer, nullable=False),
+    sa.Column("salt", sa.LargeBinary, nullable=False),
+    sa.Column("password_hash", sa.LargeBinary, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="pilot_credential_pkey"),
+    # CASCADE: a digest for a deleted account is a secret nobody owns.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="CASCADE",
+    ),
+    # Named because pilot_auth.py passes it to ON CONFLICT DO UPDATE when the
+    # seed rewrites an existing credential.
+    sa.UniqueConstraint("tenant_id", "user_id", name="uq_pilot_credential_account"),
+    sa.CheckConstraint(
+        "algorithm = 'pbkdf2_hmac_sha256'", name="ck_pilot_credential_algorithm"
+    ),
+    sa.CheckConstraint(
+        "octet_length(salt) >= 16 AND octet_length(password_hash) = 32 AND iterations >= 100000",
+        name="ck_pilot_credential_material",
+    ),
+)
+
+
+pilot_session = sa.Table(
+    "pilot_session",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("user_id", _UUID, nullable=False),
+    # The SHA-256 of the token the browser holds; the token itself is stored
+    # nowhere, so this column cannot be replayed as a credential.
+    sa.Column("token_hash", sa.LargeBinary, nullable=False),
+    sa.Column("issued_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("expires_at", _TS, nullable=False),
+    # Log-out sets this rather than deleting the row: "ended deliberately" is a
+    # fact, and an absent row cannot state it.
+    sa.Column("revoked_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="pilot_session_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="CASCADE",
+    ),
+    # Named because every authenticated request resolves through this column,
+    # and its uniqueness is what makes ``.one_or_none()`` sound there.
+    sa.UniqueConstraint("token_hash", name="uq_pilot_session_token_hash"),
+    sa.CheckConstraint(
+        "expires_at > issued_at AND (revoked_at IS NULL OR revoked_at >= issued_at)",
+        name="ck_pilot_session_window",
+    ),
+    sa.CheckConstraint("octet_length(token_hash) = 32", name="ck_pilot_session_token_hash"),
+)
+
+
+pilot_login_attempt = sa.Table(
+    "pilot_login_attempt",
+    METADATA,
+    # Text and tenant-less, because a caller who has not authenticated has
+    # neither a tenant nor a user id. See migration 0020 for why this is a
+    # separate table rather than a relaxation of rate_limit_counter.
+    sa.Column("caller_key", sa.Text, primary_key=True),
+    sa.Column("window_start", _TS, primary_key=True),
+    sa.Column("count", sa.Integer, nullable=False, server_default="0"),
+    # Named because pilot_auth.py passes this name to ON CONFLICT DO UPDATE.
+    sa.PrimaryKeyConstraint("caller_key", "window_start", name="pk_pilot_login_attempt"),
+    sa.CheckConstraint("count >= 0", name="ck_pilot_login_attempt_count"),
 )

@@ -6,10 +6,21 @@ gate closes is a route someone will call.
 
 What is **not** present, and why:
 
-* ``POST /auth/mock-login`` — archived (MM-A01). Caller-selected identity was the
-  single most dangerous pattern in the legacy baseline
-  (``bdce024:src/api/routers/portals.py:435``). Identity now comes from a
-  verified token, and the local account, tenant, and roles are read server-side.
+* ``POST /auth/mock-login`` — archived (MM-A01), and **not** what
+  ``routers/auth.py`` restores. Caller-selected identity was the single most
+  dangerous pattern in the legacy baseline
+  (``bdce024:src/api/routers/portals.py:435``): that route let a caller *choose*
+  who they were. ``POST /v1/auth/login`` requires a secret only the account
+  holder has, and the local account, tenant, and roles are still read
+  server-side from ``user_account`` and ``membership`` — never from the request.
+  It is a pilot-scoped stand-in for institutional sign-in, authorized by the
+  owner on 2026-09-04 and recorded in
+  ``docs/decisions/pilot-login-decision-2026-09-04.md``; it is not A1b, does not
+  unblock it, and leaves the JWKS verifier unwired.
+* ``GET /v1/me/portals`` — the authenticated account-to-portal mapping the
+  portal shells were blocked on, derived from the caller's own memberships and
+  taking no parameter at all. Deliberately not ``/api/portals/{id}``: a portal
+  follows from who you are, not from an id you send.
 * Match-run, discovery, and send commands — each waits on its gate: G1 for the
   factor registry, G3 for agent controls, G4 for consent-origin policy. The
   submission machinery they will use is built and exercised by ``/imports``.
@@ -33,6 +44,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
+    auth,
     engagement,
     events,
     imports,
@@ -40,6 +52,7 @@ from smartmatch_api.routers import (
     match_runs,
     me,
     metrics,
+    portals,
     redrive,
     review,
     rewards,
@@ -221,6 +234,8 @@ app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
 app.include_router(rewards.router)
+app.include_router(auth.router)
+app.include_router(portals.router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")
