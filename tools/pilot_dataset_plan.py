@@ -58,6 +58,8 @@ __all__ = [
     "CALENDAR_ANCHOR",
     "DEFAULT_SEED",
     "EVENT_LOCATION",
+    "IN_LIST_CATEGORIES",
+    "OUT_OF_LIST_CATEGORIES",
     "EventPlan",
     "PlanSummary",
     "ProfessionalPlan",
@@ -270,19 +272,33 @@ _EVENT_STEMS: Final[tuple[str, ...]] = (
     "Ambervale Industry Conference",
 )
 
-#: Categories the ratified counting rule treats as in-list.
-_IN_LIST_CATEGORIES: Final[tuple[str, ...]] = (
-    "Technology",
-    "Innovation",
-    "Career Development",
-    "Entrepreneurship",
-    "Networking",
+#: Categories the ratified counting rule treats as in-list — the five
+#: programmatic engagement types
+#: ``smartmatch_domain.metrics.OPPORTUNITY_IN_LIST_CATEGORIES`` names, spelled
+#: here the way a coordinator's export would spell them (comparison is
+#: case-insensitive, so the title casing is presentation only).
+#:
+#: **This list is load-bearing and is easy to get wrong.** The existing
+#: ``docs/pilot-data/fixtures/events_clean.json`` uses ``"Technology"``,
+#: ``"Innovation"``, ``"Networking"`` and friends — every one of which the
+#: ratified rule classifies as *out-of-list*. A dataset built from vocabulary
+#: like that produces a measured ``opportunities`` count of **zero** and opens
+#: no pipeline journey on accept, which looks exactly like a broken metric. The
+#: terms below are the ones the closed P8 decision actually names.
+IN_LIST_CATEGORIES: Final[tuple[str, ...]] = (
+    "Hackathon",
+    "Datathon",
+    "Competition",
+    "Guest Lecturer Event",
+    "School Event",
 )
 
-#: Categories it does not. See :data:`OUT_OF_LIST_CATEGORY_SHARE`.
-_OUT_OF_LIST_CATEGORIES: Final[tuple[str, ...]] = (
-    "Social",
-    "Fundraising",
+#: Categories it does not. See :data:`OUT_OF_LIST_CATEGORY_SHARE`. An
+#: out-of-list category is *pending coordinator review*, never an error — which
+#: is why these read as plausible programme labels rather than as junk.
+OUT_OF_LIST_CATEGORIES: Final[tuple[str, ...]] = (
+    "Social Mixer",
+    "Fundraising Gala",
 )
 
 
@@ -501,9 +517,9 @@ def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ..
         )
 
         pool = (
-            _OUT_OF_LIST_CATEGORIES
+            OUT_OF_LIST_CATEGORIES
             if tag_rng.random() < OUT_OF_LIST_CATEGORY_SHARE
-            else _IN_LIST_CATEGORIES
+            else IN_LIST_CATEGORIES
         )
 
         planned.append(
@@ -589,7 +605,7 @@ def plan_summary(
         events_unresolved=sum(1 for e in events if not e.resolved),
         events_quarantined=sum(1 for e in events if e.off_vocabulary_tags),
         events_publishable=sum(1 for e in events if e.publishable),
-        events_out_of_list_category=sum(1 for e in events if e.category in _OUT_OF_LIST_CATEGORIES),
+        events_out_of_list_category=sum(1 for e in events if e.category in OUT_OF_LIST_CATEGORIES),
         students=len(students),
         students_without_attendance=sum(1 for s in students if s.attendances == 0),
         students_uncredited=sum(1 for s in students if s.attendances and not s.credited),

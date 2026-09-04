@@ -122,7 +122,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from datetime import time as clock_time
 from typing import Any, Final
@@ -132,6 +132,7 @@ import sqlalchemy as sa
 from pilot_dataset_plan import (
     DEFAULT_SEED,
     EVENT_LOCATION,
+    IN_LIST_CATEGORIES,
     EventPlan,
     ProfessionalPlan,
     StudentPlan,
@@ -247,8 +248,10 @@ DECISION_PACE_SECONDS: Final[float] = 1.05
 #: in-list row opens one journey per professional already linked to the unit,
 #: capped at ``MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT`` (50), so accepting many of
 #: them would bury the funnel under a single enormous Matched bar — the
-#: opposite of the real distribution this tool exists to produce.
-FANOUT_IMPORT_ROWS: Final[int] = 4
+#: opposite of the real distribution this tool exists to produce. Two rows adds
+#: a hundred journeys at Matched, which reads as a believable recently-matched
+#: cohort next to the walked funnel below it.
+FANOUT_IMPORT_ROWS: Final[int] = 2
 
 #: How many professionals go into the deliberately-undecided review queue.
 PENDING_IMPORT_ROWS: Final[int] = 30
@@ -1097,7 +1100,14 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
     # shows `pipeline_provisioning` opening journeys the way the product does —
     # and shows it at a scale that adds a believable "recently matched" cohort
     # rather than burying the funnel.
-    fanout = build_events(FANOUT_IMPORT_ROWS, seed=args.seed + 1)
+    # Every fan-out row is forced to an in-list category. The ordinary plan
+    # gives about one row in seven an out-of-list category on purpose, and an
+    # out-of-list accept provisions nothing — so leaving this to chance would
+    # make "did the fan-out get demonstrated at all" a coin toss on the seed.
+    fanout = tuple(
+        replace(event, category=IN_LIST_CATEGORIES[0])
+        for event in build_events(FANOUT_IMPORT_ROWS, seed=args.seed + 1)
+    )
     fanout_job = submit_import(
         api_base=api_base,
         bearer_token=args.bearer_token,
