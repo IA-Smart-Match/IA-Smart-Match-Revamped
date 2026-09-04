@@ -53,6 +53,7 @@ from smartmatch_domain.synthetic_pilot import (
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.pipeline import (
     MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
+    ConflictingOwningUnitError,
     PipelineRepository,
 )
 from smartmatch_persistence.rate_limit import RateLimit
@@ -495,7 +496,19 @@ def test_a_second_decision_on_the_same_item_is_409_and_does_not_double_provision
 # ---------------------------------------------------------------------------
 
 
-def test_a_student_role_is_denied_and_provisions_nothing(ctx: _Context) -> None:
+@pytest.mark.parametrize(
+    ("unit_path", "role", "subject_prefix"),
+    [
+        pytest.param(JOB_OWNING_UNIT_PATH, "student", "review-decision-student", id="wrong-role"),
+        pytest.param(None, None, "review-decision-no-membership", id="no-membership"),
+    ],
+)
+def test_a_non_coordinator_principal_is_denied_and_provisions_nothing(
+    ctx: _Context, unit_path: str | None, role: str | None, subject_prefix: str
+) -> None:
+    """A `student` membership at the right path, and no membership at all,
+    are both refused — neither is the `_REVIEW_ROLES` this route requires.
+    """
     (event_item_id,) = _seed_review_items(
         ctx.engine,
         ctx.session_factory,
@@ -504,40 +517,16 @@ def test_a_student_role_is_denied_and_provisions_nothing(ctx: _Context) -> None:
         dataset="events",
         rows=[_IN_LIST_EVENT_ROW],
     )
-    student_token, _ = _register_principal(
+    token, _ = _register_principal(
         ctx.engine,
         ctx.client,
         ctx.tenant_id,
-        unit_path=JOB_OWNING_UNIT_PATH,
-        role="student",
-        subject_prefix="review-decision-student",
+        unit_path=unit_path,
+        role=role,
+        subject_prefix=subject_prefix,
     )
 
-    response = _decide(ctx.client, student_token, event_item_id, "accepted")
-
-    assert response.status_code == 403
-    assert _pipeline_record_count(ctx.engine, ctx.tenant_id) == 0
-
-
-def test_no_membership_is_denied_and_provisions_nothing(ctx: _Context) -> None:
-    (event_item_id,) = _seed_review_items(
-        ctx.engine,
-        ctx.session_factory,
-        tenant_id=ctx.tenant_id,
-        unit_id=ctx.unit_id,
-        dataset="events",
-        rows=[_IN_LIST_EVENT_ROW],
-    )
-    no_membership_token, _ = _register_principal(
-        ctx.engine,
-        ctx.client,
-        ctx.tenant_id,
-        unit_path=None,
-        role=None,
-        subject_prefix="review-decision-no-membership",
-    )
-
-    response = _decide(ctx.client, no_membership_token, event_item_id, "accepted")
+    response = _decide(ctx.client, token, event_item_id, "accepted")
 
     assert response.status_code == 403
     assert _pipeline_record_count(ctx.engine, ctx.tenant_id) == 0
@@ -743,7 +732,7 @@ def test_a_provisioning_failure_rolls_back_the_decision(ctx: _Context) -> None:
         session.commit()
     assert _pipeline_record_count(ctx.engine, ctx.tenant_id) == 1
 
-    with pytest.raises(Exception):  # noqa: B017 - the route's own unmapped propagation, by design
+    with pytest.raises(ConflictingOwningUnitError):
         _decide(ctx.client, ctx.coordinator_token, event_item_id, "accepted")
 
     # The decision must not have been committed: the item is still pending,
