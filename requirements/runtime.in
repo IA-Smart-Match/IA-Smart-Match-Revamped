@@ -7,3 +7,6 @@ pydantic-settings>=2.4,<3
 sqlalchemy>=2.0,<2.1
 psycopg[binary]>=3.2,<4
 alembic>=1.13,<2
+# Task 5 (M7): CP-SAT portfolio assignment — architecture v1.1 §1.2 Stage B
+# global optimization. Deterministic, in-process, never an LLM.
+ortools>=9.14,<10

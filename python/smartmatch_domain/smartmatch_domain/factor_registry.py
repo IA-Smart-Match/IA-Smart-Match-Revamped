@@ -34,6 +34,7 @@ from types import MappingProxyType
 from typing import Final
 
 __all__ = [
+    "APPROVED_SCORING_KEYS",
     "PROHIBITED_INPUTS",
     "PROPOSED_FACTORS",
     "REGISTRY_STATUS",
@@ -41,14 +42,24 @@ __all__ = [
     "FactorKind",
     "FactorSpec",
     "RegistryNotApprovedError",
+    "RegistryNotReadyError",
     "active_weights",
     "assert_registry_approved",
+    "assert_scoring_ready",
     "factor_keys",
+    "implemented_scoring_keys",
     "normalize_weights",
     "proposed_weights",
 ]
 
-REGISTRY_VERSION: Final[str] = "1.1.0-approved-g1"
+#: M6j (2026-09-03) flipped ``topic_relevance`` and ``travel_burden`` from
+#: proposed to implemented. Any stored ``match_run`` pinned to
+#: ``"1.1.0-approved-g1"`` was produced while the implemented scoring set was
+#: empty; a run pinned to ``"1.1.1-approved-g1-m6j"`` or later reflects both
+#: factors actually being computed. The two must stay distinguishable so a
+#: consumer never conflates "registry approved" with "registry approved and
+#: fully implemented."
+REGISTRY_VERSION: Final[str] = "1.1.1-approved-g1-m6j"
 
 #: Approved 2026-09-03 by Danny Tran (@dangt) per
 #: ``docs/plans/workshops/g1-workshop-output-worksheet.md`` and Dr. Wang program
@@ -93,6 +104,12 @@ class FactorSpec:
         proposed_weight: The Stage B weight this registry proposes, pending gate
             G1 approval. Zero for eligibility factors, which are not scored.
         implemented: Whether a verified implementation exists in this package.
+            Active Stage B weight is governed by ``is_scoring and
+            implemented`` together, not by this flag alone: an ELIGIBILITY
+            factor may be ``implemented=True`` (a real Stage A filter exists
+            for it) yet still carry zero Stage B weight, because
+            :attr:`active_weight` and :func:`implemented_scoring_keys` both
+            filter on :attr:`is_scoring` before they ever look at this flag.
         rationale: Why the factor exists, in operational terms.
     """
 
@@ -138,7 +155,7 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         display_label="Topic Relevance",
         kind=FactorKind.SUITABILITY,
         proposed_weight=0.70,
-        implemented=False,
+        implemented=True,
         rationale=(
             "Alignment between the professional's expertise and the event_need's "
             "required and preferred topics. Primary scoring factor per G1 "
@@ -150,7 +167,7 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         display_label="Travel Burden (proximity)",
         kind=FactorKind.PENALTY,
         proposed_weight=0.30,
-        implemented=False,
+        implemented=True,
         rationale=(
             "Proximity / route-matrix travel time (v1.1 §3.1). Straight-line "
             "interim until D3 provider. Secondary scoring factor per G1 approval."
@@ -161,13 +178,21 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         display_label="Availability / Blackout",
         kind=FactorKind.ELIGIBILITY,
         proposed_weight=0.0,
-        implemented=False,
+        implemented=True,
         rationale=(
             "Applied after shortlist per program direction: match before "
-            "availability; coordinator batch-invites and tracks responses."
+            "availability; coordinator batch-invites and tracks responses. "
+            "Implemented by smartmatch_domain.eligibility."
+            "apply_availability_filter — a Stage A filter, never a Stage B "
+            "scorer, so it stays weight 0 regardless of this flag."
         ),
     ),
 )
+
+#: The Stage B scoring factors gate G1 approved on 2026-09-03. The readiness
+#: assertion below requires the implemented set to equal this set exactly —
+#: neither a missing implementation nor an extra one is acceptable.
+APPROVED_SCORING_KEYS: Final[frozenset[str]] = frozenset({"topic_relevance", "travel_burden"})
 
 #: Inputs the registry schema refuses, enforced by :class:`FactorSpec` review and
 #: by ``tests/unit/test_factor_registry.py`` — not by convention (v1.1 §1.3).
@@ -208,9 +233,50 @@ def assert_registry_approved() -> None:
         )
 
 
+class RegistryNotReadyError(RuntimeError):
+    """Raised when the implemented scoring set is not the approved scoring set."""
+
+
 def factor_keys() -> tuple[str, ...]:
     """Return every declared factor key, in registry order."""
     return tuple(spec.key for spec in PROPOSED_FACTORS)
+
+
+def implemented_scoring_keys() -> frozenset[str]:
+    """Return the keys of every implemented Stage B scoring factor."""
+    return frozenset(spec.key for spec in PROPOSED_FACTORS if spec.implemented and spec.is_scoring)
+
+
+def assert_scoring_ready() -> None:
+    """Fail closed unless the implemented scoring set is exactly the approved set.
+
+    :func:`assert_registry_approved` proves the program owner signed off. This
+    proves the code actually built what was signed off — the window this closes
+    is an "approved" registry scoring with only a subset of the approved
+    factors, which is the legacy deflation defect in a new costume.
+
+    Raises:
+        RegistryNotReadyError: when the implemented scoring set differs from
+            :data:`APPROVED_SCORING_KEYS`, or when the normalized weights do
+            not sum to 1.0 within ``1e-9``.
+    """
+    implemented = implemented_scoring_keys()
+    if implemented != APPROVED_SCORING_KEYS:
+        missing = APPROVED_SCORING_KEYS - implemented
+        extra = implemented - APPROVED_SCORING_KEYS
+        raise RegistryNotReadyError(
+            "Implemented Stage B scoring set does not match the approved set "
+            f"{sorted(APPROVED_SCORING_KEYS)}. "
+            f"Missing: {sorted(missing) or 'none'}. Extra: {sorted(extra) or 'none'}."
+        )
+
+    weight_total = sum(normalize_weights().values())
+    if abs(weight_total - 1.0) > 1e-9:
+        raise RegistryNotReadyError(
+            f"Normalized Stage B weights sum to {weight_total!r}, not 1.0. "
+            "The implemented scoring set is approved but normalize_weights() is "
+            "not sum-to-one; scoring must not proceed."
+        )
 
 
 def proposed_weights() -> Mapping[str, float]:

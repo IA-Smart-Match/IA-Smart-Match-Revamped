@@ -166,6 +166,31 @@ LICENSE_EXCEPTIONS: dict[tuple[str, str], str] = {
         "shipped image contains it). Same per-file MPL reasoning as certifi: "
         "used verbatim, unmodified."
     ),
+    # Controller ruling (Task 5 / M7, 2026-09-03), pending program-owner sign-off
+    # on the PR: numpy is transitive from ortools, required by the architecture
+    # for CP-SAT Stage B portfolio assignment (v1.1 §1.2). Its License-Expression
+    # is "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" — three of the five
+    # component licenses are already on ALLOWED_LICENSES; Zlib and CC0-1.0 cover
+    # vendored components inside a distribution whose primary license is the
+    # already-allowed BSD-3-Clause. ALLOWED_LICENSES is deliberately not widened
+    # for either, so a future dependency does not silently inherit them.
+    ("numpy", "Zlib"): (
+        "Covers a vendored component inside numpy, whose primary license is the "
+        "already-allowed BSD-3-Clause. Zlib is OSI-approved permissive: "
+        "attribution, no misrepresentation of the software's origin, and notice "
+        "retention on redistribution of source — no copyleft. numpy is imported "
+        "unmodified at runtime and is neither vendored nor patched by this "
+        "project. If this project ever patches or vendors numpy, this entry "
+        "stops being sufficient and the obligation becomes real."
+    ),
+    ("numpy", "CC0-1.0"): (
+        "Covers a vendored component inside numpy, whose primary license is the "
+        "already-allowed BSD-3-Clause. CC0-1.0 is a public-domain dedication: it "
+        "imposes no obligation at all. numpy is imported unmodified at runtime "
+        "and is neither vendored nor patched by this project. If this project "
+        "ever patches or vendors numpy, this entry stops being sufficient and "
+        "the obligation becomes real."
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -189,6 +214,7 @@ _FREE_TEXT: dict[str, str] = {
     "simplified bsd": "BSD-2-Clause",
     "bsd 3 clause": "BSD-3-Clause",
     "bsd 3 clause license": "BSD-3-Clause",
+    "3 clause bsd license": "BSD-3-Clause",
     "bsd 3 clause new or revised license": "BSD-3-Clause",
     "new bsd": "BSD-3-Clause",
     "new bsd license": "BSD-3-Clause",

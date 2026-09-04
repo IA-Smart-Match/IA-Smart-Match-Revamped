@@ -73,6 +73,32 @@ explicit_package_bases = true
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# OR-Tools ships partial type information; its generated protobuf modules are
+# not typed. Narrow to the one package rather than relaxing strict mode.
+#
+# `follow_imports = "skip"` is required, not optional — verified with a
+# minimal, fresh-cache reproduction outside this codebase before relying on
+# it. OR-Tools ships no `py.typed` marker, so without this line mypy still
+# finds and partially type-checks its actual (untyped) .py source rather than
+# treating the package as opaque, and that partial checking is wrong for how
+# this module calls it: `CpModel.NewBoolVar`/`.Add`/`.Maximize` — the
+# CamelCase convenience API this module uses (matching the ratified model
+# spec) — are added to the class dynamically at runtime (see
+# `deprecated_method`/`snake_case_to_camel_case` in
+# ortools/sat/python/cp_model.py), not declared statically, so mypy reports
+# them as undefined attributes; `ortools.__version__`, real at runtime, is
+# also lost once `cp_model` is imported alongside it. `ignore_missing_imports`
+# alone does not fix either — it only suppresses "stub not found" errors, and
+# ortools's source *is* found. `follow_imports = "skip"` instead stops mypy
+# from analyzing ortools' internals at all, treating the package as Any at
+# its import boundary — a stricter containment of ortools than
+# `ignore_missing_imports` alone, not a relaxation of strict mode anywhere
+# else in this project.
+[[tool.mypy.overrides]]
+module = ["ortools.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
