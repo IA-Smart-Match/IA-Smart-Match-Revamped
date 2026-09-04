@@ -328,3 +328,31 @@ def test_the_expected_release_is_resolved_the_way_compose_resolves_it(tmp_path: 
         env={k: v for k, v in os.environ.items() if k != "SMARTMATCH_RELEASE"},
     )
     assert default.stdout == "compose-dev"
+
+
+def test_the_optional_pilot_login_seed_is_reported_but_never_required() -> None:
+    """`seed-logins` is shown by `status` and counted by nothing.
+
+    It seeds the optional pilot logins from the `SMARTMATCH_PILOT_*` pairs and
+    exits 2 when none is configured — which is the default, and what CI runs.
+    Counting it would report a perfectly healthy stack as broken, and the
+    launcher's own `status --json` assertion in CI would fail on every run.
+    """
+    bash_source = BASH_LAUNCHER.read_text(encoding="utf-8")
+    powershell_source = POWERSHELL_LAUNCHER.read_text(encoding="utf-8")
+    health_source = HEALTH_SCRIPT.read_text(encoding="utf-8")
+
+    # Reported by both launchers...
+    assert "seed-logins" in _bash_array(bash_source, "COMPOSE_SERVICES")
+    assert "seed-logins" in _powershell_array(powershell_source, "script:ComposeServices")
+
+    # ...and required by neither, nor by the health suite.
+    required = _powershell_array(powershell_source, "script:OneShotServices")
+    assert set(required) == {"migrate", "seed", "seed-review"}, required
+    assert re.search(r"^      migrate\|seed\|seed-review\)$", bash_source, re.MULTILINE), (
+        "smartmatch.sh's required-one-shot case arm changed; check seed-logins is still out of it"
+    )
+    assert not any(
+        identifier.startswith("seed-logins")
+        for identifier in _bash_array(health_source, "CHECK_IDS")
+    )

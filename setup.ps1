@@ -87,6 +87,14 @@ function Test-WingetPackageInstalled {
 function Install-WingetPackage {
     param([string] $Id, [string] $Label)
 
+    # winget is checked BEFORE anything invokes it. Test-WingetPackageInstalled
+    # runs `winget list`, and with $ErrorActionPreference = 'Stop' a machine
+    # without winget would die there with a CommandNotFoundException instead of
+    # getting the guidance Assert-Winget exists to give.
+    if (-not (Assert-Winget)) {
+        Add-Missing "$Label (winget id $Id)"
+        return $false
+    }
     if (Test-WingetPackageInstalled -Id $Id) {
         Write-Info "$Label`: already installed (winget id $Id)"
         return $true
@@ -95,14 +103,15 @@ function Install-WingetPackage {
         Add-Missing "$Label (winget id $Id)"
         return $false
     }
-    if (-not (Assert-Winget)) {
-        Add-Missing "$Label (winget id $Id)"
-        return $false
-    }
 
     Write-Info "installing $Label via winget..."
+    # Routed to the host rather than left on the pipeline: this function
+    # returns a boolean, and winget's progress output would otherwise be
+    # returned alongside it and make `if (Install-WingetPackage ...)` test an
+    # array instead of the result.
     & winget install --id $Id --exact --silent `
-        --accept-package-agreements --accept-source-agreements
+        --accept-package-agreements --accept-source-agreements 2>&1 |
+        ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         Add-Missing "$Label (winget install exited $LASTEXITCODE)"
         return $false

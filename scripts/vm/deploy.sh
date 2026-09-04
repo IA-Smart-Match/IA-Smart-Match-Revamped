@@ -83,10 +83,14 @@ BACKUP_DIR="${SMARTMATCH_BACKUP_DIR:-${STATE_DIR}/backups}"
 LOG_DIR="${SMARTMATCH_LOG_DIR:-${STATE_DIR}/logs}"
 META_DIR="${SMARTMATCH_META_DIR:-${STATE_DIR}/deployments}"
 LOCK_FILE="${SMARTMATCH_LOCK_FILE:-${STATE_DIR}/deploy.lock}"
+SSH_KEY="${SMARTMATCH_SSH_KEY:-${STATE_DIR}/.ssh/id_ed25519}"
 DEPLOY_BRANCH="${SMARTMATCH_DEPLOY_BRANCH:-deploy}"
 LOCK_WAIT_SECONDS="${SMARTMATCH_LOCK_WAIT_SECONDS:-1800}"
 HEALTH_TIMEOUT="${SMARTMATCH_HEALTH_TIMEOUT:-900}"
 BACKUP_RETAIN="${SMARTMATCH_BACKUP_RETAIN:-14}"
+# How many 2-second polls to give a stopped database container to report
+# healthy before the deployment refuses for want of a backup.
+DB_START_ATTEMPTS="${SMARTMATCH_DB_START_ATTEMPTS:-60}"
 
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.vm.yml)
 DB_URL="postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
@@ -158,6 +162,16 @@ META_FILE="${META_DIR}/deploy-${STAMP}.json"
 exec > >(redact | tee -a "$LOG_FILE") 2>&1
 
 cd "$APP_DIR" || { fail_out "cannot enter ${APP_DIR}"; exit "$EXIT_PREREQ"; }
+
+# The read-only deploy key. `bootstrap_vm.sh` also writes this into the clone's
+# own `core.sshCommand`, so a hand-run `git fetch` in that directory works too;
+# this export is what makes the value independent of a config a later
+# `git config --unset` or a fresh clone could lose. Without it git offers no
+# identity at all and every fetch fails with "Permission denied (publickey)" —
+# which reads like a broken key rather than a missing one.
+if [ -f "${SSH_KEY}" ]; then
+  export GIT_SSH_COMMAND="ssh -i ${SSH_KEY} -o IdentitiesOnly=yes -o UserKnownHostsFile=${STATE_DIR}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
+fi
 
 log "=== SmartMatch VM deployment ${STAMP} ==="
 log "app dir:  ${APP_DIR}"
@@ -254,7 +268,42 @@ fi
 
 FAILURE_STAGE="backup"
 
-if compose ps -a --format '{{.State}}' db 2>/dev/null | grep -q .; then
+DB_STATE="$(compose ps -a --format '{{.State}}' db 2>/dev/null | head -n1)"
+
+if [ -z "$DB_STATE" ]; then
+  log "no database container yet — this is the first deployment, so there is nothing to back up"
+else
+  # `docker compose exec` needs a RUNNING container, and the container's mere
+  # existence does not mean it is running: a rebooted VM whose stack was never
+  # brought back, or an operator's `compose stop`, both leave it `exited`.
+  # Treating that as "no backup possible" would refuse every deployment,
+  # including the one that would fix the machine — so the database is started
+  # first, and only a database that will not start stops the deployment.
+  if [ "$DB_STATE" != "running" ]; then
+    log "the database container is '${DB_STATE}'; starting it so the backup can be taken"
+    if ! compose up -d db; then
+      fail_out "the database container will not start, so no backup can be taken."
+      fail_out "Refusing to deploy. 'docker compose logs db' on the VM says why. Nothing changed."
+      OUTCOME="refused"
+      exit "$EXIT_REFUSED"
+    fi
+    db_ready=0
+    for _ in $(seq 1 "$DB_START_ATTEMPTS"); do
+      if [ "$(compose ps -a --format '{{.Health}}' db 2>/dev/null | head -n1)" = "healthy" ]; then
+        db_ready=1
+        break
+      fi
+      sleep 2
+    done
+    if [ "$db_ready" != "1" ]; then
+      fail_out "the database container started but never reported healthy."
+      fail_out "Refusing to migrate without a backup. Nothing changed."
+      OUTCOME="refused"
+      exit "$EXIT_REFUSED"
+    fi
+    log "the database is healthy"
+  fi
+
   BACKUP_FILE="${BACKUP_DIR}/smartmatch-${STAMP}-${PREVIOUS_SHA:0:12}.sql.gz"
   log "backing up the database to ${BACKUP_FILE}"
   # pg_dump runs inside the db container, so the VM needs no client version
@@ -269,8 +318,6 @@ if compose ps -a --format '{{.State}}' db 2>/dev/null | grep -q .; then
     OUTCOME="refused"
     exit "$EXIT_REFUSED"
   fi
-else
-  log "no database container yet — this is the first deployment, so there is nothing to back up"
 fi
 
 # --- 3. fast-forward --------------------------------------------------------

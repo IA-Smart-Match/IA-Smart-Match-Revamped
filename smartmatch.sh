@@ -286,8 +286,17 @@ cmd_status() {
 
     # A one-shot that exited 0 is correct, not down. Conflating the two is how
     # a status display teaches people to ignore it.
+    #
+    # `seed-logins` is reported but never counted: it seeds the optional pilot
+    # logins from SMARTMATCH_PILOT_*_EMAIL/_PASSWORD, and with no .env — the
+    # default, and what CI runs — it exits 2 to say "nothing was configured, so
+    # no login exists". That is a correct outcome on a stack that is otherwise
+    # perfectly healthy, which is why scripts/compose_health.sh leaves it out
+    # of the health suite too.
     case "$service" in
-      migrate|seed|seed-logins|seed-review)
+      seed-logins)
+        : ;;
+      migrate|seed|seed-review)
         if [ "$state" != "exited" ] || [ "${exit_code:-1}" != "0" ]; then unhealthy=1; fi
         ;;
       *)

@@ -204,14 +204,41 @@ jobs:
             --quiet \
             --command 'sudo -u smartmatch /opt/smartmatch/app/scripts/vm/deploy.sh'
 
+      - name: Read the revision the VM actually deployed
+        # NOT ${{ github.sha }}. Deployments serialize and each one
+        # fast-forwards to whatever `deploy` points at when it runs, so a push
+        # that lands while this job is queued means the VM correctly ends up on
+        # a NEWER commit than the one that started this run. Asserting the
+        # probe against github.sha would fail that correct deployment.
+        #
+        # The VM writes the SHA it deployed to /opt/smartmatch/release.env for
+        # its systemd unit; reading it back is how this job learns what is
+        # actually running rather than what it expected to be.
+        run: |
+          set -euo pipefail
+          recorded="$(gcloud compute ssh "${GCE_INSTANCE}" \
+            --zone "${GCP_ZONE}" --tunnel-through-iap --quiet \
+            --command 'cat /opt/smartmatch/release.env')"
+          deployed="${recorded#SMARTMATCH_RELEASE=}"
+          deployed="$(printf '%s' "$deployed" | tr -d '\r\n[:space:]')"
+          if [ -z "$deployed" ]; then
+            echo "::error::the VM recorded no deployed revision"
+            exit 1
+          fi
+          echo "DEPLOYED_SHA=${deployed}" >> "$GITHUB_ENV"
+          echo "the VM is running ${deployed}"
+          if [ "$deployed" != "${GITHUB_SHA}" ]; then
+            echo "::notice::the VM is on ${deployed}, newer than this run's ${GITHUB_SHA} — a later push to deploy superseded it, which is the intended convergence"
+          fi
+
       - name: Record the deployed revision
         run: |
           set -euo pipefail
-          echo "deployed_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           {
             echo "### Deployed"
             echo ""
-            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- deployed commit: \`${DEPLOYED_SHA}\`"
+            echo "- this run's commit: \`${GITHUB_SHA}\`"
             echo "- instance: \`${GCE_INSTANCE}\` (${GCP_ZONE})"
             echo "- url: ${SMARTMATCH_PUBLIC_URL}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -266,14 +293,15 @@ jobs:
 
           [ "$status" = "ok" ] || { echo "::error::the API reported status=${status}"; exit 1; }
 
-          # The release must be the commit this run deployed. Anything else
-          # means the containers serving the public URL are not the code that
-          # just went through the gate.
-          if [ "$release" != "${GITHUB_SHA}" ]; then
-            echo "::error::the public URL is serving release '${release}', not the deployed commit ${GITHUB_SHA}"
+          # The release must be the commit the VM reported deploying. Anything
+          # else means the containers serving the public URL are not the code
+          # the deployment just put there — a stale container, or a tunnel
+          # pointed somewhere other than this VM.
+          if [ "$release" != "${DEPLOYED_SHA}" ]; then
+            echo "::error::the public URL is serving release '${release}', not the deployed commit ${DEPLOYED_SHA}"
             exit 1
           fi
-          echo "the public URL is serving ${GITHUB_SHA}"
+          echo "the public URL is serving ${DEPLOYED_SHA}"
 
       - name: Deployment failed — what to look at
         if: failure()

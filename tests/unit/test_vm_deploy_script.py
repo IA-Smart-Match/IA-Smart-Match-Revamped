@@ -64,7 +64,11 @@ case "$all" in
     exit 0
     ;;
   *"ps -a --format {{.State}} db"*)
-    [ "${DOCKER_STUB_DB_EXISTS:-1}" = "1" ] && echo "running"
+    [ "${DOCKER_STUB_DB_EXISTS:-1}" = "1" ] && echo "${DOCKER_STUB_DB_STATE:-running}"
+    exit 0
+    ;;
+  *"ps -a --format {{.Health}} db"*)
+    echo "${DOCKER_STUB_DB_HEALTH:-healthy}"
     exit 0
     ;;
   *"ps -a --format {{.State}} migrate"*)
@@ -532,3 +536,59 @@ def test_the_systemd_unit_stops_rather_than_downs() -> None:
         `down -v` would discard the pilot database on a reboot.
         """
     )
+
+
+def test_a_stopped_database_is_started_so_the_backup_can_be_taken(vm: Deployment) -> None:
+    """`docker compose exec` needs a running container, not merely an existing one.
+
+    A rebooted VM whose stack was never brought back leaves `db` in `exited`.
+    Treating that as "no backup possible" would refuse every deployment — the
+    one that would fix the machine included.
+    """
+    result = vm.run(DOCKER_STUB_DB_STATE="exited", DOCKER_STUB_DB_HEALTH="healthy")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = vm.docker_calls
+    start = next(index for index, call in enumerate(calls) if call.endswith("up -d db"))
+    dump = next(index for index, call in enumerate(calls) if "pg_dump" in call)
+    assert start < dump, "the database must be started before the dump is attempted"
+    assert len(vm.backups) == 1
+
+
+def test_a_database_that_never_becomes_healthy_refuses_the_deployment(
+    vm: Deployment,
+) -> None:
+    result = vm.run(
+        DOCKER_STUB_DB_STATE="exited",
+        DOCKER_STUB_DB_HEALTH="starting",
+        SMARTMATCH_DB_START_ATTEMPTS="1",
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "never reported healthy" in result.stdout + result.stderr
+    assert vm.head() == vm.previous_sha  # type: ignore[attr-defined]
+    assert vm.backups == []
+    assert not any("build" in call for call in vm.docker_calls)
+
+
+def test_git_is_given_the_deploy_key() -> None:
+    """The VM's git must present the read-only deploy key, or nothing can fetch.
+
+    `bootstrap_vm.sh` sets `GIT_SSH_COMMAND` for its own clone, and git does not
+    persist that. Without both halves of this — the export here and the
+    `core.sshCommand` written into the clone — every deployment aborts at "git
+    fetch failed", which reads like a revoked key rather than a key that was
+    never offered. The mocked tests above run against a `file://` origin and so
+    cannot catch it; this is why the property is asserted statically.
+    """
+    deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert 'export GIT_SSH_COMMAND="ssh -i ${SSH_KEY}' in deploy_source
+    assert "IdentitiesOnly=yes" in deploy_source
+
+    bootstrap = (REPO_ROOT / "scripts" / "vm" / "bootstrap_vm.sh").read_text(encoding="utf-8")
+    assert "config core.sshCommand" in bootstrap, (
+        "bootstrap_vm.sh must persist the key into the clone's own config"
+    )
+    assert "StrictHostKeyChecking=yes" in deploy_source and (
+        "StrictHostKeyChecking=yes" in bootstrap
+    ), "host-key checking must stay on; the VM pins github.com via ssh-keyscan at bootstrap"

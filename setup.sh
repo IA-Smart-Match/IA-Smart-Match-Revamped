@@ -224,7 +224,11 @@ ensure_node() {
 
   say "installing Node ${NODE_MAJOR} from NodeSource..."
   ensure_curl
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | need_sudo -E bash - \
+  # No `-E`: need_sudo runs its arguments directly when already root, and
+  # `-E` is only meaningful to sudo — as a command it is "not found", which
+  # would surface as a missing Node rather than as a broken install line. The
+  # NodeSource script needs nothing from the caller's environment.
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | need_sudo bash - \
     || { MISSING+=("node"); return 1; }
   apt_updated=0
   apt_install nodejs || { MISSING+=("node"); return 1; }

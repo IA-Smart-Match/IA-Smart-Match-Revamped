@@ -114,7 +114,15 @@ $script:PublishedPorts = [ordered] @{
 
 $script:ComposeServices = @('db', 'migrate', 'seed', 'seed-logins', 'api', 'worker', 'scheduler', 'seed-review', 'web')
 
-$script:OneShotServices = @('migrate', 'seed', 'seed-logins', 'seed-review')
+# One-shots whose exit code decides whether the stack is in its expected state.
+#
+# `seed-logins` is deliberately absent: it seeds the OPTIONAL pilot logins from
+# SMARTMATCH_PILOT_*_EMAIL/_PASSWORD and exits 2 when none is configured, which
+# is the default and what CI runs. Counting it would report a perfectly healthy
+# stack as broken. scripts/compose_health.sh leaves it out of the health suite
+# for the same reason. It is still displayed.
+$script:OneShotServices = @('migrate', 'seed', 'seed-review')
+$script:OptionalServices = @('seed-logins')
 
 # CHECK_IDS — the contract shared with scripts/compose_health.sh. Adding a
 # check here and not there (or the reverse) is a failing unit test, which is
@@ -134,6 +142,14 @@ $script:CheckIds = @(
 )
 
 function Write-Info { param([string] $Message) Write-Host $Message }
+
+# Machine-readable output goes straight to stdout rather than onto the
+# pipeline. A function that both emits an object and returns a value returns
+# BOTH to its caller, so `if (Invoke-HealthCommand ...)` would be testing a
+# two-element array — which is always truthy — and the JSON would be swallowed
+# by the `if` instead of being printed. Writing to the console stream directly
+# keeps the return value the only thing on the pipeline.
+function Write-Payload { param([string] $Text) [Console]::Out.WriteLine($Text) }
 function Write-Warn { param([string] $Message) Write-Host $Message -ForegroundColor Yellow }
 function Stop-WithCode {
     param([int] $Code, [string] $Message)
@@ -452,11 +468,13 @@ function Invoke-HealthCommand {
     }
 
     if ($AsJson) {
-        [pscustomobject] @{
-            healthy          = [bool] $healthy
-            release_expected = $script:ExpectedRelease
-            checks           = $results
-        } | ConvertTo-Json -Depth 4 -Compress | Write-Output
+        Write-Payload (
+            [pscustomobject] @{
+                healthy          = [bool] $healthy
+                release_expected = $script:ExpectedRelease
+                checks           = $results
+            } | ConvertTo-Json -Depth 4 -Compress
+        )
     } else {
         foreach ($result in $results) {
             $mark = if ($result.Status -eq 'pass') { 'PASS' } else { 'FAIL' }
@@ -627,7 +645,9 @@ function Invoke-Status {
 
         # A one-shot that exited 0 is correct, not down. Conflating the two is
         # how a status display teaches people to ignore it.
-        if ($script:OneShotServices -contains $service) {
+        if ($script:OptionalServices -contains $service) {
+            # Reported, never counted. See $script:OneShotServices above.
+        } elseif ($script:OneShotServices -contains $service) {
             if ($state -ne 'exited' -or $code -ne '0') { $ok = $false }
         } elseif ($state -ne 'running') {
             $ok = $false
@@ -642,7 +662,7 @@ function Invoke-Status {
     }
 
     if ($AsJson) {
-        [pscustomobject] @{ services = $rows; ok = $ok } | ConvertTo-Json -Depth 4 -Compress | Write-Output
+        Write-Payload ([pscustomobject] @{ services = $rows; ok = $ok } | ConvertTo-Json -Depth 4 -Compress)
     } else {
         foreach ($row in $rows) {
             Write-Info ("  {0,-12} state={1,-10} health={2,-10} exit={3}" -f $row.service, $row.state, $row.health, $(if ($null -ne $row.exit_code) { $row.exit_code } else { '-' }))

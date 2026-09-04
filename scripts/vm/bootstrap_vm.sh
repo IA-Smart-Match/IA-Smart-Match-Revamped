@@ -282,6 +282,13 @@ ensure_clone() {
     return 1
   fi
   chown -R "$RUNTIME_USER:$RUNTIME_USER" "$APP_DIR"
+
+  # git does not persist GIT_SSH_COMMAND from the clone, so a later `git fetch`
+  # in this directory would offer no identity and fail with "Permission denied
+  # (publickey)". Writing it into the clone's own config is what makes a
+  # hand-run fetch work the same way the deployment's does.
+  git_as_runtime -C "$APP_DIR" config core.sshCommand \
+    "ssh -i ${DEPLOY_KEY} -o IdentitiesOnly=yes -o UserKnownHostsFile=${SSH_DIR}/known_hosts -o StrictHostKeyChecking=yes"
 }
 
 # --- systemd ----------------------------------------------------------------
