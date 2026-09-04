@@ -696,7 +696,32 @@ def test_the_scaffold_added_no_v1_route() -> None:
     generated = {path for path in app.openapi()["paths"] if path.startswith("/v1")}
 
     assert generated == published
-    assert not any("jwks" in path.lower() or "auth" in path.lower() for path in published)
+    assert not any("jwks" in path.lower() for path in published)
+
+    # The `auth` half is narrowed rather than dropped, and this guard has been
+    # failing on `main` since the pilot-login PR merged: `/v1/auth/login` and
+    # `/v1/auth/logout` shipped, and nobody updated the assertion that forbade
+    # them. They are not this scaffold growing an endpoint — they are the
+    # owner-authorized, pilot-scoped stand-in for institutional sign-in recorded
+    # in `docs/decisions/pilot-login-decision-2026-09-04.md`, and `main.py`'s own
+    # docstring says at length that landing them "is not A1b, does not unblock
+    # it, and leaves the JWKS verifier unwired".
+    #
+    # So the two authorized paths are named as an exact allowlist and every
+    # other `auth` path is still refused. An allowlist rather than deleting the
+    # clause, because what this guard is really watching for is a *third* auth
+    # route appearing alongside the JWKS scaffold, and that is exactly what a
+    # deleted clause would stop catching.
+    #
+    # Fixed here rather than left red because it blocked `make check` for an
+    # unrelated change; it is not part of the R4 outreach work.
+    authorized_auth_paths = {"/v1/auth/login", "/v1/auth/logout"}
+    unexpected_auth = {
+        path for path in published if "auth" in path.lower() and path not in authorized_auth_paths
+    }
+    assert unexpected_auth == set(), (
+        f"an unauthorized auth route is published: {sorted(unexpected_auth)}"
+    )
 
 
 def test_the_verifier_is_not_exported_from_the_providers_package() -> None:

@@ -894,7 +894,14 @@ def test_the_migration_round_trips_from_an_empty_database(engine: Engine) -> Non
     behind fails here rather than in whichever test ran next.
     """
     with scratch_database(engine) as url:
-        alembic(url, "head", expect_success=True)
+        # Upgraded to *this* revision rather than to `head`. It was `head` until
+        # migration `0020` landed, at which point the assertion below started
+        # comparing `0020` against `0019` and this test failed on `main` for a
+        # reason that had nothing to do with redemptions. Anchoring it to the
+        # revision the file is about is what its own docstring asks for — "the
+        # revision left applied is the one the rest of this suite expects" — and
+        # it stays true however many migrations land after it.
+        alembic(url, REVISION, expect_success=True)
         assert applied_revision(url) == REVISION
 
         with connected(url) as scratch, scratch.connect() as conn:
@@ -928,7 +935,7 @@ def test_the_migration_round_trips_from_an_empty_database(engine: Engine) -> Non
             ).scalar_one()
             assert restored == "NO", "the downgrade restores the NOT NULL 0009 declared"
 
-        alembic(url, "head", expect_success=True)
+        alembic(url, REVISION, expect_success=True)
         assert applied_revision(url) == REVISION
 
 
@@ -943,7 +950,7 @@ def test_the_downgrade_refuses_to_discard_a_redemption_debit(engine: Engine) -> 
     one that stops.
     """
     with scratch_database(engine) as url:
-        alembic(url, "head", expect_success=True)
+        alembic(url, REVISION, expect_success=True)
 
         with connected(url) as scratch, scratch.begin() as conn:
             tid = uuid.uuid4()
