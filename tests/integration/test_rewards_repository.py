@@ -37,7 +37,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import ensure_owning_unit, unique_subject
+from conftest import ensure_event, ensure_owning_unit, unique_subject
 from smartmatch_domain.rewards import (
     CALIBRATION_N_TENTATIVE,
     D7_TENTATIVE_POINT_BANDS,
@@ -93,8 +93,9 @@ def other_tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
     nothing, since a query filtered by a tenant that does not exist returns
     nothing for uninteresting reasons.
 
-    Cleans up the three engagement tables itself before deleting the identity
-    rows, for the same ``RESTRICT`` reason ``_clean_engagement_tables`` exists.
+    Cleans up the engagement tables and the events they cite itself, before
+    deleting the identity rows, for the same ``RESTRICT`` reason
+    ``_clean_engagement_tables`` exists.
 
     Created for every test in this file, not only the two that name it: the
     :func:`session` fixture depends on it so that teardown order is
@@ -114,6 +115,12 @@ def other_tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
             "point_ledger_entry",
             "attendance_record",
             "reward_item",
+            # After the attendance rows that cite it and before the unit it
+            # hosts at, both of which it references under RESTRICT since
+            # migration 0017. `conftest` orders its own teardown the same way;
+            # this tenant is not one `conftest` knows about, so the ordering is
+            # repeated here rather than inherited.
+            "event",
             "user_account",
             "org_unit",
         ):
@@ -180,6 +187,19 @@ def _record_attendance(session: Session, tenant_id: uuid.UUID, subject_id: uuid.
     ``method`` is :data:`SYNTHETIC_ATTENDANCE_METHOD` — the same
     ``coordinator_entry`` spelling the synthetic pilot's own writer uses. No QR
     scanner and no live check-in is involved anywhere in this file.
+
+    The event is a real ``event`` row from ``conftest``'s :func:`ensure_event`,
+    not a bare ``uuid4``. Migration ``0017`` gave ``attendance_record`` a
+    composite foreign key to ``event``, so a fabricated id no longer stores; the
+    conftest helper is the one place that knows the honest shape of a synthetic
+    event, and this file reuses it rather than growing a second copy.
+
+    The slug is derived from ``record_id``, so every call resolves to its *own*
+    event. That is what "a fresh synthetic event" has always meant here and it
+    is now load-bearing: the tests that credit one subject
+    :data:`CALIBRATION_N_TENTATIVE` times need three distinct events, because
+    ``uq_attendance_record_subject_event`` is what stops a subject attending the
+    same event twice.
     """
     record_id = uuid.uuid4()
     session.execute(
@@ -193,7 +213,7 @@ def _record_attendance(session: Session, tenant_id: uuid.UUID, subject_id: uuid.
             "tenant_id": tenant_id,
             "unit_id": ensure_owning_unit(session, tenant_id),
             "subject_id": subject_id,
-            "event_id": uuid.uuid4(),
+            "event_id": ensure_event(session, tenant_id, f"rewards-{record_id.hex[:8]}"),
             "method": SYNTHETIC_ATTENDANCE_METHOD,
         },
     )
