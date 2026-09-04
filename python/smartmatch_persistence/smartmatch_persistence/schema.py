@@ -1379,9 +1379,7 @@ pilot_credential = sa.Table(
     # Named because pilot_auth.py passes it to ON CONFLICT DO UPDATE when the
     # seed rewrites an existing credential.
     sa.UniqueConstraint("tenant_id", "user_id", name="uq_pilot_credential_account"),
-    sa.CheckConstraint(
-        "algorithm = 'pbkdf2_hmac_sha256'", name="ck_pilot_credential_algorithm"
-    ),
+    sa.CheckConstraint("algorithm = 'pbkdf2_hmac_sha256'", name="ck_pilot_credential_algorithm"),
     sa.CheckConstraint(
         "octet_length(salt) >= 16 AND octet_length(password_hash) = 32 AND iterations >= 100000",
         name="ck_pilot_credential_material",

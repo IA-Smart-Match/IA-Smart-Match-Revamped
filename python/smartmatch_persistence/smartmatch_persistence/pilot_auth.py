@@ -286,15 +286,20 @@ class PilotSessionRepository:
         ended" keeps its first, true answer.
         """
         moment = now or datetime.now(UTC)
-        result = session.execute(
+        # ``RETURNING`` rather than ``rowcount``: the update's own report of how
+        # many rows it touched is typed as unavailable on the generic result,
+        # and asking the statement to hand back what it changed is both
+        # narrower and checkable.
+        revoked = session.execute(
             sa.update(schema.pilot_session)
             .where(
                 schema.pilot_session.c.token_hash == token_hash,
                 schema.pilot_session.c.revoked_at.is_(None),
             )
             .values(revoked_at=moment)
-        )
-        return bool(result.rowcount)
+            .returning(schema.pilot_session.c.id)
+        ).one_or_none()
+        return revoked is not None
 
 
 class LoginAttemptLimiter:

@@ -183,9 +183,7 @@ def _read_role(entry: RoleCredential, environ: dict[str, str]) -> tuple[str, str
 def _account_id(connection: Connection, *, subject: str) -> uuid.UUID:
     """The account id for a subject the identity seed has just written."""
     row = connection.execute(
-        sa.select(schema.user_account.c.id).where(
-            schema.user_account.c.external_subject == subject
-        )
+        sa.select(schema.user_account.c.id).where(schema.user_account.c.external_subject == subject)
     ).one()
     return uuid.UUID(str(row.id))
 

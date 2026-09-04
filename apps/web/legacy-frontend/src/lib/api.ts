@@ -401,6 +401,25 @@ export function clearStoredSmartmatchBearerToken(): void {
   }
 }
 
+/**
+ * Stores the session token `POST /v1/auth/login` just issued.
+ *
+ * This is the *only* writer of browser storage in the frontend, and what it
+ * writes is a **credential**, never an identity. The value is 32 bytes of
+ * server-side randomness that mean nothing to the browser: it names no user,
+ * no tenant, and above all no role. Who the holder is remains `GET /v1/me`'s
+ * answer alone, which is what keeps the archived browser session blob (Fix #7)
+ * from returning in a new spelling.
+ *
+ * `sessionStorage` rather than `localStorage` deliberately: a pilot session
+ * should not outlive the tab it was opened in.
+ */
+export function storeSmartmatchBearerToken(token: string): void {
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem(SMARTMATCH_BEARER_STORAGE_KEY, token);
+  }
+}
+
 function smartmatchAuthHeaders(): Record<string, string> {
   const token = readSmartmatchBearerToken();
 
@@ -1620,17 +1639,31 @@ export interface RetentionNudge {
 const API_BASE = "/api";
 
 /**
- * Raised before `fetch` when `/v1/me` cannot name the legacy record a portal
- * route expects. An account UUID is not a student/coordinator/volunteer id,
- * so sending it would both hit the wrong namespace and make the browser the
- * authority for a path subject. The page-level callers already surface this
- * message through their normal load-failure state.
+ * Raised before `fetch` when a legacy `/api/portals/*` request has no subject
+ * id to address.
+ *
+ * The account-to-portal *mapping* is no longer the missing piece: `GET
+ * /v1/me/portals` provides it, derived from the caller's server-assigned
+ * memberships, and {@link fetchMyPortals} is how the shells read it. What is
+ * still missing is different and narrower — the `/api/portals/*` backend
+ * itself is not part of this repository, and the legacy `student_id` /
+ * `coordinator_id` / `volunteer_id` namespaces it keys on exist nowhere here.
+ * An account UUID is not one of those ids, so passing `me.user_id` off as one
+ * would cross two unrelated namespaces *and* make the browser the authority
+ * for a path subject.
+ *
+ * No page calls these functions today; the portal pages render an explicit
+ * unavailable panel naming the dataset instead. They are kept, with this
+ * error, so that the day a real backend arrives the seam is already the shape
+ * it needs to be — and so nothing can quietly start guessing an id in the
+ * meantime.
  */
 export class PortalSubjectUnavailableError extends Error {
   constructor(portal: "student" | "coordinator" | "volunteer") {
     super(
-      `The ${portal} portal is unavailable until the API provides an authenticated ` +
-        "account-to-portal mapping.",
+      `The legacy ${portal} dataset is not served by this API. This deployment ` +
+        "provides the authenticated account-to-portal mapping (GET /v1/me/portals) " +
+        "but no /api/portals/* backend.",
     );
     this.name = "PortalSubjectUnavailableError";
   }
@@ -1846,6 +1879,105 @@ export interface MeResponse {
 /** `GET /v1/me` — caller identity and server-assigned memberships. */
 export async function fetchMe(): Promise<MeResponse> {
   return requestJson<MeResponse>("/v1/me", undefined, { authenticated: true });
+}
+
+// ---------------------------------------------------------------------------
+// Pilot sign-in (`POST /v1/auth/login`, `POST /v1/auth/logout`)
+//
+// A pilot-scoped stand-in for institutional sign-in, authorized by the project
+// owner on 2026-09-04 and recorded in
+// `docs/decisions/pilot-login-decision-2026-09-04.md`. It is not A1b and does
+// not unblock it.
+//
+// The request below carries an email and a password and *nothing else*. The
+// server's `LoginRequest` forbids extra fields outright, so a body carrying a
+// role, tenant, or unit is rejected with a 422 rather than ignored — there is
+// no shape of this call that lets a browser say what it is allowed to do.
+// ---------------------------------------------------------------------------
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+}
+
+/**
+ * `POST /v1/auth/login` — exchange pilot credentials for a session token.
+ *
+ * Returns the token; it deliberately does **not** store it or say who the
+ * caller is. Storing is {@link storeSmartmatchBearerToken}'s job and identity
+ * is `GET /v1/me`'s, so that "I have a credential" and "this is who I am" stay
+ * two separate answers with one source each.
+ */
+export async function postLogin(email: string, password: string): Promise<LoginResponse> {
+  return requestJson<LoginResponse>("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export interface LogoutResponse {
+  ended: boolean;
+}
+
+/** `POST /v1/auth/logout` — revoke the session this browser is holding. */
+export async function postLogout(): Promise<LogoutResponse> {
+  return requestJson<LogoutResponse>(
+    "/v1/auth/logout",
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The authenticated account-to-portal mapping (`GET /v1/me/portals`)
+// ---------------------------------------------------------------------------
+
+/**
+ * One org unit a granted portal covers, carrying the id `/v1` routes take.
+ *
+ * `GET /v1/me` reports a membership's `org_unit_path` (an ltree), while every
+ * unit-scoped route — metrics, imports, events, match runs, rewards — takes a
+ * `unit_id`. Nothing joined the two, so the browser had no way to get from
+ * "who am I" to "whose metrics may I read". These ids are resolved
+ * server-side from the caller's own memberships; the browser never constructs
+ * or supplies one, which is the same rule that keeps the portal itself
+ * server-decided.
+ */
+export interface PortalUnit {
+  unit_id: string;
+  path: string;
+  unit_type: string;
+  display_name: string;
+}
+
+export interface PortalDescriptor {
+  portal: string;
+  display_name: string;
+  home_path: string;
+  role: string;
+  org_unit_path: string;
+  /** Units the granting membership covers, shallowest first. May be empty. */
+  units: PortalUnit[];
+  /** The first entry's `unit_id`, or `null` when `units` is empty. */
+  default_unit_id: string | null;
+}
+
+export interface MyPortalsResponse {
+  portals: PortalDescriptor[];
+  default_portal: string | null;
+}
+
+/**
+ * `GET /v1/me/portals` — which portals the caller's server-assigned roles open.
+ *
+ * Takes no argument, because there is nothing for the caller to name: the
+ * answer follows from the bearer token. This is the route that replaces the
+ * banner the shells used to render, and it is deliberately not
+ * `/api/portals/{id}` — an id in the path is the archived defect (MM-A01).
+ */
+export async function fetchMyPortals(): Promise<MyPortalsResponse> {
+  return requestJson<MyPortalsResponse>("/v1/me/portals", undefined, { authenticated: true });
 }
 
 export interface MetricSummary {

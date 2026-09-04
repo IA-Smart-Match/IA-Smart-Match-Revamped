@@ -1,148 +1,56 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router";
-import { AlertTriangle } from "lucide-react";
-import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
-import { AppIcon } from "../../../components/AppIcon";
-import { fetchCoordinatorEvents, type CalendarEventSummary } from "../../../lib/api";
+/**
+ * My events — coordinator portal.
+ *
+ * This page used to load hosted events and staffing from the legacy `/api/portals/*` backend.
+ * That backend is not part of this repository, so there is no request here
+ * that could succeed and no data to render. Rather than a red failure banner
+ * blaming an outage for a capability that was never present, each section
+ * says plainly what it would have shown and where that would have come from
+ * (`PortalDatasetUnavailable`).
+ *
+ * What *is* real on this page comes from two `/v1` routes and nothing else:
+ * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
+ * the server granted them and the role and unit behind it. Neither is derived
+ * in the browser, and no identifier on this page is chosen by it.
+ */
+
+import { PortalDatasetUnavailable } from "../../components/PortalContent";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
-
-const COVERAGE_COLORS: Record<string, string> = {
-  covered: "bg-green-100 text-green-700",
-  partial: "bg-amber-100 text-amber-700",
-  needs_coverage: "bg-red-100 text-red-700",
-  unknown: "bg-muted text-muted-foreground",
-};
-
-const COVERAGE_LABELS: Record<string, string> = {
-  covered: "Fully Staffed",
-  partial: "Partial Coverage",
-  needs_coverage: "Needs Staff",
-  unknown: "Coverage Pending",
-};
 
 export function CoordinatorEvents() {
-  // `/v1/me` verifies the account but does not provide a legacy coordinator
-  // id; the API client rejects the empty value locally instead of guessing.
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
-  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
+  // `GET /v1/me/portals` — the only source of what the server granted them.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "coordinator");
 
-  const [events, setEvents] = useState<(CalendarEventSummary & { staffing_open: boolean })[]>([]);
-  const [source, setSource] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await fetchCoordinatorEvents(coordinatorId);
-        setEvents(result.data);
-        setSource(result.source);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load events");
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [coordinatorId]);
-
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48 rounded-xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
-        <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
-      </div>
-    );
+  // `CoordinatorPortalLayout` already renders `PortalGate` when the server granted
+  // no such portal, so reaching here without a grant means the mapping is
+  // still resolving. Render nothing rather than a header about a portal that
+  // may turn out not to be assigned.
+  if (grant === null) {
+    return null;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-semibold text-foreground">My Events</h1>
-        {source === "demo" && <DemoModeBadge />}
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold text-foreground">My events</h1>
+        <p className="text-sm text-muted-foreground">Events you host, and which of them still need staffing.</p>
+        <p className="text-xs text-muted-foreground">
+          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+        </p>
+      </header>
+
+      <div className="space-y-4">
+        <PortalDatasetUnavailable
+          dataset="Hosted events and staffing"
+          endpoints={["/api/portals/event-coordinators/{id}/events"]}
+        />
       </div>
-
-      {events.length === 0 ? (
-        <div className="rounded-2xl border border-border/70 bg-card p-10 text-center shadow-sm">
-          <AppIcon name="events" className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-          <p className="font-medium text-foreground">No events found</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {events.map((event) => {
-            const coverageClass = COVERAGE_COLORS[event.coverage_status] ?? COVERAGE_COLORS.unknown;
-            const coverageLabel = COVERAGE_LABELS[event.coverage_status] ?? "Coverage Pending";
-            const needsStaff = event.staffing_open || event.coverage_status === "needs_coverage";
-
-            return (
-              <div
-                key={event.event_id}
-                className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="font-semibold text-foreground">{event.event_name}</h2>
-                      <span className={`rounded-full px-3 py-0.5 text-xs font-semibold ${coverageClass}`}>
-                        {coverageLabel}
-                      </span>
-                      {needsStaff && (
-                        <span className="rounded-full bg-red-100 px-3 py-0.5 text-xs font-semibold text-red-700">
-                          Needs Staff
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <AppIcon name="calendar" className="h-4 w-4" />
-                        <span>{event.event_date}</span>
-                      </div>
-                      <span>{event.region}</span>
-                      {event.open_slots > 0 && (
-                        <div className="flex items-center gap-1.5 text-amber-600">
-                          <AppIcon name="staffing" className="h-4 w-4" />
-                          <span>{event.open_slots} open slots</span>
-                        </div>
-                      )}
-                    </div>
-                    {event.assigned_volunteers.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {event.assigned_volunteers.map((vol) => (
-                          <span key={vol} className="rounded-full border border-border/70 px-2.5 py-0.5 text-xs text-muted-foreground">
-                            {vol}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {needsStaff && (
-                    <Link
-                      to="/ai-matching"
-                      className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      Request Match
-                    </Link>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

@@ -1,175 +1,53 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router";
-import { AlertTriangle, ClipboardList, UserCircle } from "lucide-react";
-import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
-import {
-  fetchVolunteerProfile,
-  fetchVolunteerAssignments,
-  type VolunteerProfile,
-  type VolunteerAssignment,
-} from "../../../lib/api";
+/**
+ * Volunteer home — volunteer portal.
+ *
+ * This page used to load your volunteer profile, your assignments from the legacy `/api/portals/*` backend.
+ * That backend is not part of this repository, so there is no request here
+ * that could succeed and no data to render. Rather than a red failure banner
+ * blaming an outage for a capability that was never present, each section
+ * says plainly what it would have shown and where that would have come from
+ * (`PortalDatasetUnavailable`).
+ *
+ * What *is* real on this page comes from two `/v1` routes and nothing else:
+ * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
+ * the server granted them and the role and unit behind it. Neither is derived
+ * in the browser, and no identifier on this page is chosen by it.
+ */
+
+import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
 
 export function VolunteerHome() {
-  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
-  // the API client rejects the empty value locally instead of guessing one.
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
-  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
+  // `GET /v1/me/portals` — the only source of what the server granted them.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "volunteer");
 
-  const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
-  const [assignments, setAssignments] = useState<VolunteerAssignment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [prof, asns] = await Promise.all([
-          fetchVolunteerProfile(volunteerId),
-          fetchVolunteerAssignments(volunteerId),
-        ]);
-        if (!mounted) return;
-        setProfile(prof);
-        if (!mounted) return;
-        setAssignments(asns.data);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load dashboard");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [volunteerId]);
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-        </div>
-      </div>
-    );
+  // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
+  // no such portal, so reaching here without a grant means the mapping is
+  // still resolving. Render nothing rather than a header about a portal that
+  // may turn out not to be assigned.
+  if (grant === null) {
+    return null;
   }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
-        <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
-      </div>
-    );
-  }
-
-  if (!profile) return null;
-
-  const totalAssignments = assignments.length;
-  const confirmedEvents = assignments.filter(
-    (a) => a.stage === "Confirmed" || a.stage === "Attended",
-  ).length;
-  const fatiguePercent = Math.round(profile.volunteer_fatigue * 100);
-  const fatigueColor =
-    profile.volunteer_fatigue >= 0.75
-      ? "text-destructive"
-      : profile.volunteer_fatigue >= 0.4
-        ? "text-amber-600"
-        : "text-green-600";
-
-  const upcomingConfirmed = assignments
-    .filter((a) => a.stage === "Confirmed")
-    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
-    .slice(0, 3);
 
   return (
     <div className="space-y-6">
-      {/* Welcome banner */}
-      <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold text-foreground">
-            Welcome, {profile.name.split(" ")[0]}!
-          </h1>
-          {profile.source === "demo" && <DemoModeBadge />}
-        </div>
-        <p className="mt-1 text-muted-foreground">
-          {profile.board_role} · {profile.company}
-        </p>
-      </div>
+      <PortalIdentityCard me={principal} grant={grant} />
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="text-2xl font-bold text-foreground">{totalAssignments}</p>
-          <p className="text-sm text-muted-foreground">Total Assignments</p>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className="text-2xl font-bold text-foreground">{confirmedEvents}</p>
-          <p className="text-sm text-muted-foreground">Confirmed &amp; Attended</p>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <p className={`text-2xl font-bold ${fatigueColor}`}>{fatiguePercent}%</p>
-          <p className="text-sm text-muted-foreground">Fatigue Index</p>
-          <p className="mt-1 text-xs text-muted-foreground">{profile.recovery_label}</p>
-        </div>
-      </div>
-
-      {/* Upcoming confirmed events */}
-      {upcomingConfirmed.length > 0 && (
-        <div>
-          <h2 className="mb-4 text-lg font-semibold text-foreground">Upcoming Confirmed Events</h2>
-          <div className="space-y-3">
-            {upcomingConfirmed.map((a) => (
-              <div
-                key={a.assignment_id}
-                className="flex items-center gap-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                  <ClipboardList className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">{a.event_name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {a.region} · {new Date(a.event_date).toLocaleDateString()}
-                  </p>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                  Confirmed
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Quick actions */}
-      <div>
-        <h2 className="mb-4 text-lg font-semibold text-foreground">Quick Actions</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Link
-            to="/volunteer-portal/assignments"
-            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
-          >
-            <ClipboardList className="h-6 w-6 text-primary" />
-            <span className="font-medium text-foreground">View My Assignments</span>
-          </Link>
-          <Link
-            to="/volunteer-portal/profile"
-            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
-          >
-            <UserCircle className="h-6 w-6 text-primary" />
-            <span className="font-medium text-foreground">View My Profile</span>
-          </Link>
-        </div>
+      <div className="space-y-4">
+        <PortalDatasetUnavailable
+          dataset="Your volunteer profile"
+          endpoints={["/api/portals/volunteers/{id}"]}
+        />
+        <PortalDatasetUnavailable
+          dataset="Your assignments"
+          endpoints={["/api/portals/volunteers/{id}/assignments"]}
+        />
       </div>
     </div>
   );

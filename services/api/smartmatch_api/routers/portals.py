@@ -45,6 +45,29 @@ they can then fetch. A caller who edited the response to add a portal would
 get a shell whose every request is refused — which is the correct failure
 mode, and the reason this route needs no authorization of its own.
 
+## Resolved unit ids, not just a path
+
+A portal is not usable without one more thing, and its absence was a real gap:
+``GET /v1/me`` reports a membership's ``granted_path``, an ``ltree``, while
+every unit-scoped route — ``/v1/units/{unit_id}/metrics``, ``/imports``,
+``/events``, ``/match-runs``, ``/rewards`` — takes a ``unit_id``. Nothing in
+this API joined the two, so a signed-in coordinator could reach a portal and
+still have no way to name the unit whose metrics they are entitled to read
+without going outside the API for the id.
+
+So each descriptor carries ``units``: the ``org_unit`` rows at or below the
+granting membership's path, resolved server-side by
+:func:`~smartmatch_api.units.units_in_subtree`, shallowest first, plus a
+``default_unit_id`` naming the first of them. The browser therefore never
+constructs, guesses, or supplies a unit id — it is handed the ones its own
+memberships already authorize, which is the same reason the portal itself is
+reported rather than derived.
+
+``units`` may legitimately be **empty**, and ``default_unit_id`` ``null`` with
+it: a membership can be granted over a path that no ``org_unit`` row occupies.
+That is reported as the absence it is. Inventing a unit to fill the field
+would hand a portal an id that every authorized route would then refuse.
+
 ## What an unmapped role does, and why nothing is invented for it
 
 :data:`_PORTAL_FOR_ROLE` maps exactly the four roles this pilot seeds. A
@@ -60,16 +83,34 @@ right one until something inside it is refused.
 
 from __future__ import annotations
 
+import uuid
 from typing import Final
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from smartmatch_authz import Membership
+from sqlalchemy.orm import Session
 
-from smartmatch_api.dependencies import CurrentPrincipal
+from smartmatch_api.dependencies import CurrentPrincipal, DbSession
+from smartmatch_api.units import units_in_subtree
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/me/portals", tags=["identity"])
+
+
+class PortalUnit(BaseModel):
+    """One org unit the granting membership covers, with the id routes need."""
+
+    unit_id: uuid.UUID = Field(
+        description=(
+            "The `unit_id` every `/v1/units/{unit_id}/...` route takes. Resolved by "
+            "the server from the granting membership's path; a client never "
+            "constructs or supplies one."
+        )
+    )
+    path: str = Field(description="The unit's own ltree path.")
+    unit_type: str = Field(description="The unit's type, e.g. `program`.")
+    display_name: str = Field(description="The unit's human-readable name.")
 
 
 class PortalDescriptor(BaseModel):
@@ -95,6 +136,20 @@ class PortalDescriptor(BaseModel):
     )
     org_unit_path: str = Field(
         description="The org-unit subtree the granting membership covers, as an ltree path."
+    )
+    units: list[PortalUnit] = Field(
+        description=(
+            "Every org unit at or below `org_unit_path`, shallowest first — the units "
+            "this membership authorizes the caller over. Empty when the granted path "
+            "contains no unit row, which is reported rather than filled in."
+        )
+    )
+    default_unit_id: uuid.UUID | None = Field(
+        description=(
+            "The `unit_id` of the first entry in `units`, or null when there are none. "
+            "A suggestion about which unit a portal should open with; it always names a "
+            "unit already in `units`."
+        )
     )
 
 
@@ -138,18 +193,43 @@ _PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str, str]]] = {
 }
 
 
-def _descriptor_for(membership: Membership) -> PortalDescriptor | None:
-    """The portal a single membership opens, or ``None`` when its role maps to none."""
+def _descriptor_for(
+    session: Session, *, tenant_id: uuid.UUID, membership: Membership
+) -> PortalDescriptor | None:
+    """The portal a single membership opens, or ``None`` when its role maps to none.
+
+    Resolves the membership's path to real ``org_unit`` rows so the descriptor
+    carries the ids unit-scoped routes require. The lookup is scoped to the
+    caller's own tenant inside :func:`~smartmatch_api.units.units_in_subtree`,
+    and the path comes from a ``membership`` row rather than from the request.
+    """
     mapped = _PORTAL_FOR_ROLE.get(membership.role)
     if mapped is None:
+        # Resolved only for a role that maps to a portal: an unmapped role
+        # produces no descriptor, so querying units for it would be work whose
+        # result nothing can read.
         return None
+
     portal, display_name, home_path = mapped
+    granted_path = str(membership.granted_path)
+    units = [
+        PortalUnit(
+            unit_id=unit.id,
+            path=unit.path,
+            unit_type=unit.unit_type,
+            display_name=unit.display_name,
+        )
+        for unit in units_in_subtree(session, tenant_id=tenant_id, path=granted_path)
+    ]
+
     return PortalDescriptor(
         portal=portal,
         display_name=display_name,
         home_path=home_path,
         role=membership.role,
-        org_unit_path=str(membership.granted_path),
+        org_unit_path=granted_path,
+        units=units,
+        default_unit_id=units[0].unit_id if units else None,
     )
 
 
@@ -158,13 +238,19 @@ def _descriptor_for(membership: Membership) -> PortalDescriptor | None:
     response_model=MyPortalsResponse,
     summary="Get the portals the caller's server-assigned roles open",
 )
-def get_my_portals(principal: CurrentPrincipal) -> MyPortalsResponse:
+def get_my_portals(principal: CurrentPrincipal, session: DbSession) -> MyPortalsResponse:
     """Return the caller's own account-to-portal mapping.
 
     Reads the memberships ``get_current_principal`` already resolved rather
-    than querying again — the same reasoning ``routers/me.py`` gives: a second
-    query would open a window in which the two could disagree, leaving a caller
-    authenticated as one principal and shown the portals of another.
+    than re-reading them — the same reasoning ``routers/me.py`` gives: a second
+    read of the *memberships* would open a window in which the two could
+    disagree, leaving a caller authenticated as one principal and shown the
+    portals of another.
+
+    It does query ``org_unit``, which is a different thing and not that risk:
+    the memberships are fixed for this request, and the unit rows are only
+    being resolved *from* them. A unit added or removed mid-request changes
+    which ids are reported, never whose portals they are.
 
     Quota is not charged, for ``routers/me.py``'s reason: this route answers
     from the resolution that authenticated the request, so a refusal here could
@@ -182,7 +268,9 @@ def get_my_portals(principal: CurrentPrincipal) -> MyPortalsResponse:
         # and it must not open a door.
         if not membership.role.strip():
             continue
-        descriptor = _descriptor_for(membership)
+        descriptor = _descriptor_for(
+            session, tenant_id=principal.tenant_id, membership=membership
+        )
         # De-duplicated by portal, not by membership: two coordinator
         # memberships over different subtrees are two grants of the same shell,
         # and listing the shell twice would make the UI ask which one to open —

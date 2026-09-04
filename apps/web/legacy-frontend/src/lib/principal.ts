@@ -7,7 +7,12 @@
  * say nothing too ("No active membership"), because a placeholder identity is
  * the defect Fix #7 exists to remove.
  */
-import type { MeResponse, MembershipResponse } from "@/lib/api";
+import type {
+  MeResponse,
+  MembershipResponse,
+  MyPortalsResponse,
+  PortalDescriptor,
+} from "@/lib/api";
 
 /** The memberships the server currently counts as in force. */
 export function activeMemberships(me: MeResponse): MembershipResponse[] {
@@ -56,24 +61,48 @@ export function principalRoleLabel(me: MeResponse): string {
   return roles.length > 0 ? roles.join(", ") : "No active role";
 }
 
-export type PortalKind = "student" | "coordinator" | "volunteer";
+export type PortalKind = "student" | "coordinator" | "volunteer" | "admin";
 
 /**
- * The server-owned legacy record id for a portal, when one exists.
+ * The portal the server granted this account, or `null` when it granted none.
  *
- * `GET /v1/me` currently returns an account UUID, not the distinct
- * `student_id`, `coordinator_id`, or `volunteer_id` consumed by the legacy
- * `/api/portals/*` routes. Reusing `me.user_id` would silently change one id
- * namespace into another and would still leave the browser choosing the path
- * subject sent to an unauthenticated legacy route.
+ * This is the account-to-portal mapping the shells used to render a banner
+ * about. `portalSubjectId()` stood here and returned `null` unconditionally,
+ * because the only mapping available was one the browser would have had to
+ * invent — and the honest answer to "which legacy record is this account" was
+ * that nothing knew. `GET /v1/me/portals` now answers a better question, so
+ * this is a *lookup into the server's answer* rather than a derivation: the
+ * `mapping` argument is whatever that route returned, and this function only
+ * finds the requested kind inside it.
  *
- * Until the API exposes an authenticated self-service portal route or an
- * authoritative account-to-portal mapping, the only truthful answer is that
- * no portal subject is available. Callers convert this to an empty transport
- * value; the API client rejects it locally before any legacy request is sent.
- * Keeping the principal and portal kind in this seam makes the eventual
- * server-owned mapping explicit without inventing one in the browser today.
+ * Deliberately **not** recomputed from `me.memberships` here. The browser
+ * could read a role off `/v1/me` and decide for itself which portal that
+ * opens, and it would usually get the same answer — which is exactly what
+ * makes it dangerous. Two independent copies of a role-to-portal rule drift,
+ * and when they drift the browser's copy is the one that is wrong and the one
+ * nobody checks. Asking the server keeps one rule in one place
+ * (`services/api/smartmatch_api/routers/portals.py`).
+ *
+ * `null` is a real answer and is rendered as one: the account holds no active,
+ * role-bearing membership that opens this portal. No fallback, no default
+ * portal, no "probably a student".
  */
-export function portalSubjectId(_me: MeResponse, _portal: PortalKind): string | null {
-  return null;
+export function portalGrant(
+  mapping: MyPortalsResponse,
+  portal: PortalKind,
+): PortalDescriptor | null {
+  return mapping.portals.find((granted) => granted.portal === portal) ?? null;
+}
+
+/**
+ * Whether the server granted this account the named portal.
+ *
+ * A convenience over {@link portalGrant} for the shells, which gate on the
+ * boolean and render the descriptor only when they have one. Route guarding is
+ * UX only — every `/v1` request is still authorized server-side, so a portal
+ * shown in error would be a shell whose every fetch is refused rather than an
+ * access someone gained.
+ */
+export function hasPortalGrant(mapping: MyPortalsResponse, portal: PortalKind): boolean {
+  return portalGrant(mapping, portal) !== null;
 }

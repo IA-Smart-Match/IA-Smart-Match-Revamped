@@ -1,215 +1,113 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router";
-import { AlertTriangle } from "lucide-react";
-import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
-import { AppIcon } from "../../../components/AppIcon";
-import {
-  fetchCoordinatorProfile,
-  fetchCoordinatorEvents,
-  fetchCoordinatorThreads,
-  fetchCoordinatorMeetings,
-  type EventCoordinator,
-  type OutreachThread,
-  type MeetingBooking,
-  type CalendarEventSummary,
-} from "../../../lib/api";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
+/**
+ * Coordinator home — coordinator portal.
+ *
+ * This page used to load your coordinator profile, hosted events and staffing, outreach threads, meeting bookings from the legacy `/api/portals/*` backend.
+ * That backend is not part of this repository, so there is no request here
+ * that could succeed and no data to render. Rather than a red failure banner
+ * blaming an outage for a capability that was never present, each section
+ * says plainly what it would have shown and where that would have come from
+ * (`PortalDatasetUnavailable`).
+ *
+ * What *is* real on this page comes from two `/v1` routes and nothing else:
+ * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
+ * the server granted them and the role and unit behind it. Neither is derived
+ * in the browser, and no identifier on this page is chosen by it.
+ */
 
-const THREAD_STATUS_COLORS: Record<OutreachThread["status"], string> = {
-  confirmed: "bg-primary/10 text-primary",
-  in_progress: "bg-muted text-muted-foreground",
-  awaiting_response: "bg-destructive/10 text-destructive",
-  new: "bg-muted text-muted-foreground",
-};
+import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+
+/**
+ * The review queue, and why it is empty rather than absent.
+ *
+ * This is a *different* gap from the `/api/portals/*` panels above, and it is
+ * stated separately because conflating them would hide it. The review workflow
+ * genuinely lives in this API — `POST /v1/review-items/{review_item_id}/decision`
+ * exists and works — but there is **no list route**. A coordinator can decide
+ * a review item only if they already know its id, and no `/v1` path yields
+ * one: `scripts/compose_smoke.sh` and the E2E suite both read the id straight
+ * out of the database.
+ *
+ * So this portal cannot render a queue today, and it says so instead of
+ * rendering an empty one. An empty list would be a claim that there is nothing
+ * to review, which is a statement about the data; the truth is a statement
+ * about the API (ADR-0011: unknown is never zero). Fetching the ids from the
+ * database to fill it in was explicitly ruled out — a frontend that reaches
+ * around a missing endpoint makes the endpoint's absence invisible and
+ * un-fixable.
+ *
+ * Adding `GET /v1/review-items` is the follow-up. It was left out of this PR
+ * deliberately: it needs decisions about filtering, pagination, and which
+ * statuses are visible to which roles, and those are not decisions to make as
+ * a side effect of a login change.
+ */
+function ReviewQueueUnavailable() {
+  return (
+    <section
+      className="rounded-2xl border border-dashed border-border bg-muted/30 p-6"
+      aria-label="Review queue unavailable"
+    >
+      <h2 className="font-semibold text-foreground">Review queue is not listable yet</h2>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        This API can record a review decision (
+        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+          POST /v1/review-items/&#123;id&#125;/decision
+        </code>
+        ) but has no route that lists the items awaiting one, so there is no queue to draw. This
+        is an empty section because the endpoint is missing — not because your unit has nothing
+        pending, which is a question nothing here can currently answer.
+      </p>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+        Needs: <code className="rounded bg-muted px-1.5 py-0.5">GET /v1/review-items</code>{" "}
+        (follow-up; deferred because it requires decisions about filtering, pagination, and
+        per-role visibility).
+      </p>
+    </section>
+  );
+}
 
 export function CoordinatorHome() {
-  // `/v1/me` verifies the account but does not provide a legacy coordinator
-  // id; the API client rejects the empty value locally instead of guessing.
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
-  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
+  // `GET /v1/me/portals` — the only source of what the server granted them.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "coordinator");
 
-  const [profile, setProfile] = useState<(EventCoordinator & { source: string }) | null>(null);
-  const [events, setEvents] = useState<(CalendarEventSummary & { staffing_open: boolean })[]>([]);
-  const [threads, setThreads] = useState<OutreachThread[]>([]);
-  const [meetings, setMeetings] = useState<MeetingBooking[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [prof, evts, thrs, mtgs] = await Promise.all([
-          fetchCoordinatorProfile(coordinatorId),
-          fetchCoordinatorEvents(coordinatorId),
-          fetchCoordinatorThreads(coordinatorId),
-          fetchCoordinatorMeetings(coordinatorId),
-        ]);
-        if (!mounted) return;
-        setProfile(prof);
-        if (!mounted) return;
-        setEvents(evts.data);
-        if (!mounted) return;
-        setThreads(thrs.data);
-        if (!mounted) return;
-        setMeetings(mtgs.data);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load dashboard");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [coordinatorId]);
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-        </div>
-      </div>
-    );
+  // `CoordinatorPortalLayout` already renders `PortalGate` when the server granted
+  // no such portal, so reaching here without a grant means the mapping is
+  // still resolving. Render nothing rather than a header about a portal that
+  // may turn out not to be assigned.
+  if (grant === null) {
+    return null;
   }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
-        <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
-      </div>
-    );
-  }
-
-  if (!profile) return null;
-
-  const openStaffingCount = events.filter((e) => e.staffing_open).length;
-  const statusBreakdown = threads.reduce(
-    (acc, t) => {
-      acc[t.status] = (acc[t.status] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
-
-  const upcomingMeetings = meetings
-    .filter((m) => m.status === "confirmed")
-    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
-    .slice(0, 2);
 
   return (
     <div className="space-y-6">
-      {/* Welcome banner */}
-      <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold text-foreground">
-            Welcome, {profile.name.split(" ")[0]}!
-          </h1>
-          {profile.source === "demo" && <DemoModeBadge />}
-        </div>
-        <p className="mt-1 text-muted-foreground">
-          {profile.school} · {profile.department}
-        </p>
+      <PortalIdentityCard me={principal} grant={grant} />
+
+      <div className="space-y-4">
+        <PortalDatasetUnavailable
+          dataset="Your coordinator profile"
+          endpoints={["/api/portals/event-coordinators/{id}"]}
+        />
+        <PortalDatasetUnavailable
+          dataset="Hosted events and staffing"
+          endpoints={["/api/portals/event-coordinators/{id}/events"]}
+        />
+        <PortalDatasetUnavailable
+          dataset="Outreach threads"
+          endpoints={["/api/portals/event-coordinators/{id}/threads"]}
+        />
+        <PortalDatasetUnavailable
+          dataset="Meeting bookings"
+          endpoints={["/api/portals/event-coordinators/{id}/meetings"]}
+        />
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <AppIcon name="events" className="mb-3 h-5 w-5 text-primary" />
-          <p className="text-2xl font-bold text-foreground">{events.length}</p>
-          <p className="text-sm text-muted-foreground">Hosted Events</p>
-          {openStaffingCount > 0 && (
-            <p className="mt-1 text-xs text-destructive">{openStaffingCount} need staffing</p>
-          )}
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <AppIcon name="outreach" className="mb-3 h-5 w-5 text-primary" />
-          <p className="text-2xl font-bold text-foreground">{threads.length}</p>
-          <p className="text-sm text-muted-foreground">Outreach Threads</p>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {Object.entries(statusBreakdown).map(([status, count]) => (
-              <span
-                key={status}
-                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${THREAD_STATUS_COLORS[status as OutreachThread["status"]] ?? "bg-muted text-muted-foreground"}`}
-              >
-                {count} {status.replace(/_/g, " ")}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-          <AppIcon name="meetings" className="mb-3 h-5 w-5 text-primary" />
-          <p className="text-2xl font-bold text-foreground">{meetings.length}</p>
-          <p className="text-sm text-muted-foreground">Total Meetings</p>
-        </div>
-      </div>
-
-      {/* Quick actions */}
-      <div>
-        <h2 className="mb-4 text-lg font-semibold text-foreground">Quick Actions</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Link
-            to="/coordinator-portal/events"
-            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
-          >
-            <AppIcon name="events" className="h-6 w-6 text-primary" />
-            <span className="font-medium text-foreground">View Events</span>
-          </Link>
-          <Link
-            to="/coordinator-portal/outreach"
-            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
-          >
-            <AppIcon name="outreach" className="h-6 w-6 text-primary" />
-            <span className="font-medium text-foreground">Contact IA West</span>
-          </Link>
-          <Link
-            to="/coordinator-portal/meetings"
-            className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
-          >
-            <AppIcon name="meetings" className="h-6 w-6 text-primary" />
-            <span className="font-medium text-foreground">Book Meeting</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Upcoming meetings */}
-      {upcomingMeetings.length > 0 && (
-        <div>
-          <h2 className="mb-4 text-lg font-semibold text-foreground">Upcoming Meetings</h2>
-          <div className="space-y-3">
-            {upcomingMeetings.map((mtg) => (
-              <div
-                key={mtg.booking_id}
-                className="flex items-center gap-4 rounded-2xl border border-border/70 bg-card p-5 shadow-sm"
-              >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                  <AppIcon name="schedule" className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-foreground">{mtg.title}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(mtg.scheduled_at).toLocaleString()} · {mtg.ia_contact}
-                  </p>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                  Confirmed
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ReviewQueueUnavailable />
     </div>
   );
 }
