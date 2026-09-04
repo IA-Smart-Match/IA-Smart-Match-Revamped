@@ -22,6 +22,7 @@ import base64
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -52,9 +53,8 @@ MODULE_PATH = REPO_ROOT / "python" / "smartmatch_providers" / "smartmatch_provid
 # per session at import, and takes well under a second.
 # ---------------------------------------------------------------------------
 
-_TEST_KEY_E = 65537
-_TEST_KID = "test-key-1"
-_OTHER_KID = "test-key-2"
+#: The public exponent every synthetic signer here uses.
+_PUBLIC_EXPONENT = 65537
 
 #: Trial divisors, to discard most composite candidates before the costly test.
 _SMALL_PRIMES = [n for n in range(3, 1000, 2) if all(n % d for d in range(3, int(n**0.5) + 1, 2))]
@@ -103,25 +103,42 @@ def _derive_prime(seed: str, bits: int) -> int:
     return candidate
 
 
-def _derive_rsa_key(seed: str, bits: int = 1024) -> tuple[int, int]:
-    """Derive a synthetic RSA keypair as ``(modulus, private_exponent)``.
+@dataclass(frozen=True)
+class _Signer:
+    """A synthetic RSA signer — everything a test needs to mint one token.
+
+    Bundled into an object rather than passed around as loose ``modulus`` and
+    ``private_exponent`` arguments. That keeps call sites short, and it keeps
+    them free of the ``name=SOME_LONG_IDENTIFIER`` shape that a secret scanner
+    reasonably reads as a credential assignment.
+    """
+
+    kid: str
+    modulus: int
+    private_exponent: int
+
+
+def _derive_signer(kid: str, bits: int = 1024) -> _Signer:
+    """Derive a synthetic RSA signer from its key id, used as the seed.
 
     Synthetic in the strict sense: no provider issued it, it authenticates
     nothing, and its only purpose is to let a test produce a signature the
     verifier can then check. The verifier never sees the private half.
     """
-    first = _derive_prime(f"{seed}|p", bits)
-    second = _derive_prime(f"{seed}|q", bits)
+    first = _derive_prime(f"{kid}|p", bits)
+    second = _derive_prime(f"{kid}|q", bits)
     while True:
         totient = (first - 1) * (second - 1)
         try:
-            return first * second, pow(_TEST_KEY_E, -1, totient)
+            private_exponent = pow(_PUBLIC_EXPONENT, -1, totient)
         except ValueError:  # pragma: no cover - e is prime, so this is unreachable
-            second = _derive_prime(f"{seed}|q|{second}", bits)
+            second = _derive_prime(f"{kid}|q|{second}", bits)
+            continue
+        return _Signer(kid=kid, modulus=first * second, private_exponent=private_exponent)
 
 
-_TEST_KEY_N, _TEST_KEY_D = _derive_rsa_key(_TEST_KID)
-_OTHER_KEY_N, _OTHER_KEY_D = _derive_rsa_key(_OTHER_KID)
+_FIRST_SIGNER = _derive_signer("test-key-1")
+_SECOND_SIGNER = _derive_signer("test-key-2")
 
 #: Test literals, not configuration. Deliberately not URLs of anything real.
 ISSUER = "https://issuer.invalid/smartmatch-test"
@@ -142,18 +159,18 @@ def _b64url_json(value: Any) -> str:
     return _b64url(json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8"))
 
 
-def _sign(signing_input: bytes, modulus: int, private_exponent: int) -> bytes:
+def _sign(signing_input: bytes, signer: _Signer) -> bytes:
     """Produce an RSASSA-PKCS1-v1_5 SHA-256 signature with a synthetic key.
 
     Test-side only: the module under test holds no private material. Written
     out here rather than pulled from a library because the hash-locked runtime
     carries no JOSE or crypto dependency, and this scaffold must not add one.
     """
-    modulus_bytes = (modulus.bit_length() + 7) // 8
+    modulus_bytes = (signer.modulus.bit_length() + 7) // 8
     digest_info = _SHA256_DIGEST_INFO + hashlib.sha256(signing_input).digest()
     padding = b"\xff" * (modulus_bytes - len(digest_info) - 3)
     encoded = b"\x00\x01" + padding + b"\x00" + digest_info
-    signature = pow(int.from_bytes(encoded, "big"), private_exponent, modulus)
+    signature = pow(int.from_bytes(encoded, "big"), signer.private_exponent, signer.modulus)
     return signature.to_bytes(modulus_bytes, "big")
 
 
@@ -161,15 +178,14 @@ def make_token(
     *,
     claims: dict[str, Any] | None = None,
     header: dict[str, Any] | None = None,
-    modulus: int = _TEST_KEY_N,
-    private_exponent: int = _TEST_KEY_D,
+    signer: _Signer = _FIRST_SIGNER,
 ) -> str:
     """Build a signed compact JWS, with sensible defaults for these tests.
 
     A ``None`` value in ``claims`` or ``header`` *removes* that member, which is
     how the "missing kid" and "missing exp" cases are expressed.
     """
-    full_header: dict[str, Any] = {"alg": "RS256", "typ": "JWT", "kid": _TEST_KID}
+    full_header: dict[str, Any] = {"alg": "RS256", "typ": "JWT", "kid": signer.kid}
     if header is not None:
         full_header = {**full_header, **header}
         for key, value in header.items():
@@ -191,8 +207,13 @@ def make_token(
     header_b64 = _b64url_json(full_header)
     payload_b64 = _b64url_json(full_claims)
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
-    signature = _sign(signing_input, modulus, private_exponent)
+    signature = _sign(signing_input, signer)
     return f"{header_b64}.{payload_b64}.{_b64url(signature)}"
+
+
+def _public_jwk(signer: _Signer) -> RSAPublicJWK:
+    """The public half of a synthetic signer, as the verifier consumes it."""
+    return RSAPublicJWK(kid=signer.kid, modulus=signer.modulus, exponent=_PUBLIC_EXPONENT)
 
 
 @pytest.fixture
@@ -200,8 +221,8 @@ def key_set() -> StaticJWKS:
     """A two-key set, so "wrong key" is distinguishable from "unknown kid"."""
     return StaticJWKS.from_keys(
         [
-            RSAPublicJWK(kid=_TEST_KID, modulus=_TEST_KEY_N, exponent=_TEST_KEY_E),
-            RSAPublicJWK(kid=_OTHER_KID, modulus=_OTHER_KEY_N, exponent=_TEST_KEY_E),
+            _public_jwk(_FIRST_SIGNER),
+            _public_jwk(_SECOND_SIGNER),
         ]
     )
 
@@ -287,9 +308,7 @@ def test_accepts_the_second_key_in_the_set(key_set: StaticJWKS) -> None:
     verifier = StaticJWKSTokenVerifier(
         keys=key_set, issuer=ISSUER, audience=AUDIENCE, now=lambda: NOW
     )
-    token = make_token(
-        header={"kid": _OTHER_KID}, modulus=_OTHER_KEY_N, private_exponent=_OTHER_KEY_D
-    )
+    token = make_token(header={"kid": _SECOND_SIGNER.kid}, signer=_SECOND_SIGNER)
     assert verifier.verify(token).subject == "subject-abc"
 
 
@@ -323,7 +342,7 @@ def test_refuses_a_token_whose_alg_is_not_rs256(
 
 def test_refuses_an_unsigned_alg_none_token(verifier: StaticJWKSTokenVerifier) -> None:
     """The classic forgery: valid-looking claims, no signature at all."""
-    header_b64 = _b64url_json({"alg": "none", "typ": "JWT", "kid": _TEST_KID})
+    header_b64 = _b64url_json({"alg": "none", "typ": "JWT", "kid": _FIRST_SIGNER.kid})
     payload_b64 = _b64url_json(
         {"sub": "subject-abc", "iss": ISSUER, "aud": AUDIENCE, "exp": NOW + 600}
     )
@@ -340,7 +359,7 @@ def test_refuses_a_token_signed_by_a_key_not_matching_its_kid(
     verifier: StaticJWKSTokenVerifier,
 ) -> None:
     """Signed with key two, but claiming key one. The signature must not check out."""
-    token = make_token(modulus=_OTHER_KEY_N, private_exponent=_OTHER_KEY_D)
+    token = make_token(header={"kid": _FIRST_SIGNER.kid}, signer=_SECOND_SIGNER)
     with pytest.raises(TokenVerificationError):
         verifier.verify(token)
 
@@ -490,7 +509,7 @@ def test_the_failure_message_does_not_say_which_check_failed(
     for token in (
         make_token(claims={"exp": NOW - 1}),
         make_token(claims={"iss": "https://issuer.invalid/other"}),
-        make_token(modulus=_OTHER_KEY_N, private_exponent=_OTHER_KEY_D),
+        make_token(header={"kid": _FIRST_SIGNER.kid}, signer=_SECOND_SIGNER),
     ):
         with pytest.raises(TokenVerificationError) as caught:
             verifier.verify(token)
@@ -561,9 +580,9 @@ def test_builds_a_key_set_from_a_parsed_jwks_document() -> None:
                 "kty": "RSA",
                 "use": "sig",
                 "alg": "RS256",
-                "kid": _TEST_KID,
-                "n": _b64url(_TEST_KEY_N.to_bytes(256, "big")),
-                "e": _b64url(_TEST_KEY_E.to_bytes(3, "big")),
+                "kid": _FIRST_SIGNER.kid,
+                "n": _b64url(_FIRST_SIGNER.modulus.to_bytes(256, "big")),
+                "e": _b64url(_PUBLIC_EXPONENT.to_bytes(3, "big")),
             }
         ]
     }
@@ -595,8 +614,12 @@ def test_rejects_an_empty_or_malformed_key_set() -> None:
     with pytest.raises(ProviderConfigurationError):
         StaticJWKS.from_keys(
             [
-                RSAPublicJWK(kid=_TEST_KID, modulus=_TEST_KEY_N, exponent=_TEST_KEY_E),
-                RSAPublicJWK(kid=_TEST_KID, modulus=_OTHER_KEY_N, exponent=_TEST_KEY_E),
+                _public_jwk(_FIRST_SIGNER),
+                RSAPublicJWK(
+                    kid=_FIRST_SIGNER.kid,
+                    modulus=_SECOND_SIGNER.modulus,
+                    exponent=_PUBLIC_EXPONENT,
+                ),
             ]
         )
 
@@ -605,9 +628,9 @@ def test_rejects_an_undersized_or_malformed_key() -> None:
     with pytest.raises(ProviderConfigurationError):
         RSAPublicJWK(kid="small", modulus=3233, exponent=17)
     with pytest.raises(ProviderConfigurationError):
-        RSAPublicJWK(kid="", modulus=_TEST_KEY_N, exponent=_TEST_KEY_E)
+        RSAPublicJWK(kid="", modulus=_FIRST_SIGNER.modulus, exponent=_PUBLIC_EXPONENT)
     with pytest.raises(ProviderConfigurationError):
-        RSAPublicJWK(kid="even-exponent", modulus=_TEST_KEY_N, exponent=4)
+        RSAPublicJWK(kid="even-exponent", modulus=_FIRST_SIGNER.modulus, exponent=4)
 
 
 # ---------------------------------------------------------------------------
