@@ -30,6 +30,7 @@ import {
   BellRing,
   Briefcase,
   CalendarDays,
+  ClipboardList,
   LogOut,
   MapPinned,
   MessageSquareHeart,
@@ -64,9 +65,18 @@ import {
   accountableMetricFromSummary,
   MATCHING_UNAVAILABLE_REASON,
   OPPORTUNITIES_METRIC_NAME,
+  PENDING_REVIEW_ITEMS_METRIC_NAME,
+  unavailableMatchingMetric,
   unavailableOpportunitiesMetric,
+  unavailablePendingReviewMetric,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
+import { summarizeCalendarCoverage } from "@/lib/calendarCoverage";
+import type { SignalThresholds } from "@/lib/signals";
+import {
+  DiscoveryFeed,
+  type DiscoveryFeedItem,
+} from "@/app/components/DiscoveryFeed";
 import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
 import {
@@ -92,6 +102,42 @@ const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
  */
 const REGION_MEMBER_INQUIRY_UNKNOWN_REASON =
   "No region-scoped registered metric exists: `pipeline_member_inquiry` is scoped to the organizational unit, and this page no longer attributes pipeline rows to regions in the browser.";
+
+/**
+ * Why the calendar-derived rows on this page can be unknown.
+ *
+ * `/api/calendar/*` are legacy routes that the current API does not serve —
+ * the repository's own performance baseline records both as 404
+ * (`docs/plans/perf-baseline-828.md`). Until unit-scoped event endpoints
+ * exist (S3–S5; `services/api/smartmatch_api/routers/events.py` declares no
+ * handlers yet), coverage is genuinely unmeasured, and this dashboard says
+ * so rather than reporting zero uncovered windows.
+ */
+const CALENDAR_FEED_UNAVAILABLE_REASON =
+  "The calendar feed is unavailable: `/api/calendar/events` is a retired legacy route and no unit-scoped event endpoint exists yet (S3–S5), so coverage is unknown rather than zero.";
+
+/**
+ * Presentation cut points for the review queue.
+ *
+ * These are *display* thresholds for the pilot surface, not a measured
+ * standard: no stakeholder has set a service level for review latency. They
+ * are stated in `rationale` and shown with the row precisely so nobody reads
+ * the colour as a finding about the programme.
+ */
+const REVIEW_QUEUE_THRESHOLDS: SignalThresholds = {
+  criticalAtOrAbove: 20,
+  watchAtOrAbove: 1,
+  rationale:
+    "Display rule for this pilot surface: any pending item is amber, 20 or more is red. Not a stakeholder-approved service level.",
+};
+
+/** Presentation cut points for uncovered windows. Same caveat as the review queue. */
+const UNCOVERED_WINDOW_THRESHOLDS: SignalThresholds = {
+  criticalAtOrAbove: 5,
+  watchAtOrAbove: 1,
+  rationale:
+    "Display rule for this pilot surface: any uncovered window is amber, 5 or more is red. Not a stakeholder-approved service level.",
+};
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -154,10 +200,10 @@ type RegionalPulseRow = {
   eventCount: number;
   coveredCount: number;
   openCount: number;
+  unknownCount: number;
   assignmentCount: number;
   uniqueVolunteers: number;
   coveragePercent: number | null;
-  workloadPercent: number;
   detail: string;
 };
 
@@ -185,6 +231,13 @@ function calendarReach(records: CalendarEventSummary[]) {
  * of rows that feed actually returned — no cross-source join. `coveragePercent`
  * is `null` (not 0) for a region with no scheduled windows, because a coverage
  * ratio with no denominator is unknown, not zero percent.
+ *
+ * There is deliberately no "workload %" here. The tile used to divide overlay
+ * rows by `eventCount * 3` — an invented capacity of three volunteers per
+ * window that no contract, registry, or stakeholder ever set — and render the
+ * quotient as a percentage. That is a heuristic score wearing an observed
+ * measurement's clothes (DESIGN.md §1.1, ADR-0011), so it is gone rather than
+ * relabelled; the honest counts it was built from are shown instead.
  */
 function buildRegionalPulse(
   calendarEvents: CalendarEventSummary[],
@@ -204,36 +257,32 @@ function buildRegionalPulse(
   return regions
     .map((region) => {
       const eventsInRegion = calendarEvents.filter((event) => event.region === region);
+      const coverage = summarizeCalendarCoverage(
+        eventsInRegion.map((event) => event.coverage_status),
+      );
       const assignmentsInRegion = calendarAssignments.filter(
         (assignment) => assignment.region === region,
       );
-      const coveredCount = eventsInRegion.filter(
-        (event) => event.coverage_status === "covered",
-      ).length;
       const eventCount = eventsInRegion.length;
-      const openCount = eventsInRegion.filter(
-        (event) => event.coverage_status !== "covered",
-      ).length;
       const assignmentCount = assignmentsInRegion.length;
       const uniqueVolunteers = new Set(
         assignmentsInRegion.map((assignment) => assignment.volunteer_name),
       ).size;
-      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : null;
-      const workloadPercent = Math.max(
-        0,
-        Math.min(Math.round((assignmentCount / Math.max(eventCount * 3, 1)) * 100), 100),
-      );
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.`;
+      const coveragePercent =
+        coverage.coverageRatio === null
+          ? null
+          : Math.round(coverage.coverageRatio * 100);
+      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.${coverage.unknown ? ` ${coverage.unknown} window${coverage.unknown === 1 ? " has" : "s have"} unresolved coverage.` : ""}`;
 
       return {
         region,
         eventCount,
-        coveredCount,
-        openCount,
+        coveredCount: coverage.covered,
+        openCount: coverage.explicitlyOpen,
+        unknownCount: coverage.unknown,
         assignmentCount,
         uniqueVolunteers,
         coveragePercent,
-        workloadPercent,
         detail,
       };
     })
@@ -306,21 +355,27 @@ export function Dashboard() {
           return;
         }
 
-        // Calendar windows are the spine of the coverage sections. If they
-        // failed, say so rather than discarding what did succeed and
-        // substituting fixtures.
-        if (calendarResult.status !== "fulfilled") {
-          resetToEmpty();
-          setLoadFailed(true);
-          setError(getErrorMessage(calendarResult.reason, "Failed to load calendar data."));
-          return;
-        }
-
         let anyMock = false;
 
-        setCalendarEvents(calendarResult.value.data);
-        setCalendarAvailable(true);
-        if (calendarResult.value.isMockData) anyMock = true;
+        // The calendar feed reads retired `/api/calendar/*` routes, while the
+        // registered metrics come from `/v1/units/{unit_id}/metrics` — two
+        // independent sources. A 404 on the retired one used to blank the
+        // whole page, which withheld the accountable metrics that *did*
+        // answer and left the coordinator with nothing at all.
+        //
+        // So a calendar failure now degrades only the calendar-derived
+        // sections. That is not a fixture fallback: every one of those values
+        // goes to `unknown` with its reason (ADR-0011 rule 1), and the header
+        // says the feed is unavailable. The registered metrics render as
+        // measured.
+        if (calendarResult.status === "fulfilled") {
+          setCalendarEvents(calendarResult.value.data);
+          setCalendarAvailable(true);
+          if (calendarResult.value.isMockData) anyMock = true;
+        } else {
+          setCalendarEvents([]);
+          setCalendarAvailable(false);
+        }
 
         if (assignmentResult.status === "fulfilled") {
           setCalendarAssignments(assignmentResult.value.data);
@@ -345,6 +400,9 @@ export function Dashboard() {
         setIsMockData(anyMock);
 
         const warnings = [];
+        if (calendarResult.status === "rejected") {
+          warnings.push(CALENDAR_FEED_UNAVAILABLE_REASON);
+        }
         if (assignmentResult.status === "rejected") {
           warnings.push(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
@@ -422,6 +480,9 @@ export function Dashboard() {
   const memberInquiry = registeredMetric(MEMBER_INQUIRY_METRIC_NAME, (reason) =>
     unavailablePipelineMetric(MEMBER_INQUIRY_METRIC_NAME, reason),
   );
+  const pendingReview = registeredMetric(PENDING_REVIEW_ITEMS_METRIC_NAME, (reason) =>
+    unavailablePendingReviewMetric(reason),
+  );
 
   /** The card caption: the register's own definition, or why there is none. */
   function caption(summary: MetricSummary | undefined, fallbackName: string): string {
@@ -439,12 +500,13 @@ export function Dashboard() {
   const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
 
-  const coveredCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status === "covered",
-  ).length;
-  const openCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status !== "covered",
-  ).length;
+  const calendarCoverage = summarizeCalendarCoverage(
+    calendarEvents.map((event) => event.coverage_status),
+  );
+  const coveredCalendarCount = calendarCoverage.covered;
+  const unknownCalendarCoverageCount = calendarCoverage.unknown;
+  const openCalendarCount = calendarCoverage.explicitlyOpen;
+  const calendarCoverageFullyResolved = calendarCoverage.fullyResolved;
 
   const upcomingEventsMetric = accountableDemoMetric(
     "Upcoming events",
@@ -466,25 +528,30 @@ export function Dashboard() {
   );
   const openEventsMetric = accountableDemoMetric(
     "Open events",
-    "Calendar windows the feed reports as not yet covered.",
-    calendarAvailable ? openCalendarCount : null,
+    "Calendar windows the feed explicitly reports as partially covered or needing coverage.",
+    calendarAvailable && calendarCoverageFullyResolved ? openCalendarCount : null,
     {
       provenance: calendarProvenance,
-      unknownReason: "The calendar feed is unavailable, so open windows are unknown.",
+      // A row with coverage_status=unknown cannot safely be counted as either
+      // open or covered. Propagating that uncertainty prevents the discovery
+      // feed from turning missing evidence into an amber/red operational alert.
+      unknownReason: !calendarAvailable
+        ? "The calendar feed is unavailable, so open windows are unknown."
+        : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the total number of open windows is unknown.`,
     },
   );
   const coverageRateMetric = accountableDemoMetric(
     "Coverage rate",
     "Covered calendar windows divided by all calendar windows.",
-    calendarAvailable && calendarEvents.length > 0
-      ? coveredCalendarCount / calendarEvents.length
-      : null,
+    calendarAvailable ? calendarCoverage.coverageRatio : null,
     {
       provenance: calendarProvenance,
       unknownReason:
-        calendarAvailable && calendarEvents.length === 0
-          ? "No calendar windows yet, so there is no denominator for a coverage rate."
-          : "The calendar feed is unavailable, so the coverage rate is unknown.",
+        !calendarAvailable
+          ? "The calendar feed is unavailable, so the coverage rate is unknown."
+          : calendarEvents.length === 0
+            ? "No calendar windows yet, so there is no denominator for a coverage rate."
+            : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the coverage rate is unknown.`,
     },
   );
 
@@ -584,49 +651,60 @@ export function Dashboard() {
       )[0] ?? null;
 
   const memberInquirySummary = memberInquiry.summary;
-  const discoveryFeed = [
+
+  /**
+   * Discovery feed rows.
+   *
+   * Every row is a registered metric or an explicit unknown, and the
+   * red/yellow/green tone is computed from that value by
+   * `toneForBacklog` — never chosen here. The threshold rules are named in
+   * `rationale` and printed with the row, so the colour is something a
+   * viewer can check rather than a score the dashboard asserted.
+   *
+   * Rows that report a *state* rather than a backlog carry
+   * `thresholds: null` and stay neutral: grading "how many opportunities is
+   * a good number" is a stakeholder decision nobody has made, and guessing
+   * it here would be exactly the invented score this feed exists to avoid.
+   */
+  const discoveryFeed: DiscoveryFeedItem[] = [
     {
-      icon: BellRing,
-      title: "Matching recommendations unavailable",
-      detail: MATCHING_UNAVAILABLE_REASON,
-      stamp: "Gate G1",
+      icon: ClipboardList,
+      title: "Review queue",
+      metric: pendingReview.metric,
+      thresholds: REVIEW_QUEUE_THRESHOLDS,
+      detail: caption(pendingReview.summary, PENDING_REVIEW_ITEMS_METRIC_NAME),
     },
     {
       icon: MapPinned,
-      title: regionNeedingCoverage
-        ? `${regionNeedingCoverage.region} has ${regionNeedingCoverage.openCount} uncovered window${regionNeedingCoverage.openCount === 1 ? "" : "s"}`
-        : calendarAvailable
-          ? "No region currently reports an uncovered window"
-          : "Regional coverage is unknown while the calendar feed is unavailable",
-      detail: regionNeedingCoverage
-        ? `${regionNeedingCoverage.assignmentCount} assignment overlays are attached across ${regionNeedingCoverage.eventCount} scheduled windows in that region.`
-        : calendarAvailable
-          ? "Every scheduled calendar window in the current feed has covered status."
-          : "Coverage notes return once the calendar feed answers.",
-      stamp: "Coverage",
+      title: "Uncovered calendar windows",
+      metric: openEventsMetric,
+      thresholds: UNCOVERED_WINDOW_THRESHOLDS,
+      detail: calendarAvailable
+        ? calendarCoverageFullyResolved
+          ? "Scheduled windows the calendar feed explicitly reports as partially covered or needing coverage."
+          : `${unknownCalendarCoverageCount} window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so this backlog cannot be graded.`
+        : CALENDAR_FEED_UNAVAILABLE_REASON,
+    },
+    {
+      icon: Briefcase,
+      title: "Opportunities in the register",
+      metric: opportunities.metric,
+      thresholds: null,
+      detail: caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME),
     },
     {
       icon: Activity,
-      title:
-        memberInquirySummary && memberInquirySummary.value !== null
-          ? `${memberInquirySummary.value.toLocaleString("en-US")} records reached member inquiry (registered metric)`
-          : "Member inquiry is unknown, not zero",
-      detail:
-        memberInquirySummary?.unknown_reason ??
-        memberInquirySummary?.definition ??
-        `Registered metric \`${MEMBER_INQUIRY_METRIC_NAME}\` — ${unavailableReason}`,
-      stamp: "Pipeline",
+      title: "Member inquiry",
+      metric: memberInquiry.metric,
+      thresholds: null,
+      detail: caption(memberInquirySummary, MEMBER_INQUIRY_METRIC_NAME),
     },
     {
-      icon: ShieldCheck,
-      title:
-        strongestCoverageRegion && strongestCoverageRegion.coveragePercent !== null
-          ? `${strongestCoverageRegion.region} is at ${strongestCoverageRegion.coveragePercent}% covered`
-          : "Regional coverage is waiting on live calendar data",
-      detail: strongestCoverageRegion
-        ? `${strongestCoverageRegion.uniqueVolunteers} volunteer${strongestCoverageRegion.uniqueVolunteers === 1 ? "" : "s"} are attached to that region's current windows.`
-        : "The dashboard populates regional coverage notes once calendar and overlay data are available.",
-      stamp: "Regional watch",
+      icon: Sparkles,
+      title: "Matching recommendations",
+      metric: unavailableMatchingMetric(),
+      thresholds: null,
+      detail: MATCHING_UNAVAILABLE_REASON,
     },
   ];
 
@@ -1036,27 +1114,43 @@ export function Dashboard() {
                         {region.coveredCount}/{region.eventCount} windows
                       </span>
                     </div>
-                    <div className="h-2 rounded-full bg-white/80">
+                    {/* An unknown ratio gets a hatched, empty track rather than a
+                        zero-width fill: a bar drawn at 0% reads as a measurement
+                        of nothing covered, which is not what "unknown" means
+                        (ADR-0011 rule 1). */}
+                    {region.coveragePercent === null ? (
                       <div
-                        className="h-2 rounded-full bg-[#005394]"
-                        style={{ width: `${region.coveragePercent ?? 0}%` }}
+                        className="h-2 rounded-full border border-dashed border-[#cfd8e5] bg-white/80"
+                        role="img"
+                        aria-label={
+                          region.unknownCount
+                            ? `Coverage ratio unknown — ${region.unknownCount} window${region.unknownCount === 1 ? " has" : "s have"} unresolved coverage.`
+                            : "Coverage ratio unknown — this region has no scheduled windows to measure against."
+                        }
                       />
-                    </div>
+                    ) : (
+                      <div className="h-2 rounded-full bg-white/80">
+                        <div
+                          className="h-2 rounded-full bg-[#005394]"
+                          style={{ width: `${region.coveragePercent}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Open windows
+                        Explicitly open
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Workload
+                        Volunteers
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.workloadPercent}%
+                        {region.uniqueVolunteers}
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
@@ -1095,36 +1189,14 @@ export function Dashboard() {
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Discovery feed</h3>
               <p className="text-sm text-gray-600">
-                Lightweight coordinator notifications derived from the current dataset.
+                Registered metrics from <code>/v1/units/&#123;unit_id&#125;/metrics</code>, graded
+                red / yellow / green by the stated threshold rule. An unmeasured value is
+                &ldquo;Not measured&rdquo;, never green and never zero.
               </p>
             </div>
           </div>
 
-          <div className="mt-6 space-y-3">
-            {discoveryFeed.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <div
-                  key={item.title}
-                  className="flex gap-4 rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4 shadow-sm"
-                >
-                  <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#d5e0f7] bg-white text-[#005394]">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="font-semibold text-gray-900">{item.title}</p>
-                      <span className="rounded-full bg-[#e6effb] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#005394]">
-                        {item.stamp}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-gray-600">{item.detail}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <DiscoveryFeed items={discoveryFeed} className="mt-6" />
         </div>
       </div>
 

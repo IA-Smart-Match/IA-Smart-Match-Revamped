@@ -196,7 +196,57 @@ has a defined scope.
 | D-8 | Charting approach | The legacy used Recharts. Needs revisiting against §1.1 — a chart of heuristic scores must say so. |
 | D-9 | Rewards and points presentation | Depends on D6/D7 being answered at all. A progress line toward an unreachable reward is worse than no progress line — see [`docs/architecture/engagement-model.md`](../../docs/architecture/engagement-model.md) §4. |
 | D-10 | Disclosure and peer visibility on the student surface | ADR-0014 fixes the *record*; how consent is asked for, and how a limited list explains itself, are undesigned. Policy is D8. |
-| D-11 | The agenda view | `engagement-model.md` §5 rules out a month grid and specifies a time-ordered agenda. Its density, grouping, and region badges are open. |
+| D-11 | The agenda view | `engagement-model.md` §5 rules out a month grid **for the student surface** and specifies a time-ordered agenda. Its density, grouping, and region badges are open — as is whether the same rule binds the coordinator and administrator surfaces. See §2.1 below. |
+
+## 2.1 Open question: does the agenda rule bind every surface?
+
+**Recorded 2026-09-03 by the legacy coordinator-pilot lane, because a future
+reader will otherwise hit it as a contradiction.**
+
+Two authorised documents appear to disagree about month grids, and an agent
+reading either one alone will reach a confident wrong answer.
+
+- `engagement-model.md` §5 (via D-11) says: "Registered and open-to-register
+  events in one time-ordered agenda. **Not a month grid.**"
+- The ratified G1 worksheet
+  (`docs/plans/workshops/g1-workshop-output-worksheet.md`) records the
+  stakeholder directive "Month calendar bottom of events page | Legacy events
+  UI | Presentation".
+
+**They are narrower than they look, and probably compatible.** §5's rule is
+scoped to the *student* surface, and it is argued from a student-specific
+harm: Fix #10, "the student calendar was a month grid, and a mostly-empty
+month grid looks like a dead chapter. That is a true signal about the *view*,
+not about the chapter." The reasoning is about a prospective attendee reading
+sparseness as evidence that nothing is happening.
+
+That harm does not obviously transfer to a coordinator. A coordinator opens
+the calendar to find *gaps* — an empty cell is the thing they are looking for,
+not a discouraging void — which is why the same shape can be right on
+`/calendar` and wrong on the student agenda.
+
+**What was built, and on what authority.** The legacy admin month grid
+(`src/app/pages/Calendar.tsx`) was implemented under the G1 worksheet
+directive. It is presentation over whatever event records exist, and it holds
+the ADR-0010 line that §5 also insists on: dates render in a named zone, and a
+record whose date does not resolve is listed *outside* the grid rather than
+guessed onto a day. The student surface was not given a month grid and should
+not be.
+
+**What Part 2 must actually decide (D-11).** Not "month grid: yes or no", but:
+does the agenda rule express a truth about *students*, or a house style
+binding every audience? DESIGN.md §1.6 ("four audiences, genuinely different
+needs") suggests the former; if the redesign concludes the latter, the legacy
+coordinator grid becomes a deliberate, documented exception rather than an
+oversight — and either way the answer belongs in this table, not in a reader's
+inference.
+
+**Do not** treat this note as settling D-11. It records why the legacy surface
+looks the way it does, so nobody "fixes" it by deleting a grid a stakeholder
+asked for, and nobody extends it to the student surface by pointing at the
+coordinator one.
+
+---
 
 ## What "done" looks like for this document
 

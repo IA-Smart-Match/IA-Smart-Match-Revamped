@@ -91,7 +91,8 @@ export interface CalendarEventSummary {
   suggested_lecture_window: string;
   coverage_status: CoverageStatus;
   coverage_label: string;
-  coverage_ratio: number;
+  /** null when the source row carried no ratio — ADR-0011: absent evidence, not a measured zero. */
+  coverage_ratio: number | null;
   assigned_volunteers: string[];
   assignment_count: number;
   open_slots: number;
@@ -665,15 +666,16 @@ function normalizeCalendarEvent(record: Record<string, unknown>, index: number):
   const assignedVolunteers = parseStringArray(
     record.assigned_volunteers ?? record.assignedVolunteers ?? record.volunteers ?? record.assignees,
   );
+  // ADR-0011: a source row that carried no coverage ratio has an *unknown*
+  // ratio. The old fallback manufactured one from the status string (covered
+  // -> 1, partial -> 0.5, anything else -> 0), which turned a categorical
+  // label into a measurement the source never made — and, for the common
+  // case, drew "we were not told" as a hard 0.
   const coverageRatioValue = parseNumber(record.coverage_ratio ?? record.coverage_percentage ?? record.coveragePercent, Number.NaN);
-  const coverageRatio =
+  const coverageRatio: number | null =
     Number.isFinite(coverageRatioValue)
       ? clamp(coverageRatioValue > 1 ? coverageRatioValue / 100 : coverageRatioValue, 0, 1)
-      : coverageStatus === "covered"
-        ? 1
-        : coverageStatus === "partial"
-          ? 0.5
-          : 0;
+      : null;
   const assignmentCount = Math.max(
     parseNumber(record.assignment_count ?? record.assigned_count ?? assignedVolunteers.length, assignedVolunteers.length),
     assignedVolunteers.length,
