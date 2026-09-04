@@ -655,6 +655,50 @@ OPERATIONS: tuple[Operation, ...] = (
         unit_scoped=True,
         require_membership=True,
     ),
+    # The two event reads share one authorizer, ``_authorize_event_read`` in
+    # ``routers/events.py``, the way the four job operations share
+    # ``job_authz``: both ask the identical question against the identical
+    # resource — may this caller see this unit's discovery output — so a
+    # widening applies to both or to neither and cannot reach one by accident.
+    # That is why they name the same ``authorizer`` and the same
+    # ``roles_constant`` rather than getting a private helper each.
+    #
+    # Otherwise these are the plainest rows in this file, identical in shape to
+    # ``review.decide``: load the unit, call ``assert_allowed`` against an
+    # ``org_unit`` Resource built from that row's own path, with
+    # ``admin``/``coordinator`` required. No ``require_membership`` —
+    # ``_EVENT_ROLES`` is non-empty, so ``evaluate``'s required-roles check
+    # already refuses a bare ``resource_grant`` before the membership question
+    # is reached, and passing the keyword would be a claim these rows would
+    # then have to carry for no observable effect. No ``tenant_wide_roles`` —
+    # the metrics decision's §4 is the only artifact in this repository that
+    # makes anything tenant-wide, it says so of aggregate reads specifically,
+    # and no committed artifact says it of an event catalog or a review queue.
+    # Under deny-by-default the narrower reading is the only one available.
+    Operation(
+        key="events.read",
+        method="GET",
+        path="/v1/units/{unit_id}/events",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize_event_read",
+        roles_constant="_EVENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="events.tag_quarantine.read",
+        method="GET",
+        path="/v1/units/{unit_id}/tag-quarantine",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize_event_read",
+        roles_constant="_EVENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -1367,6 +1411,150 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_without_role": deny("no_grant"),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
     },
+    # `events.read` and `events.tag_quarantine.read` share one authorizer and
+    # therefore share every outcome, which is why the two rows below are
+    # identical cell for cell. That is not duplication to be factored out: the
+    # rectangle is the artifact a reviewer reads, and two operations that
+    # happen to agree today must each state their own answer so that the day
+    # one of them diverges the diff shows which one.
+    "events.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "unit scoping works here as it does for import.create: an "
+                "event names the unit that hosts it (`event.host_org_unit_id`, "
+                "which is also ADR-0012's identity-key host component), and a "
+                "sibling department's coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "admin is a required role here and the membership is active, so "
+                "the only thing refusing this principal is the path. Compare "
+                "`metrics.read` immediately above, which permits this shape: "
+                "that is the ratified metrics decision's §4 aggregate rule and "
+                "nothing else. No committed artifact makes an event catalog "
+                "tenant-wide, so `_authorize_event_read` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses."
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "reading a unit's event catalog is role-gated, not "
+                "membership-gated. The catalog carries extraction provenance "
+                "and source references, which is coordinator-and-above "
+                "material rather than something every active membership sees"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "an event read has no actor path — the shape degenerates to a "
+                "role-less member, and that is correct: this operation is not "
+                "reachable through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason above; "
+                "what is left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "events.tag_quarantine.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`discovery_review_item.owning_unit_id` is what this queue is "
+                "scoped by, and a sibling department's coordinator does not "
+                "cover it — the same path question as the row above"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not. If anything this "
+                "is the harder of the two to widen: the queue carries "
+                "`raw_value`, unnormalized source text a human has not yet "
+                "vetted, so under deny-by-default it keeps ordinary "
+                "containment for the same reason `metrics.drill_down` does"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "reviewing quarantined tag values is role-gated: the queue "
+                "exists so a coordinator decides what a term means, and an "
+                "active membership carrying another role is not that person"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a review-queue read has no actor path — the shape degenerates "
+                "to a role-less member, and this operation is not reachable "
+                "through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason above; "
+                "what is left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -1440,10 +1628,16 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # membership), `metrics.drill_down` passes both `_DRILL_DOWN_ROLES` and
     # `require_membership=True` (ordinary role-gated, plus the same keyword
     # for consistency — see `_authorize_drill_down_read`'s own docstring).
+    #
+    # `_authorize_event_read` (`routers/events.py`) joins them on the same
+    # terms and for the same reason: it loads the unit, then makes exactly this
+    # call against it with `_EVENT_ROLES`. It is one name rather than two
+    # because both event operations share it — see their rows in `OPERATIONS`.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
+        "_authorize_event_read",
     ):
         assert_allowed(
             resolved.principal,

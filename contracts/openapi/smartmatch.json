@@ -98,6 +98,207 @@
         "title": "ErrorEnvelope",
         "type": "object"
       },
+      "EventListResponse": {
+        "description": "A unit's presentable events, and an honest account of what is missing.\n\n``withheld_unresolved_date`` and ``withheld_quarantined_tags`` are not\ndecoration. They are what keeps the empty list meaningful: zero events with\nzero withheld means the unit has no events, and zero events with seven\nwithheld means the unit has seven the pipeline could not finish. ADR-0011's\nrule is that an unknown is never rendered as a zero; the corollary this\nresponse applies is that an *omission* is never rendered as an absence.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventSummary"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more presentable events exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "withheld_quarantined_tags": {
+            "description": "Events excluded because a tag value awaits human review (ADR-0012).",
+            "title": "Withheld Quarantined Tags",
+            "type": "integer"
+          },
+          "withheld_unresolved_date": {
+            "description": "Events excluded because no date could be resolved (ADR-0010 rule 2).",
+            "title": "Withheld Unresolved Date",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit_id",
+          "events",
+          "withheld_unresolved_date",
+          "withheld_quarantined_tags",
+          "truncated"
+        ],
+        "title": "EventListResponse",
+        "type": "object"
+      },
+      "EventProvenanceView": {
+        "description": "Where the event came from, as its own object (ADR-0012).\n\nA separate field on a separate model, never folded into ``title`` or\n``description``. ``smartmatch_domain.events`` has no function that combines\na title with an :class:`~smartmatch_domain.events.EventProvenance`, and\nneither does this module, so \"provenance is never part of the title\" holds\nby there being no code path that could join them rather than by a\nconvention a serializer has to remember.\n\nEvery field but ``origin`` is null on a ``coordinator_entry`` event, which\n``ck_event_provenance_evidence`` requires: a human typing an event fetched\nnothing, and inventing a source URL to fill the column would be the\nfabricated-field defect arriving through a response model.",
+        "properties": {
+          "extractor_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Version"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "origin": {
+            "description": "coordinator_entry or extraction.",
+            "title": "Origin",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "required": [
+          "origin"
+        ],
+        "title": "EventProvenanceView",
+        "type": "object"
+      },
+      "EventSummary": {
+        "description": "One presentable event.\n\n``tags`` carries mapped vocabulary terms only. A quarantined value has no\n``term`` to carry (``event_tag.term`` is NULL on those rows, and\n:class:`~smartmatch_domain.events.QuarantinedTag` has no ``term``\nattribute at all), so ADR-0012's \"never rendered and never matched on\" is\nupheld by the shape of the data rather than by this model remembering a\nfilter \u2014 and, belt to that, by the ``resolution = 'mapped'`` predicate in\n:func:`_mapped_terms`.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/EventProvenanceView"
+          },
+          "publication_status": {
+            "title": "Publication Status",
+            "type": "string"
+          },
+          "review_status": {
+            "title": "Review Status",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Mapped vocabulary terms. Never a quarantined value.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "time": {
+            "$ref": "#/components/schemas/EventTimeView"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "time",
+          "tags",
+          "publication_status",
+          "review_status",
+          "provenance"
+        ],
+        "title": "EventSummary",
+        "type": "object"
+      },
+      "EventTimeView": {
+        "description": "An event's time at whichever precision is actually known (ADR-0010).\n\nThree fields plus a discriminator, never a single nullable timestamp. A\n``date_only`` event has no instant, and reporting one \u2014 midnight in some\nzone \u2014 is the fabrication ADR-0010 exists to stop; a client reading\n``precision`` knows which of ``starts_at`` and ``on_date`` is real without\ninferring it from a null.",
+        "properties": {
+          "on_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The calendar date, present only at date_only precision.",
+            "title": "On Date"
+          },
+          "precision": {
+            "description": "exact, date_only, or unresolved.",
+            "title": "Precision",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant, present only at exact precision.",
+            "title": "Starts At"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IANA zone the event happens in \u2014 never the viewer's or the server's.",
+            "title": "Time Zone"
+          }
+        },
+        "required": [
+          "precision"
+        ],
+        "title": "EventTimeView",
+        "type": "object"
+      },
       "ImportRequest": {
         "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.\n\nThe ``oneOf`` below is what makes that exclusivity a *documented* part of\nthe contract rather than a rule only ``create_import`` enforces at\nruntime \u2014 a generated client, or a human reading the OpenAPI document, can\nsee it without reading this docstring. It does not replace the runtime\ncheck: ``oneOf`` describes the shape a request should take, and\n``create_import`` is still what actually rejects both or neither, in the\nAPI's own stable error envelope rather than in whatever validator a\ngenerated client's own OpenAPI tooling produces from this schema.",
         "oneOf": [
@@ -450,6 +651,90 @@
           "metrics"
         ],
         "title": "MetricsResponse",
+        "type": "object"
+      },
+      "QuarantinedTagItem": {
+        "description": "One unmapped tag value waiting for a human (ADR-0012, G3 \u00a75).\n\n``raw_value`` is the source text exactly as received, unnormalized: a\nreviewer deciding whether a term belongs in the vocabulary needs to see\nwhat was actually on the page, casing and all. It is reported here and\nnowhere else \u2014 it is not a tag, and no matching or rendering path can\nreach it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_title": {
+            "title": "Event Title",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "judged_against_current_vocabulary": {
+            "description": "False when the item was judged against an older vocabulary than the one released now, so a reviewer can tell a stale judgement from a current one.",
+            "title": "Judged Against Current Vocabulary",
+            "type": "boolean"
+          },
+          "raw_value": {
+            "title": "Raw Value",
+            "type": "string"
+          },
+          "vocabulary_version": {
+            "description": "The vocabulary version this value was judged against and did not match.",
+            "title": "Vocabulary Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "event_title",
+          "raw_value",
+          "vocabulary_version",
+          "judged_against_current_vocabulary",
+          "created_at"
+        ],
+        "title": "QuarantinedTagItem",
+        "type": "object"
+      },
+      "QuarantinedTagListResponse": {
+        "description": "The unit's pending tag-quarantine queue.\n\nPending only. A decided item is a decision already made, and mixing it back\ninto the queue would make \"seven values need review\" and \"seven values were\never quarantined\" the same number. This route records no decision \u2014 see the\nmodule docstring for why an ``accept`` here could not do what it said.",
+        "properties": {
+          "current_vocabulary_version": {
+            "description": "The released vocabulary version terms are resolved against today.",
+            "title": "Current Vocabulary Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuarantinedTagItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more pending items exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "current_vocabulary_version",
+          "items",
+          "truncated"
+        ],
+        "title": "QuarantinedTagListResponse",
         "type": "object"
       },
       "RedriveAcceptedResponse": {
@@ -1647,6 +1932,136 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/events": {
+      "get": {
+        "description": "Return the unit's events that are actually presentable, and count the rest.\n\nTwo exclusions, both pinned by an Accepted ADR rather than chosen here:\n\n* **No resolved date.** ADR-0010 rule 2 \u2014 \"an event at ``unresolved``\n  cannot reach a matchable or publishable state\". It also has no identity\n  key (ADR-0012), which is the same fact about it stated twice. Listing one\n  would put a dateless row in a catalog whose whole purpose is telling a\n  coordinator when something happens, which is the legacy defect\n  ``date: \"See link for details\"`` recorded as finding H21.\n* **A quarantined tag.** ADR-0012 \u2014 a value the closed vocabulary did not\n  recognize is \"stored with the event, visible to a human review queue, and\n  never rendered and never matched on\". An event carrying one is not\n  finished being extracted; ``ck_event_publishable`` refuses to publish it\n  for the same reason, and this route refuses to list it.\n\nNeither exclusion is silent. Both are counted from the same rows this\nlisting is partitioned out of and reported on the response \u2014 see\n:class:`EventListResponse`.\n\nOnly ``admin`` and ``coordinator`` may read this\n(:func:`_authorize_event_read`), and authorization runs before any row is\nread.",
+        "operationId": "list_events_v1_units__unit_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's presentable events",
+        "tags": [
+          "events"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/imports": {
       "post": {
         "description": "Accept an import command.\n\nReturns ``202``, not ``200``: nothing has been imported when this returns.\nThe command is recorded and will be dispatched; the job is where the outcome\nlives. Saying ``200`` here would be reporting success for work that has not\nstarted (v1.1 \u00a73.6 N2).\n\nAuthorization runs against the *owning unit*, after loading it \u2014 which is\nwhy it happens here rather than in a dependency. A dependency cannot\nauthorize a resource it has not fetched.\n\nQuota is charged before any of that (ADR-0015), so a caller producing 404s\nagainst unit ids they invented, or 403s against a unit they may not import\ninto, is spending exactly what a caller submitting real imports spends. It\nused to be charged inside ``submit_command``, which is past all three\nrefusals \u2014 those requests were free, and they are the cheapest of all the\nrefusals to produce in bulk.",
@@ -2078,6 +2493,136 @@
         "summary": "Drill into an accountable metric",
         "tags": [
           "metrics"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/tag-quarantine": {
+      "get": {
+        "description": "Return the unit's pending unmapped tag values, with the event each came from.\n\nThis is the human end of ADR-0012's quarantine rule and G3 \u00a75's escalation\ndestination: a value the closed vocabulary did not recognize is kept, tied\nto its event, and shown to a person \u2014 never dropped, and never quietly\npromoted into a matchable term. G3 \u00a76.1 is explicit that a full queue is\nthe instrument working rather than a defect: \u00a76.2 cut eight candidate terms\non purpose, and \"that queue is evidence of which terms were actually\nneeded\".\n\n``kind = 'unmapped_tag'`` narrows the queue to tag quarantine specifically.\n``discovery_review_item.kind`` also admits ``unresolved_time`` and\n``first_seen_event`` (``ck_discovery_review_item_kind``), which are\ndifferent review questions with different answers; folding them into one\nlist would make a count of \"tags needing review\" wrong in a way nobody\ncould see from the response.\n\nThe route records no decision \u2014 see the module docstring. Only ``admin``\nand ``coordinator`` may read it, and authorization runs before any row is\nread.",
+        "operationId": "list_quarantined_tags_v1_units__unit_id__tag_quarantine_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantinedTagListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's tag values awaiting human review",
+        "tags": [
+          "events"
         ]
       }
     }
