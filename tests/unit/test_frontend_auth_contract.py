@@ -79,12 +79,22 @@ PORTAL_SHELLS = (
     "app/components/Layout.tsx",
 )
 
+#: Pages that reach a legacy ``/api/portals/*`` endpoint, which takes a *legacy
+#: portal id* in its path. Those are the pages that need the mapping seam:
+#: ``useAuthenticatedPrincipal()`` for the server's answer to who the caller is,
+#: then ``portalSubjectId(principal, ...)`` to turn that into the legacy id, and
+#: never a local session reader in between.
+#:
+#: Membership is decided by whether a page calls such an endpoint, not by which
+#: portal it lives in. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for the pages
+#: that need no mapping at all, and
+#: :func:`test_no_portal_page_reads_identity_locally` for the assertion that
+#: holds over every page either way.
 PORTAL_PAGES = (
     "app/pages/student/StudentHome.tsx",
     "app/pages/student/StudentEvents.tsx",
     "app/pages/student/StudentHistory.tsx",
     "app/pages/student/StudentConnect.tsx",
-    "app/pages/student/StudentRewards.tsx",
     "app/pages/coordinator/CoordinatorHome.tsx",
     "app/pages/coordinator/CoordinatorEvents.tsx",
     "app/pages/coordinator/CoordinatorOutreach.tsx",
@@ -93,6 +103,28 @@ PORTAL_PAGES = (
     "app/pages/volunteer/VolunteerAssignments.tsx",
     "app/pages/volunteer/VolunteerProfile.tsx",
 )
+
+#: Portal pages that need **no** legacy portal id, because every request they
+#: make is a ``/v1`` one carrying the bearer token, and the server resolves the
+#: subject from that token itself.
+#:
+#: ``StudentRewards.tsx`` is the first member, and it moved here rather than out
+#: of this file: before card P-REWARDS-API it computed points in the browser and
+#: fetched ``/api/portals/students/{id}`` to do it, which is why it needed the
+#: seam. It now calls ``GET /v1/units/{unit_id}/rewards`` and
+#: ``/v1/units/{unit_id}/redemptions``, whose subject is ``principal.user_id``
+#: server-side and cannot be named by the client at all. Asserting
+#: ``portalSubjectId(principal, ...)`` on it would now require it to derive an
+#: identifier it must not send — a weaker position than the one it holds.
+#:
+#: This tuple is not an exemption from the Fix #7 guard. Every assertion in this
+#: file that is really about browser-asserted identity —
+#: :func:`test_no_page_reads_the_archived_session_blob`,
+#: :func:`test_no_fallback_identity_literal_survives`,
+#: :func:`test_no_page_touches_session_storage_directly` and
+#: :func:`test_no_portal_page_reads_identity_locally` — runs over both tuples,
+#: or over every source file, and none of them is relaxed here.
+PAGES_WITH_NO_LEGACY_PORTAL_ID = ("app/pages/student/StudentRewards.tsx",)
 
 #: `sessionStorage` is legitimate for exactly one thing: holding the bearer
 #: token `/v1` requests are sent with. One module touches it, for that key and
@@ -209,6 +241,37 @@ def test_every_portal_page_uses_the_server_mapping_seam() -> None:
             f"{relative} bypasses the account-to-portal mapping seam"
         )
         assert "getSession" not in source, f"{relative} still has a local session reader"
+
+
+def test_no_portal_page_reads_identity_locally() -> None:
+    """The Fix #7 guard itself, over *every* portal page and not only the mapped ones.
+
+    :func:`test_every_portal_page_uses_the_server_mapping_seam` is about a
+    narrower thing — that a page needing a *legacy portal id* derives it through
+    the seam — and a page that needs no such id has nothing for it to assert.
+    That must not become a hole: the property that actually matters is that no
+    page reads its own identity, and it is stated here over both tuples so a
+    page cannot escape it by moving between them.
+
+    A page in :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` is held to *more*, not
+    less: it must not name a legacy portal id at all, because a page that sends
+    only ``/v1`` requests has no honest use for one and reintroducing it would be
+    a caller-supplied subject arriving by the back door.
+    """
+    for relative in PORTAL_PAGES + PAGES_WITH_NO_LEGACY_PORTAL_ID:
+        source = (WEB_SRC / relative).read_text(encoding="utf-8")
+        assert "getSession" not in source, f"{relative} still has a local session reader"
+        assert ARCHIVED_SESSION_KEY not in source, (
+            f"{relative} mentions the archived browser session blob"
+        )
+
+    for relative in PAGES_WITH_NO_LEGACY_PORTAL_ID:
+        source = (WEB_SRC / relative).read_text(encoding="utf-8")
+        assert "portalSubjectId(" not in source, (
+            f"{relative} is recorded as needing no legacy portal id, yet derives "
+            "one. Either it gained a `/api/portals/*` call and belongs in "
+            "PORTAL_PAGES, or the derivation is dead code that should go."
+        )
 
 
 def test_account_uuid_is_not_reused_as_a_legacy_portal_id() -> None:
