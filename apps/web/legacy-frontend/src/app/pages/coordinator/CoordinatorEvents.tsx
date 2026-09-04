@@ -5,16 +5,8 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AppIcon } from "../../../components/AppIcon";
 import { fetchCoordinatorEvents, type CalendarEventSummary } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const COVERAGE_COLORS: Record<string, string> = {
   covered: "bg-green-100 text-green-700",
@@ -31,8 +23,10 @@ const COVERAGE_LABELS: Record<string, string> = {
 };
 
 export function CoordinatorEvents() {
-  const session = getSession();
-  const coordinatorId = String((session.user as Record<string, unknown> | undefined)?.coordinator_id ?? "coord-001");
+  // `/v1/me` verifies the account but does not provide a legacy coordinator
+  // id; the API client rejects the empty value locally instead of guessing.
+  const principal = useAuthenticatedPrincipal();
+  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
 
   const [events, setEvents] = useState<(CalendarEventSummary & { staffing_open: boolean })[]>([]);
   const [source, setSource] = useState<string>("");

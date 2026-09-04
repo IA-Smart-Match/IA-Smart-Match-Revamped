@@ -4,16 +4,8 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AppIcon } from "../../../components/AppIcon";
 import { fetchStudentRegistrations, type StudentRegistration } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const STATUS_LABELS: Record<StudentRegistration["status"], string> = {
   registered: "Registered",
@@ -28,8 +20,10 @@ const STATUS_COLORS: Record<StudentRegistration["status"], string> = {
 };
 
 export function StudentEvents() {
-  const session = getSession();
-  const studentId = String((session.user as Record<string, unknown> | undefined)?.student_id ?? "stu-001");
+  // `/v1/me` verifies the account but does not provide a legacy student id;
+  // the API client rejects the empty value locally instead of guessing one.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal, "student") ?? "";
 
   const [registrations, setRegistrations] = useState<StudentRegistration[]>([]);
   const [allRegistrations, setAllRegistrations] = useState<StudentRegistration[]>([]);

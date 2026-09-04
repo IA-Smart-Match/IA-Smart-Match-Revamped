@@ -5,16 +5,8 @@ import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { Dialog, DialogContent } from "../../components/ui/dialog";
 import { fetchCoordinatorThreads, type OutreachThread } from "../../../lib/api";
 import { AgenticOutreachPanel } from "../../../components/AgenticOutreachPanel";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const STATUS_COLORS: Record<OutreachThread["status"], string> = {
   confirmed: "bg-primary/10 text-primary",
@@ -31,8 +23,10 @@ const STATUS_LABELS: Record<OutreachThread["status"], string> = {
 };
 
 export function CoordinatorOutreach() {
-  const session = getSession();
-  const coordinatorId = String((session.user as Record<string, unknown> | undefined)?.coordinator_id ?? "coord-001");
+  // `/v1/me` verifies the account but does not provide a legacy coordinator
+  // id; the API client rejects the empty value locally instead of guessing.
+  const principal = useAuthenticatedPrincipal();
+  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
 
   const [threads, setThreads] = useState<OutreachThread[]>([]);
   const [source, setSource] = useState<string>("");

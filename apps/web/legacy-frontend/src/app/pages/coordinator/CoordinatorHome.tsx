@@ -14,16 +14,8 @@ import {
   type MeetingBooking,
   type CalendarEventSummary,
 } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const THREAD_STATUS_COLORS: Record<OutreachThread["status"], string> = {
   confirmed: "bg-primary/10 text-primary",
@@ -33,8 +25,10 @@ const THREAD_STATUS_COLORS: Record<OutreachThread["status"], string> = {
 };
 
 export function CoordinatorHome() {
-  const session = getSession();
-  const coordinatorId = String((session.user as Record<string, unknown> | undefined)?.coordinator_id ?? "coord-001");
+  // `/v1/me` verifies the account but does not provide a legacy coordinator
+  // id; the API client rejects the empty value locally instead of guessing.
+  const principal = useAuthenticatedPrincipal();
+  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
 
   const [profile, setProfile] = useState<(EventCoordinator & { source: string }) | null>(null);
   const [events, setEvents] = useState<(CalendarEventSummary & { staffing_open: boolean })[]>([]);

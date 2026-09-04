@@ -9,22 +9,14 @@ import {
   type VolunteerProfile,
   type VolunteerAssignment,
 } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 export function VolunteerHome() {
-  const session = getSession();
-  const volunteerId = String(
-    (session.user as Record<string, unknown> | undefined)?.volunteer_id ?? "shana-demarinis",
-  );
+  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
+  // the API client rejects the empty value locally instead of guessing one.
+  const principal = useAuthenticatedPrincipal();
+  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
 
   const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
   const [assignments, setAssignments] = useState<VolunteerAssignment[]>([]);

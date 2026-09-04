@@ -3,16 +3,8 @@ import { Video, Plus, AlertTriangle, CheckCircle2, ExternalLink } from "lucide-r
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { fetchCoordinatorMeetings, type MeetingBooking } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const STATUS_COLORS: Record<MeetingBooking["status"], string> = {
   confirmed: "bg-primary/10 text-primary",
@@ -25,8 +17,10 @@ const STATUS_LABELS: Record<MeetingBooking["status"], string> = {
 };
 
 export function CoordinatorMeetings() {
-  const session = getSession();
-  const coordinatorId = String((session.user as Record<string, unknown> | undefined)?.coordinator_id ?? "coord-001");
+  // `/v1/me` verifies the account but does not provide a legacy coordinator
+  // id; the API client rejects the empty value locally instead of guessing.
+  const principal = useAuthenticatedPrincipal();
+  const coordinatorId = portalSubjectId(principal, "coordinator") ?? "";
 
   const [meetings, setMeetings] = useState<MeetingBooking[]>([]);
   const [source, setSource] = useState<string>("");

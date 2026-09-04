@@ -89,6 +89,7 @@ import {
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
+import { useSignOut } from "../hooks/useSession";
 
 const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
 
@@ -307,9 +308,12 @@ function formatFactorName(value: string): string {
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const signOut = useSignOut();
 
   function handleLogout() {
-    sessionStorage.removeItem("iaw_session");
+    // Drops the browser-held bearer token and re-resolves identity against
+    // `GET /v1/me`. There is no client-side session object left to clear.
+    signOut();
     navigate("/login");
   }
 

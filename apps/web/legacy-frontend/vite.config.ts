@@ -7,6 +7,21 @@ import { defineConfig } from "vite";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Where the dev/preview server forwards `/api` and `/v1`.
+ *
+ * Defaults to a locally-run API (`make run-api`, port 8000). Point it at the
+ * compose stack's published API — `http://127.0.0.1:8080` — to click through
+ * the portals as the seeded compose principal; INSTALL.md documents that
+ * sequence. Read from `process.env` (config time), not `import.meta.env`:
+ * it configures the dev server, and is never bundled into the app.
+ */
+const configuredProxyTarget = process.env.SMARTMATCH_API_PROXY_TARGET?.trim();
+const apiProxyTarget =
+  configuredProxyTarget && configuredProxyTarget.length > 0
+    ? configuredProxyTarget
+    : "http://127.0.0.1:8000";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -20,14 +35,14 @@ export default defineConfig({
     proxy: {
       "/api": {
         // Use IPv4 literal so Windows + Node do not prefer ::1 when the API binds 127.0.0.1 only.
-        target: "http://127.0.0.1:8000",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
       // Authenticated job/import routes and the planned domain routes use /v1.
       // Without this the browser gets index.html back and the failure reads as
       // a JSON parse error a long way from its cause.
       "/v1": {
-        target: "http://127.0.0.1:8000",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },
@@ -36,11 +51,11 @@ export default defineConfig({
     port: 4173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
       "/v1": {
-        target: "http://127.0.0.1:8000",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

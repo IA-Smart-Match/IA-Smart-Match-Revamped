@@ -15,20 +15,15 @@ import {
   type RetentionNudge,
   type CalendarEventSummary,
 } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 export function StudentHome() {
-  const session = getSession();
-  const studentId = String((session.user as Record<string, unknown> | undefined)?.student_id ?? "stu-001");
+  // `/v1/me` authenticates the account but does not yet map it to a legacy
+  // student record. The empty transport value is rejected by the API client
+  // before any caller-selectable `/api/portals/*` request is issued.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal, "student") ?? "";
 
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
   const [nudge, setNudge] = useState<(RetentionNudge & { source: string }) | null>(null);

@@ -14,16 +14,8 @@ import {
   type RewardCategoryId,
   type StudentRewardItem,
 } from "../../../lib/studentRewardsCatalog";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 function groupByCategory(items: StudentRewardItem[]): Map<RewardCategoryId, StudentRewardItem[]> {
   const map = new Map<RewardCategoryId, StudentRewardItem[]>();
@@ -39,8 +31,10 @@ function groupByCategory(items: StudentRewardItem[]): Map<RewardCategoryId, Stud
 }
 
 export function StudentRewards() {
-  const session = getSession();
-  const studentId = String((session.user as Record<string, unknown> | undefined)?.student_id ?? "stu-001");
+  // `/v1/me` verifies the account but does not provide a legacy student id;
+  // the API client rejects the empty value locally instead of guessing one.
+  const principal = useAuthenticatedPrincipal();
+  const studentId = portalSubjectId(principal, "student") ?? "";
 
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
   const [loading, setLoading] = useState(true);

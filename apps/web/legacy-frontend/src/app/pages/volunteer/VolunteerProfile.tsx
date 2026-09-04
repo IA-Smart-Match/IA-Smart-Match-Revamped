@@ -3,16 +3,8 @@ import { AlertTriangle, MapPin, Star } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { fetchVolunteerProfile, splitTags, type VolunteerProfile } from "../../../lib/api";
-
-function getSession() {
-  try {
-    return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-      user?: Record<string, unknown>;
-    };
-  } catch {
-    return {};
-  }
-}
+import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { portalSubjectId } from "../../../lib/principal";
 
 const RECOVERY_COLORS: Record<string, string> = {
   Available: "bg-green-100 text-green-700",
@@ -21,10 +13,10 @@ const RECOVERY_COLORS: Record<string, string> = {
 };
 
 export function VolunteerProfile() {
-  const session = getSession();
-  const volunteerId = String(
-    (session.user as Record<string, unknown> | undefined)?.volunteer_id ?? "shana-demarinis",
-  );
+  // `/v1/me` verifies the account but does not provide a legacy volunteer id;
+  // the API client rejects the empty value locally instead of guessing one.
+  const principal = useAuthenticatedPrincipal();
+  const volunteerId = portalSubjectId(principal, "volunteer") ?? "";
 
   const [profile, setProfile] = useState<(VolunteerProfile & { source: string }) | null>(null);
   const [loading, setLoading] = useState(true);

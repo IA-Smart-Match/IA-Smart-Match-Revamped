@@ -433,6 +433,59 @@ It deliberately does not bring the stack up or tear it down — CI wants the
 containers alive after a failure so it can read their logs, and so does anyone
 debugging by hand.
 
+### Clicking through the portals as the compose principal
+
+The stack has no frontend container (see the header note in
+`docker-compose.yml`); the legacy frontend runs on the host and is pointed at
+the compose API. Two environment variables are all that is needed, and neither
+is a login:
+
+```bash
+docker compose up --build -d          # api on 127.0.0.1:8080, principal seeded
+
+cd apps/web/legacy-frontend
+npm ci
+SMARTMATCH_API_PROXY_TARGET=http://127.0.0.1:8080 \
+VITE_SMARTMATCH_BEARER_TOKEN=compose-api \
+npm run dev
+```
+
+- `SMARTMATCH_API_PROXY_TARGET` forwards the dev server's `/api` and `/v1` to
+  the compose API instead of a locally-run one (default `:8000`).
+- `VITE_SMARTMATCH_BEARER_TOKEN` is the local-only dev token
+  `docker-compose.yml` maps to the seeded subject `compose-pilot-coordinator`
+  — the same `Authorization: Bearer compose-api` the curl steps above use. It
+  is a credential, not an identity: the browser sends it and the server
+  decides who that is.
+
+Then open <http://localhost:5173/coordinator-portal>. The shell calls
+`GET /v1/me` before it renders anything and shows what the server answered —
+the seeded email `compose-pilot-coordinator@example.invalid` and the
+server-assigned `coordinator` membership on the `pilot` unit. Nothing on that
+screen is chosen in the browser.
+
+Two things are worth checking deliberately, because they are what Fix #7
+closed:
+
+1. **Start the dev server without `VITE_SMARTMATCH_BEARER_TOKEN`.** Every
+   portal URL — `/student-portal`, `/coordinator-portal`,
+   `/volunteer-portal`, `/dashboard` — redirects to `/login`, which states
+   that institutional sign-in is not connected yet (A1b). There is no
+   fallback identity to fall into, because there is no longer one to fall
+   back to.
+2. **Sign out from the portal.** It clears the browser-held token and
+   re-asks `GET /v1/me`. A bundle started with `VITE_SMARTMATCH_BEARER_TOKEN`
+   carries its token in the bundle, so the server answers again and the
+   portal stays open — sign-out cannot revoke a build-time fixture, and the
+   UI does not pretend it can. Stop the dev server to end that session.
+
+What compose does **not** demonstrate is portal *content*: the pages fetch
+`/api/portals/*`, a legacy backend this repository does not contain and the
+stack does not run, so each page shows its own load-failure state under the
+signed-in chrome. Identity, the route guard, and the sign-out path are what
+this walkthrough exercises; `scripts/compose_smoke.sh` above is the proof for
+the data path.
+
 ---
 
 ## Troubleshooting
