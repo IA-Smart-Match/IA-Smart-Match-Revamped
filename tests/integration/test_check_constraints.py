@@ -155,6 +155,64 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): (
         "CHECK (((state = 'reserved'::text) = (lease_token IS NOT NULL)))"
     ),
+    # Migration 0017 — the P6 event model (cards S3-S5f).
+    ("event", "ck_event_time_precision"): (
+        "CHECK ((time_precision = ANY (ARRAY['exact'::text, 'date_only'::text, "
+        "'unresolved'::text])))"
+    ),
+    ("event", "ck_event_temporal_shape"): (
+        "CHECK ((((time_precision = 'exact'::text) AND (starts_at IS NOT NULL) AND "
+        "(on_date IS NULL) AND (time_zone IS NOT NULL)) OR ((time_precision = "
+        "'date_only'::text) AND (starts_at IS NULL) AND (on_date IS NOT NULL) AND "
+        "(time_zone IS NOT NULL)) OR ((time_precision = 'unresolved'::text) AND "
+        "(starts_at IS NULL) AND (on_date IS NULL) AND (time_zone IS NULL))))"
+    ),
+    ("event", "ck_event_identity_iff_resolved"): (
+        "CHECK (((time_precision = 'unresolved'::text) = (resolved_date IS NULL)))"
+    ),
+    ("event", "ck_event_publication_status"): (
+        "CHECK ((publication_status = ANY (ARRAY['unpublished'::text, 'published'::text])))"
+    ),
+    ("event", "ck_event_review_status"): (
+        "CHECK ((review_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))"
+    ),
+    ("event", "ck_event_quarantined_tag_count_non_negative"): (
+        "CHECK ((quarantined_tag_count >= 0))"
+    ),
+    ("event", "ck_event_publishable"): (
+        "CHECK (((publication_status = 'unpublished'::text) OR ((time_precision <> "
+        "'unresolved'::text) AND (quarantined_tag_count = 0))))"
+    ),
+    ("event", "ck_event_origin"): (
+        "CHECK ((origin = ANY (ARRAY['coordinator_entry'::text, 'extraction'::text])))"
+    ),
+    ("event", "ck_event_provenance_evidence"): (
+        "CHECK ((((origin = 'extraction'::text) = (source_url IS NOT NULL)) AND "
+        "((source_url IS NULL) = (fetched_at IS NULL)) AND ((fetched_at IS NULL) = "
+        "(extractor_version IS NULL))))"
+    ),
+    ("event_tag", "ck_event_tag_resolution"): (
+        "CHECK ((resolution = ANY (ARRAY['mapped'::text, 'quarantined'::text])))"
+    ),
+    ("event_tag", "ck_event_tag_resolution_shape"): (
+        "CHECK ((((resolution = 'mapped'::text) = (term IS NOT NULL)) AND "
+        "((resolution = 'quarantined'::text) = (raw_value IS NOT NULL))))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_kind"): (
+        "CHECK ((kind = ANY (ARRAY['unmapped_tag'::text, 'unresolved_time'::text, "
+        "'first_seen_event'::text])))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_status"): (
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_decision_evidence"): (
+        "CHECK ((((status = 'pending'::text) = (decided_at IS NULL)) AND "
+        "((decided_at IS NULL) = (decided_by IS NULL))))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_tag_evidence"): (
+        "CHECK ((((kind = 'unmapped_tag'::text) = (raw_value IS NOT NULL)) AND "
+        "((raw_value IS NULL) = (vocabulary_version IS NULL))))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -200,6 +258,35 @@ BEHAVIOURAL_COVERAGE = {
     ("spend_reservation", "ck_spend_reservation_actual_non_negative"): "this file",
     ("spend_reservation", "ck_spend_reservation_state"): "this file",
     ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): "this file",
+    # Migration 0017. Every one of these attempts the forbidden write against a
+    # real database in the file named; none of them is covered by existence alone.
+    ("event", "ck_event_time_precision"): "test_event_schema_constraints.py",
+    ("event", "ck_event_temporal_shape"): "test_event_schema_constraints.py",
+    ("event", "ck_event_identity_iff_resolved"): "test_event_schema_constraints.py",
+    ("event", "ck_event_publication_status"): "test_event_schema_constraints.py",
+    ("event", "ck_event_review_status"): "test_event_schema_constraints.py",
+    ("event", "ck_event_quarantined_tag_count_non_negative"): ("test_event_schema_constraints.py"),
+    ("event", "ck_event_publishable"): (
+        "test_event_schema_constraints.py — refused on INSERT and on UPDATE, for both "
+        "reasons an event is unpublishable; test_event_identity_upsert.py covers the "
+        "same rule through EventRepository.publish"
+    ),
+    ("event", "ck_event_origin"): "test_event_schema_constraints.py",
+    ("event", "ck_event_provenance_evidence"): "test_event_schema_constraints.py",
+    ("event_tag", "ck_event_tag_resolution"): "test_event_schema_constraints.py",
+    ("event_tag", "ck_event_tag_resolution_shape"): "test_event_schema_constraints.py",
+    ("discovery_review_item", "ck_discovery_review_item_kind"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_status"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_decision_evidence"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_tag_evidence"): (
+        "test_event_schema_constraints.py"
+    ),
 }
 
 

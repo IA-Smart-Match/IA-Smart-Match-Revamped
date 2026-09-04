@@ -42,6 +42,9 @@ __all__ = [
     "METADATA",
     "attendance_record",
     "concurrency_lease",
+    "discovery_review_item",
+    "event",
+    "event_tag",
     "idempotency_record",
     "import_batch",
     "job",
@@ -420,8 +423,9 @@ attendance_record = sa.Table(
     sa.Column("owning_unit_id", _UUID, nullable=False),
     # The student who attended.
     sa.Column("subject_id", _UUID, nullable=False),
-    # No foreign key: no event table exists yet in this schema. Whichever
-    # migration adds one should also add this constraint.
+    # The event attended. Composite foreign key below, added by migration
+    # 0017 (card S5f) alongside the event table itself -- the constraint 0009
+    # asked "whichever migration adds one" to write.
     sa.Column("event_id", _UUID, nullable=False),
     sa.Column("method", sa.Text, nullable=False),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
@@ -441,6 +445,14 @@ attendance_record = sa.Table(
     sa.ForeignKeyConstraint(
         ["tenant_id", "subject_id"],
         ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT (migration 0017): attendance is the only input to points
+    # (ADR-0013), so deleting the event out from under a credited attendance
+    # would leave a ledger entry nothing could explain.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
         ondelete="RESTRICT",
     ),
     sa.CheckConstraint(
@@ -876,5 +888,206 @@ professional_unit_relationship = sa.Table(
         ["tenant_id", "unit_id"],
         ["org_unit.tenant_id", "org_unit.id"],
         ondelete="RESTRICT",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The P6 event model (migration 0017): ADR-0010's temporal triple, ADR-0012's
+# deterministic identity and closed tag vocabulary, and the G3 §5 discovery
+# review queue. See the migration's docstring for the reasoning behind every
+# constraint mirrored below; it is not repeated here.
+# ---------------------------------------------------------------------------
+
+event = sa.Table(
+    "event",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # ADR-0012: the org unit the event belongs to, not the page it was found on.
+    sa.Column("host_org_unit_id", _UUID, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    # smartmatch_domain.events.normalize_title()'s output.
+    sa.Column("normalized_title", sa.Text, nullable=False),
+    sa.Column("description", sa.Text, nullable=True),
+    # ADR-0010's temporal triple. starts_at is present only at 'exact',
+    # on_date only at 'date_only', and time_zone at both but never at
+    # 'unresolved' -- ck_event_temporal_shape below is the enforcement.
+    sa.Column("starts_at", _TS, nullable=True),
+    sa.Column("on_date", sa.Date, nullable=True),
+    sa.Column("time_zone", sa.Text, nullable=True),
+    sa.Column("time_precision", sa.Text, nullable=False),
+    # The identity key's date component. NULL exactly when unresolved, which
+    # is what keeps an unresolved event out of uq_event_identity.
+    sa.Column("resolved_date", sa.Date, nullable=True),
+    sa.Column("publication_status", sa.Text, nullable=False, server_default="unpublished"),
+    sa.Column("review_status", sa.Text, nullable=False, server_default="pending"),
+    # Denormalised, maintained by smartmatch_persistence.events: a CHECK
+    # cannot see event_tag, and ck_event_publishable has to name the
+    # quarantine half of ADR-0012 somehow.
+    sa.Column("quarantined_tag_count", sa.Integer, nullable=False, server_default="0"),
+    # ADR-0012's structured provenance -- EventProvenance field for field,
+    # never folded into title or description.
+    sa.Column("origin", sa.Text, nullable=False),
+    sa.Column("source_url", sa.Text, nullable=True),
+    sa.Column("fetched_at", _TS, nullable=True),
+    sa.Column("extractor_version", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_pkey"),
+    # What attendance_record, event_tag, and discovery_review_item reference.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_event_tenant_id"),
+    # ADR-0012's deterministic key. Named here rather than only in the
+    # migration because events.py passes it to ON CONFLICT ON CONSTRAINT,
+    # which makes the name an interface.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "host_org_unit_id",
+        "normalized_title",
+        "resolved_date",
+        name="uq_event_identity",
+    ),
+    # RESTRICT: reorganizing a unit must not silently delete its events.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "host_org_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "time_precision IN ('exact','date_only','unresolved')",
+        name="ck_event_time_precision",
+    ),
+    sa.CheckConstraint(
+        "(time_precision = 'exact' AND starts_at IS NOT NULL "
+        "AND on_date IS NULL AND time_zone IS NOT NULL) "
+        "OR (time_precision = 'date_only' AND starts_at IS NULL "
+        "AND on_date IS NOT NULL AND time_zone IS NOT NULL) "
+        "OR (time_precision = 'unresolved' AND starts_at IS NULL "
+        "AND on_date IS NULL AND time_zone IS NULL)",
+        name="ck_event_temporal_shape",
+    ),
+    sa.CheckConstraint(
+        "(time_precision = 'unresolved') = (resolved_date IS NULL)",
+        name="ck_event_identity_iff_resolved",
+    ),
+    sa.CheckConstraint(
+        "publication_status IN ('unpublished','published')",
+        name="ck_event_publication_status",
+    ),
+    sa.CheckConstraint(
+        "review_status IN ('pending','approved','rejected')",
+        name="ck_event_review_status",
+    ),
+    sa.CheckConstraint(
+        "quarantined_tag_count >= 0",
+        name="ck_event_quarantined_tag_count_non_negative",
+    ),
+    # Unpublished means: unresolved dates, or quarantined tags.
+    sa.CheckConstraint(
+        "publication_status = 'unpublished' "
+        "OR (time_precision <> 'unresolved' AND quarantined_tag_count = 0)",
+        name="ck_event_publishable",
+    ),
+    sa.CheckConstraint(
+        "origin IN ('coordinator_entry','extraction')",
+        name="ck_event_origin",
+    ),
+    sa.CheckConstraint(
+        "(origin = 'extraction') = (source_url IS NOT NULL) "
+        "AND (source_url IS NULL) = (fetched_at IS NULL) "
+        "AND (fetched_at IS NULL) = (extractor_version IS NULL)",
+        name="ck_event_provenance_evidence",
+    ),
+)
+
+
+event_tag = sa.Table(
+    "event_tag",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # The two arms of smartmatch_domain.events.TagResolution.
+    sa.Column("resolution", sa.Text, nullable=False),
+    # MappedTag.term -- NULL on a quarantined row, so a query selecting terms
+    # cannot pick a quarantined value up by forgetting a filter.
+    sa.Column("term", sa.Text, nullable=True),
+    # QuarantinedTag.raw_value, exactly as received.
+    sa.Column("raw_value", sa.Text, nullable=True),
+    sa.Column("vocabulary_version", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_tag_pkey"),
+    # CASCADE: a tag cannot outlive the event it describes.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    # Both are named in ON CONFLICT by events.py.
+    sa.UniqueConstraint("event_id", "term", name="uq_event_tag_term"),
+    sa.UniqueConstraint("event_id", "raw_value", name="uq_event_tag_raw_value"),
+    sa.CheckConstraint(
+        "resolution IN ('mapped','quarantined')",
+        name="ck_event_tag_resolution",
+    ),
+    sa.CheckConstraint(
+        "(resolution = 'mapped') = (term IS NOT NULL) "
+        "AND (resolution = 'quarantined') = (raw_value IS NOT NULL)",
+        name="ck_event_tag_resolution_shape",
+    ),
+)
+
+
+discovery_review_item = sa.Table(
+    "discovery_review_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("raw_value", sa.Text, nullable=True),
+    sa.Column("vocabulary_version", sa.Text, nullable=True),
+    sa.Column("status", sa.Text, nullable=False, server_default="pending"),
+    sa.Column("decided_at", _TS, nullable=True),
+    sa.Column("decided_by", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="discovery_review_item_pkey"),
+    # CASCADE: a queue entry about an event cannot outlive it. This is the
+    # relationship that made review_item the wrong home -- its own CASCADE is
+    # to import_batch, which has nothing to do with discovery (G3 §5).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "decided_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.UniqueConstraint("event_id", "raw_value", name="uq_discovery_review_item_event_value"),
+    sa.CheckConstraint(
+        "kind IN ('unmapped_tag','unresolved_time','first_seen_event')",
+        name="ck_discovery_review_item_kind",
+    ),
+    sa.CheckConstraint(
+        "status IN ('pending','accepted','rejected')",
+        name="ck_discovery_review_item_status",
+    ),
+    sa.CheckConstraint(
+        "(status = 'pending') = (decided_at IS NULL) "
+        "AND (decided_at IS NULL) = (decided_by IS NULL)",
+        name="ck_discovery_review_item_decision_evidence",
+    ),
+    sa.CheckConstraint(
+        "(kind = 'unmapped_tag') = (raw_value IS NOT NULL) "
+        "AND (raw_value IS NULL) = (vocabulary_version IS NULL)",
+        name="ck_discovery_review_item_tag_evidence",
     ),
 )

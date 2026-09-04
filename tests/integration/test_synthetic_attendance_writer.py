@@ -28,7 +28,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import ensure_owning_unit, unique_subject
+from conftest import ensure_event, ensure_owning_unit, unique_subject
 from smartmatch_domain.pipeline import PipelineStage
 from smartmatch_domain.synthetic_pilot import SYNTHETIC_ATTENDANCE_METHOD
 from smartmatch_persistence import attendance as attendance_module
@@ -156,7 +156,9 @@ def test_record_attendance_writes_one_row_and_returns_its_id(
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
-    event_id = uuid.uuid4()
+        # Migration 0017 gave attendance_record.event_id a foreign key, so a
+        # fabricated id no longer stores. ensure_event supplies a real one.
+        event_id = ensure_event(conn, tenant_id)
 
     with db_session_factory() as session:
         record_id = repo.record_attendance(
@@ -187,7 +189,7 @@ def test_record_attendance_is_idempotent_for_the_same_subject_and_event(
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
-    event_id = uuid.uuid4()
+        event_id = ensure_event(conn, tenant_id)
 
     with db_session_factory() as session:
         first_id = repo.record_attendance(
@@ -233,6 +235,10 @@ def test_record_attendance_writes_a_second_row_for_a_different_event(
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
+        # Two genuinely different events, now that the foreign key means an
+        # event id has to name one (migration 0017).
+        first_event = ensure_event(conn, tenant_id, "a")
+        second_event = ensure_event(conn, tenant_id, "b")
 
     with db_session_factory() as session:
         first_id = repo.record_attendance(
@@ -240,7 +246,7 @@ def test_record_attendance_writes_a_second_row_for_a_different_event(
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=subject_id,
-            event_id=uuid.uuid4(),
+            event_id=first_event,
             method="coordinator_entry",
         )
         session.commit()
@@ -250,7 +256,7 @@ def test_record_attendance_writes_a_second_row_for_a_different_event(
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=subject_id,
-            event_id=uuid.uuid4(),
+            event_id=second_event,
             method="coordinator_entry",
         )
         session.commit()
@@ -295,6 +301,12 @@ def test_record_attendance_accepts_every_legal_method_but_the_synthetic_path_use
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
 
+    with engine.begin() as conn:
+        # One event per method: uq_attendance_record_subject_event is
+        # (tenant, subject, event), so the same student needs a different
+        # event to be recorded twice.
+        events = {method: ensure_event(conn, tenant_id, method) for method in ("qr_scan", "import")}
+
     with db_session_factory() as session:
         for method in ("qr_scan", "import"):
             record_id = repo.record_attendance(
@@ -302,7 +314,7 @@ def test_record_attendance_accepts_every_legal_method_but_the_synthetic_path_use
                 tenant_id=tenant_id,
                 owning_unit_id=unit_id,
                 subject_id=subject_id,
-                event_id=uuid.uuid4(),
+                event_id=events[method],
                 method=method,
             )
             session.commit()
@@ -326,6 +338,10 @@ def test_a_raw_insert_with_a_fabricated_method_is_refused_by_the_database(
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
+        # A real event, so the method is the only thing wrong with this row —
+        # migration 0017's foreign key would otherwise fire instead and the
+        # test would prove the wrong constraint.
+        event_id = ensure_event(conn, tenant_id)
 
     with (
         pytest.raises(IntegrityError, match="ck_attendance_record_method"),
@@ -342,7 +358,7 @@ def test_a_raw_insert_with_a_fabricated_method_is_refused_by_the_database(
                 "tid": tenant_id,
                 "uid": unit_id,
                 "sid": subject_id,
-                "eid": uuid.uuid4(),
+                "eid": event_id,
             },
         )
 
@@ -369,7 +385,7 @@ def test_record_attendance_refuses_a_conflicting_owning_unit_id(
         unit_id = ensure_owning_unit(conn, tenant_id)
         other_unit_id = _make_unit(conn, tenant_id, "iawest.attendanceconflict")
         subject_id = _make_user(conn, tenant_id)
-    event_id = uuid.uuid4()
+        event_id = ensure_event(conn, tenant_id)
 
     with db_session_factory() as session:
         repo.record_attendance(
@@ -422,6 +438,9 @@ def confirmed_journey(
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
         subject_id = _make_user(conn, tenant_id)
+        # This id reaches `record_attendance` through the Attended stage below,
+        # so since migration 0017 it has to name a real event.
+        opportunity_event_id = ensure_event(conn, tenant_id)
     base = datetime.now(UTC) - timedelta(hours=4)
     pipeline_repo = PipelineRepository()
 
@@ -431,7 +450,7 @@ def confirmed_journey(
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=subject_id,
-            opportunity_event_id=uuid.uuid4(),
+            opportunity_event_id=opportunity_event_id,
             matched_at=base,
             matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
         )
