@@ -394,6 +394,26 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "the signed token in the path. It never changes state — the actual "
         "unsubscribe is the signed POST (v1.1 §1.10)."
     ),
+    ("POST", "/v1/auth/login"): (
+        "The pilot sign-in exchange, and necessarily public: it is what a "
+        "caller uses to *obtain* a principal, so requiring one would make it "
+        "unreachable. Owner-authorized and pilot-scoped "
+        "(docs/decisions/pilot-login-decision-2026-09-04.md); it is not A1b "
+        "and does not unblock it. "
+        "Being public is the whole reason it is fenced elsewhere, and none of "
+        "that fencing is authorization: LoginRequest forbids extra fields, so "
+        "a body naming a role, tenant, or unit is rejected with a 422 rather "
+        "than ignored — this route resolves an external_subject and nothing "
+        "more, and every role still comes from `membership` on the next "
+        "request. Quota is charged against the client address as the handler's "
+        "first statement and committed immediately (ADR-0015), so an "
+        "unauthenticated caller cannot use it as a free credential oracle. "
+        "Every failure that is not a suspension returns one code and one "
+        "message, so it cannot be used to discover which addresses exist. "
+        "This is emphatically not the archived POST /auth/mock-login "
+        "(MM-A01), which was public *and* let the caller choose an identity. "
+        "Here the caller must present a secret only the account holder has."
+    ),
 }
 
 
@@ -420,6 +440,36 @@ AUTHENTICATED_ONLY_ROUTES: dict[tuple[str, str], str] = {
         "caller, which is the defect Fix #7 named. A suspended account is "
         "deliberately still allowed to read it, so a suspended caller can see "
         "that it is suspended rather than receive a second flavour of 401."
+    ),
+    ("GET", "/v1/me/portals"): (
+        "The account-to-portal mapping, and the same shape as GET /v1/me for "
+        "the same reason: it has no path parameter, no query parameter and no "
+        "body, so there is no resource to authorize against that is not a "
+        "roundabout 'are you you'. Every entry is derived from the caller's "
+        "own membership rows and the org units those rows already cover. "
+        "Listing a portal is deliberately NOT a grant — the shells it feeds "
+        "still reach /v1 routes that each run their own assert_allowed against "
+        "the resource they load, so a portal reported in error is a shell "
+        "whose every request is refused rather than an access someone gained. "
+        "That is exactly why it needs no authorizer of its own, and why adding "
+        "one here would be the wrong fix for anything: the authority is the "
+        "operation being attempted, not the menu. The resolved unit_ids it "
+        "returns are likewise not permissions — they are the ids that make the "
+        "caller's *existing* memberships addressable, closing the gap between "
+        "membership.granted_path (an ltree) and the unit_id every "
+        "/v1/units/{unit_id}/... route takes, so a browser never has to "
+        "construct one."
+    ),
+    ("POST", "/v1/auth/logout"): (
+        "Ends the caller's own pilot session. Authentication is the entire "
+        "gate, and it is load-bearing rather than decorative: the row revoked "
+        "is looked up by the hash of the very token that authenticated the "
+        "request, so a caller cannot name somebody else's session — the only "
+        "token they can send is their own. There is no resource parameter to "
+        "authorize, and 'may this principal end this principal's own session' "
+        "is not a policy question. A caller holding a dev fixture token "
+        "reaches it and is told `ended: false`, which is true: that credential "
+        "has no row to revoke."
     ),
 }
 

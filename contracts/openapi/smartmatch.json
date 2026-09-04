@@ -593,6 +593,74 @@
         "title": "JobStatusResponse",
         "type": "object"
       },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "description": "A pilot sign-in attempt: an address and a password, and nothing else.\n\n``extra=\"forbid\"`` is the load-bearing line. A body carrying ``role``,\n``tenant_id``, ``unit_path``, or any other field is refused with a 422 \u2014\nnot silently dropped \u2014 so the browser cannot even *attempt* to assert what\nit is allowed to do. Roles come from ``membership`` rows an administrator\nwrote; see the module docstring and ``routers/me.py``.",
+        "properties": {
+          "email": {
+            "description": "The address the pilot account was created with. Matched case-insensitively.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "description": "The password the owner supplied for this pilot account.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "description": "An issued pilot session.\n\nCarries a token and when it dies. It deliberately carries **no** identity:\nnot the user id, not the tenant, not a role. A client that wants to know\nwho it is calls ``GET /v1/me``, which is the single source of the\nprincipal \u2014 duplicating any of it here would create a second answer to\n\"who am I\" that could disagree with the first.",
+        "properties": {
+          "access_token": {
+            "description": "An opaque session token. It encodes nothing and is not a JWT \u2014 the server stores only a hash of it and resolves the account by lookup. Send it as `Authorization: Bearer <token>`.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "ISO-8601 instant after which this session is refused.",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "token_type": {
+            "description": "Always `bearer`.",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_at"
+        ],
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "LogoutResponse": {
+        "description": "The outcome of ending a session.",
+        "properties": {
+          "ended": {
+            "description": "Whether this request is what withdrew the session. `false` means the token named nothing live \u2014 already ended, already expired, or never a session \u2014 which is not an error: the requested end state holds either way.",
+            "title": "Ended",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ended"
+        ],
+        "title": "LogoutResponse",
+        "type": "object"
+      },
       "MatchCandidateRequest": {
         "description": "One professional's evidence, as the caller submits it.\n\nCarries evidence, never a score. A caller-supplied score would be a caller\nchoosing their own shortlist, and the registry would be decoration.\n\n``expertise_topics`` is nullable **and** that is different from ``[]``:\n``null`` means no expertise record exists for this professional (unknown),\nan empty list means the record exists and is empty (measurable, and\nmeasurably zero against any declared topic). ADR-0011 lives in that\ndistinction, and\n:class:`~smartmatch_domain.factors.topic_relevance.TopicRelevanceInputs`\ndraws it the same way, so the field is passed through rather than\nnormalized.",
         "properties": {
@@ -1154,6 +1222,133 @@
           "metrics"
         ],
         "title": "MetricsResponse",
+        "type": "object"
+      },
+      "MyPortalsResponse": {
+        "description": "Every portal the caller may enter, and which one to open first.\n\nAn empty list is a real, honest answer \u2014 the account holds no active\nmembership whose role maps to a portal \u2014 and is not softened into a\ndefault.",
+        "properties": {
+          "default_portal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `portal` of the first entry, or null when there are none. A suggestion about where to land, never a grant: it names a portal that is already in `portals`.",
+            "title": "Default Portal"
+          },
+          "portals": {
+            "description": "One entry per active, role-bearing membership whose role maps to a portal. Empty when the caller holds none.",
+            "items": {
+              "$ref": "#/components/schemas/PortalDescriptor"
+            },
+            "title": "Portals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "portals",
+          "default_portal"
+        ],
+        "title": "MyPortalsResponse",
+        "type": "object"
+      },
+      "PortalDescriptor": {
+        "description": "One portal the caller's server-assigned roles actually open.",
+        "properties": {
+          "default_unit_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `unit_id` of the first entry in `units`, or null when there are none. A suggestion about which unit a portal should open with; it always names a unit already in `units`.",
+            "title": "Default Unit Id"
+          },
+          "display_name": {
+            "description": "Human-readable name for the portal.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "home_path": {
+            "description": "The frontend route this portal's shell is mounted at. Reported by the server so the browser navigates to a portal it was actually granted, rather than deriving a path from a role it read for itself.",
+            "title": "Home Path",
+            "type": "string"
+          },
+          "org_unit_path": {
+            "description": "The org-unit subtree the granting membership covers, as an ltree path.",
+            "title": "Org Unit Path",
+            "type": "string"
+          },
+          "portal": {
+            "description": "Stable portal identifier: `student`, `coordinator`, `volunteer`, or `admin`.",
+            "title": "Portal",
+            "type": "string"
+          },
+          "role": {
+            "description": "The `membership.role` that opened this portal \u2014 the row an administrator wrote, echoed back so the UI can name it truthfully. It is never a value the caller supplied.",
+            "title": "Role",
+            "type": "string"
+          },
+          "units": {
+            "description": "Every org unit at or below `org_unit_path`, shallowest first \u2014 the units this membership authorizes the caller over. Empty when the granted path contains no unit row, which is reported rather than filled in.",
+            "items": {
+              "$ref": "#/components/schemas/PortalUnit"
+            },
+            "title": "Units",
+            "type": "array"
+          }
+        },
+        "required": [
+          "portal",
+          "display_name",
+          "home_path",
+          "role",
+          "org_unit_path",
+          "units",
+          "default_unit_id"
+        ],
+        "title": "PortalDescriptor",
+        "type": "object"
+      },
+      "PortalUnit": {
+        "description": "One org unit the granting membership covers, with the id routes need.",
+        "properties": {
+          "display_name": {
+            "description": "The unit's human-readable name.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "The unit's own ltree path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "unit_id": {
+            "description": "The `unit_id` every `/v1/units/{unit_id}/...` route takes. Resolved by the server from the granting membership's path; a client never constructs or supplies one.",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "unit_type": {
+            "description": "The unit's type, e.g. `program`.",
+            "title": "Unit Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "path",
+          "unit_type",
+          "display_name"
+        ],
+        "title": "PortalUnit",
         "type": "object"
       },
       "QuarantinedTagItem": {
@@ -1833,6 +2028,238 @@
         "summary": "Unsubscribe confirmation page",
         "tags": [
           "outreach"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "description": "Verify a pilot credential and issue an opaque server-side session.\n\nThe first statement charges quota and commits it, before the address is\nread (ADR-0015, and the module docstring for why this route needs the\nordering more than most). Everything after that is: find the one\ncredentialed account for the address, re-derive the password against the\nparameters that account's row was written with, and \u2014 only then \u2014 mint a\ntoken whose hash is stored beside the account id.\n\nRaises:\n    ApiError: 429 when the caller's login quota is spent; 401 for every\n        failure that is not a suspension; 403 for a suspended account.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Exchange pilot credentials for a session",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "description": "Revoke the session this request authenticated with.\n\n``principal`` is required rather than decorative: it is what makes this\nroute able to revoke *only the caller's own* session. The token is looked\nup by hash and withdrawn, so there is no path here to end somebody else's\nsession \u2014 a caller cannot name one, because the only token they can send\nis the one that authenticated them.\n\nA caller authenticated by the dev fixture verifier rather than by a pilot\nsession reaches this route successfully and is told ``ended: false``, which\nis the truth: that credential is a configured mapping with no expiry and no\nrevocation (``config.py``'s ``dev_principals``), and nothing here can\nwithdraw it. Reporting success would be the fake-success shape (v1.1 \u00a73.6\nN2); reporting an error would be wrong too, since the caller did nothing\ninvalid.",
+        "operationId": "logout_v1_auth_logout_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "End the caller's own pilot session",
+        "tags": [
+          "identity"
         ]
       }
     },
@@ -2559,6 +2986,126 @@
           }
         },
         "summary": "Get the caller's own identity",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/v1/me/portals": {
+      "get": {
+        "description": "Return the caller's own account-to-portal mapping.\n\nReads the memberships ``get_current_principal`` already resolved rather\nthan re-reading them \u2014 the same reasoning ``routers/me.py`` gives: a second\nread of the *memberships* would open a window in which the two could\ndisagree, leaving a caller authenticated as one principal and shown the\nportals of another.\n\nIt does query ``org_unit``, which is a different thing and not that risk:\nthe memberships are fixed for this request, and the unit rows are only\nbeing resolved *from* them. A unit added or removed mid-request changes\nwhich ids are reported, never whose portals they are.\n\nQuota is not charged, for ``routers/me.py``'s reason: this route answers\nfrom the resolution that authenticated the request, so a refusal here could\nimpose no cost a caller has not already paid.",
+        "operationId": "get_my_portals_v1_me_portals_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPortalsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get the portals the caller's server-assigned roles open",
         "tags": [
           "identity"
         ]

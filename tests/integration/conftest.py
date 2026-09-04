@@ -90,6 +90,14 @@ _TENANT_SCOPED_TABLES = (
     # references `event` under RESTRICT, and the test modules that write it
     # delete it in their own fixtures, which finalize before this one does.
     "event",
+    # Migration 0020. Both cascade from `user_account`, and both are listed
+    # before it for the reason `event_tag` is listed before `event`: this tuple
+    # is read as the full set of tenant-scoped tables, not as the minimum set a
+    # cascade would not already reach. Getting the *order* wrong here is the
+    # failure PR #26 had to fix for `match_run`/`job`, so they go above
+    # `user_account` rather than beside it.
+    "pilot_session",
+    "pilot_credential",
     "user_account",
     "org_unit",
     "tenant_budget",

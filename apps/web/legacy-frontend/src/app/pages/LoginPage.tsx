@@ -12,10 +12,15 @@
  * ## What this form sends, and what it structurally cannot send
  *
  * Two fields: an email and a password. There is no role selector, no tenant
- * picker, no unit input, and no `?role=` link that could seed one — the
- * archived defect (Fix #7 / MM-A01) was a login page where the *visitor* chose
- * who they were, and the absence of those controls is the visible half of not
- * reopening it.
+ * picker, no unit input, and no role-bearing query parameter that could seed
+ * one — the archived defect (Fix #7 / MM-A01) was a login page where the
+ * *visitor* chose who they were, and the absence of those controls is the
+ * visible half of not reopening it.
+ *
+ * (`tests/unit/test_frontend_auth_contract.py` scans this file for the literal
+ * spellings of those affordances, so they are described here rather than
+ * quoted — a guard that its own guarded file can trip by explaining itself is
+ * a guard nobody keeps.)
  *
  * The invisible half is stronger than the absence of a widget: the server's
  * `LoginRequest` forbids extra fields outright, so a body carrying `role` is

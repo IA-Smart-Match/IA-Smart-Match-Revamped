@@ -38,12 +38,61 @@ def test_login_page_has_no_caller_chosen_role_affordances() -> None:
         assert email not in source, f"LoginPage still contains canned login email: {email!r}"
 
 
-def test_login_page_states_institutional_sign_in_is_not_connected() -> None:
+def test_login_page_offers_a_credential_form_and_nothing_else() -> None:
+    """The pilot login exists, and it takes a credential — not a role.
+
+    This replaces an assertion that the page said "Institutional sign-in is not
+    connected yet" and carried no ``<form`` at all. That was the right contract
+    while there was nothing to sign in with; the owner authorized a
+    pilot-scoped login on 2026-09-04
+    (``docs/decisions/pilot-login-decision-2026-09-04.md``), so the page now has
+    a form and the old assertions would pin a dead screen in place.
+
+    What is asserted instead is the property those assertions were *protecting*.
+    A form is not the defect Fix #7 named — a form that lets the visitor choose
+    who they are is. So: exactly two credential inputs, no role/tenant/unit
+    control, and no canned identities to pick from
+    (:data:`FORBIDDEN_LOGIN_PATTERNS` and :data:`CANNED_LOGIN_EMAILS` are
+    checked by the test above and are unchanged).
+    """
     source = LOGIN_PAGE.read_text(encoding="utf-8")
-    assert "Institutional sign-in is not connected yet" in source
+
+    # The login is real: it posts a credential and submits.
+    assert "postLogin(" in source, "the login page does not call POST /v1/auth/login"
+    assert 'type="submit"' in source
+    assert "<form" in source
+
+    # ...and the credential is all it sends. One email input, one password
+    # input, and no third field of any kind.
+    assert source.count('name="email"') == 1
+    assert source.count('name="password"') == 1
+    for forbidden in ('name="role"', 'name="tenant', 'name="unit', "<select"):
+        assert forbidden not in source, (
+            f"LoginPage offers {forbidden!r}: the browser must supply a "
+            "credential and never a role, tenant, or unit"
+        )
+
+    # A1b is still named, because it is still blocked and the page says so
+    # rather than implying this is institutional sign-in.
     assert "A1b" in source
-    assert 'type="submit"' not in source
-    assert "<form" not in source
+    assert "pilot" in source.lower()
+
+
+def test_login_page_stores_a_credential_and_never_an_identity() -> None:
+    """What the page does with the response: store a token, then ask who it is.
+
+    The archived defect wrote an identity into browser storage. This page writes
+    the opaque token and then re-resolves through ``GET /v1/me``, so the only
+    thing the browser holds is a credential the server interprets.
+    """
+    source = LOGIN_PAGE.read_text(encoding="utf-8")
+    assert "storeSmartmatchBearerToken(issued.access_token)" in source
+    # It must not lift any identity field out of the login response.
+    for asserted in ("issued.user_id", "issued.role", "issued.tenant_id", "issued.memberships"):
+        assert asserted not in source, (
+            f"LoginPage reads {asserted!r} from the login response; identity is "
+            "GET /v1/me's answer alone"
+        )
 
 
 def test_landing_page_has_no_role_bearing_login_links() -> None:
@@ -79,11 +128,16 @@ PORTAL_SHELLS = (
     "app/components/Layout.tsx",
 )
 
-#: Pages that reach a legacy ``/api/portals/*`` endpoint, which takes a *legacy
-#: portal id* in its path. Those are the pages that need the mapping seam:
-#: ``useAuthenticatedPrincipal()`` for the server's answer to who the caller is,
-#: then ``portalSubjectId(principal, ...)`` to turn that into the legacy id, and
-#: never a local session reader in between.
+#: The pages that live inside a portal shell and therefore need the mapping
+#: seam: ``useAuthenticatedPrincipal()`` for the server's answer to who the
+#: caller is, then ``usePortalAccess()`` / ``grantedPortal()`` for the server's
+#: answer to which portal they hold, and never a local session reader or a
+#: locally derived role-to-portal rule in between.
+#:
+#: These pages no longer *call* ``/api/portals/*``: that backend is not part of
+#: this repository, so each renders an explicit unavailable panel naming the
+#: dataset instead of a request that cannot succeed. They still need the seam,
+#: because they still render who the caller is and which unit they hold.
 #:
 #: Membership is decided by whether a page calls such an endpoint, not by which
 #: portal it lives in. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for the pages
@@ -144,6 +198,19 @@ def _web_sources() -> list[Path]:
     return sorted(
         path for path in WEB_SRC.rglob("*") if path.is_file() and path.suffix in {".ts", ".tsx"}
     )
+
+
+def _without_block_comments(source: str) -> str:
+    """``source`` with every ``/* ... */`` block removed.
+
+    For assertions that a *construct* is absent rather than a string. A file
+    that documents what it used to do — which is most of the ones this module
+    guards — otherwise fails a check on the very name it is explaining, and the
+    usual response to that is to stop explaining, which is the wrong trade.
+    Line comments are left alone: they are rare in this codebase and none of
+    them has caused a false match.
+    """
+    return re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
 
 
 def _web_relative(path: Path) -> str:
@@ -232,15 +299,52 @@ def test_the_session_gate_sends_unverified_visitors_to_login() -> None:
 
 
 def test_every_portal_page_uses_the_server_mapping_seam() -> None:
+    """Each portal page reads both server answers, and derives neither itself.
+
+    The seam used to be ``portalSubjectId(principal, ...)``, which returned
+    ``null`` unconditionally because no account-to-portal mapping existed.
+    ``GET /v1/me/portals`` is that mapping, so the seam is now the pair:
+    ``useAuthenticatedPrincipal()`` for who the caller is and
+    ``usePortalAccess()`` / ``grantedPortal()`` for what the server granted
+    them. Both are server answers; neither is computed here.
+    """
     for relative in PORTAL_PAGES:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
         assert "useAuthenticatedPrincipal()" in source, (
             f"{relative} does not resolve its principal from GET /v1/me"
         )
-        assert "portalSubjectId(principal," in source, (
+        assert "usePortalAccess()" in source, (
+            f"{relative} does not read the account-to-portal mapping"
+        )
+        assert "grantedPortal(portalAccess," in source, (
             f"{relative} bypasses the account-to-portal mapping seam"
         )
         assert "getSession" not in source, f"{relative} still has a local session reader"
+
+
+def test_no_portal_page_derives_a_portal_from_a_role_it_read() -> None:
+    """The browser must not reimplement the role-to-portal rule.
+
+    It would usually agree with the server, which is exactly the danger: two
+    copies of one rule drift, and the browser's copy is the one that is wrong
+    and the one nobody checks. The rule lives in
+    ``services/api/smartmatch_api/routers/portals.py`` and reaches the frontend
+    only as data.
+    """
+    for relative in PORTAL_PAGES + PORTAL_SHELLS:
+        source = (WEB_SRC / relative).read_text(encoding="utf-8")
+        for derivation in (
+            'role === "coordinator"',
+            'role === "student"',
+            'role === "volunteer"',
+            'role === "admin"',
+            'includes("coordinator")',
+            'includes("student")',
+        ):
+            assert derivation not in source, (
+                f"{relative} decides a portal from a role it read ({derivation!r}). "
+                "Ask GET /v1/me/portals instead."
+            )
 
 
 def test_no_portal_page_reads_identity_locally() -> None:
@@ -268,22 +372,55 @@ def test_no_portal_page_reads_identity_locally() -> None:
     for relative in PAGES_WITH_NO_LEGACY_PORTAL_ID:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
         assert "portalSubjectId(" not in source, (
-            f"{relative} is recorded as needing no legacy portal id, yet derives "
-            "one. Either it gained a `/api/portals/*` call and belongs in "
-            "PORTAL_PAGES, or the derivation is dead code that should go."
+            f"{relative} derives a legacy portal id from a helper that no longer "
+            "exists. Every subject it needs is resolved server-side from the "
+            "bearer token."
         )
 
 
 def test_account_uuid_is_not_reused_as_a_legacy_portal_id() -> None:
-    """No mapping is safer than crossing two unrelated identifier namespaces."""
+    """The mapping is the server's, and it is still not an account UUID.
+
+    ``portalSubjectId`` used to answer ``null`` for everything, because the only
+    mapping available was one the browser would have had to invent. That guard
+    is kept in substance: the helper that replaced it is a *lookup into the
+    server's response* (``portalGrant``), and it still never falls back to
+    ``me.user_id``. The legacy ``/api/portals/*`` seam and its error stay in the
+    client, unused, so that nothing quietly starts guessing an id.
+    """
     principal_source = PRINCIPAL_HELPERS.read_text(encoding="utf-8")
     api_source = API_CLIENT.read_text(encoding="utf-8")
 
     assert "return me.user_id" not in principal_source
-    assert "portalSubjectId(_me: MeResponse, _portal: PortalKind)" in principal_source
-    assert "return null;" in principal_source
+    # The replacement reads the server's answer rather than deriving one.
+    assert "export function portalGrant(" in principal_source
+    assert "mapping.portals.find(" in principal_source
+    # Checked against the code, not the prose. `principal.ts` explains what
+    # `portalSubjectId()` was and why it is gone — in `portalGrant`'s own
+    # doc comment, not only the module one — and a guard its guarded file
+    # cannot describe without failing is a guard nobody keeps. Same intent as
+    # `test_the_session_gate_sends_unverified_visitors_to_login`'s split, but
+    # over every block comment rather than just the first.
+    assert "portalSubjectId(" not in _without_block_comments(principal_source), (
+        "the null-returning seam should be gone, replaced by portalGrant()"
+    )
     assert "PortalSubjectUnavailableError" in api_source
     assert "portalSubjectPath" in api_source
+    # The mapping route is the one the shells consume.
+    assert "/v1/me/portals" in api_source
+
+
+def test_the_portal_mapping_is_fetched_and_never_computed() -> None:
+    """One caller of `fetchMyPortals()`, as there is one caller of `fetchMe()`."""
+    callers = sorted(
+        _web_relative(path)
+        for path in _web_sources()
+        if re.search(r"(?<!`)fetchMyPortals\(\)(?!`)", path.read_text(encoding="utf-8"))
+    )
+    assert callers == ["app/hooks/usePortalAccess.tsx", "lib/api.ts"], (
+        f"fetchMyPortals() appears in {callers}; the mapping is resolved by "
+        "usePortalAccess alone, so every shell sees the same server answer."
+    )
 
 
 def test_the_session_module_admits_only_a_verified_active_principal() -> None:
