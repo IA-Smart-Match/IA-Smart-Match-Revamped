@@ -32,11 +32,15 @@ control where "we believe it works" is not good enough.
 
 ## The signature primitive, and an honest gap
 
-:class:`SignatureVerifier` is a port, and **this repository ships no production
-implementation of it**. Verifying RS256 requires an asymmetric primitive, and
-the hash-pinned dependency lock (``requirements/runtime.txt``) contains none —
-no ``cryptography``, no ``pyjwt``, no ``google-auth``. Regenerating that lock is
-a separate, deliberate act.
+:class:`SignatureVerifier` is a port. It lives in
+:mod:`smartmatch_worker.signature_backend` — its own module, so that a file
+declaring the primitive and containing no implementation of it is a legible
+statement that the primitive is missing — and it is re-exported here for the
+callers that already import it from this module. **This repository ships no
+production implementation of it.** Verifying RS256 requires an asymmetric
+primitive, and the hash-pinned dependency lock (``requirements/runtime.txt``)
+contains none — no ``cryptography``, no ``pyjwt``, no ``google-auth``.
+Regenerating that lock is a separate, deliberate act.
 
 The response to that is *not* to hand-roll RSA. PKCS#1 v1.5 signature
 verification is exactly the kind of code whose bugs are silent and total —
@@ -88,11 +92,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Protocol, runtime_checkable
 
+from smartmatch_worker.signature_backend import (
+    JsonWebKey,
+    SignatureBackendError,
+    SignatureVerifier,
+)
+
 __all__ = [
     "JsonWebKey",
     "JwksSource",
     "LocalBearerTaskVerifier",
     "OidcTaskVerifier",
+    "SignatureBackendError",
     "SignatureVerifier",
     "StaticJwksSource",
     "TaskIdentity",
@@ -175,23 +186,17 @@ class TaskIdentity:
     audience: str
 
 
-@dataclass(frozen=True, slots=True)
-class JsonWebKey:
-    """One public key from a JWKS document.
-
-    Attributes:
-        kid: Key id, matched against the token header's ``kid``.
-        alg: The algorithm this key is *for*. The token header must agree with
-            it — the key decides which algorithm verifies it, not the token.
-            Reversing that relationship is the algorithm-confusion attack.
-        material: The remaining JWK members (``n`` and ``e`` for RSA), passed
-            through to the signature backend uninterpreted. This module does no
-            cryptography and therefore makes no assumptions about their shape.
-    """
-
-    kid: str
-    alg: str
-    material: Mapping[str, str]
+# ---------------------------------------------------------------------------
+# The signature-backend port
+#
+# :class:`JsonWebKey` and :class:`SignatureVerifier` are defined in
+# :mod:`smartmatch_worker.signature_backend` and imported above. They are
+# re-exported from this module (they are in ``__all__``) so that every existing
+# caller keeps importing them from here, but the port itself lives in a module
+# of its own, which contains no implementation of it and says so. Read that
+# module before wiring anything into ``signature_verifier``: this repository
+# ships no production backend, on purpose.
+# ---------------------------------------------------------------------------
 
 
 @runtime_checkable
@@ -212,28 +217,6 @@ class JwksSource(Protocol):
 
     def key_for(self, kid: str) -> JsonWebKey | None:
         """Return the key with this id, or ``None`` when it is not known."""
-        ...
-
-
-@runtime_checkable
-class SignatureVerifier(Protocol):
-    """Checks a JWT signature against a key.
-
-    Attributes:
-        algorithms: The ``alg`` values this backend implements. The verifier
-            requires the token's algorithm to be in this set *and* absent from
-            :data:`_FORBIDDEN_ALGORITHMS`, so a backend can narrow the accepted
-            algorithms but never widen them past the ban.
-    """
-
-    algorithms: frozenset[str]
-
-    def verify(self, *, signing_input: bytes, signature: bytes, key: JsonWebKey) -> None:
-        """Return normally if the signature is valid.
-
-        Raises:
-            TaskIdentityError: if it is not.
-        """
         ...
 
 
@@ -433,6 +416,12 @@ class OidcTaskVerifier:
             )
         except TaskIdentityError:
             raise
+        except SignatureBackendError as exc:
+            # The port's own rejection type. Converted to the undifferentiated
+            # ``TaskIdentityError`` every other failure here becomes, and
+            # without a traceback: a backend saying "this signature does not
+            # verify" is the control working, not an operator's problem.
+            raise TaskIdentityError("signature does not verify") from exc
         except Exception as exc:
             # A backend that raises something of its own must still be a
             # rejection, never a 500 that a caller could use to distinguish
