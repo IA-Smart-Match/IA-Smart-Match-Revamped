@@ -45,7 +45,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import ensure_owning_unit, unique_subject
+from conftest import ensure_event, ensure_owning_unit, unique_subject
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
@@ -124,7 +124,9 @@ def _insert_attendance(
             "tenant_id": tenant_id,
             "unit_id": ensure_owning_unit(conn, tenant_id),
             "subject_id": subject_id or _make_user(conn, tenant_id),
-            "event_id": event_id or uuid.uuid4(),
+            # Migration 0017 gave this column a foreign key, so a fabricated
+            # id is no longer storable — ensure_event supplies a real one.
+            "event_id": event_id or ensure_event(conn, tenant_id),
             "method": method,
         },
     )
@@ -221,7 +223,7 @@ def test_attendance_record_rejects_a_duplicate_for_the_same_student_and_event(
     """A re-scan of the same student at the same event must not double-credit points."""
     with engine.begin() as conn:
         subject_id = _make_user(conn, tenant_id)
-        event_id = uuid.uuid4()
+        event_id = ensure_event(conn, tenant_id)
         _insert_attendance(conn, tenant_id, subject_id=subject_id, event_id=event_id)
 
     with (
@@ -237,8 +239,12 @@ def test_attendance_record_accepts_the_same_student_at_a_different_event(
     """The constraint is per-event, not a one-record-per-student rule."""
     with engine.begin() as conn:
         subject_id = _make_user(conn, tenant_id)
-        _insert_attendance(conn, tenant_id, subject_id=subject_id, event_id=uuid.uuid4())
-        _insert_attendance(conn, tenant_id, subject_id=subject_id, event_id=uuid.uuid4())
+        _insert_attendance(
+            conn, tenant_id, subject_id=subject_id, event_id=ensure_event(conn, tenant_id, "a")
+        )
+        _insert_attendance(
+            conn, tenant_id, subject_id=subject_id, event_id=ensure_event(conn, tenant_id, "b")
+        )
 
 
 # ---------------------------------------------------------------------------

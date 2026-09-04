@@ -13,12 +13,14 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from datetime import date
 from typing import Any
 
 import pytest
 
 pytest.importorskip("sqlalchemy")
 
+from smartmatch_domain.events import normalize_title
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -71,6 +73,17 @@ _TENANT_SCOPED_TABLES = (
     "job",
     "membership",
     "resource_grant",
+    # Migration 0017. Both cascade from `event`, and are listed anyway so this
+    # tuple stays the full set of tenant-scoped tables — which is how a reader
+    # uses it — rather than only the rows a cascade would have reached.
+    "event_tag",
+    "discovery_review_item",
+    # Before `user_account` and `org_unit`, both of which `event` and
+    # `discovery_review_item` hold ON DELETE RESTRICT references to.
+    # `attendance_record` is deliberately still not in this tuple: it also
+    # references `event` under RESTRICT, and the test modules that write it
+    # delete it in their own fixtures, which finalize before this one does.
+    "event",
     "user_account",
     "org_unit",
     "tenant_budget",
@@ -193,6 +206,83 @@ def ensure_owning_unit(executor: Any, tenant_id: uuid.UUID) -> uuid.UUID:
         {"id": unit_id, "tid": tenant_id, "path": JOB_OWNING_UNIT_PATH},
     )
     return unit_id
+
+
+#: Title of the synthetic event :func:`ensure_event` creates, before the ``slug``
+#: suffix. Fixed rather than generated, for the same reason
+#: :data:`JOB_OWNING_UNIT_PATH` is: `uq_event_identity` is scoped per tenant, so
+#: two tests in one tenant asking for the same slug converge on the same row
+#: instead of colliding.
+SYNTHETIC_EVENT_TITLE = "Synthetic Pilot Event"
+
+#: The date :func:`ensure_event` resolves its events to. A fixed literal, not
+#: `date.today()`: the identity key folds this date in, so a generated one would
+#: make the helper non-idempotent across a midnight boundary — the kind of
+#: once-a-day flake nobody reproduces.
+SYNTHETIC_EVENT_DATE = date(2026, 9, 14)
+
+
+def ensure_event(executor: Any, tenant_id: uuid.UUID, slug: str = "default") -> uuid.UUID:
+    """Return a synthetic ``event`` row for this tenant, creating it once if absent.
+
+    Migration ``0017`` gave ``attendance_record.event_id`` the foreign key
+    ``0009`` said "whichever migration adds one should also add", which means an
+    attendance row now needs an event the way a job has needed a unit since
+    ``0006``. Most tests that write attendance are not *about* the event — they
+    are about points, funnel stages, or the method vocabulary — and threading a
+    real event through their signatures would have changed a lot of call sites
+    to say the same uninteresting thing. So they call this, exactly as they
+    already call :func:`ensure_owning_unit`, and the tests are left alone.
+
+    ``slug`` distinguishes events within one tenant, for the tests that are
+    genuinely about two *different* events —
+    ``uq_attendance_record_subject_event`` needs a second one to prove a student
+    can attend twice at different events. It varies the title, so each slug
+    resolves to its own ADR-0012 identity key.
+
+    The event is ``date_only`` and ``coordinator_entry``: the honest shape for a
+    row a test fixture typed in. It carries no provenance, because nothing
+    fetched it — ``ck_event_provenance_evidence`` would refuse a source URL on a
+    ``coordinator_entry`` row, and inventing one to satisfy a column would be
+    the fabricated-field defect arriving through a test helper.
+
+    Takes any object with SQLAlchemy's ``.execute(text, params)`` — a ``Session``
+    or a ``Connection`` — as :func:`ensure_owning_unit` does.
+
+    Cleanup: ``event`` is in :data:`_TENANT_SCOPED_TABLES`, listed after the
+    tables that cite it, so teardown removes it once the attendance rows a test
+    module owns are already gone.
+    """
+    title = f"{SYNTHETIC_EVENT_TITLE} {slug}"
+    normalized = normalize_title(title)
+    existing = executor.execute(
+        text(
+            "SELECT id FROM event WHERE tenant_id = :tid AND normalized_title = :title "
+            "AND resolved_date = :on_date"
+        ),
+        {"tid": tenant_id, "title": normalized, "on_date": SYNTHETIC_EVENT_DATE},
+    ).scalar_one_or_none()
+    if existing is not None:
+        return uuid.UUID(str(existing))
+
+    event_id = uuid.uuid4()
+    executor.execute(
+        text(
+            "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+            "on_date, time_zone, time_precision, resolved_date, origin) "
+            "VALUES (:id, :tid, :unit, :title, :normalized, :on_date, "
+            "'America/Los_Angeles', 'date_only', :on_date, 'coordinator_entry')"
+        ),
+        {
+            "id": event_id,
+            "tid": tenant_id,
+            "unit": ensure_owning_unit(executor, tenant_id),
+            "title": title,
+            "normalized": normalized,
+            "on_date": SYNTHETIC_EVENT_DATE,
+        },
+    )
+    return event_id
 
 
 @pytest.fixture

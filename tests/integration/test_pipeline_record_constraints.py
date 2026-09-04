@@ -34,7 +34,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import ensure_owning_unit, unique_subject
+from conftest import ensure_event, ensure_owning_unit, unique_subject
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
@@ -112,7 +112,9 @@ def _insert_attendance(conn, tenant_id: uuid.UUID, subject_id: uuid.UUID) -> uui
             "tenant_id": tenant_id,
             "unit_id": ensure_owning_unit(conn, tenant_id),
             "subject_id": subject_id,
-            "event_id": uuid.uuid4(),
+            # Migration 0017 constrained this column; ensure_event gives the
+            # attendance row a real event to cite.
+            "event_id": ensure_event(conn, tenant_id),
         },
     )
     return record_id
@@ -179,7 +181,17 @@ def _insert_pipeline_record(
             if owning_unit_id is not None
             else ensure_owning_unit(conn, tenant_id),
             "subject_id": subject_id,
-            "event_id": opportunity_event_id or uuid.uuid4(),
+            # `pipeline_record.opportunity_event_id` still has no foreign key
+            # (see the test at the bottom of this file), so a fabricated id is
+            # storable here. It defaults to a real `event` anyway, because
+            # `tools/seed_demo_pipeline.py` hands this id to
+            # `AttendanceRepository.record_attendance` at the Attended stage,
+            # and *that* column has been constrained since migration 0017.
+            # A *distinct* event per call, so two journeys for one student stay
+            # two journeys rather than colliding on
+            # uq_pipeline_record_subject_opportunity.
+            "event_id": opportunity_event_id
+            or ensure_event(conn, tenant_id, f"journey-{record_id.hex[:8]}"),
             "matched_at": values.get("matched_at"),
             "matched_provenance": matched_provenance,
             "contacted_at": values.get("contacted_at"),

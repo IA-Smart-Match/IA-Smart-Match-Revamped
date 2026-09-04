@@ -317,6 +317,61 @@ def test_pipeline_funnel_end_to_end_through_the_real_routes(
         }
     assert provenance_values == {"synthetic / coordinator-accepted"}
 
+    # ---- Step 6a: materialize the opportunity as a real `event` row ------
+    #
+    # **This step stands in for a gap migration 0017 exposed, and it should be
+    # deleted by the card that closes it.**
+    #
+    # `attendance_record.event_id` has had a foreign key to `event` since 0017
+    # (card S5f). `pipeline_provisioning._provision_event` mints a `uuid5`
+    # `opportunity_event_id` and opens journeys against it *without* creating
+    # an `event` row, so Step 7's Attended stage — which writes an
+    # `attendance_record` citing exactly that id — now has nothing to cite.
+    #
+    # That is a real gap in the S12 provisioning path, not a test artifact:
+    # before 0017 nothing could detect that the opportunity a journey was
+    # matched to did not exist. It is not fixed here because fixing it is the
+    # opportunities lane's decision, and a consequential one — the accepted
+    # `events` row carries "Event / Program" but **no date column** (only
+    # "Recurrence (typical)", `docs/pilot-data/columns.yaml`), so the event it
+    # should create is ADR-0010 `unresolved`: no identity key, never
+    # publishable, and arguably never matchable either (rule 2). Deciding
+    # whether a journey may be opened against such an opportunity at all is
+    # exactly the kind of silent decision this repository refuses to let a
+    # migration make on another card's behalf.
+    #
+    # So the rows are created here, minimally and visibly, and this pins the
+    # shape the provisioning path will have to produce.
+    with ctx.engine.begin() as conn:
+        # The ids the provisioning path actually minted, read back from the
+        # journeys it opened — not `db_opportunity_ids`, which holds
+        # `review_item` ids.
+        minted_opportunity_ids = set(
+            conn.execute(
+                text(
+                    "SELECT DISTINCT opportunity_event_id FROM pipeline_record "
+                    "WHERE tenant_id = :tid AND owning_unit_id = :uid"
+                ),
+                {"tid": ctx.tenant_id, "uid": ctx.unit_id},
+            ).scalars()
+        )
+        for opportunity_id in minted_opportunity_ids:
+            conn.execute(
+                text(
+                    "INSERT INTO event (id, tenant_id, host_org_unit_id, title, "
+                    "normalized_title, time_precision, origin) "
+                    "VALUES (:id, :tid, :unit, :title, :normalized, 'unresolved', "
+                    "'coordinator_entry') ON CONFLICT DO NOTHING"
+                ),
+                {
+                    "id": opportunity_id,
+                    "tid": ctx.tenant_id,
+                    "unit": ctx.unit_id,
+                    "title": f"Synthetic Opportunity {opportunity_id}",
+                    "normalized": f"synthetic opportunity {opportunity_id}",
+                },
+            )
+
     # ---- Step 7: the seed tool walks both journeys to Attended -----------
     monkeypatch.setenv("SMARTMATCH_EDITION", "dev")
     monkeypatch.setenv("SMARTMATCH_USE_FIXTURE_PROVIDERS", "true")

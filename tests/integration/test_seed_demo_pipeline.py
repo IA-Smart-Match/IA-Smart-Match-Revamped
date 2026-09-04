@@ -42,7 +42,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from conftest import DATABASE_URL
+from conftest import DATABASE_URL, ensure_event
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 from test_pipeline_record_constraints import _insert_pipeline_record, _make_unit
@@ -409,8 +409,10 @@ def test_mid_run_failure_still_reports_the_count_reached_so_far(
         other_unit_id = _make_unit(conn, tenant_id, "elsewhere")
 
     subject_id = uuid.uuid4()
-    event_id = uuid.uuid4()
     with engine.begin() as conn:
+        # A real event: this id reaches `record_attendance` below, and
+        # `attendance_record.event_id` has had a foreign key since 0017.
+        event_id = ensure_event(conn, tenant_id, "mid-run-failure")
         conn.execute(
             text(
                 "INSERT INTO user_account (id, tenant_id, external_subject, email) "
