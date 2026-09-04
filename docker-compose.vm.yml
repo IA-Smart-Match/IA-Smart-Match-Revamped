@@ -1,0 +1,57 @@
+# Compose override for the synthetic pilot VM.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d
+#
+# This file is what makes the appliance survive a reboot on the VM. It changes
+# three things and nothing else:
+#
+#   1. Long-running services get `restart: unless-stopped`, so Docker brings
+#      them back after a reboot or a crash. The one-shot services (migrate,
+#      seed, seed-logins, seed-review) keep `restart: "no"` from the base file:
+#      a seed that re-ran on every boot would either fail on its own conflict
+#      guard or quietly re-seed a database an operator has been working in.
+#   2. `SMARTMATCH_RELEASE` is taken from the environment, so the API's
+#      /api/health reports the git SHA that is actually deployed. That is what
+#      makes "did the deployment land" answerable from outside the VM, and it
+#      is the value scripts/compose_health.sh compares against.
+#   3. Nothing else. In particular the published ports are NOT changed, because
+#      the base file already binds every one of them to 127.0.0.1 — the
+#      database, the API, and the worker are reachable only from the VM itself,
+#      and the single externally reachable surface is the Cloudflare Tunnel
+#      pointed at 127.0.0.1:5173. An override that published 0.0.0.0 here would
+#      undo that in one line, which is why this file states it rather than
+#      leaving it to be inferred.
+#
+# ---------------------------------------------------------------------------
+# What this does NOT make the VM
+# ---------------------------------------------------------------------------
+# The instance stays synthetic: SMARTMATCH_EDITION=dev, fixture providers,
+# seeded data, the compose-only bearer tokens, and the legacy frontend. It has
+# no identity provider, no real user, no live provider credential, and no
+# production data. ALLOW_CLOUD_DEPLOY=false still holds — see
+# docs/operations/vm-deploy.md for the gates that must close before any of this
+# becomes a production deployment, and docs/operations/deploy-runbook.md's
+# "Not yet applicable" table for what is still absent.
+
+services:
+  db:
+    restart: unless-stopped
+
+  api:
+    restart: unless-stopped
+    environment:
+      # The deployed git SHA, written by scripts/vm/deploy.sh. The default
+      # keeps a hand-run `docker compose up` on the VM honest rather than
+      # letting it claim a release it does not have.
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-vm-unknown}
+
+  worker:
+    restart: unless-stopped
+    environment:
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-vm-unknown}
+
+  scheduler:
+    restart: unless-stopped
+
+  web:
+    restart: unless-stopped

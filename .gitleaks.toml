@@ -87,3 +87,30 @@ everywhere else in the tree and its history.
 """
 regexTarget = "match"
 regexes = ['''spend-abc123''']
+
+[[allowlists]]
+description = """
+`tests/unit/test_vm_deploy_script.py` asserts that `scripts/vm/deploy.sh`
+redacts credential-shaped text before it reaches a deployment log — a log that
+a GitHub Actions job then prints in full. Proving a redaction filter works
+requires feeding it something the filter must actually catch, so the test's
+stub `docker` prints this literal in two shapes the filter targets
+(`Authorization: Bearer <value>` and `SOME_TOKEN=<value>`) and the test asserts
+neither survives into the log.
+
+`abcdefgh12345678ABCDEFGH` is that literal: a to h, 1 to 8, then A to H. No
+provider issued it, it authenticates nothing, it never leaves the test process,
+and it exists only so a gate that keeps real credentials out of deployment logs
+can be proven to work rather than assumed to.
+
+A shorter or lower-entropy placeholder would not do: the redaction filter only
+fires on runs of eight or more credential characters, so a value gitleaks
+ignored would also be a value the filter ignored, and the test would pass
+without testing anything.
+
+Scoped to the exact string, matching the allowlists above: the file is still
+scanned for every other secret shape, and `generic-api-key` still fires
+everywhere else in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''abcdefgh12345678ABCDEFGH''']

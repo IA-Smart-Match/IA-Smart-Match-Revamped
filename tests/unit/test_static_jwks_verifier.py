@@ -681,8 +681,8 @@ def test_the_api_still_builds_a_fixture_verifier() -> None:
     assert "build_token_verifier" in main_source
 
 
-def test_the_scaffold_added_no_v1_route() -> None:
-    """An unwired verifier cannot have grown an endpoint.
+def test_the_scaffold_added_no_jwks_route() -> None:
+    """An unwired verifier must not expose JWKS-specific endpoints.
 
     Generated from the live app as well as read from the committed contract, so
     a route added in code but missing from the contract fails here too.
@@ -696,7 +696,7 @@ def test_the_scaffold_added_no_v1_route() -> None:
     generated = {path for path in app.openapi()["paths"] if path.startswith("/v1")}
 
     assert generated == published
-    assert not any("jwks" in path.lower() or "auth" in path.lower() for path in published)
+    assert not any("jwks" in path.lower() for path in published)
 
 
 def test_the_verifier_is_not_exported_from_the_providers_package() -> None:

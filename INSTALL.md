@@ -9,6 +9,97 @@ about getting the thing installed and verified.
 
 ---
 
+## The short path: the launchers
+
+Two scripts at the repository root are the canonical commands. Everything after
+this section is the manual toolchain they wrap — still correct, still the right
+reference when a step fails, and no longer the first thing to read.
+
+### Ubuntu 24.04 and WSL
+
+```bash
+./setup.sh                # Git, Docker Engine, Compose v2. Idempotent.
+./smartmatch.sh install   # validate, build, start, wait for health, print the URL
+```
+
+### Windows with Docker Desktop
+
+```powershell
+.\setup.ps1                # Git and Docker Desktop, through winget. Idempotent.
+.\smartmatch.ps1 install   # the same eight commands, the same exit codes
+```
+
+Then open **http://127.0.0.1:5173/**.
+
+Docker Compose is the runtime dependency installer: PostgreSQL 16, the Python
+service dependencies, the migrations, the seed data, the scheduler, and the
+frontend's `npm ci` all happen inside containers. Neither `install` needs Python
+or Node on the host.
+
+Add `--developer` (PowerShell: `-Developer`) to either script to also set up the
+host toolchain — Python 3.11, Node 22, `.venv` with hash-verified dependencies,
+`npm ci`, and a run of the local gates.
+
+### The commands
+
+| Command | What it does |
+|---|---|
+| `install [--developer]` | Validate, build, start, wait for health, print URLs |
+| `start` / `stop` / `restart` | `stop` keeps the data volumes |
+| `status [--json]` | Per-service state, health, and exit code |
+| `health [--wait]` | The bounded health suite. Non-mutating |
+| `verify [--full]` | Health, plus (`--full`) the end-to-end smoke path |
+| `logs [service] [-f]` | Container logs |
+
+Exit codes are stable and tested: `0` ok, `1` unhealthy or verification failed,
+`2` usage error, `3` missing prerequisite, `4` a published port is already held
+by something else, `5` timed out waiting for health.
+
+### What `health` actually checks
+
+Eleven checks, all reads, and the command exits nonzero unless every one passes:
+
+1. PostgreSQL's own healthcheck is green.
+2. `alembic_version` equals the head computed from `db/migrations/versions/`.
+3. `migrate` exited 0.
+4. `seed` exited 0.
+5. `seed-review` exited 0.
+6. `GET /api/health` is 200, `status=ok`, and the release is the one this
+   checkout expects.
+7. `GET /health` on the worker is 200 and `status=ok`.
+8. The worker reports a completed dispatch pass recent enough to mean the
+   scheduler sidecar is still driving it.
+9. `GET /` on the frontend is 200.
+10. `GET /coordinator-portal` is 200 — the SPA deep-route fallback.
+11. `GET /v1/me` **through the frontend's proxy** authenticates as the seeded
+    coordinator.
+
+`health` never writes. `verify --full` runs
+[`scripts/compose_smoke.sh`](scripts/compose_smoke.sh) afterwards, which does —
+it imports, dispatches, reviews, and asserts the metrics move. That is the
+mutating command, and the split is the point.
+
+### Common failures
+
+**`4` — port collision.** Something already holds 5432, 8080, 8081, or 5173. On
+5432 the usual cause is a native PostgreSQL; `docker-compose.yml`'s header says
+it outright: pick one database. `sudo service postgresql stop`, or change the
+published port and set `SMARTMATCH_DATABASE_URL` to match.
+
+**`3` — missing prerequisite.** `docker` is absent, `docker compose` is the
+legacy v1 binary, or the daemon is not running. On Linux the most common cause
+is that `setup.sh` added you to the `docker` group and you have not logged back
+in yet; it says so at the end of its run.
+
+**`5` — timed out.** The first `install` builds two images and runs `npm ci`
+into an empty volume, which is minutes. `./smartmatch.sh status` shows which
+service is stuck and `./smartmatch.sh logs <service>` shows why.
+
+Neither launcher, nor either setup script, ever writes `.env`. If you have one
+it is left exactly as it is.
+
+---
+
 ## Prerequisites
 
 | Requirement | Notes |
@@ -135,8 +226,12 @@ a deployment — see the file's own header for what it deliberately does not
 claim.
 
 ```bash
-docker compose up --build -d
+./smartmatch.sh start      # or: docker compose up --build -d
 ```
+
+The launcher is the canonical command: it additionally checks for a port
+collision before it starts, and waits on the health suite rather than returning
+the moment the containers exist.
 
 ---
 
@@ -150,11 +245,18 @@ detail.
 **1. Start the appliance.**
 
 ```bash
-docker compose up --build -d
+./smartmatch.sh install
 ```
 
 The first run builds two images and installs the frontend's dependencies, so
-give it several minutes. It is finished when `docker compose ps` shows this:
+give it several minutes; `install` waits for the whole stack to become healthy
+and then prints the URL, so there is nothing to watch for. (`docker compose up
+--build -d` does the same starting, without the validation, the port check, or
+the wait.)
+
+`./smartmatch.sh status` reports the state below, and
+`./smartmatch.sh status --json` reports it in a form a script can read. It is
+finished when it shows this:
 
 | Service | Expected state | Published on |
 |---|---|---|
@@ -261,13 +363,15 @@ change actually changes.
 **1. Bring the stack up.**
 
 ```bash
-docker compose up --build -d
+./smartmatch.sh install
 ```
 
-Wait for it to settle (`docker compose ps` — `api`, `worker`, `scheduler`, and
-`web` should all be `running`/`healthy`; `migrate`, `seed`, and `seed-review`
-should be `exited (0)`). The state table in "The stakeholder click-through"
-above lists every service and its published port.
+`install` does not return until the stack is healthy, so there is nothing to
+wait for afterwards. If you started it some other way, `./smartmatch.sh health
+--wait` is the bounded wait, and `./smartmatch.sh status` shows the same states
+by hand (`api`, `worker`, `scheduler`, and `web` `running`/`healthy`;
+`migrate`, `seed`, and `seed-review` `exited (0)`). The state table in "The
+stakeholder click-through" above lists every service and its published port.
 
 Note that a settled stack is **not** an empty one: `seed-review` has already
 put two pending review items on the `pilot` unit, so `pending_review_items`
@@ -546,14 +650,21 @@ the first failure. It is what the `compose smoke` CI job
 path are one sequence rather than two that can drift:
 
 ```bash
-docker compose up --build -d
-scripts/compose_smoke.sh
-docker compose down -v
+./smartmatch.sh install
+./smartmatch.sh verify --full     # health suite, then compose_smoke.sh
+docker compose down -v            # teardown stays explicit, and destroys data
 ```
 
-It deliberately does not bring the stack up or tear it down — CI wants the
-containers alive after a failure so it can read their logs, and so does anyone
-debugging by hand.
+`verify --full` is what the `compose smoke` CI job runs, so the documented
+command and the enforced command are the same command. It runs the bounded
+health suite first and then `scripts/compose_smoke.sh`; running that script
+directly still works and is unchanged.
+
+Neither the script nor the launcher brings the stack up or tears it down — CI
+wants the containers alive after a failure so it can read their logs, and so
+does anyone debugging by hand. `docker compose down -v` above is the one
+command in this file that discards the database, which is why it is still typed
+out rather than hidden behind a launcher subcommand.
 
 ### The rest of the pilot: `make e2e`
 

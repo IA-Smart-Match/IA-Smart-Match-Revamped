@@ -894,7 +894,7 @@ def test_the_migration_round_trips_from_an_empty_database(engine: Engine) -> Non
     behind fails here rather than in whichever test ran next.
     """
     with scratch_database(engine) as url:
-        alembic(url, "head", expect_success=True)
+        alembic(url, REVISION, expect_success=True)
         assert applied_revision(url) == REVISION
 
         with connected(url) as scratch, scratch.connect() as conn:
@@ -928,7 +928,7 @@ def test_the_migration_round_trips_from_an_empty_database(engine: Engine) -> Non
             ).scalar_one()
             assert restored == "NO", "the downgrade restores the NOT NULL 0009 declared"
 
-        alembic(url, "head", expect_success=True)
+        alembic(url, REVISION, expect_success=True)
         assert applied_revision(url) == REVISION
 
 

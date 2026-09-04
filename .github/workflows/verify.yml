@@ -12,17 +12,31 @@
 
 name: verify
 
+# ---------------------------------------------------------------------------
+# Reusable: the deployment workflow calls this one
+# ---------------------------------------------------------------------------
+# `workflow_call` makes this workflow invokable by .github/workflows/deploy.yml,
+# which runs it — and `verify` — as the gate before anything reaches the pilot
+# VM. Nothing about what runs changes; the trigger is the only addition, and
+# the permissions below still stop at `contents: read`, so being callable
+# cannot become a way to reach a deployment credential from here.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding an in-flight run is right for a pull request and wrong for
+  # `deploy`: a cancelled gate there would abort the deployment that is
+  # waiting on it, potentially while the VM is mid-migration. Pushes to
+  # `deploy` therefore queue rather than cancel, and .github/workflows/deploy.yml
+  # serializes the deployments themselves on its own never-cancelling group.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/deploy' }}
 
 env:
   PYTHON_VERSION: "3.11"

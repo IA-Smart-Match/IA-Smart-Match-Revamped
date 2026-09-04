@@ -1,0 +1,48 @@
+# Bring the SmartMatch compose appliance up after Docker, on every boot.
+#
+# Installed to /etc/systemd/system/smartmatch.service by
+# scripts/vm/bootstrap_vm.sh. The paths below are the ones that script creates.
+#
+# Why this exists when the containers already carry `restart: unless-stopped`
+# (docker-compose.vm.yml): the restart policy brings back containers that
+# already exist, and it does not run the one-shot services. A boot after an
+# image change, a `docker system prune`, or an interrupted deployment can leave
+# the stack partly assembled, and `docker compose up -d` is the one command
+# that converges it to what the compose files describe. Running both is
+# deliberate belt and braces — `up -d` on an already-correct stack is a no-op.
+#
+# Type=oneshot with RemainAfterExit=yes because `docker compose up -d` returns
+# once the stack is started; there is no long-running process for systemd to
+# supervise. Supervision is Docker's job, and the restart policy is where it is
+# expressed.
+
+[Unit]
+Description=SmartMatch compose appliance (synthetic pilot)
+Documentation=file:///opt/smartmatch/app/docs/operations/vm-deploy.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=smartmatch
+Group=smartmatch
+WorkingDirectory=/opt/smartmatch/app
+
+# SMARTMATCH_RELEASE is written by scripts/vm/deploy.sh after each successful
+# deployment, so a reboot brings the stack back reporting the SHA it is
+# actually running rather than the `vm-unknown` default.
+EnvironmentFile=-/opt/smartmatch/release.env
+
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --remove-orphans
+
+# `stop`, never `down`, and never `-v`. `down` would remove the containers and
+# `down -v` would discard the database volume; a machine reboot must do
+# neither.
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml stop
+
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target
