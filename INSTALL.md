@@ -555,6 +555,52 @@ It deliberately does not bring the stack up or tear it down — CI wants the
 containers alive after a failure so it can read their logs, and so does anyone
 debugging by hand.
 
+### The rest of the pilot: `make e2e`
+
+The smoke path above is the documented happy path. `make e2e` walks what a
+coordinator does with the appliance *beyond* it, against the same running
+stack, and the `pilot e2e` CI job runs exactly this target:
+
+```bash
+docker compose up --build -d
+make e2e
+docker compose down -v
+```
+
+`tests/e2e/test_pilot_clickthrough.py` is the sequence: fixture auth with the
+role read from `GET /v1/me`; the `docs/pilot-data/columns.yaml` contract
+refusing a row that omits a required column; a live import through the
+scheduler; a review **accept** *and* a review **reject** (plus the `409` on
+re-deciding a decided item); the metrics read and the drill-down rows behind
+the number; a match run with its shortlist and per-factor explanation; the
+events and tag-quarantine reads; and rewards.
+
+It is written to fail on dishonesty rather than only on breakage. It goes red
+if a score is a constant instead of a computation, if an unknown is rendered as
+`0` (ADR-0011), if a role could be chosen by the caller instead of resolved by
+the server, or if any match score is presented as a percentage.
+
+**Three steps cannot run on this appliance and are skipped by name, never
+faked.** `make e2e` passes `-ra` so each one is printed in the summary:
+
+- The **rewards catalog** and the **redemption self-read** are gated on the
+  `student` role alone, and the only principal the compose stack can
+  authenticate is a coordinator. The suite asserts the `403` is a correct
+  refusal and then skips the catalog walk, pending the D6 role decision.
+- A **redemption decision** has nothing to decide, for the same reason: only a
+  student can create one.
+- The **portal pages** fetch `/api/portals/*`, a backend no service in this
+  repository serves, so they render a load-failure state. Nothing stands in
+  for it; the web service's real behaviour is covered by
+  `scripts/compose_smoke.sh` stage 16 instead.
+
+Two ids the suite needs are read from the database rather than from the API,
+because no `/v1` route returns them: a **review item's id** (the API exposes
+only `POST /v1/review-items/{id}/decision`, with no listing) and a **unit id
+for a unit path** (`GET /v1/me` names the path and nothing resolves it). Both
+are recorded gaps, not shortcuts — the same lookups `scripts/compose_smoke.sh`
+already makes.
+
 ### Clicking through the portals as the compose principal
 
 The stack now runs the legacy frontend itself, as the `web` service, published

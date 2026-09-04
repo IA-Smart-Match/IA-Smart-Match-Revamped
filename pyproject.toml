@@ -119,6 +119,11 @@ addopts = "-q --strict-markers"
 markers = [
     "golden: characterization tests pinning ported legacy behavior",
     "integration: requires a live PostgreSQL instance",
+    # tests/e2e — HTTP against a running `docker compose` appliance. Excluded
+    # from `make test` and `make test-all` by marker rather than by path, so a
+    # file added under tests/e2e cannot accidentally put a suite that needs a
+    # whole stack into the no-database gate. `make e2e` is what runs it.
+    "e2e: requires a running docker compose appliance (see `make e2e`)",
 ]
 
 # ---------------------------------------------------------------------------
