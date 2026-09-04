@@ -196,6 +196,17 @@ log "  baseline pending_review_items=${baseline}"
   || fail "expected a clean stack (pending_review_items == 0), got ${baseline}; \
 run 'docker compose down -v' first"
 
+# Baseline for stage 13 too. Without this, a stack that already held one
+# pipeline_record row from an earlier interrupted run would satisfy stage
+# 13's "== 1" on attempt 1 even if stage 12's accept provisioned nothing —
+# a silent zero reported as a pass, exactly the failure class §1.10 forbids.
+# This makes stage 13 a measured *change* (0 -> 1), not merely a state check.
+pipeline_matched_baseline="$(metric_value "$unit_id" pipeline_matched)"
+log "  baseline pipeline_matched=${pipeline_matched_baseline}"
+[ "$pipeline_matched_baseline" = "0" ] \
+  || fail "expected a clean stack (pipeline_matched == 0), got ${pipeline_matched_baseline}; \
+run 'docker compose down -v' first"
+
 # =============================================================================
 # Stage 4 — import. One inline professionals row, dry_run:false.
 # =============================================================================
@@ -336,6 +347,22 @@ events_review_item_id="$(psql_scalar "
   || fail "pending_review_items reported 1 but no pending events review_item row joins to unit '${UNIT_PATH}'"
 log "  events_review_item_id=${events_review_item_id}"
 
+# Pre-accept baseline for stage 15, in stage 15's own shape: both counts
+# must be 0 before this accept, or a pre-existing synthetic (or, worse,
+# non-synthetic) pipeline_record row would let stage 15 pass without this
+# accept having provisioned anything — the same delta-not-state concern the
+# pipeline_matched baseline above addresses at the metrics layer, restated
+# here at the database layer stage 15 itself reads from.
+provenance_baseline_synthetic="$(psql_scalar \
+  "select count(*) from pipeline_record where matched_provenance = 'synthetic / coordinator-accepted'")"
+provenance_baseline_non_synthetic="$(psql_scalar \
+  "select count(*) from pipeline_record where matched_provenance <> 'synthetic / coordinator-accepted'")"
+log "  baseline provenance rows: synthetic=${provenance_baseline_synthetic} non-synthetic=${provenance_baseline_non_synthetic}"
+[ "$provenance_baseline_synthetic" = "0" ] && [ "$provenance_baseline_non_synthetic" = "0" ] \
+  || fail "expected a clean stack (0 pipeline_record rows of either provenance) before the \
+events accept, got synthetic=${provenance_baseline_synthetic} non-synthetic=${provenance_baseline_non_synthetic}; \
+run 'docker compose down -v' first"
+
 # =============================================================================
 # Stage 12 — accept it. A 2xx here is not the acceptance criterion (§1.10) —
 # stage 13's positive count is.
@@ -347,7 +374,9 @@ events_decision_body="$(curl -sf -X POST "${API_BASE}/v1/review-items/${events_r
   -d '{"decision": "accepted"}')" \
   || fail "POST /v1/review-items/${events_review_item_id}/decision did not return 2xx"
 log "  response: ${events_decision_body}"
-events_decided_status="$(printf '%s' "$events_decision_body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+events_decided_status="$(printf '%s' "$events_decision_body" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')" \
+  || fail "events decision response was not JSON with a status field: ${events_decision_body}"
 [ "$events_decided_status" = "accepted" ] \
   || fail "events decision response reported status '${events_decided_status}', expected 'accepted'"
 

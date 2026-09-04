@@ -399,6 +399,16 @@ SMARTMATCH_DATABASE_URL="postgresql+psycopg://smartmatch:smartmatch@localhost:54
   --tenant-slug pilot --unit-path pilot --through attended --limit 2
 ```
 
+`localhost:5432` above is the same port a native PostgreSQL install (§2)
+would also bind — on a host running both, the native instance can silently
+shadow the compose appliance's `db` with no error to say so, and the command
+above would then seed the wrong database. Check `docker compose ps db`
+first: a `5432/tcp` entry with **no** `127.0.0.1:5432->` prefix means the
+port is shadowed, and you cannot reach the appliance from the host at all —
+use the same `docker compose exec -T db psql` this file's steps 10/14 and
+`scripts/compose_smoke.sh`'s own `psql_scalar` helper already use instead of
+the host-side invocation above.
+
 Tear down when finished:
 
 ```bash

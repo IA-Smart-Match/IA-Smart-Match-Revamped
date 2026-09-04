@@ -45,6 +45,7 @@ Requires a live database, and is skipped when none is reachable
 
 from __future__ import annotations
 
+import ast
 import inspect
 import itertools
 import sys
@@ -114,21 +115,14 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
     return create_session_factory(engine.url.render_as_string(hide_password=False))
 
 
-@pytest.fixture(autouse=True)
-def _clean_funnel_rows(engine: Engine, tenant_id: uuid.UUID) -> Iterator[None]:
-    """Delete this file's provisioned rows before `tenant_id`'s own teardown.
+def _delete_this_files_rows(engine: Engine, tenant_id: uuid.UUID) -> None:
+    """Delete `pipeline_record` / `professional_unit_relationship` / `attendance_record`.
 
-    `pipeline_record`, `professional_unit_relationship`, and
-    `attendance_record` all sit outside `conftest.py`'s
-    `_TENANT_SCOPED_TABLES`, and all three carry `ON DELETE RESTRICT`
-    foreign keys back to `org_unit` and `user_account` — the same
-    arrangement, for the same reason, `test_review_accept_opens_pipeline.py`
-    and `test_seed_demo_pipeline.py` both already use. `pipeline_record` is
-    deleted first because it is the row `attendance_record` is cited from
-    (`attended_attendance_id`, constraint 8 in plan §1.4); deleting it out
-    of that order would leave `attendance_record` still referenced.
+    `pipeline_record` is deleted first because it is the row
+    `attendance_record` is cited from (`attended_attendance_id`, constraint 8
+    in plan §1.4); deleting it out of that order would leave
+    `attendance_record` still referenced.
     """
-    yield
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(
@@ -138,6 +132,27 @@ def _clean_funnel_rows(engine: Engine, tenant_id: uuid.UUID) -> Iterator[None]:
         conn.execute(
             text("DELETE FROM attendance_record WHERE tenant_id = :tid"), {"tid": tenant_id}
         )
+
+
+@pytest.fixture(autouse=True)
+def _clean_funnel_rows(engine: Engine, tenant_id: uuid.UUID) -> Iterator[None]:
+    """Delete this file's provisioned rows both before and after each test.
+
+    `pipeline_record`, `professional_unit_relationship`, and
+    `attendance_record` all sit outside `conftest.py`'s
+    `_TENANT_SCOPED_TABLES`, and all three carry `ON DELETE RESTRICT`
+    foreign keys back to `org_unit` and `user_account` — the same
+    arrangement, for the same reason, `test_review_accept_opens_pipeline.py`
+    and `test_seed_demo_pipeline.py` both already use. `tenant_id` is a
+    fresh, per-test tenant, so the pre-yield delete here ordinarily has
+    nothing to do; it exists so a prior run that crashed mid-test (and so
+    never reached its own post-yield delete) cannot leave rows behind that
+    would corrupt this test's `== 2`/`== 1` counts on a re-run — the same
+    reasoning `pipeline_matched_baseline` gives in `compose_smoke.sh`.
+    """
+    _delete_this_files_rows(engine, tenant_id)
+    yield
+    _delete_this_files_rows(engine, tenant_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +277,15 @@ def test_pipeline_funnel_end_to_end_through_the_real_routes(
             ),
             {"tid": ctx.tenant_id, "uid": ctx.unit_id},
         ).all()
+    # Shared-rule limitation, noted rather than hidden: this filter calls the
+    # same `shape_opportunity_category` the metrics binding itself calls
+    # (`routers/metrics.py::_opportunities_rows_v1`), so a wrong IN_LIST rule
+    # would move both sides of the comparison below together rather than
+    # being caught by it. What this comparison *does* still prove is that
+    # the metric and the drill-down agree with each other and with a direct
+    # read of the same table — and the adjacent `== 1` / `== 2` assertions
+    # above are literal expected counts, not derived from this rule, so this
+    # file cannot pass at zero even if the shared rule were wrong.
     db_opportunity_ids = {
         str(row.id)
         for row in accepted_review_rows
@@ -370,3 +394,28 @@ def test_no_assertion_reads_a_metric_from_pipelinerepository() -> None:
     """
     source = inspect.getsource(sys.modules[__name__])
     assert _FORBIDDEN_WRITE_CALL not in source
+
+
+def test_module_never_imports_pipelinerepository() -> None:
+    """The property that actually matters: nothing in this file can even reach it.
+
+    Banning the literal call (above) bans one *plausible-looking* way a
+    future edit might fake a metric read; it does not by itself prove the
+    read path was the only path available, because a value could in
+    principle come from `PipelineRepository.get(...)` instead of that
+    repository's matched-stage writer. This test proves the stronger claim
+    directly:
+    parse this module's own import statements with `ast` (not a substring
+    scan, which the docstrings above would trip — they talk *about*
+    `PipelineRepository` in prose) and assert the name was never imported at
+    all. If it isn't imported, no assertion below can call any of its
+    methods, `record_matched` included.
+    """
+    tree = ast.parse(inspect.getsource(sys.modules[__name__]))
+    imported_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in node.names
+    }
+    assert "PipelineRepository" not in imported_names
