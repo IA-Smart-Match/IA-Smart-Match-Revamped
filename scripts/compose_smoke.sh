@@ -4,9 +4,17 @@
 #
 # It proves ONE sentence, in order, against the running stack:
 #
-#   import -> scheduler dispatch -> pending_review_items 0->1 -> accept -> 1->0
+#   seed-review left a demo queue -> import -> scheduler dispatch
+#   -> pending_review_items N->N+1 -> accept -> back to N
 #   -> events import -> accept -> pipeline_matched 0->1, opportunities 0->1,
-#   provenance stored
+#   provenance stored -> the web dev server serves the portal and proxies
+#   /v1/me as the seeded coordinator
+#
+# N is the depth of the demo review queue the one-shot `seed-review` service
+# creates on start-up (SEEDED_PENDING below), which is why the counts here are
+# expressed as a measured change from a baseline rather than as 0 and 1
+# literals. The appliance is no longer expected to come up with an empty
+# queue: a stakeholder who opens it should find something to review.
 #
 # ...with no manual dispatch step anywhere in it. The compose `scheduler`
 # sidecar is what drives the queued import to completion; if it does not, this
@@ -63,9 +71,23 @@ set -Eeuo pipefail
 # see docker-compose.yml's header note on why they are short, plain strings.
 API_BASE="${API_BASE:-http://127.0.0.1:8080}"
 WORKER_BASE="${WORKER_BASE:-http://127.0.0.1:8081}"
+WEB_BASE="${WEB_BASE:-http://127.0.0.1:5173}"
 API_BEARER="${API_BEARER:-compose-api}"
 UNIT_PATH="${UNIT_PATH:-pilot}"
 DB_URL="postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
+
+# How many pending review items the one-shot `seed-review` service is expected
+# to leave behind on a freshly started stack — the demo queue a coordinator
+# opens the appliance to find. It is the length of DEMO_ROWS in
+# tools/seed_pilot_review.py, restated here so that changing one without the
+# other fails this script loudly instead of silently shrinking the demo.
+SEEDED_PENDING="${SEEDED_PENDING:-2}"
+
+# The rows THIS script imports, distinct from the ones `seed-review` seeds.
+# Every review-item lookup below is narrowed by these, so no stage can pick up
+# a seeded row by accident and report it as this script's own.
+SMOKE_PROFESSIONAL_NAME="Ada Lovelace"
+SMOKE_EVENT_NAME="Portland Hackathon"
 
 # Bounded poll budgets, in attempts. Each attempt prints what it observed.
 READY_ATTEMPTS="${READY_ATTEMPTS:-60}"     # x2s — image start + migrate + seed
@@ -79,7 +101,7 @@ fail() {
   # annotation and is harmless noise in a local terminal.
   printf '::error::compose smoke failed: %s\n' "$*" >&2
   docker compose ps || true
-  docker compose logs --no-color --tail=200 api worker scheduler seed migrate || true
+  docker compose logs --no-color --tail=200 api worker scheduler seed seed-review web migrate || true
   exit 1
 }
 
@@ -188,13 +210,70 @@ unit_id="$(psql_scalar "select id from org_unit where path = '${UNIT_PATH}'")"
 [ -n "$unit_id" ] || fail "seed did not produce a '${UNIT_PATH}' org unit"
 log "  unit_id=${unit_id}"
 
-# Baseline, so stage 5's "== 1" is a measured change and not an accident of a
-# stack that was already carrying a pending item from an earlier run.
+# Baseline, so stage 5's assertion is a measured change and not an accident of
+# a stack that was already carrying a pending item from an earlier run.
+#
+# On a freshly started appliance this is NOT zero any more: the one-shot
+# `seed-review` service submits the demo import that gives a coordinator a
+# queue to open (see docker-compose.yml). Requiring the exact seeded depth
+# keeps the original "clean stack" guard — a leftover item from an interrupted
+# run still fails here — and adds a second assertion the old check could not
+# make: that `seed-review` actually produced its queue, through the real
+# import/dispatch path, rather than exiting quietly having done nothing.
 baseline="$(metric_value "$unit_id" pending_review_items)"
-log "  baseline pending_review_items=${baseline}"
-[ "$baseline" = "0" ] \
-  || fail "expected a clean stack (pending_review_items == 0), got ${baseline}; \
-run 'docker compose down -v' first"
+log "  baseline pending_review_items=${baseline} (expected ${SEEDED_PENDING}, seeded by seed-review)"
+[ "$baseline" = "$SEEDED_PENDING" ] \
+  || fail "expected a freshly seeded stack (pending_review_items == ${SEEDED_PENDING}, the \
+demo queue tools/seed_pilot_review.py creates), got ${baseline}. Fewer means seed-review \
+did not complete — check 'docker compose ps -a seed-review' and its logs. More means \
+leftover state; run 'docker compose down -v' first."
+
+# Every pending_review_items assertion below is expressed against this
+# baseline rather than against a literal, so the demo queue's depth is a
+# parameter of the appliance and not a constant wired into three places.
+baseline_plus_one="$(( baseline + 1 ))"
+
+# =============================================================================
+# Stage 3b — the seeded demo queue itself. The count asserted above says how
+# many pending items exist; this says they are the ones `seed-review` was
+# supposed to create, and that the container which created them succeeded.
+#
+# Both halves matter. A one-shot service that exited non-zero leaves no
+# running container to notice, so `docker compose ps` alone would show a
+# healthy-looking stack whose demo queue came from somewhere else; and a count
+# that happens to match tells nothing about *what* is in the queue.
+# =============================================================================
+log "== stage 3b: the seed-review demo queue =="
+# `docker compose ps -a --format '{{.ExitCode}}'` rather than `wait`: the
+# container has already exited by the time this runs, and `wait` on a
+# completed one-shot is not portable across compose versions.
+seed_review_exit="$(docker compose ps -a --format '{{.ExitCode}}' seed-review)"
+[ -n "$seed_review_exit" ] || seed_review_exit="absent"
+log "  seed-review exit code=${seed_review_exit}"
+[ "$seed_review_exit" = "0" ] \
+  || fail "the seed-review one-shot exited '${seed_review_exit}', not 0. It submits the \
+demo import through the real API and polls until dispatch has produced review items, so a \
+non-zero exit is an import or dispatch failure, not a cosmetic one — \
+'docker compose logs seed-review' names the stage it stopped at."
+
+# The rows themselves, read from the database rather than inferred from the
+# count. tools/seed_pilot_review.py's DEMO_ROWS are synthetic names against the
+# ratified `professionals` contract; anything else in this queue did not come
+# from the seed.
+seeded_named_rows="$(psql_scalar "
+  select count(*)
+    from review_item ri
+    join import_batch ib
+      on ib.tenant_id = ri.tenant_id and ib.id = ri.import_batch_id
+    join org_unit ou
+      on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
+   where ou.path = '${UNIT_PATH}' and ri.status = 'pending'
+     and ib.dataset = 'professionals'
+     and ri.row_data->>'name' in ('Grace Hopper', 'Katherine Johnson')")"
+log "  seeded demo review items by name=${seeded_named_rows}"
+[ "$seeded_named_rows" = "$SEEDED_PENDING" ] \
+  || fail "expected ${SEEDED_PENDING} pending review items carrying the synthetic \
+seed_pilot_review.py demo names, got ${seeded_named_rows}"
 
 # Baseline for stage 13 too. Without this, a stack that already held one
 # pipeline_record row from an earlier interrupted run would satisfy stage
@@ -230,16 +309,16 @@ log "  POST /imports -> ${import_code}"
 # Stage 5 — scheduler-driven dispatch lands the row in review.
 # There is deliberately no dispatch curl anywhere in this file.
 # =============================================================================
-log "== stage 5: poll for pending_review_items == 1 (no manual dispatch) =="
+log "== stage 5: poll for pending_review_items == ${baseline_plus_one} (no manual dispatch) =="
 value=null
 for attempt in $(seq 1 "$METRIC_ATTEMPTS"); do
   value="$(metric_value "$unit_id" pending_review_items)"
   log "  attempt ${attempt}: pending_review_items=${value}"
-  [ "$value" = "1" ] && break
+  [ "$value" = "$baseline_plus_one" ] && break
   sleep 1
 done
-[ "$value" = "1" ] \
-  || fail "expected pending_review_items == 1 after scheduler-driven dispatch, got ${value}"
+[ "$value" = "$baseline_plus_one" ] \
+  || fail "expected pending_review_items == ${baseline_plus_one} after scheduler-driven dispatch, got ${value}"
 
 # =============================================================================
 # Stage 6 — the review item itself. There is no list route for review items
@@ -255,10 +334,14 @@ review_item_id="$(psql_scalar "
     join org_unit ou
       on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
    where ou.path = '${UNIT_PATH}' and ri.status = 'pending'
+     and ib.dataset = 'professionals'
+     and ri.row_data->>'name' = '${SMOKE_PROFESSIONAL_NAME}'
    order by ri.row_index
    limit 1")"
 [ -n "$review_item_id" ] \
-  || fail "pending_review_items reported 1 but no pending review_item row joins to unit '${UNIT_PATH}'"
+  || fail "no pending review_item row for '${SMOKE_PROFESSIONAL_NAME}' joins to unit \
+'${UNIT_PATH}' — the row this script imported in stage 4 did not reach review \
+(the seed-review demo rows are deliberately not eligible here)"
 log "  review_item_id=${review_item_id}"
 
 # =============================================================================
@@ -279,16 +362,16 @@ decided_status="$(printf '%s' "$decision_body" | python3 -c 'import json,sys; pr
 # Stage 8 — the metric reflects the decision. This is the whole point: the
 # count is read back from its owning route (ADR-0011 rule 4), not recomputed.
 # =============================================================================
-log "== stage 8: poll for pending_review_items == 0 (metrics reflect the decision) =="
+log "== stage 8: poll for pending_review_items back to ${baseline} (metrics reflect the decision) =="
 value=null
 for attempt in $(seq 1 "$METRIC_ATTEMPTS"); do
   value="$(metric_value "$unit_id" pending_review_items)"
   log "  attempt ${attempt}: pending_review_items=${value}"
-  [ "$value" = "0" ] && break
+  [ "$value" = "$baseline" ] && break
   sleep 1
 done
-[ "$value" = "0" ] \
-  || fail "expected pending_review_items == 0 after the accept decision, got ${value}"
+[ "$value" = "$baseline" ] \
+  || fail "expected pending_review_items back to ${baseline} after the accept decision, got ${value}"
 
 # =============================================================================
 # Stage 9 — import one inline events row. The professionals row accepted in
@@ -316,16 +399,16 @@ log "  POST /imports -> ${events_import_code}"
 # =============================================================================
 # Stage 10 — scheduler-driven dispatch lands the events row in review too.
 # =============================================================================
-log "== stage 10: poll for pending_review_items == 1 (events row, no manual dispatch) =="
+log "== stage 10: poll for pending_review_items == ${baseline_plus_one} (events row, no manual dispatch) =="
 value=null
 for attempt in $(seq 1 "$METRIC_ATTEMPTS"); do
   value="$(metric_value "$unit_id" pending_review_items)"
   log "  attempt ${attempt}: pending_review_items=${value}"
-  [ "$value" = "1" ] && break
+  [ "$value" = "$baseline_plus_one" ] && break
   sleep 1
 done
-[ "$value" = "1" ] \
-  || fail "expected pending_review_items == 1 after the events row's scheduler-driven dispatch, got ${value}"
+[ "$value" = "$baseline_plus_one" ] \
+  || fail "expected pending_review_items == ${baseline_plus_one} after the events row's scheduler-driven dispatch, got ${value}"
 
 # =============================================================================
 # Stage 11 — recover the new pending review item id. Same join stage 6 uses,
@@ -341,6 +424,14 @@ events_review_item_id="$(psql_scalar "
     join org_unit ou
       on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
    where ou.path = '${UNIT_PATH}' and ri.status = 'pending' and ib.dataset = 'events'
+     -- event_program, not the ratified header 'Event / Program': the import
+     -- pipeline normalizes column headers into snake_case keys before storing
+     -- the row, so the stored document is keyed by the normalized name even
+     -- though the payload submitted in stage 9 uses the header columns.yaml
+     -- ratifies. (No backticks anywhere in this SQL: it is interpolated
+     -- inside a double-quoted bash string, where a backtick is command
+     -- substitution.)
+     and ri.row_data->>'event_program' = '${SMOKE_EVENT_NAME}'
    order by ri.row_index
    limit 1")"
 [ -n "$events_review_item_id" ] \
@@ -424,6 +515,70 @@ log "  synthetic provenance rows=${synthetic_provenance_count} non-synthetic pro
 [ "$non_synthetic_provenance_count" = "0" ] \
   || fail "expected 0 pipeline_record rows with a non-synthetic matched_provenance, got ${non_synthetic_provenance_count}"
 
+# =============================================================================
+# Stage 16 — the `web` service: the screen a stakeholder actually opens.
+#
+# Three assertions, deliberately separate, because each can hold while the
+# next fails and only the third is the one that matters:
+#
+#   1. The dev server answers at all (npm install finished, vite started).
+#   2. A deep portal route answers 200 rather than 404 — the SPA fallback is
+#      wired, so pasting the documented URL does not land on nothing.
+#   3. The dev server's /v1 proxy reaches the compose API *and* the request
+#      authenticates as the seeded coordinator. This is the assertion with
+#      content: it is the same GET /v1/me the portal shell issues before it
+#      renders, and it proves the browser-side path — proxy target, bearer
+#      token, seeded membership — is the same one the curl stages above used.
+#
+# What it does NOT assert, because it is not true: that the portal pages show
+# data. They fetch /api/portals/*, a legacy backend this repository does not
+# contain and this stack does not run, so each page renders its own
+# load-failure state under signed-in chrome. That is a named gap, not a
+# silent one — see INSTALL.md.
+# =============================================================================
+log "== stage 16: the web dev server, its SPA route, and its API proxy =="
+web_code=000
+for attempt in $(seq 1 "$READY_ATTEMPTS"); do
+  # Same treatment as stage 1: a refusal is the condition being polled for.
+  # The budget is generous because the container runs `npm ci` on a first
+  # start; the hard check after the loop is what decides.
+  if ! web_code="$(curl -s -o /dev/null -w '%{http_code}' "${WEB_BASE}/")"; then
+    web_code=000
+  fi
+  log "  attempt ${attempt}: web=${web_code}"
+  [ "$web_code" = "200" ] && break
+  sleep 2
+done
+[ "$web_code" = "200" ] \
+  || fail "the web dev server never served ${WEB_BASE}/ (last status ${web_code}); \
+'docker compose logs web' shows whether npm install failed or vite did not start"
+
+portal_code="$(curl -s -o /dev/null -w '%{http_code}' "${WEB_BASE}/coordinator-portal")"
+log "  GET /coordinator-portal -> ${portal_code}"
+[ "$portal_code" = "200" ] \
+  || fail "the documented portal URL answered ${portal_code}, not 200 — the dev \
+server's SPA fallback is not serving deep routes"
+
+# Through the dev server's proxy, not straight at the API: the point is that
+# the browser-side path works, and the proxy is part of it.
+me_body="$(curl -sf "${WEB_BASE}/v1/me" -H "Authorization: Bearer ${API_BEARER}")" \
+  || fail "GET ${WEB_BASE}/v1/me did not return 2xx — the dev server's /v1 proxy is \
+not reaching the compose API, or the bearer token in docker-compose.yml's web service \
+has drifted from its SMARTMATCH_DEV_PRINCIPALS map"
+me_email="$(printf '%s' "$me_body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["email"])')" \
+  || fail "GET /v1/me through the web proxy was not JSON with an email field: ${me_body}"
+me_role="$(printf '%s' "$me_body" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+print(next((m["role"] for m in doc["memberships"] if m["org_unit_path"] == "'"${UNIT_PATH}"'"), "none"))')" \
+  || fail "GET /v1/me through the web proxy carried no readable memberships: ${me_body}"
+log "  /v1/me through the web proxy: email=${me_email} role on '${UNIT_PATH}'=${me_role}"
+[ "$me_email" = "compose-pilot-coordinator@example.invalid" ] \
+  || fail "the web proxy authenticated as '${me_email}', not the seeded compose principal"
+[ "$me_role" = "coordinator" ] \
+  || fail "the seeded principal's server-assigned role on '${UNIT_PATH}' read '${me_role}', \
+not 'coordinator' — the role is assigned by the server, never chosen by the browser"
+
 # Note for anyone editing this file: stage 4's professionals import and
 # stage 7's accept are what create the user_account and the unit link that
 # stage 12's accept finds — reordering stages 9-15 ahead of stages 4-8 is the
@@ -431,7 +586,9 @@ log "  synthetic provenance rows=${synthetic_provenance_count} non-synthetic pro
 # script's whole point is exercising the working order, not a reordered one.
 
 log ""
-log "OK: import -> scheduler dispatch -> pending_review_items 0->1 -> accept -> 1->0"
+log "OK: seeded demo queue (${SEEDED_PENDING} pending) -> import -> scheduler dispatch"
+log "    -> pending_review_items ${baseline}->${baseline_plus_one} -> accept -> back to ${baseline}"
 log "    -> events import -> accept -> pipeline_matched 0->1, opportunities 0->1,"
-log "    provenance stored"
+log "    provenance stored -> web dev server serves the portal and proxies /v1/me"
+log "    as the seeded coordinator"
 log "    (no manual dispatch step, no registry, nothing outside the compose network)"

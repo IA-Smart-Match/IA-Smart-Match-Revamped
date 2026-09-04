@@ -35,10 +35,18 @@
 # native service first (`sudo service postgresql stop`) or change the published
 # port here and set SMARTMATCH_DATABASE_URL to match.
 #
-# Deliberately absent: a frontend service (the legacy frontend builds on the
-# host, and `npm ci` fails on DrvFs — see docs/plans/orchestrator-handoff.md
-# Blocker 3), any published port beyond the ones below, and any provider
-# credential.
+# A `web` service (the legacy Vite dev server, published on 5173) is now part
+# of this stack, so the stakeholder click-through is one `docker compose up`
+# and a browser rather than a compose stack plus a hand-run npm on the host.
+# `npm ci` failing on DrvFs — docs/plans/orchestrator-handoff.md Blocker 3 —
+# was the reason it was absent, and the `web-node-modules` volume is what
+# resolves it: npm writes into a Docker volume on the VM's filesystem, not
+# onto /mnt/c. See that service's own note.
+#
+# Still deliberately absent: any published port beyond the ones below, and any
+# provider credential. There is also no identity provider and no login — the
+# `web` service authenticates with the same fixture bearer token the curl
+# steps use, and A1b institutional sign-in remains unconnected.
 #
 # -----------------------------------------------------------------------------
 # The seed, scheduler, and dev bearer tokens below — what they are, and are not
@@ -118,6 +126,18 @@ x-compose-dev-identity:
   # environment, not in this file. Do not reshape the text to get past the
   # gate.
   api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator"}'
+  # The token half of the map above, on its own, because two consumers need it
+  # as a bare `Authorization: Bearer` value rather than as a JSON map: the
+  # `seed-review` service (which submits the demo import through the real API)
+  # and the `web` dev server (which sends it from the browser). YAML anchors
+  # substitute whole scalar nodes and cannot be interpolated, so this cannot be
+  # *derived* from the map above — it is restated, and the two must be edited
+  # together. That is not left to vigilance: `seed-review` authenticates with
+  # this value against a map built from the other, so a drift makes the
+  # appliance fail its own start-up seed with a 401 rather than come up looking
+  # fine, and `scripts/compose_smoke.sh` asserts the seeded queue in CI.
+  # Allowlisted by name in `.gitleaks.toml` for exactly this reason.
+  api_dev_bearer_token: &compose_api_dev_bearer_token "compose-api"
   worker_task_bearer_token: &compose_worker_task_bearer_token "compose-task"
   # Deliberately a different value from the task token above: a caller holding
   # one must not be able to use the other. The worker refuses to start if they
@@ -356,5 +376,142 @@ services:
       worker:
         condition: service_healthy
 
+  # -------------------------------------------------------------------------
+  # Seed-review — one-shot, dev-only. Gives the seeded coordinator something
+  # to actually review.
+  #
+  # `seed` above creates the identity. It does not create any work, so an
+  # appliance that has only just come up shows a coordinator an empty queue,
+  # and the first thing a stakeholder sees is "nothing here" — which is
+  # indistinguishable, from the outside, from a broken import path.
+  #
+  # This service closes that gap WITHOUT writing review_item rows directly.
+  # tools/seed_pilot_review.py submits an ordinary import through the running
+  # API, with the ordinary dev bearer token, and then polls until the ordinary
+  # worker/scheduler path has turned it into pending review items. The demo
+  # queue is therefore produced by the product, not staged behind it: if
+  # dispatch is broken this container exits non-zero and says so, rather than
+  # back-filling rows no pipeline produced. `docker compose ps -a seed-review`
+  # is consequently a real signal, not decoration.
+  #
+  # It is idempotent by observation: it exits 0 without submitting anything if
+  # the unit already has pending items, so `docker compose up` a second time
+  # does not deepen the queue.
+  #
+  # Depends on `scheduler` rather than only on `api`: the import it submits is
+  # queued, and only the scheduler sidecar drives it to review. Waiting on the
+  # API alone would make this service's own timeout the first symptom of a
+  # sidecar that never started.
+  # -------------------------------------------------------------------------
+  seed-review:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_review.py"
+      - "--api-base"
+      # The compose-network name and port, not the published loopback address:
+      # this container is inside the network and 127.0.0.1 here would be
+      # itself.
+      - "http://api:8080"
+      - "--bearer-token"
+      - *compose_api_dev_bearer_token
+      # --tenant-slug and --unit-path stay at the script's defaults (pilot /
+      # pilot), which are the same defaults `seed` above relies on.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+    volumes:
+      # Both files: seed_pilot_review.py imports seed_pilot's edition guard
+      # rather than restating it, so a change to what "dev fixture settings"
+      # means cannot apply to one seed tool and not the other.
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_review.py:/home/smartmatch/seed_pilot_review.py:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      scheduler:
+        condition: service_started
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Web — the legacy Vite dev server, so the click-through has a screen.
+  #
+  # The header note above used to say a frontend service was "deliberately
+  # absent" because `npm ci` fails on a Windows-mounted path under WSL
+  # (DrvFs). That is still true of `npm ci` run on the host; it is not true
+  # here, and the difference is the `web-node-modules` volume below. The
+  # checkout is bind-mounted for the source, but node_modules is a Docker
+  # volume living on the VM's own filesystem, so every file npm writes —
+  # which is where the DrvFs failure actually happens — is written to ext4
+  # inside the VM and never touches /mnt/c. The blocker was the filesystem,
+  # not the toolchain.
+  #
+  # Not a production frontend serving story: this is `vite dev`, unminified,
+  # with HMR, on a dev server that also proxies /api and /v1. It publishes on
+  # loopback only, like every other port here, and it is the same command
+  # INSTALL.md previously asked a reader to run by hand on the host.
+  #
+  # The bearer token below is a credential, not an identity: the browser
+  # sends it and the server decides who that is. There is no login here and
+  # this must not be read as one — institutional sign-in (A1b) is not
+  # connected, and without this variable every portal route redirects to
+  # /login, which says so.
+  # -------------------------------------------------------------------------
+  web:
+    # Pinned by digest like the two Python bases, and for the same reason. The
+    # tag is node:20-bookworm-slim; package.json requires node >= 20.
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    working_dir: /app
+    # `npm ci` only when the volume is empty. On a first `up` this fetches the
+    # dependency tree and takes minutes; on every later `up` the volume is
+    # already populated and the dev server starts immediately. `exec` so vite
+    # is PID 1 and a `docker compose down` stops it rather than killing it —
+    # the same reason both Dockerfiles use `sh -c ... exec`.
+    command:
+      - "sh"
+      - "-c"
+      - "[ -x node_modules/.bin/vite ] || npm ci; exec npm run dev -- --host 0.0.0.0"
+    environment:
+      # Config-time (vite.config.ts reads process.env), so this is never
+      # bundled: it points the dev server's /api and /v1 proxy at the compose
+      # API by service name.
+      SMARTMATCH_API_PROXY_TARGET: "http://api:8080"
+      # Build-time (import.meta.env), so this IS in the bundle the browser
+      # runs — which is precisely why it is a short, local-only literal that
+      # authenticates nothing outside this network. Same value the curl steps
+      # in INSTALL.md send.
+      VITE_SMARTMATCH_BEARER_TOKEN: *compose_api_dev_bearer_token
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./apps/web/legacy-frontend:/app
+      # Named, and mounted over the bind above: this is what keeps npm's writes
+      # off the host filesystem (see the DrvFs note above) and what makes the
+      # second `up` fast. `docker compose down -v` discards it along with the
+      # database, so a clean start really is clean.
+      - web-node-modules:/app/node_modules
+    healthcheck:
+      # Node's own http client rather than adding curl: the image has node and
+      # nothing else is needed to answer one request. Until this is `healthy`,
+      # `npm ci` is still running — `docker compose ps web` is how a reader
+      # tells "still installing" from "broken", and the long start_period is
+      # sized for that first install rather than for a steady-state restart.
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "require('http').get('http://127.0.0.1:5173/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   db-data:
+  web-node-modules:
