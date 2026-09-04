@@ -240,6 +240,40 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((portfolio_status = ANY (ARRAY['optimal'::text, 'feasible'::text, "
         "'infeasible'::text, 'unknown'::text])))"
     ),
+    # Migration 0019, the durable redemption and the representable debit. The
+    # ledger's other new guarantee — that no UPDATE succeeds — is a trigger, as
+    # match_run's is, and so has no entry here; the two partial unique indexes
+    # are indexes and likewise not CHECK constraints. All three are exercised in
+    # test_redemption_durability.py.
+    #
+    # ck_point_ledger_entry_kind is the one that earns the most from being
+    # pinned as text. It is what keeps source_attendance_id's new nullability
+    # from being a hole, and the ways to weaken it — dropping one conjunct from
+    # a disjunct, admitting a fourth kind, relaxing a sign — all keep the name
+    # and most of the behaviour.
+    ("point_ledger_entry", "ck_point_ledger_entry_kind"): (
+        "CHECK ((((kind = 'attendance_credit'::text) AND (source_attendance_id IS NOT NULL) "
+        "AND (source_redemption_id IS NULL) AND (amount > 0)) OR ((kind = 'reversal'::text) "
+        "AND (source_attendance_id IS NOT NULL) AND (source_redemption_id IS NULL) AND "
+        "(amount < 0)) OR ((kind = 'redemption_debit'::text) AND (source_attendance_id IS "
+        "NULL) AND (source_redemption_id IS NOT NULL) AND (amount < 0))))"
+    ),
+    ("redemption", "ck_redemption_state"): (
+        "CHECK ((state = ANY (ARRAY['requested'::text, 'approved'::text, 'fulfilled'::text, "
+        "'denied'::text, 'expired'::text])))"
+    ),
+    ("redemption", "ck_redemption_approval_evidence"): (
+        "CHECK ((((approved_at IS NULL) = (approved_by IS NULL)) AND ((state <> "
+        "'fulfilled'::text) OR (approved_at IS NOT NULL)) AND ((state <> 'requested'::text) "
+        "OR (approved_at IS NULL))))"
+    ),
+    ("redemption", "ck_redemption_closure_evidence"): (
+        "CHECK ((((state = ANY (ARRAY['fulfilled'::text, 'denied'::text, 'expired'::text])) "
+        "= (closed_at IS NOT NULL)) AND ((closed_by IS NULL) OR (closed_at IS NOT NULL))))"
+    ),
+    ("redemption", "ck_redemption_snapshot_present"): (
+        "CHECK (((points_cost_snapshot > 0) AND (length(btrim(item_name_snapshot)) > 0)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -328,6 +362,23 @@ BEHAVIOURAL_COVERAGE = {
     ("match_run", "ck_match_run_random_seed"): "test_match_run_snapshot.py",
     ("match_run", "ck_match_run_route_estimate_source"): "test_match_run_snapshot.py",
     ("match_run", "ck_match_run_portfolio_status"): "test_match_run_snapshot.py",
+    # Migration 0019.
+    ("point_ledger_entry", "ck_point_ledger_entry_kind"): (
+        "test_redemption_durability.py — one refused case per kind for each of "
+        "the three fields that kind constrains (the wrong source, both sources, "
+        "neither source, the wrong sign), and one accepted row per kind, so a "
+        "disjunct quietly widened to fewer conjuncts fails rather than passing "
+        "on the one column a single case happened to vary"
+    ),
+    ("redemption", "ck_redemption_state"): "test_redemption_durability.py",
+    ("redemption", "ck_redemption_approval_evidence"): (
+        "test_redemption_durability.py — including the UPDATE case, which is "
+        "the one that matters: this constraint is what makes 'fulfilled is "
+        "reachable only from approved' true of a hand-written statement and "
+        "not only of the domain state machine"
+    ),
+    ("redemption", "ck_redemption_closure_evidence"): "test_redemption_durability.py",
+    ("redemption", "ck_redemption_snapshot_present"): "test_redemption_durability.py",
 }
 
 

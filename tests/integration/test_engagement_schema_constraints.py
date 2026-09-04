@@ -47,7 +47,7 @@ pytest.importorskip("sqlalchemy")
 
 from conftest import ensure_event, ensure_owning_unit, unique_subject
 from sqlalchemy import Engine, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 pytestmark = pytest.mark.integration
 
@@ -135,21 +135,32 @@ def _insert_attendance(
 
 def _insert_ledger_entry(
     conn, tenant_id: uuid.UUID, source_attendance_id: uuid.UUID, amount: int
-) -> None:
+) -> uuid.UUID:
+    """One attendance-sourced ledger row, and its id.
+
+    ``kind`` follows the sign, which is the derivation migration ``0019``
+    backfilled the column from: an attendance-sourced credit is positive and a
+    reversal negative. The third kind — a redemption debit, which names no
+    attendance — has no place in this file, because the rows here are all about
+    the ``0009`` schema; ``test_redemption_durability.py`` covers it.
+    """
+    entry_id = uuid.uuid4()
     conn.execute(
         text(
             "INSERT INTO point_ledger_entry "
-            "(id, tenant_id, amount, source_attendance_id, reason) "
-            "VALUES (:id, :tenant_id, :amount, :source_id, :reason)"
+            "(id, tenant_id, kind, amount, source_attendance_id, reason) "
+            "VALUES (:id, :tenant_id, :kind, :amount, :source_id, :reason)"
         ),
         {
-            "id": uuid.uuid4(),
+            "id": entry_id,
             "tenant_id": tenant_id,
+            "kind": "attendance_credit" if amount > 0 else "reversal",
             "amount": amount,
             "source_id": source_attendance_id,
             "reason": "verified attendance",
         },
     )
+    return entry_id
 
 
 def _insert_reward_item(
@@ -562,9 +573,17 @@ def test_the_ledger_carries_no_column_an_application_could_legitimately_update(
     assert columns == {
         "id",
         "tenant_id",
-        "amount",
+        # Migration 0019. Neither is a mutable bookkeeping column: `kind` is
+        # decided when the row is written and is what an entry *is*, and
+        # `source_redemption_id` is the second of the two sources — the one
+        # that made a redemption debit representable at all. The argument this
+        # test defends is about columns an application could legitimately
+        # UPDATE, and since 0019 no application can UPDATE this table at all.
+        "kind",
         "source_attendance_id",
+        "source_redemption_id",
         "reason",
+        "amount",
         "actor_id",
         "occurred_at",
     }, "a column added here is an invitation to the mutation its absence forecloses"
@@ -620,22 +639,19 @@ def test_the_attendance_a_ledger_entry_derives_from_cannot_be_deleted(
         conn.execute(text("DELETE FROM attendance_record WHERE id = :id"), {"id": attendance})
 
 
-def test_the_ledger_has_no_database_level_append_only_guard_yet(engine: Engine) -> None:
-    """The gap, asserted rather than assumed — and deliberately not closed here.
+def test_the_ledger_now_has_a_database_level_append_only_guard(engine: Engine) -> None:
+    """Card **L2**, closed by migration ``0019`` — the replacement this test asked for.
 
-    Append-only on ``point_ledger_entry`` is structural (the test above) and
-    conventional (ADR-0013), and it is **not** enforced by the database: no
-    trigger and no rule refuses an ``UPDATE`` or a ``DELETE`` on this table
-    today. Migration ``0009`` records that as a non-blocking note and
-    ``docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`` card **L2** owns the fix,
-    which is gated and not authorized by the D6 pilot-scope record — that record
-    says a missing guard is to be *reported*, not added. This test is the
-    report, in the only form that cannot go stale unnoticed.
+    Until ``0019`` this test asserted the *absence* of a guard, and its own
+    docstring said: "When L2 lands, this test fails, and that is the intended
+    behaviour: it is the signal to replace it with the assertions that the
+    guard refuses an UPDATE." This is that replacement, not a deletion, so the
+    same fact stays under test with its truth value flipped.
 
-    **When L2 lands, this test fails**, and that is the intended behaviour: it
-    is the signal to replace it with the assertions that the guard refuses an
-    UPDATE and a DELETE. Card R3 may not ship a route over this table before
-    then.
+    The guard is one ``BEFORE UPDATE`` trigger, the pattern ``0018`` set for
+    ``match_run``. It is asserted here by name as well as by behaviour: a
+    trigger dropped by a later migration would otherwise leave every write test
+    in this file passing while append-only quietly became a convention again.
     """
     with engine.begin() as conn:
         guards = conn.execute(
@@ -648,8 +664,63 @@ def test_the_ledger_has_no_database_level_append_only_guard_yet(engine: Engine) 
             )
         ).all()
 
-    assert [row.name for row in guards] == [], (
-        "a database-level append-only guard now exists on point_ledger_entry: "
-        "replace this test with one asserting that it refuses an UPDATE and a "
-        "DELETE (plan P7 card L2)"
+    assert [row.name for row in guards] == ["point_ledger_entry_is_append_only"], (
+        "the database-level append-only guard on point_ledger_entry is missing or "
+        "renamed (migration 0019, plan P7 card L2); card R3 may not ship a route "
+        "over this table without it"
     )
+
+
+def test_an_amount_already_written_to_the_ledger_cannot_be_amended(
+    engine: Engine, tenant_id
+) -> None:
+    """The guard, exercised as the write it exists to refuse.
+
+    D7's rule is that there is "no silent balance editing" — a correction is an
+    appended entry with a stated reason, visible to the student. Before
+    migration ``0019`` that held only for callers who went through
+    ``smartmatch_persistence.rewards``; a ``psql`` session could rewrite an
+    amount and leave no trace, because an ``UPDATE`` overwrites the very row a
+    reader would consult. Now the database refuses it, whoever asks.
+
+    ``restrict_violation`` rather than a silent no-op, deliberately: a writer
+    that believed it had corrected a balance and was ignored is the fake
+    success v1.1 §5.5 exists to end.
+    """
+    with engine.begin() as conn:
+        attendance = _insert_attendance(conn, tenant_id)
+        entry_id = _insert_ledger_entry(conn, tenant_id, attendance, 100)
+
+    with pytest.raises(DBAPIError, match="append-only"), engine.begin() as conn:
+        conn.execute(
+            text("UPDATE point_ledger_entry SET amount = 900 WHERE id = :id"), {"id": entry_id}
+        )
+
+    with engine.begin() as conn:
+        unchanged = conn.execute(
+            text("SELECT amount FROM point_ledger_entry WHERE id = :id"), {"id": entry_id}
+        ).scalar_one()
+    assert unchanged == 100, "the refused UPDATE left the entry exactly as it was"
+
+
+def test_a_ledger_row_can_still_be_deleted(engine: Engine, tenant_id) -> None:
+    """DELETE is deliberately **not** blocked, and this is that decision under test.
+
+    ``0018`` made the same call for ``match_run`` and ``0019``'s docstring
+    gives the reasons unchanged: retention is a question neither card decides,
+    every teardown path in this suite needs it, and a table nothing may delete
+    from makes its tenant undeletable. Asserted rather than left implicit, so
+    that a later migration blocking DELETE — which would break tenant teardown
+    across the whole integration suite — fails here first, with a name that
+    says what happened.
+    """
+    with engine.begin() as conn:
+        attendance = _insert_attendance(conn, tenant_id)
+        entry_id = _insert_ledger_entry(conn, tenant_id, attendance, 100)
+
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM point_ledger_entry WHERE id = :id"), {"id": entry_id})
+        remaining = conn.execute(
+            text("SELECT count(*) FROM point_ledger_entry WHERE id = :id"), {"id": entry_id}
+        ).scalar_one()
+    assert remaining == 0

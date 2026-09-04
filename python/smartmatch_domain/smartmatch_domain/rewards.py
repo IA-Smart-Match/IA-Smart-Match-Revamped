@@ -73,6 +73,7 @@ __all__ = [
     "TERMINAL_REDEMPTION_STATES",
     "InvalidRedemptionTransition",
     "LedgerEntry",
+    "LedgerEntryKind",
     "Redemption",
     "RedemptionState",
     "RewardItem",
@@ -84,6 +85,7 @@ __all__ = [
     "fold_balance",
     "is_listable",
     "listable_items",
+    "redemption_debit_amount",
     "replay_states",
     "request_redemption",
     "reversal_entry_amount",
@@ -124,30 +126,90 @@ EARN_POLICY_RATIFIED: Final[bool] = False
 # ---------------------------------------------------------------------------
 
 
+class LedgerEntryKind(StrEnum):
+    """What a ``point_ledger_entry`` row *is*, as migration ``0019`` records it.
+
+    A ``StrEnum`` for the reason :class:`RedemptionState` is one: the member
+    compares equal to the text ``ck_point_ledger_entry_kind`` pins, so one
+    spelling serves the domain, the repository, and the column.
+
+    Three kinds and no more. The vocabulary is closed on purpose: every way a
+    balance can change is one of these, and a fourth would be a way to move
+    points that no rule in ADR-0013 describes.
+    """
+
+    #: One verified attendance, credited once. Positive, names an attendance.
+    ATTENDANCE_CREDIT = "attendance_credit"
+    #: The compensating entry that withdraws a credit. Negative, names the same
+    #: attendance — ADR-0013's "a reversal is a compensating entry, never a
+    #: delete".
+    REVERSAL = "reversal"
+    #: The debit taken when a redemption is fulfilled. Negative, names a
+    #: ``redemption`` and **no** attendance: it does not derive from evidence
+    #: of attending anything.
+    REDEMPTION_DEBIT = "redemption_debit"
+
+
 @dataclass(frozen=True)
 class LedgerEntry:
     """One ``point_ledger_entry`` row, as the fold sees it.
 
     Frozen, because the table is append-only: there is no legitimate mutation
-    of an entry either in the database (migration ``0009`` gives the table no
-    ``status``, ``version``, or ``updated_at`` column) or in this
+    of an entry either in the database — migration ``0009`` gives the table no
+    ``status``, ``version``, or ``updated_at`` column, and ``0019`` adds a
+    ``BEFORE UPDATE`` trigger that refuses one outright — or in this
     representation of one.
 
     ``amount`` is signed. A correction is a negative entry citing the same
     ``source_attendance_id`` with a ``reason`` that says what it corrects —
     ADR-0013's "a reversal is a compensating entry, never a delete".
 
-    ``source_attendance_id`` is ``NOT NULL`` in the schema and non-optional
-    here: an entry deriving from no attendance record is exactly the
-    discretionary grant ADR-0013 refuses.
+    Both source columns are optional **as types** and exactly one of them is
+    populated **as a rule**, which :meth:`__post_init__` enforces. That is the
+    application twin of ``ck_point_ledger_entry_kind`` (migration ``0019``):
+    the nullability exists so a redemption debit — which derives from a
+    redemption, not from an attendance — has a row shape at all, and the rule
+    exists so the nullability is not a hole through which an entry deriving
+    from nothing could arrive.
     """
 
     entry_id: uuid.UUID
     tenant_id: uuid.UUID
+    kind: LedgerEntryKind
     amount: int
-    source_attendance_id: uuid.UUID
     reason: str
     occurred_at: datetime
+    source_attendance_id: uuid.UUID | None = None
+    source_redemption_id: uuid.UUID | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a shape ``ck_point_ledger_entry_kind`` would refuse.
+
+        Checked here as well as in the database because this type is also
+        built from values that never came from a row — a test, or a caller
+        assembling an entry it is about to insert — and a shape the database
+        would reject should fail where it was constructed rather than three
+        frames later inside an ``INSERT``.
+
+        Raises:
+            ValueError: the kind and the fields disagree.
+        """
+        expected_attendance = self.kind is not LedgerEntryKind.REDEMPTION_DEBIT
+        if (self.source_attendance_id is not None) != expected_attendance:
+            raise ValueError(
+                f"a {self.kind.value} entry must "
+                f"{'name' if expected_attendance else 'not name'} an attendance record"
+            )
+        if (self.source_redemption_id is not None) != (not expected_attendance):
+            raise ValueError(
+                f"a {self.kind.value} entry must "
+                f"{'not name' if expected_attendance else 'name'} a redemption"
+            )
+        positive = self.kind is LedgerEntryKind.ATTENDANCE_CREDIT
+        if positive and self.amount <= 0:
+            raise ValueError(f"an attendance credit must be positive, not {self.amount}")
+        if not positive and self.amount >= 0:
+            raise ValueError(f"a {self.kind.value} must be negative, not {self.amount}")
 
 
 def fold_balance(entries: Iterable[LedgerEntry]) -> int:
@@ -205,6 +267,30 @@ def reversal_entry_amount(credited: int) -> int:
             "(ck_point_ledger_entry_amount_nonzero refuses a zero amount)"
         )
     return -credited
+
+
+def redemption_debit_amount(points_cost: int) -> int:
+    """The signed amount of the debit that pays for a redemption.
+
+    Symmetric with :func:`reversal_entry_amount`, and separate from it because
+    the two are different facts: a reversal withdraws a credit that should not
+    have been given, and a debit spends points that were properly earned. The
+    ledger tells them apart by ``kind`` rather than by sign alone
+    (:class:`LedgerEntryKind`), which is why a caller must choose.
+
+    Takes the redemption's **snapshot** cost, not the item's current
+    ``points_cost``: D7 says "existing redemptions retain their point-cost
+    snapshot", so a reward repriced between the request and the fulfilment is
+    paid for at the price the student was shown.
+
+    Raises:
+        ValueError: ``points_cost`` is not positive. Zero would produce a row
+            ``ck_point_ledger_entry_amount_nonzero`` refuses, and a negative
+            cost would make redeeming a reward *earn* points.
+    """
+    if points_cost <= 0:
+        raise ValueError(f"a redemption debit needs a positive cost, not {points_cost}")
+    return -points_cost
 
 
 # ---------------------------------------------------------------------------

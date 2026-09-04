@@ -44,6 +44,7 @@ from smartmatch_domain.rewards import (
     TERMINAL_REDEMPTION_STATES,
     InvalidRedemptionTransition,
     LedgerEntry,
+    LedgerEntryKind,
     RedemptionState,
     RewardItem,
     UnlistableRewardError,
@@ -54,6 +55,7 @@ from smartmatch_domain.rewards import (
     fold_balance,
     is_listable,
     listable_items,
+    redemption_debit_amount,
     replay_states,
     request_redemption,
     reversal_entry_amount,
@@ -67,12 +69,37 @@ _EPOCH = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 
 
 def _entry(amount: int, *, minutes: int = 0, source: uuid.UUID | None = None) -> LedgerEntry:
-    """A ledger entry with a synthetic id and a deterministic timestamp."""
+    """An attendance-sourced ledger entry with a synthetic id and a fixed clock.
+
+    The kind follows the sign, which is exactly the derivation migration
+    ``0019``'s backfill states for rows written before ``kind`` existed: a
+    positive attendance-sourced entry is the credit, a negative one is the
+    reversal that withdraws it. :func:`_debit` builds the third kind, which has
+    no attendance at all.
+    """
     return LedgerEntry(
         entry_id=uuid.uuid4(),
         tenant_id=_TENANT,
+        kind=(LedgerEntryKind.ATTENDANCE_CREDIT if amount > 0 else LedgerEntryKind.REVERSAL),
         amount=amount,
         source_attendance_id=source or uuid.uuid4(),
+        reason="synthetic fixture",
+        occurred_at=_EPOCH + timedelta(minutes=minutes),
+    )
+
+
+def _debit(amount: int, *, minutes: int = 0, redemption: uuid.UUID | None = None) -> LedgerEntry:
+    """A redemption debit: no attendance, a redemption, and a negative amount.
+
+    The row shape that did not exist before migration ``0019`` — see
+    ``test_a_redemption_is_durable_and_its_debit_is_representable``.
+    """
+    return LedgerEntry(
+        entry_id=uuid.uuid4(),
+        tenant_id=_TENANT,
+        kind=LedgerEntryKind.REDEMPTION_DEBIT,
+        amount=amount,
+        source_redemption_id=redemption or uuid.uuid4(),
         reason="synthetic fixture",
         occurred_at=_EPOCH + timedelta(minutes=minutes),
     )
@@ -494,28 +521,132 @@ def test_an_insufficient_balance_is_refused():
         )
 
 
-def test_a_redemption_is_not_durable_yet_and_the_module_says_so():
-    """The two schema gaps this change reports rather than closes.
+def test_a_redemption_is_durable_and_its_debit_is_representable():
+    """The two schema gaps migration ``0019`` closed, asserted as the new reality.
 
-    Deliberately in the unit suite, so it runs in the lane that has no
-    PostgreSQL: both facts are properties of the schema *definition*, and both
-    are the reason the redemption state machine above lives entirely in memory.
+    This test used to say the opposite, and was written to fail the moment
+    either gap was closed — "a reminder to write the durable path honestly, not
+    a preference for the current shape". This is that rewrite rather than a
+    deletion, so the same two facts stay under test with their truth value
+    flipped:
 
-    1. There is no ``redemption`` table. Migration ``0009`` deferred it and this
-       change adds no migration, so a redemption cannot be persisted.
-    2. ``point_ledger_entry.source_attendance_id`` is ``NOT NULL``, so a debit
-       deriving from a redemption rather than from an attendance has no row
-       shape at all. Nothing borrows an unrelated attendance id to make one fit.
+    1. There *is* a ``redemption`` table, so the state machine above is durable
+       rather than an in-memory value that dies with the process.
+    2. ``point_ledger_entry.source_attendance_id`` is nullable and
+       ``source_redemption_id`` exists, so a debit deriving from a redemption
+       rather than from an attendance has a row shape of its own. Nothing
+       borrows an unrelated attendance id to make one fit — before ``0019``
+       that was the only way to write one at all.
 
-    This test fails the moment either gap is closed — which is the point: it is
-    a reminder to write the durable path honestly, not a preference for the
-    current shape.
+    Still deliberately in the unit suite: both are properties of the schema
+    *definition*, so they hold on a machine with no PostgreSQL. The integration
+    lane proves the database agrees
+    (``tests/integration/test_redemption_durability.py``).
     """
     from smartmatch_persistence import schema
     from smartmatch_persistence.rewards import redemption_debit_is_representable
 
-    assert "redemption" not in schema.METADATA.tables
-    assert redemption_debit_is_representable() is False
+    assert "redemption" in schema.METADATA.tables
+    assert redemption_debit_is_representable() is True
+
+
+def test_the_ledger_kind_vocabulary_is_the_one_the_column_admits():
+    """The domain enum and the CHECK constraint are one vocabulary, not two.
+
+    :class:`LedgerEntryKind` exists so the domain, the repository, and the
+    column all spell a kind the same way. A member added here and not to
+    ``ck_point_ledger_entry_kind`` would be a kind no row could hold, and a
+    value admitted by the constraint and absent here would be a row the fold
+    could not classify — both of which are silent until something writes one.
+    """
+    from smartmatch_persistence import schema
+
+    check = next(
+        constraint
+        for constraint in schema.point_ledger_entry.constraints
+        if getattr(constraint, "name", None) == "ck_point_ledger_entry_kind"
+    )
+    expression = str(check.sqltext)
+    for kind in LedgerEntryKind:
+        assert f"'{kind.value}'" in expression, (
+            f"{kind.value} is a LedgerEntryKind the ledger column does not admit"
+        )
+    assert expression.count("kind = ") == len(LedgerEntryKind), (
+        "ck_point_ledger_entry_kind names a number of kinds LedgerEntryKind does not"
+    )
+
+
+def test_a_ledger_entry_must_carry_the_fields_its_kind_requires():
+    """The application twin of ``ck_point_ledger_entry_kind``.
+
+    The nullability that makes a redemption debit writable is only safe because
+    exactly one source is populated. These are the shapes the database refuses,
+    refused here too — at construction, where the caller can still see what it
+    was building, rather than three frames later inside an ``INSERT``.
+    """
+    common = {
+        "entry_id": uuid.uuid4(),
+        "tenant_id": _TENANT,
+        "reason": "synthetic fixture",
+        "occurred_at": _EPOCH,
+    }
+    with pytest.raises(ValueError, match="must not name an attendance"):
+        LedgerEntry(
+            kind=LedgerEntryKind.REDEMPTION_DEBIT,
+            amount=-300,
+            source_attendance_id=uuid.uuid4(),
+            source_redemption_id=uuid.uuid4(),
+            **common,
+        )
+    with pytest.raises(ValueError, match="must name an attendance"):
+        LedgerEntry(kind=LedgerEntryKind.ATTENDANCE_CREDIT, amount=100, **common)
+    with pytest.raises(ValueError, match="must name a redemption"):
+        LedgerEntry(kind=LedgerEntryKind.REDEMPTION_DEBIT, amount=-300, **common)
+    with pytest.raises(ValueError, match="must not name a redemption"):
+        LedgerEntry(
+            kind=LedgerEntryKind.REVERSAL,
+            amount=-100,
+            source_attendance_id=uuid.uuid4(),
+            source_redemption_id=uuid.uuid4(),
+            **common,
+        )
+    with pytest.raises(ValueError, match="must be positive"):
+        LedgerEntry(
+            kind=LedgerEntryKind.ATTENDANCE_CREDIT,
+            amount=-100,
+            source_attendance_id=uuid.uuid4(),
+            **common,
+        )
+    with pytest.raises(ValueError, match="must be negative"):
+        LedgerEntry(
+            kind=LedgerEntryKind.REDEMPTION_DEBIT,
+            amount=300,
+            source_redemption_id=uuid.uuid4(),
+            **common,
+        )
+
+
+def test_a_debit_lowers_the_balance_by_the_snapshot_cost():
+    """Redeeming spends points, and the fold is what says so.
+
+    The debit is an appended entry like every other movement — there is no
+    stored balance to decrement — so the balance after a redemption is the
+    credits and the debit folded together.
+    """
+    ledger = [_entry(100), _entry(100, minutes=1), _entry(100, minutes=2)]
+    assert fold_balance(ledger) == 300
+
+    ledger.append(_debit(redemption_debit_amount(300), minutes=3))
+    assert fold_balance(ledger) == 0
+    assert all(entry.amount == 100 for entry in ledger[:3]), "the credits are untouched"
+
+
+def test_a_redemption_debit_needs_a_positive_cost():
+    """Zero would be a row the ledger refuses; negative would make redeeming *earn*."""
+    with pytest.raises(ValueError, match="positive cost"):
+        redemption_debit_amount(0)
+    with pytest.raises(ValueError, match="positive cost"):
+        redemption_debit_amount(-300)
 
 
 def test_transition_returns_a_new_value_and_leaves_the_original_alone():
