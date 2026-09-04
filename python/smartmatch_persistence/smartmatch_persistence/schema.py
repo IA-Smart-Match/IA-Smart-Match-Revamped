@@ -1501,8 +1501,9 @@ contact_channel = sa.Table(
     # send must name an approved source for it. Research evidence can be
     # recorded and reviewed; it can never reach 'active_candidate'.
     sa.CheckConstraint(
-        "contact_state <> 'active_candidate' OR consent_source IN ('self_service', "
-        "'authenticated', 'in_person', 'institutional_relationship')",
+        "contact_state <> 'active_candidate' OR (consent_source IS NOT NULL "
+        "AND consent_source IN ('self_service', 'authenticated', 'in_person', "
+        "'institutional_relationship'))",
         name="ck_contact_channel_sendable_consent",
     ),
     sa.CheckConstraint(

@@ -249,9 +249,19 @@ def upgrade() -> None:
         # these two enforce it against different threats: the domain check
         # stops application code, and this one stops a hand-written INSERT in a
         # psql session, which no amount of application discipline reaches.
+        # `consent_source IS NOT NULL` is not redundant with the IN list, and
+        # leaving it out was a real defect caught by
+        # `tests/integration/test_outreach_persistence.py`. SQL's three-valued
+        # logic makes `NULL IN (...)` evaluate to NULL, `FALSE OR NULL` to NULL,
+        # and a CHECK constraint treats NULL as *satisfied* — so without this
+        # clause a contact could reach `active_candidate` carrying no consent
+        # source whatsoever, which is precisely the row this constraint exists
+        # to forbid. The refusable sources were blocked correctly; the absent
+        # one was not.
         sa.CheckConstraint(
             "contact_state <> 'active_candidate' "
-            f"OR consent_source IN ({_quoted(_APPROVED_CONSENT_SOURCES)})",
+            "OR (consent_source IS NOT NULL "
+            f"AND consent_source IN ({_quoted(_APPROVED_CONSENT_SOURCES)}))",
             name="ck_contact_channel_sendable_consent",
         ),
         # A source without a time is a consent record nobody can date, and a
