@@ -29,8 +29,8 @@ const TILE_ICONS: Record<PipelineFunnelMetricName, LucideIcon> = {
 };
 
 const TILE_ICON_CLASS: Record<PipelineFunnelMetricName, string> = {
-  pipeline_matched: "bg-blue-100 text-blue-600",
-  pipeline_contacted: "bg-blue-100 text-blue-600",
+  pipeline_matched: "bg-primary/10 text-primary",
+  pipeline_contacted: "bg-primary/10 text-primary",
   pipeline_confirmed: "bg-green-100 text-green-600",
   pipeline_attended: "bg-orange-100 text-orange-600",
   pipeline_member_inquiry: "bg-indigo-100 text-indigo-600",

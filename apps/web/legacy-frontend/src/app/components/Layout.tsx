@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation } from "react-router";
+import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   Briefcase,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { BrandLogo } from "./BrandLogo";
 import { SyntheticDataBanner } from "./provenance";
 import {
   Tooltip,
@@ -23,9 +24,9 @@ const navigationSections = [
   {
     label: "MANAGE",
     items: [
-      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of metrics and pipeline health" },
-      { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Specialist roster and engagement metrics" },
-      { name: "Pipeline", href: "/pipeline", icon: TrendingUp, tooltip: "Track matches through each stage" },
+      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of events and volunteer coverage" },
+      { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Volunteer profiles, assignments, and availability" },
+      { name: "Match progress", href: "/pipeline", icon: TrendingUp, tooltip: "Follow each match from introduction to event" },
       { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
     ],
   },
@@ -33,23 +34,21 @@ const navigationSections = [
     label: "DISCOVER",
     items: [
       { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
-      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank specialists against open opportunities" },
+      { name: "Find matches", href: "/ai-matching", icon: Sparkles, tooltip: "Compare volunteers with open opportunities" },
       { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
     ],
   },
 ];
 
-const allNavItems = navigationSections.flatMap((s) => s.items);
-
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const currentPage = allNavItems.find(
-    (item) =>
-      location.pathname === item.href ||
-      (item.href !== "/dashboard" && location.pathname.startsWith(item.href)),
-  );
+  function handleSignOut() {
+    sessionStorage.removeItem("iaw_session");
+    navigate("/");
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,19 +69,11 @@ export function Layout() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs text-[#5a6472]">IA West Chapter</p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label="Smart Match administration" />
             <button
               onClick={() => setSidebarOpen(false)}
-              className="rounded-md p-2 text-[#5a6472] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
+              className="rounded-md p-2 text-[#59665f] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
               aria-label="Close sidebar"
             >
               <X className="w-5 h-5" />
@@ -96,7 +87,7 @@ export function Layout() {
                 {sectionIndex > 0 && (
                   <div className="mb-3 mt-1 border-t border-sidebar-border" />
                 )}
-                <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.2em] text-[#5a6472]">
+                <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.2em] text-[#59665f]">
                   {section.label}
                 </p>
                 <div className="space-y-1">
@@ -115,8 +106,8 @@ export function Layout() {
                             onClick={() => setSidebarOpen(false)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                               isActive
-                                ? "border border-[#c9d9ee] bg-[#eef4ff] text-[#005394] shadow-sm"
-                                : "text-[#394454] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                ? "border border-primary/20 bg-primary/10 text-primary shadow-sm"
+                                : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             }`}
                           >
                             <Icon className="w-5 h-5" />
@@ -144,9 +135,15 @@ export function Layout() {
                 <p className="truncate text-sm font-medium text-sidebar-foreground">
                   IA Admin
                 </p>
-                <p className="truncate text-xs text-[#5a6472]">admin@ia.org</p>
+                <p className="truncate text-xs text-[#59665f]">admin@ia.org</p>
               </div>
             </div>
+            <button
+              onClick={handleSignOut}
+              className="mt-2 w-full rounded-xl px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </aside>
@@ -158,28 +155,17 @@ export function Layout() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-md p-2 text-[#5a6472] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="rounded-md p-2 text-[#59665f] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               aria-label="Open sidebar menu"
             >
               <Menu className="w-6 h-6" />
             </button>
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">Smart Match</span>
+              <BrandLogo compact className="w-[145px]" />
             </div>
             <div className="w-6" /> {/* Spacer for centering */}
           </div>
         </header>
-
-        {/* Page title strip (desktop only) */}
-        {currentPage && (
-          <div className="hidden lg:flex items-center gap-2.5 border-b border-sidebar-border bg-white px-8 py-3">
-            <currentPage.icon className="h-4 w-4 text-[#005394]" />
-            <span className="text-sm font-medium text-[#394454]">{currentPage.name}</span>
-          </div>
-        )}
 
         {/* Page content */}
         <main className="p-6 lg:p-8">

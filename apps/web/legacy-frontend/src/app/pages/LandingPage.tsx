@@ -1,257 +1,179 @@
 import { Link } from "react-router";
 import { motion, useReducedMotion } from "motion/react";
-import { AppIcon } from "../../components/AppIcon";
+import { ArrowRight, CalendarCheck2, HeartHandshake, SearchCheck } from "lucide-react";
 
 const introReveal = {
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 22 },
   whileInView: { opacity: 1, y: 0 },
-  transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] as const },
-  viewport: { once: true, amount: 0.35 },
+  transition: { duration: 0.65, ease: [0.16, 1, 0.3, 1] as const },
+  viewport: { once: true, amount: 0.25 },
 } as const;
 
-const pipelineFeatures = [
+const steps = [
   {
-    icon: "discover" as const,
-    title: "Discover Opportunities",
-    description:
-      "Automated scraping of university career centers across the West Coast to find the perfect speaking slots.",
+    icon: SearchCheck,
+    number: "01",
+    title: "Find events",
+    description: "Bring university opportunities into one place instead of searching site by site.",
   },
   {
-    icon: "matching" as const,
-    title: "Intelligent Matching",
-    description:
-      "Advanced algorithms analyze volunteer bios and event descriptions to ensure high-impact connections.",
+    icon: HeartHandshake,
+    number: "02",
+    title: "Choose the right volunteer",
+    description: "Compare experience, interests, availability, and workload before making an assignment.",
   },
   {
-    icon: "pipeline" as const,
-    title: "Pipeline Tracking",
-    description:
-      "Manage the flow from initial lead to confirmed engagement with detailed CRM-style reporting.",
+    icon: CalendarCheck2,
+    number: "03",
+    title: "Keep assignments on track",
+    description: "See what needs attention from the first conversation through the day of the event.",
   },
 ];
 
 export function LandingPage() {
   const reduceMotion = useReducedMotion();
+  const currentYear = new Date().getFullYear();
 
   return (
-    <div className="public-shell">
-      {/* ── Header ──────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-border/70 bg-background/85 backdrop-blur-xl">
-        <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
-          <Link to="/" className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20">
-              IW
-            </span>
-            <div className="leading-tight">
-              <p className="font-semibold text-foreground">IA West Smart Match</p>
-              <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">Coordinator Platform</p>
-            </div>
+    <div className="public-shell flex min-h-screen flex-col">
+      <header className="sticky top-0 z-50 border-b border-border/70 bg-[#f8f6f1]/90 backdrop-blur-xl">
+        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-3 sm:px-6 lg:px-8">
+          <Link to="/" className="block w-[210px] sm:w-[260px]" aria-label="Cal Poly Pomona Smart Match home">
+            <img
+              src="/brand/cpp-horizontal-green.png"
+              alt="Cal Poly Pomona"
+              className="brand-logo"
+            />
           </Link>
-          <Link to="/login" className="public-button-primary">Sign In</Link>
+          <Link
+            to="/login"
+            className="rounded-md px-2 py-2 text-sm font-semibold text-primary transition hover:text-primary/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            Sign in
+          </Link>
         </nav>
       </header>
 
-      <main>
-        {/* ── HERO ──────────────────────────────────────────── */}
-        <section
-          id="hero"
-          className="mx-auto max-w-5xl px-6 py-16 text-center lg:px-8 lg:py-24"
-        >
-          <motion.div {...introReveal} className="space-y-8">
-            <span className="public-pill">AI-Driven Volunteer Coordination for IA West</span>
-
-            <div className="space-y-6">
-              <h1 className="font-[Inter_Tight] text-5xl font-bold leading-[1.08] tracking-tight text-foreground md:text-6xl lg:text-7xl">
-                Connect the right speakers with the right university opportunities
-              </h1>
-
-              <p className="mx-auto max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl">
-                Intelligent matching system that bridges the gap between industry expertise and
-                academic needs through high-fidelity data signals.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <Link to="/login" className="public-button-primary">
-                Sign in
+      <main className="flex-1">
+        <section className="relative overflow-hidden">
+          <div className="pointer-events-none absolute -right-24 top-12 h-72 w-72 rounded-full bg-[#A4D65E]/20 blur-3xl" />
+          <div className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-16 lg:grid-cols-[1.08fr_0.92fr] lg:px-8 lg:py-24">
+            <motion.div {...introReveal} className="relative z-10 space-y-7">
+              <div className="space-y-6">
+                <h1 className="max-w-4xl text-4xl font-bold leading-[1.05] tracking-[-0.03em] text-primary sm:text-5xl lg:text-6xl">
+                  Match volunteers with events where they can help most.
+                </h1>
+                <p className="max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
+                  Smart Match helps coordinators find opportunities, compare volunteer experience
+                  and availability, and keep assignments organized in one place.
+                </p>
+              </div>
+              <Link to="/login" className="public-button-primary group gap-2">
+                Sign in to Smart Match
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
               </Link>
-              <a href="#proof" className="public-button-secondary">
-                View Demo
-              </a>
-            </div>
+            </motion.div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">2,481</p>
-                <p className="mt-1 text-sm text-muted-foreground">opportunities surfaced</p>
+            <motion.div
+              initial={reduceMotion ? false : { opacity: 0, x: 28 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.75, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+              className="relative"
+              aria-label="A simple event assignment workflow"
+            >
+              <div className="brand-accent absolute -inset-3 rounded-[2rem] opacity-35 blur-xl" />
+              <div className="public-panel relative overflow-hidden p-6 sm:p-8">
+                <div className="mb-7 flex items-center justify-between border-b border-border/70 pb-5">
+                  <div>
+                    <p className="text-sm font-semibold text-primary">Upcoming event</p>
+                    <h2 className="mt-1 text-2xl font-semibold text-foreground">Career panel</h2>
+                  </div>
+                  <span className="rounded-full bg-[#A4D65E]/25 px-3 py-1.5 text-xs font-semibold text-primary">
+                    Ready to assign
+                  </span>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    ["What the event needs", "Product design and career mentoring"],
+                    ["Volunteer availability", "Available on the event date"],
+                    ["Break need", "Low — available for another event"],
+                  ].map(([label, value], index) => (
+                    <div key={label} className="flex gap-4 rounded-2xl bg-muted/70 p-4">
+                      <span className="brand-accent flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-[#17352a]">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+                        <p className="mt-1 font-medium text-foreground">{value}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">842</p>
-                <p className="mt-1 text-sm text-muted-foreground">high-fit matches</p>
-              </div>
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">94%</p>
-                <p className="mt-1 text-sm text-muted-foreground">signal confidence</p>
-              </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </section>
 
-        {/* ── STORY ────────────────────────────────────────────
-            Reference: "Complete Volunteer Engagement Pipeline"
-        ──────────────────────────────────────────────────────── */}
-        <motion.section
-          id="story"
-          {...introReveal}
-          className="mx-auto max-w-7xl px-6 py-8 lg:px-8 lg:py-16"
-        >
-          <div className="mb-12 space-y-2">
-            <h2 className="font-[Inter_Tight] text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              Complete Volunteer Engagement Pipeline
+        <motion.section {...introReveal} className="mx-auto max-w-7xl px-6 py-14 lg:px-8 lg:py-20" aria-labelledby="how-it-works">
+          <div className="max-w-2xl">
+            <h2 id="how-it-works" className="text-3xl font-semibold text-foreground sm:text-4xl">
+              How Smart Match works
             </h2>
-            <p className="text-base text-muted-foreground">
-              A unified platform to manage the entire lifecycle of university partnerships.
+            <p className="mt-3 text-lg leading-8 text-muted-foreground">
+              Give coordinators the information they need to make thoughtful assignments without adding more busywork.
             </p>
           </div>
 
-          <div className="grid gap-8 border-t border-border/60 pt-10 md:grid-cols-3">
-            {pipelineFeatures.map((feature, i) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] }}
-                viewport={{ once: true, amount: 0.4 }}
-                className="flex flex-col gap-4"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10">
-                  <AppIcon name={feature.icon} className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-[Inter_Tight] text-lg font-bold text-foreground">
-                    {feature.title}
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {feature.description}
-                  </p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.section>
-
-        {/* ── PROOF ────────────────────────────────────────────
-            Reference: "Discovery Automation" terminal widget
-        ──────────────────────────────────────────────────────── */}
-        <motion.section
-          id="proof"
-          {...introReveal}
-          className="mx-auto max-w-7xl px-6 py-8 lg:px-8 lg:py-16"
-        >
-          {/* Discovery Automation row */}
-          <div className="public-panel overflow-hidden">
-            <div className="grid md:grid-cols-2">
-              {/* Terminal widget */}
-              <div className="border-b border-border/60 bg-slate-950 p-6 md:border-b-0 md:border-r md:p-8">
-                {/* GET request line */}
-                <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <span className="shrink-0 rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-                    GET
-                  </span>
-                  <code className="truncate text-xs text-slate-300">
-                    https://career.ucla.edu/api/events
-                  </code>
-                </div>
-
-                {/* Parsing line */}
-                <div className="mt-4 flex items-center gap-3 px-1">
-                  <motion.span
-                    className="h-2 w-2 shrink-0 rounded-full bg-emerald-400"
-                    animate={reduceMotion ? undefined : { opacity: [1, 0.3, 1] }}
-                    transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                  <span className="text-xs font-mono font-medium text-slate-400">
-                    PARSING UCLA DATA...
-                  </span>
-                </div>
-
-                {/* Match found */}
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white">
-                      ✓
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+              return (
+                <motion.article
+                  key={step.title}
+                  initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: index * 0.08 }}
+                  viewport={{ once: true, amount: 0.35 }}
+                  className="public-panel flex h-full flex-col p-6"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                      <Icon className="h-5 w-5" aria-hidden="true" />
                     </span>
-                    <span className="text-xs font-semibold text-white">
-                      Match Found: UCLA Career Fair 2026
-                    </span>
+                    <span className="font-[var(--font-headline)] text-sm font-bold text-[#8C6D62]">{step.number}</span>
                   </div>
-                  <span className="text-white/60">›</span>
-                </div>
-
-                {/* Platform badges */}
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  {["UCLA", "USC", "SDSU"].map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-bold text-slate-300"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                  <span className="text-[11px] text-slate-500">+42 Platforms Monitored</span>
-                </div>
-              </div>
-
-              {/* Copy */}
-              <div className="flex flex-col justify-center gap-4 p-6 md:p-10">
-                <h3 className="font-[Inter_Tight] text-2xl font-bold text-foreground md:text-3xl">
-                  Discovery Automation
-                </h3>
-                <p className="leading-relaxed text-muted-foreground">
-                  Our proprietary web scraping pipeline monitors UCLA, USC, and dozens of other
-                  university sites in real-time. No more manual searching; opportunities are
-                  delivered directly to your dashboard.
-                </p>
-                <Link to="/login" className="public-button-primary self-start">
-                  Sign in
-                </Link>
-              </div>
-            </div>
+                  <h3 className="mt-6 text-xl font-semibold text-foreground">{step.title}</h3>
+                  <p className="mt-2 leading-7 text-muted-foreground">{step.description}</p>
+                </motion.article>
+              );
+            })}
           </div>
-
         </motion.section>
 
-        {/* ── LOGIN CTA ────────────────────────────────────────── */}
-        <motion.section
-          id="login"
-          {...introReveal}
-          className="mx-auto max-w-5xl px-6 py-8 pb-20 lg:px-8 lg:py-16"
-        >
-          <div className="public-panel overflow-hidden p-8 md:p-10">
-            <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
-              <div className="space-y-4">
-                <p className="public-pill">Ready to explore?</p>
-                <h2 className="font-[Inter_Tight] text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-                  Sign in when institutional access is connected.
+        <section className="mx-auto max-w-7xl px-6 pb-16 lg:px-8 lg:pb-24" aria-labelledby="workload-care">
+          <div className="overflow-hidden rounded-[2rem] bg-primary text-white shadow-[0_24px_70px_rgba(0,80,48,0.2)]">
+            <div className="grid items-center gap-8 p-8 md:grid-cols-[0.8fr_1.2fr] md:p-12">
+              <div className="brand-accent flex aspect-square max-w-[220px] items-center justify-center rounded-[2rem] p-7 text-primary shadow-lg">
+                <HeartHandshake className="h-24 w-24" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#A4D65E]">Support volunteers</p>
+                <h2 id="workload-care" className="mt-3 text-3xl font-semibold text-white sm:text-4xl">
+                  Make room for the right break.
                 </h2>
-                <p className="max-w-2xl text-muted-foreground">
-                  Portal access and roles are assigned by the server after verified identity. Until
-                  institutional sign-in is connected, the login page explains what is not available yet.
+                <p className="mt-4 max-w-2xl text-lg leading-8 text-white/80">
+                  Workload information helps coordinators see when someone has been assigned often and may need time to rest before another event.
                 </p>
-              </div>
-              <div className="flex flex-col gap-3 justify-self-start lg:justify-self-end">
-                <Link to="/login" className="public-button-primary">
-                  Sign in
-                </Link>
               </div>
             </div>
           </div>
-        </motion.section>
+        </section>
       </main>
 
-      <footer className="border-t border-border/70 bg-background/80">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-8 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between lg:px-8">
-          <p className="font-medium text-foreground">IA West Smart Match</p>
+      <footer className="border-t border-border/80 bg-[#F2EEE8]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-7 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between lg:px-8">
+          <p>© {currentYear} Cal Poly Pomona. All rights reserved.</p>
+          <p className="font-medium text-primary">Smart Match</p>
         </div>
       </footer>
     </div>

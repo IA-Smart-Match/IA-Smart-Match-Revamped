@@ -69,11 +69,11 @@ export function Opportunities() {
       </div>
 
       <div
-        className="rounded-2xl border border-[#d5e0f7] bg-white p-8 shadow-sm"
+        className="rounded-2xl border border-[#d9cbc4] bg-white p-8 shadow-sm"
         aria-labelledby="opportunities-metric-heading"
       >
         <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eef4ff] text-[#005394]">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#edf5f0] text-[#005030]">
             {summary ? (
               <Briefcase className="h-5 w-5" aria-hidden="true" />
             ) : (
@@ -82,7 +82,7 @@ export function Opportunities() {
           </div>
           <div className="space-y-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#005394]/70">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#005030]/70">
                 Registered metric · {OPPORTUNITIES_METRIC_NAME}
               </p>
               <h2

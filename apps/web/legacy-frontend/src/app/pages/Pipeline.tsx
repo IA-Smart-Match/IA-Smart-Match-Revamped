@@ -16,7 +16,7 @@
  *
  */
 import { useEffect, useState } from "react";
-import { AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -283,14 +283,9 @@ export function Pipeline() {
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-blue-500">
-              <TrendingUp className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-semibold text-gray-900">
-              Pipeline Tracking{isMockData && <DemoModeBadge />}
-            </h1>
-          </div>
+          <h1 className="mb-2 text-3xl font-semibold text-gray-900">
+            Match progress{isMockData && <DemoModeBadge />}
+          </h1>
           <p className="text-gray-600">
             Funnel stages read from the registered metrics API. Each tile drills down to exactly the
             rows its aggregate was calculated from.
@@ -339,10 +334,10 @@ export function Pipeline() {
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">QR ROI Tracking</h3>
                 <p className="mt-1 text-sm text-gray-600">
-                  Referral codes, scans, and downstream conversion signals from the QR contract.
+                  See how referral codes are being used and which visits lead to interest.
                 </p>
               </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
                 {availabilityPill(
                   qrAvailable,
                   qrStats.total_generated,
@@ -353,8 +348,8 @@ export function Pipeline() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Codes generated</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Codes generated</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={qrCodesGenerated}
@@ -363,8 +358,8 @@ export function Pipeline() {
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Deterministic referral assets created.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Total scans</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Total scans</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={qrTotalScans}
@@ -373,8 +368,8 @@ export function Pipeline() {
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Tracks the redirect endpoint activity.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Conversions</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Conversions</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={qrConversions}
@@ -385,8 +380,8 @@ export function Pipeline() {
                   Membership-interest outcomes attributed to QR.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Scan-to-conversion</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Scan-to-conversion</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={qrConversionRate}
@@ -465,7 +460,7 @@ export function Pipeline() {
                   Feedback-driven acceptance, pain-score, and weight-shift telemetry for the matcher.
                 </p>
               </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <span className="rounded-full bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
                 {availabilityPill(
                   feedbackAvailable,
                   feedbackStats.total_feedback,
@@ -476,8 +471,8 @@ export function Pipeline() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Feedback rows</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Feedback rows</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={feedbackRows}
@@ -486,8 +481,8 @@ export function Pipeline() {
                 </p>
                 <p className="mt-1 text-xs text-gray-600">Coordinator submissions captured so far.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Acceptance rate</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Acceptance rate</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={feedbackAcceptance}
@@ -498,8 +493,8 @@ export function Pipeline() {
                   Accept vs. decline signal from the feedback loop.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Pain score</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Pain score</p>
                 <p className="mt-2 text-3xl font-semibold text-gray-900">
                   <AccountableValue
                     metric={feedbackPain}
@@ -510,8 +505,8 @@ export function Pipeline() {
                   Tracks how much correction pressure the matcher is under.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Lead shift</p>
+              <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                <p className="text-sm font-medium text-primary">Lead shift</p>
                 <p className="mt-2 text-lg font-semibold text-gray-900">
                   {leadAdjustment
                     ? formatFactorName(leadAdjustment.factor)
@@ -584,7 +579,7 @@ export function Pipeline() {
                           <p className="font-medium text-gray-900">
                             {formatFactorName(adjustment.factor)}
                           </p>
-                          <span className="text-sm font-semibold text-blue-700">
+                          <span className="text-sm font-semibold text-primary">
                             {adjustment.delta > 0 ? "+" : ""}
                             {(adjustment.delta * 100).toFixed(1)} pts
                           </span>

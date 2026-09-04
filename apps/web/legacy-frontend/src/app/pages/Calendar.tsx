@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
+import { breakNeedLabel } from "@/lib/breakNeed";
 
 import {
   fetchCalendarAssignments,
@@ -135,7 +136,7 @@ function buildMonthCells(date: Date): DayCell[] {
 function coverageTone(status: CalendarEventSummary["coverage_status"]) {
   switch (status) {
     case "covered":
-      return "border-blue-200 bg-blue-50 text-blue-800";
+      return "border-primary/20 bg-primary/5 text-primary";
     case "partial":
       return "border-amber-200 bg-amber-50 text-amber-800";
     case "needs_coverage":
@@ -363,9 +364,6 @@ export function Calendar() {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="space-y-2">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-            Master calendar
-          </p>
           <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
         </div>
         <FailureState
@@ -380,14 +378,11 @@ export function Calendar() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-          Master calendar
-        </p>
         <h1 className="inline-flex items-center gap-2 text-3xl font-semibold text-slate-900">
           Coordinator scheduling view{isMockData && <DemoModeBadge />}
         </h1>
         <p className="text-slate-600">
-          Track coverage, assignment overlays, and volunteer recovery without leaving the calendar.
+          Track open event needs, volunteer assignments, and break recommendations in one calendar.
         </p>
       </div>
 
@@ -405,27 +400,27 @@ export function Calendar() {
           <p className="mt-1 text-sm text-slate-600">Open windows that still need a volunteer</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average fatigue</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average break need</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {formatPercent(metrics.averageFatigue)}
           </p>
-          <p className="mt-1 text-sm text-slate-600">Recovery posture from assignment overlays</p>
+          <p className="mt-1 text-sm text-slate-600">Higher values mean volunteers may need more rest</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">On cooldown</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Break recommended</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.cooldownCount}</p>
-          <p className="mt-1 text-sm text-slate-600">Volunteers that should be left untouched</p>
+          <p className="mt-1 text-sm text-slate-600">Volunteers who should rest before another event</p>
         </div>
       </div>
 
-      <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-primary/10 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white">
               <CalendarRange className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
                 {periodLabel}
               </p>
               <h2 className="text-2xl font-semibold text-slate-900">
@@ -446,7 +441,7 @@ export function Calendar() {
                   onClick={() => setView(candidate)}
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     view === candidate
-                      ? "bg-blue-600 text-white shadow-sm"
+                      ? "bg-primary text-white shadow-sm"
                       : "text-slate-600 hover:bg-white"
                   }`}
                 >
@@ -501,7 +496,7 @@ export function Calendar() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-medium text-blue-700">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 font-medium text-primary">
               <ShieldCheck className="h-4 w-4" />
               IA covered
             </span>
@@ -545,14 +540,14 @@ export function Calendar() {
                   }}
                   className={`group min-h-[145px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
                     sameDay(cell.date, new Date())
-                      ? "border-blue-200 bg-blue-50/70"
+                      ? "border-primary/20 bg-primary/5"
                       : "border-slate-200 bg-slate-50/60"
                   }`}
                 >
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <span
                       className={`text-base font-semibold ${
-                        sameDay(cell.date, new Date()) ? "text-blue-700" : "text-slate-900"
+                        sameDay(cell.date, new Date()) ? "text-primary" : "text-slate-900"
                       }`}
                     >
                       {cell.date.getDate()}
@@ -613,7 +608,7 @@ export function Calendar() {
                     setView("day");
                   }}
                   className={`min-h-[320px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                    sameDay(day, new Date()) ? "border-blue-200 bg-blue-50/70" : "border-slate-200 bg-slate-50/60"
+                    sameDay(day, new Date()) ? "border-primary/20 bg-primary/5" : "border-slate-200 bg-slate-50/60"
                   }`}
                 >
                   <div className="mb-3 flex items-center justify-between gap-2">
@@ -621,7 +616,7 @@ export function Calendar() {
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
                         {day.toLocaleDateString("en-US", { weekday: "short" })}
                       </p>
-                      <p className={`text-lg font-semibold ${sameDay(day, new Date()) ? "text-blue-700" : "text-slate-900"}`}>
+                      <p className={`text-lg font-semibold ${sameDay(day, new Date()) ? "text-primary" : "text-slate-900"}`}>
                         {day.getDate()}
                       </p>
                     </div>
@@ -660,7 +655,7 @@ export function Calendar() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
                   Day detail
                 </p>
                 <h3 className="text-2xl font-semibold text-slate-900">
@@ -672,7 +667,7 @@ export function Calendar() {
                   })}
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  The coordinator can see coverage, volunteers, and recovery posture in one place.
+                  See event coverage, volunteer assignments, and who may need a break in one place.
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
@@ -706,15 +701,15 @@ export function Calendar() {
 
                           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-700">
                             <span className="inline-flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-blue-700" />
+                              <MapPin className="h-4 w-4 text-primary" />
                               {event.region}
                             </span>
                             <span className="inline-flex items-center gap-2">
-                              <CalendarDays className="h-4 w-4 text-blue-700" />
+                              <CalendarDays className="h-4 w-4 text-primary" />
                               {event.event_date}
                             </span>
                             <span className="inline-flex items-center gap-2">
-                              <ShieldCheck className="h-4 w-4 text-blue-700" />
+                              <ShieldCheck className="h-4 w-4 text-primary" />
                               {event.assignment_count} assigned
                             </span>
                           </div>
@@ -743,7 +738,7 @@ export function Calendar() {
 
                       <div className="mt-4">
                         <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                          Assignment overlays
+                          Volunteer assignments
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {eventAssignments.length ? (
@@ -788,9 +783,9 @@ export function Calendar() {
           <div className="space-y-4">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-700" />
+                <Users className="h-5 w-5 text-primary" />
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Assignment overlays</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">Volunteer assignments</h3>
                   <p className="text-sm text-slate-600">
                     Coverage-aware assignments and recovery status for the selected day.
                   </p>
@@ -820,14 +815,14 @@ export function Calendar() {
                           )}`}
                         >
                           <span className={`mr-2 h-2.5 w-2.5 rounded-full ${recoveryFill(assignment.recovery_status)}`} />
-                          {assignment.recovery_label}
+                          {breakNeedLabel(assignment.recovery_status)}
                         </span>
                       </div>
 
                       <div className="mt-4 grid grid-cols-3 gap-3">
                         <div className="rounded-xl bg-white px-3 py-2">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                            Fatigue
+                            Break need
                           </p>
                           <p className="mt-1 text-sm font-semibold text-slate-900">
                             {formatPercent(assignment.volunteer_fatigue)}
@@ -862,7 +857,7 @@ export function Calendar() {
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-blue-700" />
+                <Building2 className="h-5 w-5 text-primary" />
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Coverage notes</h3>
                   <p className="text-sm text-slate-600">

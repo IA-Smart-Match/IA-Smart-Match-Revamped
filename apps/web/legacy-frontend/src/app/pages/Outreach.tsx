@@ -3,7 +3,6 @@ import {
   Building2,
   Download,
   Edit,
-  Mail,
   Send,
   Sparkles,
   User,
@@ -231,12 +230,7 @@ export function Outreach() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div>
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-500 rounded-lg flex items-center justify-center">
-            <Mail className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-3xl font-semibold text-gray-900">Outreach & Communications</h1>
-        </div>
+        <h1 className="mb-2 text-3xl font-semibold text-gray-900">Outreach &amp; Communications</h1>
         <p className="text-gray-600">Generate live outreach copy from the backend email service.</p>
       </div>
 
@@ -258,19 +252,19 @@ export function Outreach() {
                   onClick={() => handleTemplateSelect(template)}
                   className={`w-full text-left p-3 rounded-lg transition-colors ${
                     selectedTemplate.id === template.id
-                      ? "bg-blue-50 border border-blue-200"
+                      ? "bg-primary/5 border border-primary/20"
                       : "bg-gray-50 border border-transparent hover:bg-gray-100"
                   }`}
                 >
                   <p className="font-medium text-gray-900 text-sm mb-1">{template.name}</p>
                   <div className="flex items-center gap-2">
                     {template.category === "volunteer" ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
                         <User className="w-3 h-3" />
                         Volunteer
                       </span>
                     ) : template.category === "university" ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
                         <Building2 className="w-3 h-3" />
                         University
                       </span>
@@ -291,7 +285,7 @@ export function Outreach() {
               <button
                 onClick={() => void handleGenerateEmail()}
                 disabled={loading || busy}
-                className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60"
+                className="w-full flex items-center gap-3 p-3 bg-primary/5 text-primary rounded-lg hover:bg-primary/15 transition-colors disabled:opacity-60"
               >
                 <Sparkles className="w-5 h-5" />
                 <span className="font-medium">AI Generate Email</span>
@@ -299,7 +293,7 @@ export function Outreach() {
               <button
                 onClick={() => void handleDownloadIcs()}
                 disabled={loading || busy}
-                className="w-full flex items-center gap-3 p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60"
+                className="w-full flex items-center gap-3 p-3 bg-primary/5 text-primary rounded-lg hover:bg-primary/15 transition-colors disabled:opacity-60"
               >
                 <Download className="w-5 h-5" />
                 <span className="font-medium">Download ICS Invite</span>
@@ -332,7 +326,7 @@ export function Outreach() {
                 <select
                   value={selectedSpeaker}
                   onChange={(event) => setSelectedSpeaker(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <optgroup label="IA West Volunteers">
                     {specialists.map((speaker) => (
@@ -357,7 +351,7 @@ export function Outreach() {
                 <select
                   value={selectedEvent}
                   onChange={(event) => setSelectedEvent(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {events.map((event) => (
                     <option key={event["Event / Program"]} value={event["Event / Program"]}>
@@ -382,7 +376,7 @@ export function Outreach() {
                   type="text"
                   value={subject}
                   onChange={(event) => setSubject(event.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               ) : (
                 <div className="px-4 py-2 bg-gray-50 rounded-lg text-gray-900">{subject}</div>
@@ -398,7 +392,7 @@ export function Outreach() {
                   value={body}
                   onChange={(event) => setBody(event.target.value)}
                   rows={16}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
                 />
               ) : (
                 <div className="px-4 py-3 bg-gray-50 rounded-lg text-gray-900 whitespace-pre-wrap min-h-[400px]">
@@ -407,12 +401,12 @@ export function Outreach() {
               )}
             </div>
 
-            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-              <p className="text-sm font-medium text-blue-900 mb-2">Live context</p>
-              <p className="text-sm text-blue-800">
+            <div className="bg-primary/5 rounded-lg p-4 border border-primary/20">
+              <p className="text-sm font-medium text-primary mb-2">Live context</p>
+              <p className="text-sm text-primary">
                 Event host: {selectedEventRow?.["Host / Unit"] || "Not listed"}
               </p>
-              <p className="text-sm text-blue-800">
+              <p className="text-sm text-primary">
                 Audience: {selectedEventRow?.["Primary Audience"] || "Not listed"}
               </p>
             </div>
@@ -430,7 +424,7 @@ export function Outreach() {
               <button
                 onClick={() => void handleGenerateEmail()}
                 disabled={busy || loading}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-60"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-60"
               >
                 <Send className="w-5 h-5" />
                 {busy ? "Working..." : "Generate / Refresh"}
@@ -464,7 +458,7 @@ export function Outreach() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
                     <p className="font-medium text-gray-900">{email.to}</p>
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
                       {email.status}
                     </span>
                   </div>

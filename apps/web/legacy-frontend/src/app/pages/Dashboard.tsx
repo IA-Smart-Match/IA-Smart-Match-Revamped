@@ -492,8 +492,8 @@ export function Dashboard() {
     .map((assignment) => assignment.volunteer_fatigue)
     .filter((value): value is number => value !== null);
   const averageFatigueMetric = accountableDemoMetric(
-    "Average volunteer fatigue",
-    "Mean fatigue score from calendar assignment overlays.",
+    "Average volunteer break need",
+    "Average workload indicator from recent volunteer assignments.",
     assignmentsAvailable && knownFatigueAssignments.length > 0
       ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) /
           knownFatigueAssignments.length
@@ -502,15 +502,15 @@ export function Dashboard() {
       provenance: assignmentProvenance,
       unknownReason:
         assignmentsAvailable && calendarAssignments.length === 0
-          ? "No assignment overlays recorded yet."
+          ? "No recent volunteer assignments were recorded."
           : assignmentsAvailable
-            ? "No overlay in this batch reported a fatigue signal."
+            ? "Not enough recent assignment data."
             : "Assignment overlays are unavailable.",
     },
   );
   const restRecommendedMetric = accountableDemoMetric(
     "Rest recommended count",
-    "Volunteers flagged for recovery in assignment overlays.",
+    "Volunteers who should rest before another event.",
     assignmentsAvailable
       ? calendarAssignments.filter(
           (assignment) => assignment.recovery_status === "Rest Recommended",
@@ -599,7 +599,7 @@ export function Dashboard() {
           ? "No region currently reports an uncovered window"
           : "Regional coverage is unknown while the calendar feed is unavailable",
       detail: regionNeedingCoverage
-        ? `${regionNeedingCoverage.assignmentCount} assignment overlays are attached across ${regionNeedingCoverage.eventCount} scheduled windows in that region.`
+        ? `${regionNeedingCoverage.assignmentCount} volunteer assignments cover ${regionNeedingCoverage.eventCount} scheduled event times in that region.`
         : calendarAvailable
           ? "Every scheduled calendar window in the current feed has covered status."
           : "Coverage notes return once the calendar feed answers.",
@@ -731,7 +731,7 @@ export function Dashboard() {
           change={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
           changeType="neutral"
           icon={Briefcase}
-          iconColor="bg-[#e6effb] text-[#005394]"
+          iconColor="bg-[#e8f2d8] text-[#005030]"
         />
         <MetricCard
           title="Member Inquiry"
@@ -744,7 +744,7 @@ export function Dashboard() {
           change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
           changeType="neutral"
           icon={TrendingUp}
-          iconColor="bg-[#e6effb] text-[#005394]"
+          iconColor="bg-[#e8f2d8] text-[#005030]"
         />
         <MetricCard
           title="Upcoming Events"
@@ -757,7 +757,7 @@ export function Dashboard() {
           change="Calendar dataset"
           changeType="neutral"
           icon={CalendarDays}
-          iconColor="bg-[#e6effb] text-[#005394]"
+          iconColor="bg-[#e8f2d8] text-[#005030]"
           href="/calendar"
         />
       </div>
@@ -771,12 +771,12 @@ export function Dashboard() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-[#005394]" />
+            <ShieldCheck className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Recovery and coverage summary</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Volunteer breaks and event coverage</h3>
               <p className="text-sm text-gray-600">
                 A compact view of event coverage and volunteers needing to recover.
               </p>
@@ -784,14 +784,14 @@ export function Dashboard() {
           </div>
           <Link
             to="/calendar"
-            className="shrink-0 text-xs font-medium text-[#005394] hover:underline"
+            className="shrink-0 text-xs font-medium text-[#005030] hover:underline"
           >
             View calendar →
           </Link>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Covered Events</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -806,7 +806,7 @@ export function Dashboard() {
               />
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Open Events</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -816,8 +816,8 @@ export function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-600">Still need volunteer coverage</p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Avg fatigue</p>
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Average break need</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
                 metric={averageFatigueMetric}
@@ -826,7 +826,7 @@ export function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue metric={restRecommendedMetric} />
@@ -836,32 +836,32 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-2">
-            <MessageSquareHeart className="h-5 w-5 text-[#005394]" />
+            <MessageSquareHeart className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Matching Algorithm Feedback</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Coordinator feedback on matches</h3>
               <p className="text-sm text-gray-600">
                 Coordinator feedback drives a bounded weight snapshot and pain-score trend.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="rounded-full border border-[#d5e0f7] bg-[#f7f9fc] px-3 py-1 text-xs font-medium text-[#005394]">
+            <div className="rounded-full border border-[#d9cbc4] bg-[#f8f6f1] px-3 py-1 text-xs font-medium text-[#005030]">
               <AccountableValue
                 metric={feedbackRowsMetric}
                 formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
               />
             </div>
-            <Link to="/ai-matching" className="text-xs font-medium text-[#005394] hover:underline">
+            <Link to="/ai-matching" className="text-xs font-medium text-[#005030] hover:underline">
               View matches →
             </Link>
           </div>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -877,7 +877,7 @@ export function Dashboard() {
                 : "Coordinator feedback breakdown unavailable."}
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -889,7 +889,7 @@ export function Dashboard() {
               A lower score indicates a healthier matching loop.
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -899,11 +899,11 @@ export function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-600">
               {feedbackAvailable && feedbackStats.membership_interest_count !== null
-                ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
-                : "Membership interest signals unavailable."}
+                ? `${feedbackStats.membership_interest_count} people showed interest in membership afterward.`
+                : "Membership interest information is unavailable."}
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
             <p className="mt-2 text-lg font-semibold text-gray-900">
               {leadAdjustment
@@ -923,10 +923,10 @@ export function Dashboard() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_0.95fr]">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
             {feedbackStats.trend.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                 {feedbackAvailable
                   ? "Trend data will appear once coordinators submit feedback from the React workflow."
                   : "Feedback optimizer stats are unavailable."}
@@ -940,13 +940,13 @@ export function Dashboard() {
                   }))}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-                  <XAxis dataKey="date" tick={{ fill: "#5a6472", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
+                  <XAxis dataKey="date" tick={{ fill: "#59665f", fontSize: 12 }} />
+                  <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
                   <Tooltip />
                   <Line
                     type="monotone"
                     dataKey="acceptance_percent"
-                    stroke="#005394"
+                    stroke="#005030"
                     strokeWidth={3}
                     name="Acceptance %"
                   />
@@ -955,14 +955,14 @@ export function Dashboard() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <div className="mb-3 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-[#005394]" />
+              <SlidersHorizontal className="h-4 w-4 text-[#005030]" />
               <h4 className="font-semibold text-gray-900">Recommended weight shifts</h4>
             </div>
             <div className="space-y-3">
               {feedbackStats.recommended_adjustments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
+                <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                   {feedbackAvailable
                     ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
                     : "Feedback optimizer stats are unavailable."}
@@ -971,13 +971,13 @@ export function Dashboard() {
                 feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
                   <div
                     key={adjustment.factor}
-                    className="rounded-2xl border border-[#d5e0f7] bg-white p-4 shadow-sm"
+                    className="rounded-2xl border border-[#d9cbc4] bg-white p-4 shadow-sm"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-semibold text-gray-900">
                         {formatFactorName(adjustment.factor)}
                       </p>
-                      <span className="text-sm font-semibold text-[#005394]">
+                      <span className="text-sm font-semibold text-[#005030]">
                         {adjustment.delta > 0 ? "+" : ""}
                         {(adjustment.delta * 100).toFixed(1)} pts
                       </span>
@@ -992,12 +992,12 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <MapPinned className="h-5 w-5 text-[#005394]" />
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005394]/70">
+                <MapPinned className="h-5 w-5 text-[#005030]" />
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005030]/70">
                   Regional coverage pulse
                 </p>
               </div>
@@ -1005,7 +1005,7 @@ export function Dashboard() {
                 Coordinator coverage pulse
               </h3>
               <p className="mt-1 text-sm text-gray-600">
-                Rollup of calendar coverage and assignment overlays from the same feed.
+                Calendar coverage and volunteer assignments, grouped by region.
               </p>
             </div>
           </div>
@@ -1015,14 +1015,14 @@ export function Dashboard() {
               regionalPulse.map((region) => (
                 <div
                   key={region.region}
-                  className="rounded-2xl border border-[#d5e0f7] bg-[linear-gradient(180deg,#fafdff_0%,#edf4ff_100%)] p-5 shadow-sm"
+                  className="rounded-2xl border border-[#d9cbc4] bg-[linear-gradient(180deg,#fffefa_0%,#edf5f0_100%)] p-5 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{region.region}</p>
                       <p className="mt-1 text-sm text-gray-600">{region.detail}</p>
                     </div>
-                    <span className="rounded-full border border-[#d5e0f7] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005394]">
+                    <span className="rounded-full border border-[#d9cbc4] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005030]">
                       {region.coveragePercent === null
                         ? "Coverage unknown"
                         : `${region.coveragePercent}% covered`}
@@ -1030,7 +1030,7 @@ export function Dashboard() {
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#5a6472]">
+                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#59665f]">
                       <span>Coverage</span>
                       <span>
                         {region.coveredCount}/{region.eventCount} windows
@@ -1038,7 +1038,7 @@ export function Dashboard() {
                     </div>
                     <div className="h-2 rounded-full bg-white/80">
                       <div
-                        className="h-2 rounded-full bg-[#005394]"
+                        className="h-2 rounded-full bg-[#005030]"
                         style={{ width: `${region.coveragePercent ?? 0}%` }}
                       />
                     </div>
@@ -1046,13 +1046,13 @@ export function Dashboard() {
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Open windows
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Workload
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
@@ -1060,7 +1060,7 @@ export function Dashboard() {
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Overlay rows
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
@@ -1068,7 +1068,7 @@ export function Dashboard() {
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Member inquiry
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
@@ -1081,7 +1081,7 @@ export function Dashboard() {
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600 lg:col-span-2">
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600 lg:col-span-2">
                 Regional coverage summaries appear once live calendar and overlay data are
                 available.
               </div>
@@ -1089,9 +1089,9 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
-            <BellRing className="h-5 w-5 text-[#005394]" />
+            <BellRing className="h-5 w-5 text-[#005030]" />
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Discovery feed</h3>
               <p className="text-sm text-gray-600">
@@ -1107,15 +1107,15 @@ export function Dashboard() {
               return (
                 <div
                   key={item.title}
-                  className="flex gap-4 rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4 shadow-sm"
+                  className="flex gap-4 rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4 shadow-sm"
                 >
-                  <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#d5e0f7] bg-white text-[#005394]">
+                  <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#d9cbc4] bg-white text-[#005030]">
                     <Icon className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <p className="font-semibold text-gray-900">{item.title}</p>
-                      <span className="rounded-full bg-[#e6effb] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#005394]">
+                      <span className="rounded-full bg-[#e8f2d8] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#005030]">
                         {item.stamp}
                       </span>
                     </div>
@@ -1128,23 +1128,23 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Calendar Reach Trend</h3>
         {reachTrend.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600">
+          <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600">
             No calendar windows in the current feed, so there is no reach trend to plot.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={reachTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-              <XAxis dataKey="month" tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
+              <XAxis dataKey="month" tick={{ fill: "#59665f", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
               <Tooltip />
               <Line
                 type="monotone"
                 dataKey="windows"
-                stroke="#005394"
+                stroke="#005030"
                 strokeWidth={3}
                 name="IA windows"
               />
@@ -1160,13 +1160,13 @@ export function Dashboard() {
         )}
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[#005394]" />
+          <Sparkles className="h-5 w-5 text-[#005030]" />
           <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
         </div>
 
-        <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
+        <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-center text-gray-600">
           <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
           <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
           <p className="mt-2 text-sm leading-6">

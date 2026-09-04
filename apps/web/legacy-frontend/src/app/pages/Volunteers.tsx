@@ -14,6 +14,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { breakNeedExplanation, breakNeedLabel } from "@/lib/breakNeed";
 import type { LucideIcon } from "lucide-react";
 
 import {
@@ -137,13 +138,13 @@ function percentage(value: number | null) {
 function recoveryState(score: number) {
   if (score >= 0.75) {
     return {
-      label: "Rest Recommended",
+      label: "Break recommended",
       tone: "bg-rose-50 text-rose-700 border-rose-200",
     };
   }
   if (score >= 0.4) {
     return {
-      label: "Needs Rest",
+      label: "Consider a break",
       tone: "bg-amber-50 text-amber-700 border-amber-200",
     };
   }
@@ -199,7 +200,7 @@ function summarizeVolunteer(
   const fatigueScore = volunteerFatigue === null ? null : Math.round(volunteerFatigue * 100);
   const recovery = recoveryRows[0]
     ? {
-        label: recoveryRows[0].recovery_label,
+        label: breakNeedLabel(recoveryRows[0].recovery_status),
         tone: recoveryRows[0].recovery_status === "Available"
           ? "bg-emerald-50 text-emerald-700 border-emerald-200"
           : recoveryRows[0].recovery_status === "Needs Rest"
@@ -207,7 +208,7 @@ function summarizeVolunteer(
             : "bg-rose-50 text-rose-700 border-rose-200",
       }
     : volunteerFatigue === null
-      ? { label: "Recovery unknown", tone: "bg-slate-50 text-slate-600 border-slate-200" }
+      ? { label: "Not enough recent assignment data", tone: "bg-slate-50 text-slate-600 border-slate-200" }
       : recoveryState(volunteerFatigue);
   // G1 fail-closed: there is deliberately no average match score here. The
   // per-row scores it averaged are factor-registry outputs and the registry is
@@ -254,7 +255,7 @@ function MetricCard({
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-medium text-slate-600">{title}</p>
-        <Icon className="h-4 w-4 text-blue-600" />
+        <Icon className="h-4 w-4 text-primary" />
       </div>
       <p className="text-2xl font-semibold text-slate-900">{value}</p>
       <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
@@ -441,9 +442,6 @@ export function Volunteers() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-          Volunteer management
-        </p>
         <h1 className="text-3xl font-semibold text-slate-900">
           Volunteer Profiles{isMockData && <DemoModeBadge />}
         </h1>
@@ -461,7 +459,7 @@ export function Volunteers() {
             placeholder="Search by name, company, region, or expertise..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            className="w-full rounded-xl border border-slate-300 py-3 pl-10 pr-4 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="w-full rounded-xl border border-slate-300 py-3 pl-10 pr-4 text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
           />
         </div>
       </div>
@@ -503,7 +501,7 @@ export function Volunteers() {
                   className="rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="mb-4 flex items-start gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-sky-500 text-xl font-semibold text-white">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#FFB81C] to-[#A4D65E] text-xl font-semibold text-white">
                       {volunteer.initials}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -522,7 +520,7 @@ export function Volunteers() {
                         </span>
                       </div>
                       <div className="mt-3 flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
                           <Check className="h-3 w-3" />
                           {volunteer.board_role || "Available"}
                         </span>
@@ -536,18 +534,18 @@ export function Volunteers() {
 
                   <div className="space-y-2 text-sm text-slate-600">
                     <div className="flex items-center gap-2">
-                      <Briefcase className="h-4 w-4 text-blue-600" />
+                      <Briefcase className="h-4 w-4 text-primary" />
                       <span>{volunteer.company || "Independent"}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-blue-600" />
+                      <MapPin className="h-4 w-4 text-primary" />
                       <span>{volunteer.metro_region || "Region not listed"}</span>
                     </div>
                   </div>
 
                   <div className="mt-4">
                     <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
-                      <span>Recovery / load</span>
+                      <span>Break need</span>
                       <span>{percentage(profile.fatigueScore)}</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100">
@@ -555,7 +553,7 @@ export function Volunteers() {
                         <div
                           className="h-2 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
                           style={{ width: "100%" }}
-                          aria-label="Fatigue unknown"
+                          aria-label="Not enough recent assignment data"
                         />
                       ) : (
                         <div
@@ -565,7 +563,7 @@ export function Volunteers() {
                               : profile.fatigueScore >= 50
                                 ? "bg-amber-500"
                                 : profile.fatigueScore >= 25
-                                  ? "bg-blue-500"
+                                  ? "bg-primary/50"
                                   : "bg-emerald-500"
                           }`}
                           style={{ width: `${profile.fatigueScore}%` }}
@@ -581,7 +579,7 @@ export function Volunteers() {
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wide text-slate-500">Coverage</p>
-                      <p className="text-lg font-semibold text-blue-600">
+                      <p className="text-lg font-semibold text-primary">
                         {percentage(profile.utilizationRate)}
                       </p>
                     </div>
@@ -593,15 +591,15 @@ export function Volunteers() {
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3">
-                    <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Recovery badge</p>
+                  <div className="mt-4 rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-primary">Break status</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       {profile.recovery.label}
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
                       {profile.recoveryRows.length
-                        ? `${profile.recoveryRows.length} assignment overlay rows from the backend contract`
-                        : "Recovery is falling back to the live pipeline footprint."}
+                        ? breakNeedExplanation
+                        : "Not enough recent assignment data to suggest a break."}
                     </p>
                   </div>
 
@@ -609,7 +607,7 @@ export function Volunteers() {
                     {expertise.slice(0, 4).map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
+                        className="rounded-full bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary"
                       >
                         {tag}
                       </span>
@@ -633,13 +631,13 @@ export function Volunteers() {
           >
             <div className="border-b border-slate-200 px-6 py-5">
               <div className="flex items-start gap-4">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-sky-500 text-2xl font-semibold text-white">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-[#FFB81C] to-[#A4D65E] text-2xl font-semibold text-white">
                   {selectedVol.initials}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+                      <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
                         Volunteer dashboard
                       </p>
                       <h2 className="text-2xl font-semibold text-slate-900">{selectedVol.name}</h2>
@@ -647,7 +645,7 @@ export function Volunteers() {
                         {selectedVol.title || "Board volunteer"} · {selectedVol.company || "Independent"}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-3 py-1 text-sm font-medium text-primary">
                           <Check className="h-4 w-4" />
                           {selectedVol.board_role || "Available"}
                         </span>
@@ -708,7 +706,7 @@ export function Volunteers() {
                         A lightweight coordinator view built from live assignments only.
                       </p>
                     </div>
-                    <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-blue-700 shadow-sm">
+                    <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-primary shadow-sm">
                       <AccountableValue metric={matchingMetric} /> avg match
                     </div>
                   </div>
@@ -718,7 +716,7 @@ export function Volunteers() {
                       label="Matched"
                       value={selectedInsights.matchedCount}
                       maxValue={Math.max(1, selectedInsights.matchedCount)}
-                      tone="bg-blue-600"
+                      tone="bg-primary"
                     />
                     <FunnelRow
                       label="Accepted"
@@ -746,15 +744,15 @@ export function Volunteers() {
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Live workload</h3>
                       <p className="text-sm text-slate-600">
-                        Fatigue is averaged from this volunteer&apos;s calendar assignment overlays.
+                        {breakNeedExplanation}
                       </p>
                     </div>
-                    <BarChart3 className="h-5 w-5 text-blue-600" />
+                    <BarChart3 className="h-5 w-5 text-primary" />
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <div className="mb-3 flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-700">Fatigue index</span>
+                      <span className="font-medium text-slate-700">Break need</span>
                       <span className="font-semibold text-slate-900">
                         {percentage(selectedInsights.fatigueScore)}
                       </span>
@@ -764,7 +762,7 @@ export function Volunteers() {
                         <div
                           className="h-3 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
                           style={{ width: "100%" }}
-                          aria-label="Fatigue unknown"
+                          aria-label="Not enough recent assignment data"
                         />
                       ) : (
                         <div
@@ -774,7 +772,7 @@ export function Volunteers() {
                               : selectedInsights.fatigueScore >= 50
                                 ? "bg-amber-500"
                                 : selectedInsights.fatigueScore >= 25
-                                  ? "bg-blue-500"
+                                  ? "bg-primary/50"
                                   : "bg-emerald-500"
                           }`}
                           style={{ width: `${selectedInsights.fatigueScore}%` }}
@@ -782,7 +780,7 @@ export function Volunteers() {
                       )}
                     </div>
                     <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-                      <span>{selectedInsights.recovery.label} capacity</span>
+                      <span>{selectedInsights.recovery.label}</span>
                       <span>{selectedInsights.volunteerRows.length} live assignments</span>
                     </div>
                   </div>
@@ -812,7 +810,7 @@ export function Volunteers() {
                       Referral assets and scan activity tied to this volunteer.
                     </p>
                   </div>
-                  <QrCode className="h-5 w-5 text-blue-600" />
+                  <QrCode className="h-5 w-5 text-primary" />
                 </div>
 
                 {selectedQrHistory.length > 0 ? (
@@ -853,7 +851,7 @@ export function Volunteers() {
                               />
                             ) : (
                               <div
-                                className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
+                                className="h-2 rounded-full bg-gradient-to-r from-[#FFB81C] to-[#A4D65E]"
                                 style={{ width: `${Math.round(entry.conversion_rate * 100)}%` }}
                               />
                             )}
@@ -878,12 +876,12 @@ export function Volunteers() {
                       Uses the live pipeline and assignment overlay, grouped by stage.
                     </p>
                   </div>
-                  <Clock className="h-5 w-5 text-blue-600" />
+                  <Clock className="h-5 w-5 text-primary" />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-xl bg-blue-50 p-4">
-                    <p className="text-sm text-blue-700">Matched load</p>
+                  <div className="rounded-xl bg-primary/5 p-4">
+                    <p className="text-sm text-primary">Matched load</p>
                     <p className="mt-1 text-2xl font-semibold text-slate-900">
                       {selectedInsights.stageCounts.Matched}
                     </p>

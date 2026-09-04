@@ -145,13 +145,13 @@ export function QRCodeCard({
 
   return (
     <section
-      className={`overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-sky-50/60 to-blue-50 shadow-sm ${className}`}
+      className={`overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-[#F2EEE8] to-[#edf5f0] shadow-sm ${className}`}
     >
       <div className="border-b border-slate-200/80 bg-white/80 px-5 py-4 backdrop-blur">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <QrCode className="h-4 w-4" />
               </span>
               <div>
@@ -160,7 +160,7 @@ export function QRCodeCard({
               </div>
             </div>
           </div>
-          <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+          <span className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
             IA West QR
           </span>
         </div>
@@ -254,7 +254,7 @@ export function QRCodeCard({
                       />
                     ) : (
                       <div
-                        className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-sky-500"
+                        className="h-2 rounded-full bg-gradient-to-r from-[#FFB81C] to-[#A4D65E]"
                         style={{ width: `${Math.round(asset.conversion_rate * 100)}%` }}
                       />
                     )}
@@ -275,9 +275,9 @@ export function QRCodeCard({
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-blue-200 bg-white/80 p-6">
+            <div className="rounded-2xl border border-dashed border-primary/20 bg-white/80 p-6">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/5 text-primary">
                   <ScanSearch className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -295,7 +295,7 @@ export function QRCodeCard({
               <button
                 type="button"
                 onClick={() => void onPrimaryAction()}
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary/90 disabled:opacity-60"
                 disabled={loading}
               >
                 <Sparkles className="h-4 w-4" />

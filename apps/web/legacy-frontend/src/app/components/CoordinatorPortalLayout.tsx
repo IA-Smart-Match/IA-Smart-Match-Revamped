@@ -4,12 +4,12 @@ import {
   CalendarDays,
   Mail,
   Video,
-  Building,
   Menu,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { BrandLogo } from "./BrandLogo";
 
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
@@ -67,18 +67,8 @@ export function CoordinatorPortalLayout() {
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Building className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  Event Coordinator Portal
-                </p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label="Event coordinator portal" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -148,10 +138,7 @@ export function CoordinatorPortalLayout() {
               <Menu className="h-6 w-6" />
             </button>
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Building className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">Event Coordinator Portal</span>
+              <BrandLogo compact className="w-[145px]" />
             </div>
             <div className="w-6" />
           </div>

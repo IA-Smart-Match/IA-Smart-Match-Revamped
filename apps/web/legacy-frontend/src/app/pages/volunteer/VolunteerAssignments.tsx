@@ -19,6 +19,7 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AccountableValue } from "@/app/components/provenance";
 import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/metrics";
+import { breakNeedLabel } from "@/lib/breakNeed";
 import {
   fetchVolunteerAssignments,
   type VolunteerAssignment,
@@ -155,8 +156,8 @@ export function VolunteerAssignments() {
                   Match score: <AccountableValue metric={matchingMetric} />
                 </span>
                 <span>
-                  Recovery:{" "}
-                  <span className="font-medium text-foreground">{a.recovery_label}</span>
+                  Break status:{" "}
+                  <span className="font-medium text-foreground">{breakNeedLabel(a.recovery_status)}</span>
                 </span>
               </div>
             </div>

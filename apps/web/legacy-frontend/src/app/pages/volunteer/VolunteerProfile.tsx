@@ -3,6 +3,7 @@ import { AlertTriangle, MapPin, Star } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { fetchVolunteerProfile, splitTags, type VolunteerProfile } from "../../../lib/api";
+import { breakNeedExplanation, breakNeedLabel } from "@/lib/breakNeed";
 
 function getSession() {
   try {
@@ -122,18 +123,18 @@ export function VolunteerProfile() {
 
         <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
           <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-            Recovery Status
+            Break status
           </p>
           <span
             className={`rounded-full px-3 py-1 text-sm font-semibold ${recoveryColor}`}
           >
-            {profile.recovery_status}
+            {breakNeedLabel(profile.recovery_status)}
           </span>
         </div>
 
         <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
           <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-            Fatigue Index
+            Break need
           </p>
           <p className="mb-2 text-2xl font-bold text-foreground">{fatiguePercent}%</p>
           <div className="h-2 w-full rounded-full bg-muted">
@@ -142,6 +143,7 @@ export function VolunteerProfile() {
               style={{ width: `${fatiguePercent}%` }}
             />
           </div>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">{breakNeedExplanation}</p>
         </div>
       </div>
 

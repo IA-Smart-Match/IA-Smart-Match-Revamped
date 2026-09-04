@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { AlertTriangle, ClipboardList, UserCircle } from "lucide-react";
 import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
+import { breakNeedExplanation, breakNeedLabel } from "@/lib/breakNeed";
 import {
   fetchVolunteerProfile,
   fetchVolunteerAssignments,
@@ -126,8 +127,11 @@ export function VolunteerHome() {
         </div>
         <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
           <p className={`text-2xl font-bold ${fatigueColor}`}>{fatiguePercent}%</p>
-          <p className="text-sm text-muted-foreground">Fatigue Index</p>
-          <p className="mt-1 text-xs text-muted-foreground">{profile.recovery_label}</p>
+          <p className="text-sm text-muted-foreground">Break need</p>
+          <p className="mt-1 text-xs font-medium text-muted-foreground">
+            {breakNeedLabel(profile.recovery_status)}
+          </p>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">{breakNeedExplanation}</p>
         </div>
       </div>
 

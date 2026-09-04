@@ -212,7 +212,7 @@ function MockStudentCalendar({ registrations }: { registrations: StudentRegistra
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+            <span className="h-2.5 w-2.5 rounded-full bg-primary/50" />
             Upcoming
           </span>
           <span className="flex items-center gap-1.5">
@@ -250,7 +250,7 @@ function MockStudentCalendar({ registrations }: { registrations: StudentRegistra
                       entry.status === "attended"
                         ? "bg-green-100 text-green-700"
                         : entry.status === "registered"
-                          ? "bg-blue-100 text-blue-700"
+                          ? "bg-primary/10 text-primary"
                           : "bg-muted text-muted-foreground"
                     }`}
                     title={entry.label}
