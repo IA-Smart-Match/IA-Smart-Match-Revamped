@@ -58,10 +58,25 @@ _R3_FORBIDDEN_SEGMENTS = frozenset(
         "chat",
         "prompt",
         # outreach family
-        "outreach",
-        "email",
-        "emails",
-        "send",
+        #
+        # NARROWED for R4/G4 (plan card L7,
+        # `docs/plans/2026-09-04-r4-outreach-g4-implementation-plan.md`). This
+        # guard was never about outreach being forbidden — it is about the
+        # *request path* reaching a provider, which is the R3 lag defect. G4
+        # closed, the outreach routes shipped, and they submit a durable command
+        # rather than sending anything, so the segments they use are removed
+        # here and the guard's real subject is untouched.
+        #
+        # Removed: "outreach" (four routes), "send" (the command-submission
+        # route `.../drafts/{draft_id}/send`), "email" and "emails" (no route
+        # uses them today, dropped with the family so a later `/outreach/emails`
+        # read does not have to reopen this discussion).
+        #
+        # What still holds, and is what actually pins R3: Guard 2 below, which
+        # forbids every module under `services/api/` from importing an HTTP
+        # client at all. A synchronous send from a route is not merely absent
+        # from the contract — it has nothing to send *with*. The crawl, LLM, and
+        # vendor families below are unchanged.
         # named third-party crawl/LLM/search vendors
         "tavily",
         "openai",
@@ -70,17 +85,17 @@ _R3_FORBIDDEN_SEGMENTS = frozenset(
     }
 )
 
-# Checked and confirmed against the committed contract on 2026-08-28: the
-# current paths are /api/health, /u/{token}, /v1/jobs/{job_id}(/abandon|
-# /events|/redrive), /v1/me, /v1/units/{unit_id}/imports,
-# /v1/units/{unit_id}/metrics(/{metric_name}/drill-down). None of these
-# segments (job, jobs, abandon, events, redrive, me, units, imports, metrics,
-# metric_name, drill, down, health, u, token) collide with any forbidden
-# family above, so no term needed to be narrowed for this test to pass. If a
-# future legitimate route did collide (for example a durable-command job
-# lifecycle "events" route is already distinct from the G3 unit-scoped event
-# catalog guarded in test_matching_fail_closed.py), narrow the specific
-# colliding term here with a comment — never delete the guard.
+# Re-checked against the committed contract on 2026-09-04. The outreach family
+# above is the first term this guard has had to narrow, and it was narrowed the
+# way the original note asked for — the specific colliding terms, with a comment
+# naming the plan card that authorized it, and nothing deleted. Every other
+# family is intact and no current path collides with one.
+#
+# The rule for the next person stands unchanged: if a future legitimate route
+# collides, narrow the specific colliding term here with a comment. Never delete
+# the guard, and never narrow a term because a route you are adding happens to
+# be named awkwardly — the question to answer first is whether the route
+# genuinely does no provider work on the request path.
 
 
 def _normalized_subwords(path: str) -> list[str]:

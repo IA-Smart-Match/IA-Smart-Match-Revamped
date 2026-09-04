@@ -108,6 +108,23 @@ POST endpoint exists and is unauthenticated by design, exactly as RFC 8058
 requires. What is deferred is only whether the *header* advertises one-click,
 which is a live-mode configuration question, not a code question.
 
+**Carried with it: rate limiting for that endpoint.** `POST /v1/unsubscribe` is
+not application-rate-limited, and the reason is structural rather than an
+oversight. `charge_quota` keys its counter by tenant and user id, and
+`rate_limit_counter.tenant_id` carries a foreign key to `tenant` — so limiting an
+unauthenticated route means inventing a tenant that does not exist, which the
+database refuses (and did refuse, in an earlier draft that tried a nil-UUID
+stand-in principal). Creating a synthetic tenant to satisfy the constraint would
+have been worse: a row that exists only to make a limiter work is a row every
+tenant-scoped query then has to know to ignore.
+
+The exposure is bounded rather than unbounded — the route writes at most one row
+per distinct valid token, nothing at all for an invalid one, and
+`uq_suppression_record_address` makes a repeat a no-op — but it is not zero, and
+an edge rate limit in front of the service is what should close it. Decide it
+alongside the one-click question, since both are about traffic this endpoint
+receives from mailbox providers rather than from our own UI.
+
 ## OQ-007 — does an email send reserve spend (ADR-0015)?
 
 **Question.** Is transactional email a metered cost that must hold a spend
