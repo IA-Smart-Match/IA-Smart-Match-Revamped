@@ -1240,6 +1240,116 @@
         "title": "QuarantinedTagListResponse",
         "type": "object"
       },
+      "RedemptionDecisionRequest": {
+        "description": "A coordinator's move on one redemption.\n\n``Literal`` rather than ``str``: an out-of-vocabulary value is refused by\nPydantic in the standard ``invalid_request`` envelope before this handler\nruns, which is one enforcement site rather than a second one this router\nwould have to keep in step with ``ck_redemption_state`` by hand \u2014 the same\nreasoning ``review.py::ReviewDecisionValue`` records.",
+        "properties": {
+          "decision": {
+            "description": "The state to move to. `expired` is not offered: an expiry has no author, and every HTTP command has one.",
+            "enum": [
+              "approved",
+              "fulfilled",
+              "denied"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "RedemptionDecisionRequest",
+        "type": "object"
+      },
+      "RedemptionListResponse": {
+        "description": "The caller's own redemptions. Never anybody else's.",
+        "properties": {
+          "redemptions": {
+            "description": "The caller's own tickets, newest request first",
+            "items": {
+              "$ref": "#/components/schemas/RedemptionResponse"
+            },
+            "title": "Redemptions",
+            "type": "array"
+          },
+          "unit_id": {
+            "description": "The unit this request was authorized against",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "redemptions"
+        ],
+        "title": "RedemptionListResponse",
+        "type": "object"
+      },
+      "RedemptionRequest": {
+        "additionalProperties": false,
+        "description": "A student asking for one reward.\n\nOne field, and that is the design. There is no ``subject_id`` here and there\nwill not be one: identity comes from the verified token (module docstring,\nMM-A01). There is no ``points_cost`` either \u2014 a caller naming their own price\nis the same defect wearing a different hat, and the snapshot is taken\nserver-side from the row.\n\n``extra=\"forbid\"`` so a body that *tries* to name a subject is refused\nrather than silently ignored. Ignoring it would be safe \u2014 nothing reads it \u2014\nbut a caller who sent ``subject_id`` and received a ``201`` has been told\ntheir request was honoured as sent, and the next person to read this route's\ntraffic would reasonably conclude the field does something. A 422 says\nplainly that there is no such field.",
+        "properties": {
+          "item_id": {
+            "description": "The reward item to redeem against",
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ],
+        "title": "RedemptionRequest",
+        "type": "object"
+      },
+      "RedemptionResponse": {
+        "description": "One redemption ticket, as its owner and its coordinator both see it.\n\nThe item name and cost are the redemption's own **snapshots**, not a join\nback to ``reward_item``: D7 says an existing redemption keeps its point-cost\nsnapshot and that a deactivated reward stays visible on existing tickets, so\na join would answer with today's price and might answer with nothing at all.",
+        "properties": {
+          "item_id": {
+            "description": "The reward item redeemed against",
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "description": "The item's name as the student was shown it",
+            "title": "Item Name",
+            "type": "string"
+          },
+          "points_cost": {
+            "description": "The cost snapshotted when the request was made",
+            "title": "Points Cost",
+            "type": "integer"
+          },
+          "redemption_id": {
+            "description": "This ticket's id",
+            "format": "uuid",
+            "title": "Redemption Id",
+            "type": "string"
+          },
+          "state": {
+            "description": "Where this ticket sits in `requested -> approved -> fulfilled | denied | expired`. `fulfilled` is reachable only from `approved`.",
+            "enum": [
+              "requested",
+              "approved",
+              "fulfilled",
+              "denied",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redemption_id",
+          "item_id",
+          "item_name",
+          "points_cost",
+          "state"
+        ],
+        "title": "RedemptionResponse",
+        "type": "object"
+      },
       "RedriveAcceptedResponse": {
         "description": "Acknowledgement that a re-drive was recorded and will be dispatched.",
         "properties": {
@@ -1340,6 +1450,165 @@
           "decided_at"
         ],
         "title": "ReviewDecisionResponse",
+        "type": "object"
+      },
+      "RewardBalanceResponse": {
+        "description": "The caller's own point balance, and whether it is a number at all.\n\n``state`` is carried beside ``points`` rather than left to be inferred from\na ``null``, which is ADR-0011's whole point: a consumer that has to\nreconstruct \"unknown\" from an absent number is one ``?? 0`` away from\nrendering a fabricated zero, which is exactly what the deleted\n``studentPoints.ts`` call site did (``profile ? getStudentTotalPoints(profile) : 0``).",
+        "properties": {
+          "ledger_entry_count": {
+            "description": "How many ledger entries this fold summed. The evidence that makes a zero a measured zero rather than a default one.",
+            "title": "Ledger Entry Count",
+            "type": "integer"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folded balance, or null when `state` is 'unknown'. Never a stored counter: recomputed from `point_ledger_entry` on every request (ADR-0013).",
+            "title": "Points"
+          },
+          "state": {
+            "description": "'measured' when this response carries a fold over the ledger; 'unknown' when the ledger has nothing to fold and the student's attendance record says it should. Read this before `points`.",
+            "enum": [
+              "measured",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unknown_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the balance is unknown, when it is. Null otherwise.",
+            "title": "Unknown Reason"
+          }
+        },
+        "required": [
+          "state",
+          "ledger_entry_count"
+        ],
+        "title": "RewardBalanceResponse",
+        "type": "object"
+      },
+      "RewardCatalogItemResponse": {
+        "description": "One listable reward, with the caller's distance to it.\n\nEvery item in a catalog response is listable by construction \u2014 the query\nthat produced it selects on ``funded IS TRUE`` and joins the budget owner \u2014\nso this model has no ``funded`` or ``budget_owner_id`` field to render. An\nitem's presence *is* the statement that it is owned and funded; a boolean\nbeside it would invite a client to render the unlistable case, which the\nserver never sends.",
+        "properties": {
+          "affordable": {
+            "description": "Whether the caller's measured balance already covers `points_cost`. False whenever the balance is unknown \u2014 an unknown balance affords nothing, rather than affording what a zero would not.",
+            "title": "Affordable",
+            "type": "boolean"
+          },
+          "events_still_needed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Verified attendances still needed at the *tentative* D7 earn rate reported by `points_per_verified_attendance`; 0 when affordable.",
+            "title": "Events Still Needed"
+          },
+          "item_id": {
+            "description": "This reward item's id, as a redemption names it",
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The item's current name",
+            "title": "Name",
+            "type": "string"
+          },
+          "points_cost": {
+            "description": "What it costs now; a redemption snapshots this",
+            "title": "Points Cost",
+            "type": "integer"
+          },
+          "points_still_needed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Points between the measured balance and `points_cost`; 0 when affordable.",
+            "title": "Points Still Needed"
+          },
+          "progress_state": {
+            "description": "'measured' when the two distance fields below carry numbers; 'unknown' when this student's distance to this item has no honest value. A client renders no progress bar for 'unknown'.",
+            "enum": [
+              "measured",
+              "unknown"
+            ],
+            "title": "Progress State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "points_cost",
+          "affordable",
+          "progress_state"
+        ],
+        "title": "RewardCatalogItemResponse",
+        "type": "object"
+      },
+      "RewardCatalogResponse": {
+        "description": "The catalog a student may be shown, and their own standing against it.",
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/RewardBalanceResponse",
+            "description": "The caller's own balance"
+          },
+          "earn_policy_ratified": {
+            "description": "Whether the earn policy behind `points_per_verified_attendance` is organizationally ratified. False today: D7 is recorded tentative (docs/decisions/pilot-decisions.md \u00a7D7).",
+            "title": "Earn Policy Ratified",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Every listable item in this tenant, cheapest first. An unfunded or unowned item is absent because the query never selected it, not because a filter dropped it.",
+            "items": {
+              "$ref": "#/components/schemas/RewardCatalogItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "points_per_verified_attendance": {
+            "description": "The earn rate the `events_still_needed` arithmetic used. Reported rather than assumed by the client, because it is D7's and D7 is tentative \u2014 see `earn_policy_ratified`.",
+            "title": "Points Per Verified Attendance",
+            "type": "integer"
+          },
+          "unit_id": {
+            "description": "The unit this request was authorized against. Not the items' owner: `reward_item` is tenant-scoped and has no owning unit.",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "balance",
+          "points_per_verified_attendance",
+          "earn_policy_ratified",
+          "items"
+        ],
+        "title": "RewardCatalogResponse",
         "type": "object"
       }
     }
@@ -3294,6 +3563,554 @@
         "summary": "Drill into an accountable metric",
         "tags": [
           "metrics"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/redemptions": {
+      "get": {
+        "description": "Return the caller's own redemption tickets, newest request first.\n\nScoped to ``principal.user_id`` **in the query**, not filtered afterwards, so\nthere is no shape of this handler in which another student's ticket is loaded\nand then dropped. See the module docstring for why there is no coordinator\nqueue here.",
+        "operationId": "read_own_redemptions_v1_units__unit_id__redemptions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the caller's own redemptions",
+        "tags": [
+          "rewards"
+        ]
+      },
+      "post": {
+        "description": "Open a ``requested`` redemption for the caller, or return the one already open.\n\n``201``, and idempotent: a second request for an item the caller already has\nin flight writes nothing and returns that ticket, which is card L4's\n\"concurrent duplicate requests resolve to one redemption\" enforced by\n``uq_redemption_open_per_item`` rather than by this handler noticing.\n\nThe returned ticket is always ``requested``. There is no argument that could\nmake it ``approved`` \u2014 the approval step is ADR-0013's, and a request route\nthat could skip it would be that step deleted rather than passed.\n\nQuota is charged first (ADR-0015), before the unit is loaded and before\nauthorization, so a caller producing 403s against units they hold nothing\nover, or 404s against item ids they invented, spends what a real request\nspends.\n\nRaises:\n    ApiError: 409 when the balance is unknown, when it does not cover the\n        item, or when the item is not listable; 404 when no such item exists\n        in this tenant.",
+        "operationId": "request_redemption_route_v1_units__unit_id__redemptions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedemptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Request a redemption against one funded reward",
+        "tags": [
+          "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/redemptions/{redemption_id}/decision": {
+      "post": {
+        "description": "Move one redemption through the state machine, taking the debit on fulfilment.\n\nThe legality of the move is decided by\n:meth:`~smartmatch_domain.rewards.Redemption.transition` inside\n:meth:`~smartmatch_persistence.rewards.RewardsRepository.transition_redemption`,\nand this handler restates none of it: ``fulfilled`` is reachable only from\n``approved`` because the machine says so and because\n``ck_redemption_approval_evidence`` refuses the row otherwise, not because of\na check written here.\n\nFulfilment is where the ledger debit is taken, inside the same transaction\nand behind the same ``FOR UPDATE`` lock, and the balance is re-folded there\nrather than trusted from the request \u2014 an approved ticket may have sat while\nthe credits behind it were reversed. Migration ``0019`` added no refund kind,\nwhich is why the debit is not taken at request time; this route does not\nrevisit that decision.\n\n``200``, not ``202``: nothing durable starts here. The ``UPDATE`` and the\nledger insert either land in this request or they do not.\n\nRaises:\n    ApiError: 404 when this tenant has no such redemption; 409 when the move\n        is not one the machine allows, or when fulfilment was asked for and\n        the balance no longer covers the snapshot cost.",
+        "operationId": "decide_redemption_v1_units__unit_id__redemptions__redemption_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "redemption_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Redemption Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedemptionDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Approve, deny, or fulfil a redemption",
+        "tags": [
+          "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/rewards": {
+      "get": {
+        "description": "Return every listable reward, the caller's folded balance, and the distance between.\n\nAuthorization runs before any reward or ledger row is read\n(:func:`_authorize_student_rewards`).\n\nThe listing is the repository's, and its two conditions \u2014 a funded balance\nand a named same-tenant budget owner \u2014 are D6's. Nothing here filters the\nresult further and nothing here could show an unfunded item, because no\nunfunded item is selected.\n\nQuota is not charged. ADR-0015 governs command routes, where a refusal still\ncost something to attempt; this route reads rows the caller is already\nauthorized for, exactly as the two job reads and ``GET /v1/me`` do.",
+        "operationId": "read_reward_catalog_v1_units__unit_id__rewards_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewardCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the funded rewards catalog and the caller's own balance",
+        "tags": [
+          "rewards"
         ]
       }
     },
