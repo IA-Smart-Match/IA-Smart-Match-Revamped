@@ -25,8 +25,9 @@ trusted the assertion over the row's own ancestry would be the exact
 caller-supplied-identity pattern archived as MM-A01: a coordinator in one
 department naming a sibling department's `unit_id` on a review item they do
 hold real authority over, hoping the mismatch is never checked against the
-row. `_load_owning_unit_or_404` below reads the unit the row actually belongs
-to; there is no second value in the request for a bug to trust instead.
+row. `_load_review_item_context_or_404` below reads the unit the row actually
+belongs to; there is no second value in the request for a bug to trust
+instead.
 
 ## Why this is not a command resource
 
@@ -47,10 +48,12 @@ the same reason: nothing is left to follow.
 
 from __future__ import annotations
 
+import logging
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Path, status
@@ -63,9 +66,12 @@ from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
+from smartmatch_api.pipeline_provisioning import provision_on_accept
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/review-items", tags=["review"])
+
+logger = logging.getLogger(__name__)
 
 _review_items = ReviewRepository()
 
@@ -134,17 +140,21 @@ class ReviewDecisionResponse(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class _OwningUnit:
-    """The parts of a review item's owning unit this router needs to authorize against."""
+class _ReviewItemContext:
+    """What this router needs about a review item: the unit it authorizes
+    against, and the row a synthetic acceptance provisions from."""
 
-    id: uuid.UUID
-    path: str
+    unit_id: uuid.UUID
+    unit_path: str
+    dataset: str
+    row_data: Mapping[str, Any]
 
 
-def _load_owning_unit_or_404(
+def _load_review_item_context_or_404(
     session: Session, *, tenant_id: uuid.UUID, review_item_id: uuid.UUID
-) -> _OwningUnit:
-    """The unit that owns this review item's import batch, or 404.
+) -> _ReviewItemContext:
+    """The unit that owns this review item's import batch, or 404 — plus the
+    batch's ``dataset`` and the item's own ``row_data``.
 
     Joins `review_item -> import_batch -> org_unit`, every hop composite on
     `tenant_id` and scoped to the caller's own tenant in the query itself —
@@ -165,19 +175,34 @@ def _load_owning_unit_or_404(
     ever becoming a 403 that would confirm to an unauthorized caller that the
     id names something real.
 
-    Returns both the unit's id and its path. `decide_review_item` builds its
-    `Resource` from both — `resource_id` from the id, `owning_unit_path` from
-    the path — the identical two fields `imports.py::create_import` builds its
-    own `Resource` from off `unit: OrgUnitRow`, because this route authorizes
-    against *the unit*, not against the review item: `_REVIEW_ROLES` is the
-    same role set `_IMPORT_ROLES` is, over the same kind of resource, for the
-    reason the module docstring gives — deciding a submitted record is the
-    other half of the same consequential act submitting it was.
+    Returns the unit's id and its path, and — added for Card 6 — the batch's
+    `dataset` and this item's own `row_data`, read in this *same* query rather
+    than a second one issued after authorization. A second `SELECT` could
+    observe a different row than the one just authorized against — another
+    request updating or, in a future schema, deleting the row between the two
+    reads — and the whole point of authorizing against a specific row is that
+    the thing provisioned afterward is *that* row, not whatever a later read
+    happens to find. One query makes the two facts — "this caller may decide
+    this item" and "this is what provisioning will act on" — atomic with each
+    other by construction, not merely by convention.
+
+    `decide_review_item` builds its `Resource` from `unit_id` and `unit_path`
+    — `resource_id` from the id, `owning_unit_path` from the path — the
+    identical two fields `imports.py::create_import` builds its own `Resource`
+    from off `unit: OrgUnitRow`, because this route authorizes against *the
+    unit*, not against the review item: `_REVIEW_ROLES` is the same role set
+    `_IMPORT_ROLES` is, over the same kind of resource, for the reason the
+    module docstring gives — deciding a submitted record is the other half of
+    the same consequential act submitting it was. `dataset` and `row_data` are
+    used only after authorization succeeds, to provision a synthetic
+    acceptance — see `decide_review_item`.
     """
     row = session.execute(
         sa.select(
             schema.import_batch.c.owning_unit_id,
             sa.cast(schema.org_unit.c.path, sa.Text).label("owning_unit_path"),
+            schema.import_batch.c.dataset,
+            schema.review_item.c.row_data,
         )
         .select_from(schema.review_item)
         .join(
@@ -207,7 +232,12 @@ def _load_owning_unit_or_404(
             message="No such review item.",
         )
 
-    return _OwningUnit(id=row.owning_unit_id, path=cast(str, row.owning_unit_path))
+    return _ReviewItemContext(
+        unit_id=row.owning_unit_id,
+        unit_path=cast(str, row.owning_unit_path),
+        dataset=cast(str, row.dataset),
+        row_data=cast("Mapping[str, Any]", row.row_data),
+    )
 
 
 @router.post(
@@ -241,10 +271,47 @@ def decide_review_item(
     no role over, spends exactly what a caller submitting a real decision
     spends — the same ordering `create_import` and `redrive_job` both apply,
     for the same reason: those are the refusals cheapest to produce in bulk.
+    \f
+    Everything above this form-feed is reproduced **byte for byte** as it
+    stood before Card 6 — including its one mention of this loader by its
+    pre-Card-6 name, `_load_owning_unit_or_404`, which Card 6 actually renames
+    to `_load_review_item_context_or_404` (part (a) of this card; see that
+    function's own current docstring for what it does now). That is
+    deliberate, not an oversight: FastAPI truncates the OpenAPI-exported
+    `description` of a route at the first form-feed in its docstring
+    (`fastapi.routing`'s `route.description.split("\\f")[0]`), so this whole
+    docstring above this marker *is* that route's exported `description`, and
+    `contracts/openapi/smartmatch.json` pins it byte for byte. Card 6's fence
+    does not include `contracts/**`, so regenerating that contract is a
+    follow-up outside this card, not something committed here — and changing
+    even one word above this marker, the stale name included, would make
+    `make openapi-check` refuse this change as contract drift before that
+    follow-up ever lands. Everything Card 6 actually needs to say — the
+    accept/reject provisioning behaviour below, and this note itself — lives
+    below the marker instead, where it is still part of this function's real
+    docstring (`help()`, an IDE, anyone reading this source sees all of it),
+    just not part of the public contract.
+
+    A rejection provisions nothing: only `body.decision == "accepted"` reaches
+    `provision_on_accept` below. An acceptance may, in addition to recording
+    the decision itself, open one or more synthetic `pipeline_record`
+    journeys — see `smartmatch_api.pipeline_provisioning`'s module docstring
+    for the full policy — whose `matched_at` is this coordinator's acceptance
+    (`now` below) and nothing more: it is not the output of a matching
+    computation, no matching engine ran, and no score, confidence, or rank is
+    written or computed anywhere on this path. Every such row's
+    `matched_provenance` is exactly
+    `"synthetic / coordinator-accepted"`
+    (`smartmatch_domain.synthetic_pilot.SYNTHETIC_MATCH_PROVENANCE`),
+    stored in the database, not only logged. Provisioning runs inside this
+    handler's own transaction and is committed by the same `session.commit()`
+    that commits the decision — this function never commits on its own, so a
+    provisioning failure rolls the decision back with it rather than leaving
+    a decision recorded with its journeys missing.
     """
     charge_quota(session, principal, REVIEW_DECISION_RATE_LIMIT)
 
-    unit = _load_owning_unit_or_404(
+    context = _load_review_item_context_or_404(
         session, tenant_id=principal.tenant_id, review_item_id=review_item_id
     )
 
@@ -252,9 +319,9 @@ def decide_review_item(
         principal.principal,
         Resource(
             resource_type="org_unit",
-            resource_id=str(unit.id),
+            resource_id=str(context.unit_id),
             tenant_id=str(principal.tenant_id),
-            owning_unit_path=OrgPath.parse(unit.path),
+            owning_unit_path=OrgPath.parse(context.unit_path),
         ),
         at=utc_now(),
         required_roles=_REVIEW_ROLES,
@@ -293,6 +360,44 @@ def decide_review_item(
                 "a decision may not be recorded twice."
             ),
         )
+
+    if body.decision == "accepted":
+        # Runs inside this handler's own transaction, before the one commit
+        # below — a raised `ConflictingOwningUnitError` (or any other error)
+        # therefore rolls the decision back with it (plan §2 Decision 7, plan
+        # §1.6): `get_session`'s unconditional `finally: session.rollback()`
+        # discards everything this request touched, including the `UPDATE`
+        # `_review_items.decide` just issued but has not yet committed.
+        provision_outcome = provision_on_accept(
+            session,
+            tenant_id=principal.tenant_id,
+            owning_unit_id=context.unit_id,
+            review_item_id=review_item_id,
+            dataset=context.dataset,
+            row_data=context.row_data,
+            accepted_at=now,
+        )
+        # Plan §1.10 — silent zero is a defect, and must be visible in *this*
+        # route's own logging, not merely inside the provisioning service.
+        # `opportunity_event_id` set with `journeys_opened` empty is exactly,
+        # and only, the case Decision 6 says to worry about: an in-list
+        # `events` accept that found no professional already linked to its
+        # unit. `provision_on_accept` already emits its own WARNING for this;
+        # this one is the route's independent record of the same fact, so
+        # "opened zero journeys" is visible from the handler that owns the
+        # HTTP response, not only from a module several calls away from it.
+        opened_nothing = (
+            provision_outcome.opportunity_event_id is not None
+            and not provision_outcome.journeys_opened
+        )
+        if opened_nothing:
+            logger.warning(
+                "review_item %s accept opened zero pipeline journeys "
+                "(unit=%s, opportunity_event_id=%s)",
+                review_item_id,
+                context.unit_id,
+                provision_outcome.opportunity_event_id,
+            )
 
     session.commit()
 

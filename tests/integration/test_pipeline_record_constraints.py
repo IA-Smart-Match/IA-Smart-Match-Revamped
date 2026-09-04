@@ -128,6 +128,7 @@ def _insert_pipeline_record(
     owning_unit_id: uuid.UUID | None = None,
     attended_attendance_id: object = "__auto__",
     times: dict[str, datetime] | None = None,
+    matched_provenance: str = "synthetic / coordinator-accepted",
 ) -> uuid.UUID:
     """Insert one journey that has reached ``reached``, and return its id.
 
@@ -137,7 +138,10 @@ def _insert_pipeline_record(
     can write an incoherent row on purpose; ``attended_attendance_id`` defaults
     to a real attendance row when the journey reached Attended, and takes an
     explicit value (including ``None``) to exercise the evidence
-    biconditional.
+    biconditional. ``matched_provenance`` defaults to the one value every
+    existing call site needs (migration ``0016``), and takes an explicit
+    value — including a fabricated one — so a test can exercise
+    ``ck_pipeline_record_matched_provenance`` on purpose.
     """
     record_id = uuid.uuid4()
     subject_id = subject_id or _make_user(conn, tenant_id)
@@ -162,11 +166,11 @@ def _insert_pipeline_record(
         text(
             "INSERT INTO pipeline_record "
             "(id, tenant_id, owning_unit_id, subject_id, opportunity_event_id, "
-            "matched_at, contacted_at, confirmed_at, attended_at, member_inquiry_at, "
-            "attended_attendance_id) "
+            "matched_at, matched_provenance, contacted_at, confirmed_at, attended_at, "
+            "member_inquiry_at, attended_attendance_id) "
             "VALUES (:id, :tenant_id, :unit_id, :subject_id, :event_id, "
-            ":matched_at, :contacted_at, :confirmed_at, :attended_at, :member_inquiry_at, "
-            ":evidence)"
+            ":matched_at, :matched_provenance, :contacted_at, :confirmed_at, :attended_at, "
+            ":member_inquiry_at, :evidence)"
         ),
         {
             "id": record_id,
@@ -177,6 +181,7 @@ def _insert_pipeline_record(
             "subject_id": subject_id,
             "event_id": opportunity_event_id or uuid.uuid4(),
             "matched_at": values.get("matched_at"),
+            "matched_provenance": matched_provenance,
             "contacted_at": values.get("contacted_at"),
             "confirmed_at": values.get("confirmed_at"),
             "attended_at": values.get("attended_at"),
@@ -614,13 +619,15 @@ def test_the_opportunity_is_recorded_even_though_no_event_table_constrains_it(
         conn.execute(
             text(
                 "INSERT INTO pipeline_record "
-                "(id, tenant_id, owning_unit_id, subject_id, opportunity_event_id) "
-                "VALUES (:id, :tid, :unit, :subject, NULL)"
+                "(id, tenant_id, owning_unit_id, subject_id, opportunity_event_id, "
+                "matched_provenance) "
+                "VALUES (:id, :tid, :unit, :subject, NULL, :provenance)"
             ),
             {
                 "id": uuid.uuid4(),
                 "tid": tenant_id,
                 "unit": ensure_owning_unit(conn, tenant_id),
                 "subject": _make_user(conn, tenant_id),
+                "provenance": "synthetic / coordinator-accepted",
             },
         )
