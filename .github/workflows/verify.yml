@@ -215,7 +215,9 @@ jobs:
   web:
     name: web — install, types, build, audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Raised from 10: on run 33850100717 `npm ci` alone took 5m against a slow
+    # registry, leaving the audit step no room to retry. Still bounded.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/web/legacy-frontend
@@ -231,13 +233,90 @@ jobs:
           cache-dependency-path: apps/web/legacy-frontend/package-lock.json
 
       - name: Install locked dependencies
-        run: npm ci
+        # --no-audit because `npm ci` otherwise runs an implicit audit of its
+        # own: on run 33850100717 that implicit audit emitted `npm notice This
+        # endpoint is being retired` at 07:49:45, twenty seconds before the
+        # audit step below even started. Installing is this step's job;
+        # auditing is the audit step's, where the result is actually gated on.
+        # --no-fund drops a second unrelated registry round trip.
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck and build
         run: npm run build
 
       - name: Audit dependency vulnerabilities
-        run: npm audit --audit-level=high
+        # Three observed failures of this step were registry-side, none a real
+        # advisory: on PR #14 npm fell back to the retired quick-audit endpoint
+        # and got `400 Bad Request ... Invalid package tree, run npm install to
+        # rebuild your package-lock.json`; on PR #21 the same call hung for
+        # 10m17s until the runner killed it (`Terminate orphan process: pid
+        # (2230) (npm audit)`); on PR #24 all three bounded attempts silently
+        # burned their 60s budget on a runner whose `npm ci` had itself just
+        # taken 5m to add 292 packages — i.e. a degraded path to the registry,
+        # not a broken command.
+        #
+        # The gate is kept at full strength — no `|| true` on the verdict, no
+        # continue-on-error. How it runs:
+        #   * --package-lock-only audits the tree resolved from this
+        #     directory's lockfileVersion 3 lock, which carries the integrity
+        #     metadata the bulk advisory endpoint wants, instead of the
+        #     installed node_modules npm rejected as an invalid package tree.
+        #     `npm ci` above still runs first, so the lock is proven
+        #     installable either way.
+        #   * `timeout 120` bounds each attempt and timeout-minutes bounds the
+        #     step, so a wedged npm cannot run away with the job. The budget is
+        #     sized for the slow-registry runs seen above, not for a hang.
+        #   * stdout and stderr are captured separately and BOTH are printed on
+        #     every failed attempt, with npm's exit status (124 means the
+        #     timeout killed it) and --loglevel=http request tracing. A failure
+        #     here must be diagnosable from the log alone.
+        #   * The verdict is read from --json counts, not from npm's exit code,
+        #     because npm exits 1 both for "found an advisory" and for "the
+        #     registry errored" — conflating those is what made this gate
+        #     untrustworthy. A genuine advisory still fails the step: high +
+        #     critical > 0 exits 1 below.
+        # --omit=dev scopes the gate to what ships; dev-only build tooling is
+        # covered by keeping it pinned in the lock.
+        timeout-minutes: 9
+        env:
+          REPORT: ${{ runner.temp }}/npm-audit.json
+          AUDIT_STDERR: ${{ runner.temp }}/npm-audit.stderr
+        run: |
+          set -euo pipefail
+          reported=
+          for attempt in 1 2 3; do
+            set +e
+            timeout 120 npm audit --audit-level=high --omit=dev \
+              --package-lock-only --json --loglevel=http \
+              > "$REPORT" 2> "$AUDIT_STDERR"
+            status=$?
+            set -e
+            if node -e 'const r=require(process.env.REPORT);
+              process.exit(r.metadata && r.metadata.vulnerabilities ? 0 : 1)'; then
+              reported=yes
+              break
+            fi
+            echo "attempt ${attempt}: npm exited ${status} (124 = killed by timeout), \
+              report is $(wc -c < "$REPORT") bytes"
+            echo "--- npm stderr (tail) ---"
+            tail -n 60 "$AUDIT_STDERR" || true
+            echo "--- npm stdout ---"
+            cat "$REPORT" || true
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::npm audit attempt ${attempt} produced no usable report; retrying"
+              sleep "$((attempt * 10))"
+            fi
+          done
+          if [ -z "$reported" ]; then
+            echo "::error::npm audit could not obtain an advisory report after 3 attempts"
+            exit 1
+          fi
+          node -e 'const v = require(process.env.REPORT).metadata.vulnerabilities;
+            console.log(JSON.stringify(v));
+            if ((v.high || 0) + (v.critical || 0) > 0) {
+              console.log("::error::high or critical advisory in production dependencies");
+              process.exit(1);
+            }'
 
   supply-chain:
     name: security — dependency licenses and SBOM
