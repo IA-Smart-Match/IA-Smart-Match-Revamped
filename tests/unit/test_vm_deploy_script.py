@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import textwrap
 from collections.abc import Iterator, Mapping
@@ -468,15 +469,21 @@ def test_deployments_serialize_on_a_lock(vm: Deployment) -> None:
     lock_file.touch()
 
     # Hold the lock for longer than the script is willing to wait.
+    #
+    # start_new_session puts flock and the `sleep` it execs into their own
+    # process group, so killing the group takes both. Terminating only the
+    # Popen leaves the `sleep` behind as an orphan for the CI runner to reap,
+    # which it reports as a warning at the end of the job.
     holder = subprocess.Popen(
         ["flock", str(lock_file), "sleep", "30"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        start_new_session=True,
     )
     try:
         result = vm.run(SMARTMATCH_LOCK_WAIT_SECONDS="2")
     finally:
-        holder.terminate()
+        os.killpg(os.getpgid(holder.pid), signal.SIGTERM)
         holder.wait(timeout=10)
 
     assert result.returncode != 0, "the deployment ran while another held the lock"
