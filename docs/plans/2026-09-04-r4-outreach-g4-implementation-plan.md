@@ -126,7 +126,7 @@ unmodified. A shim rather than a deletion because deleting it would have made
 this card a test rewrite as well as a domain change, and the two are worth
 being separately reviewable.
 
-**Done when:** `pytest tests/unit/test_outreach_dryrun.py tests/unit/test_outreach.py`
+**Done when:** `pytest tests/unit/test_outreach_dryrun.py tests/unit/test_outreach_domain.py`
 passes; import-linter still reports "Domain is pure"; no eligibility rule is
 written down twice.
 
@@ -253,7 +253,14 @@ the UI cannot be wired before the contract says what it is calling.
 
 1. `make format-check lint typecheck imports` — style, types, and the domain
    purity contract.
-2. `pytest tests/unit/test_outreach.py tests/unit/test_outreach_handler.py tests/unit/test_outreach_wiring.py`
+2. `pytest tests/unit/test_outreach_domain.py tests/unit/test_outreach_wiring.py`
+   — the domain rules and the wiring guards. The handler and persistence
+   tests live under `tests/integration/` because what they assert is which
+   writes survive which failures, which is not observable without a real
+   database.
+   The basename is `test_outreach_domain.py` rather than `test_outreach.py`:
+   pytest imports test modules by basename, so it would have collided with
+   `tests/contract/test_outreach.py`.
 3. `pytest tests/contract/test_outreach.py`
 4. `pytest tests/integration/test_outreach_persistence.py` — needs PostgreSQL.
 5. `make openapi-check` — the committed contract matches the application.

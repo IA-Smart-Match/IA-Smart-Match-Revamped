@@ -394,6 +394,19 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "the signed token in the path. It never changes state — the actual "
         "unsubscribe is the signed POST (v1.1 §1.10)."
     ),
+    ("POST", "/v1/unsubscribe"): (
+        "The mutating half of the pair whose read half is ``GET /u/{token}``, "
+        "and public for the same reason plus a stronger one. The person using "
+        "it has by definition no account, and RFC 8058 one-click unsubscribe is "
+        "issued by their *mail provider* with no session at all — so requiring "
+        "a principal would make the endpoint unreachable by the mechanism it "
+        "exists to serve. The signed token is the entire authorization: 256 "
+        "bits derived by HMAC in the worker and stored only as a SHA-256 hash, "
+        "so possession of the database confers no ability to unsubscribe "
+        "anybody. Note that the response is identical for a real and an "
+        "invented token, which is what stops the route being an oracle for "
+        "whether an address is on our list."
+    ),
     ("POST", "/v1/auth/login"): (
         "The pilot sign-in exchange, and necessarily public: it is what a "
         "caller uses to *obtain* a principal, so requiring one would make it "
@@ -790,6 +803,74 @@ OPERATIONS: tuple[Operation, ...] = (
         module="smartmatch_api.routers.match_runs",
         authorizer="_authorize_match_run",
         roles_constant="_MATCH_RUN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    # The four outreach operations share one authorizer,
+    # ``_authorize_outreach`` in ``routers/outreach.py``, for the reason the two
+    # match-run operations share theirs: all four ask the identical question —
+    # may this caller work with this unit's outreach — against the identical
+    # ``org_unit`` resource, so a widening applies to all of them or to none and
+    # cannot reach one by accident.
+    #
+    # ``admin`` and ``coordinator``. Deliberately not ``student``: outreach is
+    # correspondence sent on the institution's behalf, and the roles that may
+    # compose it are the roles accountable for what it says.
+    #
+    # No ``require_membership`` and no ``tenant_wide_roles``, for the reasons
+    # the match-run rows above give — ``_OUTREACH_ROLES`` is non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles check
+    # first, and no committed artifact makes anything about outreach tenant-wide.
+    #
+    # The fifth outreach operation, ``POST /v1/unsubscribe``, is in
+    # ``UNAUTHENTICATED_ROUTES`` rather than here. That is not a gap in this
+    # table: it is the one outreach route with no principal to authorize, and
+    # the entry there says why.
+    Operation(
+        key="outreach.draft.create",
+        method="POST",
+        path="/v1/units/{unit_id}/outreach/drafts",
+        module="smartmatch_api.routers.outreach",
+        authorizer="_authorize_outreach",
+        roles_constant="_OUTREACH_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="outreach.draft.list",
+        method="GET",
+        path="/v1/units/{unit_id}/outreach/drafts",
+        module="smartmatch_api.routers.outreach",
+        authorizer="_authorize_outreach",
+        roles_constant="_OUTREACH_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="outreach.send.submit",
+        method="POST",
+        path="/v1/units/{unit_id}/outreach/drafts/{draft_id}/send",
+        module="smartmatch_api.routers.outreach",
+        authorizer="_authorize_outreach",
+        roles_constant="_OUTREACH_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="outreach.send.read",
+        method="GET",
+        path="/v1/units/{unit_id}/outreach/sends/{send_id}",
+        module="smartmatch_api.routers.outreach",
+        authorizer="_authorize_outreach",
+        roles_constant="_OUTREACH_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
@@ -1810,6 +1891,299 @@ MATRIX: dict[str, dict[str, Cell]] = {
             ),
         ),
     },
+    "outreach.draft.create": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "composing is the coordinator's own job: they are the named actor recorded as the "
+                "draft's author, and as its approver when they approve it in the same call"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is scoped by the loaded unit's own path, never by "
+                "anything in the request, so a sibling department's coordinator "
+                "does not cover it — the same containment rule import.create and "
+                "match_run.create are held to"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the only "
+                "thing refusing this principal is the path. No committed artifact "
+                "makes outreach tenant-wide the way the metrics decision's §4 "
+                "makes aggregates tenant-wide, so `_authorize_outreach` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is correspondence sent on the institution's behalf. "
+                "The roles that may touch it are the roles accountable for what "
+                "it says, and a student membership is not one of them — this is "
+                "the one operation family where the wrong answer reaches a real "
+                "person outside the institution"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "there is no job at all in this operation — composing writes a row directly and "
+                "queues nothing — so the actor half of the shape is inert and what remains is a "
+                "role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "outreach.draft.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "a coordinator reading their own unit's drafts, which carry the rendered text and "
+                "the recipient's address"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is scoped by the loaded unit's own path, never by "
+                "anything in the request, so a sibling department's coordinator "
+                "does not cover it — the same containment rule import.create and "
+                "match_run.create are held to"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the only "
+                "thing refusing this principal is the path. No committed artifact "
+                "makes outreach tenant-wide the way the metrics decision's §4 "
+                "makes aggregates tenant-wide, so `_authorize_outreach` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is correspondence sent on the institution's behalf. "
+                "The roles that may touch it are the roles accountable for what "
+                "it says, and a student membership is not one of them — this is "
+                "the one operation family where the wrong answer reaches a real "
+                "person outside the institution"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "this is a read of stored drafts and creates no job, so the "
+                "actor half of the shape is inert and what remains is a "
+                "role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "outreach.send.submit": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the coordinator who composed and approved the message is the one who sends it. "
+                "This is the only operation in this family that can cause a message to leave the "
+                "building, so its cell is the one worth reading twice"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is scoped by the loaded unit's own path, never by "
+                "anything in the request, so a sibling department's coordinator "
+                "does not cover it — the same containment rule import.create and "
+                "match_run.create are held to"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the only "
+                "thing refusing this principal is the path. No committed artifact "
+                "makes outreach tenant-wide the way the metrics decision's §4 "
+                "makes aggregates tenant-wide, so `_authorize_outreach` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is correspondence sent on the institution's behalf. "
+                "The roles that may touch it are the roles accountable for what "
+                "it says, and a student membership is not one of them — this is "
+                "the one operation family where the wrong answer reaches a real "
+                "person outside the institution"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "there is no job yet when this operation is authorized — it is the request that "
+                "creates one — so the actor half of the shape is inert and what remains is a role- "
+                "less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "outreach.send.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "reading what happened to a message their unit sent, including the recipient's "
+                "address and any refusal reason"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is scoped by the loaded unit's own path, never by "
+                "anything in the request, so a sibling department's coordinator "
+                "does not cover it — the same containment rule import.create and "
+                "match_run.create are held to"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the only "
+                "thing refusing this principal is the path. No committed artifact "
+                "makes outreach tenant-wide the way the metrics decision's §4 "
+                "makes aggregates tenant-wide, so `_authorize_outreach` passes no "
+                "`tenant_wide_roles` and ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "outreach is correspondence sent on the institution's behalf. "
+                "The roles that may touch it are the roles accountable for what "
+                "it says, and a student membership is not one of them — this is "
+                "the one operation family where the wrong answer reaches a real "
+                "person outside the institution"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "the send's job exists by now, but this operation authorizes against the unit "
+                "rather than against the job, so the actor half of the shape is inert and what "
+                "remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
     "match_run.read": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -2233,6 +2607,14 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # the other the person who spends the budget on their behalf
     # (`_REDEMPTION_DECISION_ROLES`) — and a single helper taking the role set as
     # an argument would make one call site the place both are widened from.
+    # `_authorize_outreach` (`routers/outreach.py`) is the eighth name, on the
+    # same terms as the rest: load the unit, then make exactly this call against
+    # that row's path with `_OUTREACH_ROLES`. One name for four operations for
+    # the reason `_authorize_event_read` is one for two — composing, listing,
+    # sending, and reading all ask the identical question of the identical
+    # `org_unit` resource, so a widening applies to all four or to none. The
+    # fifth outreach route, `POST /v1/unsubscribe`, does not appear here at all:
+    # it has no principal, and its entry is in `UNAUTHENTICATED_ROUTES`.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
@@ -2241,6 +2623,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_match_run",
         "_authorize_student_rewards",
         "_authorize_redemption_decision",
+        "_authorize_outreach",
     ):
         assert_allowed(
             resolved.principal,

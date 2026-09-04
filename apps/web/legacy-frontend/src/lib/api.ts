@@ -2242,3 +2242,156 @@ export async function requestRedemption(unitId: string, itemId: string): Promise
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Outreach (R4, gate G4)
+//
+// Four calls, and one shape runs through all of them: **nothing here reports
+// that a message was sent.** `submitOutreachSend` resolves with a job id, and
+// the only thing that can say what happened to a message is a later read of
+// `GET /v1/units/{unit_id}/outreach/sends/{send_id}`.
+//
+// That is the direct correction of the defect `docs/plans/frontend-broken-buttons.md`
+// catalogues as B17: the legacy Send button called `console.log("Message sent:")`,
+// showed "Message sent!" for two seconds, and closed the dialog, having made no
+// request at all. Replacing it with a real request that resolves to an
+// optimistic success would be the same defect with a network round trip in the
+// middle, so the types below give a caller nothing optimistic to render.
+// ---------------------------------------------------------------------------
+
+/** One stored draft, as `GET`/`POST .../outreach/drafts` returns it. */
+export interface OutreachDraft {
+  draft_id: string;
+  contact_channel_id: string;
+  template_id: string;
+  /**
+   * `"synthetic"` for pilot copy that has not been through institutional
+   * review, `"reviewed"` otherwise. Rendered in the UI rather than hidden: it
+   * is the fact that decides whether this message could go to a real person.
+   */
+  content_status: string;
+  subject: string;
+  body: string;
+  status: string;
+  version: number;
+  recipient_address: string;
+}
+
+export interface OutreachDraftListResponse {
+  drafts: OutreachDraft[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * What a submitted send command returns.
+ *
+ * Note the fields it does *not* have. There is no status, no disposition, and
+ * nothing about a message, because when this resolves the command has been
+ * recorded and the dispatcher has not moved it. A UI that wants to say
+ * something true at this point can say "queued" and show the job id.
+ */
+export interface OutreachSendAccepted {
+  job_id: string;
+  events_url: string;
+  replayed: boolean;
+}
+
+export interface OutreachDeliveryEvent {
+  event_type: string;
+  occurred_at: string;
+  provider_event_id: string | null;
+}
+
+/**
+ * One send attempt and its delivery stream.
+ *
+ * `disposition` is `null` while the attempt is in flight. That is a third
+ * state, not a missing value: render it as in-progress and never as a failure.
+ * Even `"accepted"` means only that a provider took custody — delivery is a
+ * later event in the stream and may never arrive.
+ */
+export interface OutreachSend {
+  send_id: string;
+  draft_id: string;
+  job_id: string;
+  recipient_address: string;
+  disposition: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  failure_reason: string | null;
+  delivery_events: OutreachDeliveryEvent[];
+}
+
+/** `GET /v1/units/{unit_id}/outreach/drafts` — a coordinator's drafts. */
+export async function fetchOutreachDrafts(unitId: string): Promise<OutreachDraftListResponse> {
+  return requestJson<OutreachDraftListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/outreach/drafts` — compose one message.
+ *
+ * The body carries a template id and its placeholder values. There is
+ * deliberately no `body` or `subject` parameter and there must never be one:
+ * the server's closed template registry decides what the words are, and
+ * free-form text from a browser would reopen the hole that registry closes.
+ */
+export async function createOutreachDraft(
+  unitId: string,
+  input: {
+    contactChannelId: string;
+    templateId: string;
+    values: Record<string, string>;
+    approve: boolean;
+  },
+): Promise<OutreachDraft> {
+  return requestJson<OutreachDraft>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        contact_channel_id: input.contactChannelId,
+        template_id: input.templateId,
+        values: input.values,
+        approve: input.approve,
+      }),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send` — submit the command.
+ *
+ * Resolves with a job id when the server answers `202`. **Nothing has been sent
+ * at that point.** The `Idempotency-Key` is generated per attempt so that a
+ * retry after a network error cannot become a second message; `crypto.randomUUID`
+ * is used rather than a timestamp because two clicks in the same millisecond are
+ * two attempts, and a key that collided would silently merge them.
+ */
+export async function submitOutreachSend(
+  unitId: string,
+  draftId: string,
+): Promise<OutreachSendAccepted> {
+  return requestJson<OutreachSendAccepted>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts/${encodeURIComponent(draftId)}/send`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/units/{unit_id}/outreach/sends/{send_id}` — what actually happened. */
+export async function fetchOutreachSend(unitId: string, sendId: string): Promise<OutreachSend> {
+  return requestJson<OutreachSend>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends/${encodeURIComponent(sendId)}`,
+    undefined,
+    { authenticated: true },
+  );
+}

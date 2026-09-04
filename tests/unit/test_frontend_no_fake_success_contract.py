@@ -12,6 +12,7 @@ committed. Re-adding any pattern below reintroduces a fabricated success story.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +21,8 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 STUDENT_CONNECT = FRONTEND_SRC / "app" / "pages" / "student" / "StudentConnect.tsx"
 AGENTIC_OUTREACH_PANEL = FRONTEND_SRC / "components" / "AgenticOutreachPanel.tsx"
 OUTREACH_PAGE = FRONTEND_SRC / "app" / "pages" / "Outreach.tsx"
+COORDINATOR_OUTREACH = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorOutreach.tsx"
+OUTREACH_HOOK = FRONTEND_SRC / "app" / "hooks" / "useOutreach.ts"
 
 # B12 / B13 -- in-app chat is archived (MM-F04, Fix #11). The sheet rendered
 # fabricated message history and "Send" only cleared the input.
@@ -83,4 +86,84 @@ def test_outreach_page_has_no_stub_controls() -> None:
     for pattern in OUTREACH_FORBIDDEN:
         assert pattern not in source, (
             f"Outreach page reintroduced a control with no backend: {pattern!r}"
+        )
+
+
+# B17 -- the coordinator Send button. The legacy version called
+# `console.log("Message sent:")`, rendered "Message sent!" for two seconds, and
+# closed the dialog, having issued no request at all.
+#
+# R4 gave it a real command to submit, which is why these two guards exist now
+# and did not before: a button with a working `fetch` behind it is *more*
+# tempting to decorate with a success toast, not less, because the request
+# really did succeed. What it succeeded at is recording a command. The message
+# has not been sent, and the page must not say it has.
+COORDINATOR_OUTREACH_FORBIDDEN = (
+    "Message sent",
+    "console.log",
+    "setTimeout",
+    # Every past tense that would be a claim about a message rather than about
+    # the command. "Queued" is the strongest thing this page may say on its own.
+    "Sent!",
+    "Delivered",
+    "successfully",
+)
+
+
+def _code_only(source: str) -> str:
+    """Strip JSDoc blocks and line comments before scanning.
+
+    The other guards in this file scan raw source, and that works because the
+    files they guard do not discuss the patterns they forbid. This one does:
+    `CoordinatorOutreach.tsx` quotes the legacy `console.log("Message sent:")`
+    at the top, in order to say what it no longer does. A raw scan would fail on
+    a file's own explanation of why it passes, which trains the next person to
+    delete the comment rather than keep the guard.
+
+    So prose is removed and code is checked. That is the same call
+    `test_outreach_wiring.py` makes for the domain modules, which parse their
+    source with `ast` for the identical reason.
+    """
+    without_blocks = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return "\n".join(
+        line for line in without_blocks.splitlines() if not line.lstrip().startswith("//")
+    )
+
+
+def test_coordinator_outreach_never_claims_a_message_was_sent() -> None:
+    """B17. The Send button submits a command; it does not report a delivery."""
+    source = _code_only(COORDINATOR_OUTREACH.read_text(encoding="utf-8"))
+    for pattern in COORDINATOR_OUTREACH_FORBIDDEN:
+        assert pattern not in source, (
+            f"CoordinatorOutreach reintroduced a fabricated success: {pattern!r}"
+        )
+
+
+def test_coordinator_outreach_reports_the_queued_state_it_actually_has() -> None:
+    """The positive half of the guard above.
+
+    Forbidding the word "sent" is only half a contract -- a page that said
+    nothing at all would pass it and leave a coordinator with no idea whether
+    their click did anything. What the page owes them is the true fact: the
+    command was accepted, and here is the job it became.
+    """
+    source = COORDINATOR_OUTREACH.read_text(encoding="utf-8")
+
+    assert "Queued" in source
+    assert "queued.jobId" in source
+
+
+def test_the_outreach_hook_has_no_state_that_means_delivered() -> None:
+    """The state machine is where a fake success would have to be born.
+
+    `SendState` stops at "queued" on purpose. If a "sent" or "delivered" member
+    ever appears here, every consumer gains a state it can render, and the page
+    guard above becomes a rule about one file rather than about the feature.
+    """
+    source = _code_only(OUTREACH_HOOK.read_text(encoding="utf-8"))
+
+    assert '"idle" | "submitting" | "queued" | "failed"' in source
+    for forbidden in ('| "sent"', '| "delivered"', '| "success"'):
+        assert forbidden not in source, (
+            f"useOutreach gained a state that claims delivery: {forbidden!r}"
         )
