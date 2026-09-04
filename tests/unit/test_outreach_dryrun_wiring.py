@@ -61,8 +61,21 @@ class TestRegistryAbsence:
             assert not any(word in command_type for word in _OUTREACH_WORDS), command_type
 
     def test_the_shipped_registry_is_exactly_what_it_was(self):
-        """This branch adds no handler at all — not one that is off by default."""
-        assert set(default_registry().command_types) == {"test.noop", "import.create"}
+        """This branch adds no handler at all — not one that is off by default.
+
+        The expected set is exhaustive on purpose: a handler added anywhere has
+        to come through here, so nobody registers one without a reviewer seeing
+        it in this diff. ``match-run.create`` is listed for exactly that reason
+        — it was added deliberately by plan card M8a, it records an immutable
+        ``match_run`` snapshot, and it reaches no provider, no transport, and no
+        outreach path. The outreach-word assertions above are what still hold
+        the deferred G4 gate closed, and they are unchanged.
+        """
+        assert set(default_registry().command_types) == {
+            "test.noop",
+            "import.create",
+            "match-run.create",
+        }
 
     def test_a_booted_worker_routes_no_outreach_command(self):
         """Nor is one composed on at boot, the way paid extraction is."""

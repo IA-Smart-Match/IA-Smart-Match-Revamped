@@ -213,6 +213,33 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((((kind = 'unmapped_tag'::text) = (raw_value IS NOT NULL)) AND "
         "((raw_value IS NULL) = (vocabulary_version IS NULL))))"
     ),
+    # Migration 0018, the immutable match_run snapshot. The table's other
+    # guarantee — that no UPDATE succeeds at all — is a trigger rather than a
+    # CHECK, because a CHECK sees only the new row and cannot know one existed
+    # before. It is exercised in test_match_run_snapshot.py and has no entry
+    # here, because this file is about CHECK constraints.
+    ("match_run", "ck_match_run_supersedes_is_not_self"): (
+        "CHECK (((supersedes_run_id IS NULL) OR (supersedes_run_id <> id)))"
+    ),
+    ("match_run", "ck_match_run_pins_present"): (
+        "CHECK (((length(btrim(event_need_id)) > 0) AND (length(btrim(inputs_hash)) > 0) "
+        "AND (length(btrim(registry_version)) > 0) AND (length(btrim(registry_hash)) > 0) "
+        "AND (length(btrim(optimizer_model_version)) > 0) AND (length(btrim(solver_name)) "
+        "> 0) AND (length(btrim(solver_version)) > 0) AND "
+        "(length(btrim(route_estimate_version)) > 0)))"
+    ),
+    ("match_run", "ck_match_run_weights_object"): (
+        "CHECK (((jsonb_typeof(weights) = 'object'::text) AND (weights <> '{}'::jsonb)))"
+    ),
+    ("match_run", "ck_match_run_portfolio_size"): "CHECK ((portfolio_size >= 1))",
+    ("match_run", "ck_match_run_random_seed"): "CHECK ((random_seed >= 0))",
+    ("match_run", "ck_match_run_route_estimate_source"): (
+        "CHECK ((route_estimate_source = ANY (ARRAY['straight_line'::text, 'route_matrix'::text])))"
+    ),
+    ("match_run", "ck_match_run_portfolio_status"): (
+        "CHECK ((portfolio_status = ANY (ARRAY['optimal'::text, 'feasible'::text, "
+        "'infeasible'::text, 'unknown'::text])))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -287,6 +314,20 @@ BEHAVIOURAL_COVERAGE = {
     ("discovery_review_item", "ck_discovery_review_item_tag_evidence"): (
         "test_event_schema_constraints.py"
     ),
+    # Migration 0018. Every one attempts the forbidden write against a real
+    # database in the file named, alongside the permitted write that catches an
+    # inverted expression.
+    ("match_run", "ck_match_run_supersedes_is_not_self"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_pins_present"): (
+        "test_match_run_snapshot.py — one case per pin, so a constraint narrowed "
+        "to fewer columns than it names fails rather than passing on the one "
+        "column a single case happened to blank"
+    ),
+    ("match_run", "ck_match_run_weights_object"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_portfolio_size"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_random_seed"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_route_estimate_source"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_portfolio_status"): "test_match_run_snapshot.py",
 }
 
 

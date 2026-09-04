@@ -49,6 +49,7 @@ __all__ = [
     "import_batch",
     "job",
     "job_event",
+    "match_run",
     "membership",
     "org_unit",
     "outbox_record",
@@ -1089,5 +1090,112 @@ discovery_review_item = sa.Table(
         "(kind = 'unmapped_tag') = (raw_value IS NOT NULL) "
         "AND (raw_value IS NULL) = (vocabulary_version IS NULL)",
         name="ck_discovery_review_item_tag_evidence",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The G1 match-run snapshot (migration 0018, plan card M8a). Immutable: the
+# migration installs a BEFORE UPDATE trigger that refuses every UPDATE, and a
+# correction is a new row naming the one it supersedes. See the migration's
+# docstring for the reasoning behind every constraint mirrored below; it is not
+# repeated here.
+#
+# The trigger has no representation in SQLAlchemy Core and so is absent from
+# this mirror, as indexes are. `test_match_run_snapshot.py` is what holds it to
+# account, by attempting the UPDATE and requiring the refusal.
+# ---------------------------------------------------------------------------
+
+match_run = sa.Table(
+    "match_run",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped: the unit every authorization decision about this run is scoped
+    # against, as job.owning_unit_id and event.host_org_unit_id are.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The durable command that produced this run. Constrained, which is what
+    # makes "written on the command path, never by a route" a property of the
+    # schema rather than a convention.
+    sa.Column("job_id", _UUID, nullable=False),
+    # PortfolioRequest.event_need_id. Text, not a foreign key -- the need
+    # belongs to card S12's surface.
+    sa.Column("event_need_id", sa.Text, nullable=False),
+    # smartmatch_domain.match_run.inputs_fingerprint over the candidate pool,
+    # the requested size, the seed, and the weights.
+    sa.Column("inputs_hash", sa.Text, nullable=False),
+    sa.Column("portfolio_size", sa.Integer, nullable=False),
+    sa.Column("random_seed", sa.BigInteger, nullable=False),
+    sa.Column("registry_version", sa.Text, nullable=False),
+    sa.Column("registry_hash", sa.Text, nullable=False),
+    # The readable copy of what registry_hash fingerprints: a digest is one-way,
+    # and "which weights were in force in March" is not answerable from a hash.
+    sa.Column("weights", postgresql.JSONB, nullable=False),
+    sa.Column("optimizer_model_version", sa.Text, nullable=False),
+    sa.Column("solver_name", sa.Text, nullable=False),
+    sa.Column("solver_version", sa.Text, nullable=False),
+    sa.Column("route_estimate_source", sa.Text, nullable=False),
+    sa.Column("route_estimate_version", sa.Text, nullable=False),
+    # Mirrors smartmatch_domain.optimizer.PortfolioStatus: 'infeasible' is a
+    # claim about the model, 'unknown' one about the search stopping early, and
+    # the two are never conflated.
+    sa.Column("portfolio_status", sa.Text, nullable=False),
+    # A correction is a new run naming the one it replaces.
+    sa.Column("supersedes_run_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # No updated_at, deliberately: carrying one would be a statement that
+    # mutation is expected here, and the trigger forbids it.
+    sa.PrimaryKeyConstraint("id", name="match_run_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_match_run_tenant_id"),
+    # One snapshot per command, so a re-driven job cannot write a second row for
+    # the same run. Named here because match_runs.py passes it to
+    # ON CONFLICT ON CONSTRAINT, which makes the name an interface.
+    sa.UniqueConstraint("tenant_id", "job_id", name="uq_match_run_job"),
+    # RESTRICT: reorganizing a unit must not silently delete the record of what
+    # was recommended under it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: the job is this run's provenance.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "supersedes_run_id"],
+        ["match_run.tenant_id", "match_run.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "supersedes_run_id IS NULL OR supersedes_run_id <> id",
+        name="ck_match_run_supersedes_is_not_self",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(event_need_id)) > 0 "
+        "AND length(btrim(inputs_hash)) > 0 "
+        "AND length(btrim(registry_version)) > 0 "
+        "AND length(btrim(registry_hash)) > 0 "
+        "AND length(btrim(optimizer_model_version)) > 0 "
+        "AND length(btrim(solver_name)) > 0 "
+        "AND length(btrim(solver_version)) > 0 "
+        "AND length(btrim(route_estimate_version)) > 0",
+        name="ck_match_run_pins_present",
+    ),
+    sa.CheckConstraint(
+        "jsonb_typeof(weights) = 'object' AND weights <> '{}'::jsonb",
+        name="ck_match_run_weights_object",
+    ),
+    sa.CheckConstraint("portfolio_size >= 1", name="ck_match_run_portfolio_size"),
+    sa.CheckConstraint("random_seed >= 0", name="ck_match_run_random_seed"),
+    sa.CheckConstraint(
+        "route_estimate_source IN ('straight_line','route_matrix')",
+        name="ck_match_run_route_estimate_source",
+    ),
+    sa.CheckConstraint(
+        "portfolio_status IN ('optimal','feasible','infeasible','unknown')",
+        name="ck_match_run_portfolio_status",
     ),
 )

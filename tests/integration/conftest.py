@@ -70,6 +70,12 @@ _TENANT_SCOPED_TABLES = (
     "job_event",
     "outbox_record",
     "redrive_record",
+    # Migration 0018. Before `job`, which it references ON DELETE RESTRICT, and
+    # before `org_unit` for the same reason. It is deletable even though its
+    # rows are immutable: 0018 blocks UPDATE only, because retention is a
+    # question that card does not decide and a table nothing could delete from
+    # would make its tenant undeletable.
+    "match_run",
     "job",
     "membership",
     "resource_grant",
@@ -129,11 +135,20 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
 
     Only the coordination tables are cleared. Tenants and their identity rows are
     owned by the fixtures that create them.
+
+    ``match_run`` is cleared here too, and it is the one table in this sweep that
+    is not itself a coordination table. Migration ``0018`` gives it an
+    ``ON DELETE RESTRICT`` foreign key to ``job``, so a run left behind by an
+    aborted earlier run would make the ``DELETE FROM job`` below fail — in
+    *every* test, including every test written before that table existed. It is
+    deleted first for that reason, and it is safe to delete globally for the
+    same reason ``job`` is: nothing but these tests writes one today.
     """
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM job_event"))
         conn.execute(text("DELETE FROM outbox_record"))
         conn.execute(text("DELETE FROM redrive_record"))
+        conn.execute(text("DELETE FROM match_run"))
         conn.execute(text("DELETE FROM job"))
     yield
 

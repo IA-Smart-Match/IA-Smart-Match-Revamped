@@ -75,11 +75,28 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
+from smartmatch_domain.factor_registry import (
+    REGISTRY_VERSION,
+    RegistryNotApprovedError,
+    RegistryNotReadyError,
+    assert_registry_approved,
+    assert_scoring_ready,
+    normalize_weights,
+)
+from smartmatch_domain.factors.travel_burden import TRAVEL_BURDEN_FORMULA_VERSION
 from smartmatch_domain.ingest import QualityFinding, Severity, validate_columns
 from smartmatch_domain.ingest import normalize_header as _normalize_header
 from smartmatch_domain.jobs import JobState
+from smartmatch_domain.match_run import (
+    MATCH_RUN_COMMAND_TYPE,
+    MatchRunPins,
+    inputs_fingerprint,
+    weights_fingerprint,
+)
+from smartmatch_domain.optimizer import PortfolioCandidate, PortfolioRequest, solve_portfolio
 from smartmatch_domain.public_url import StaticUrlShapeRefusal, validate_static_url_shape
 from smartmatch_persistence.jobs import JobRecord
+from smartmatch_persistence.match_runs import MatchRunRepository
 from smartmatch_persistence.review import ReviewRepository
 from sqlalchemy.orm import Session
 
@@ -97,6 +114,7 @@ __all__ = [
     "HandlerFailure",
     "HandlerResult",
     "ImportCommand",
+    "MatchRunCommand",
     "PolicyFailure",
     "ProviderFailure",
     "default_registry",
@@ -897,10 +915,337 @@ def _finding_payload(finding: QualityFinding) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# match-run.create (plan card M8a)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class MatchRunCommand:
+    """The parameters of one ``match-run.create``, as persisted and read back.
+
+    Mirrors the dictionary card M8b's router will write to ``job.payload``. A
+    separate type rather than a raw mapping, for the reason
+    :class:`ImportCommand` gives: the payload is read from the database, and a
+    row can predate this code, be written by an older release, or be edited by
+    hand in an incident.
+
+    **There is no ``unit_id`` field, and its absence is the point.** The unit a
+    run belongs to is ``job.owning_unit_id`` — written by ``submit_command``
+    from the unit the router already authorized against, never from the body —
+    and reading it back out of the payload instead would be a caller naming the
+    subtree their own run is filed under, and therefore naming who may later
+    read it. ``ImportCommand`` carries one because its handler passes it to
+    ``ReviewRepository`` as a *datum* about the import; this handler needs it as
+    an authorization input, and takes it from the job row.
+
+    Attributes:
+        event_need_id: The need a portfolio is being selected for.
+        portfolio_size: How many candidates to select.
+        random_seed: The CP-SAT seed. Part of the reproducibility contract —
+            :func:`smartmatch_domain.optimizer.solve_portfolio` is deterministic
+            "given identical inputs and seed", so a run that did not record its
+            seed could not be reproduced.
+        candidates: The already-scored candidate pool. Utilities arrive with the
+            command rather than being computed here: an unknown utility is
+            rejected by
+            :class:`~smartmatch_domain.optimizer.PortfolioCandidate` and never
+            coerced to ``0.0`` (ADR-0011), so the decision about how to present
+            an unscorable candidate belongs to whoever assembled the pool.
+    """
+
+    event_need_id: str
+    portfolio_size: int
+    random_seed: int
+    candidates: tuple[PortfolioCandidate, ...]
+
+
+def _read_candidate_pool(raw_candidates: object, problems: list[str]) -> list[PortfolioCandidate]:
+    """Read the candidate pool out of a persisted payload, appending to ``problems``.
+
+    Split out of :func:`_read_match_run_command` only because the per-entry
+    checks are the bulk of it. Every entry is validated positionally so a
+    message names *which* candidate was wrong — a pool of forty with one bad
+    utility is not debuggable from "candidates is invalid".
+
+    ``PortfolioCandidate``'s own ``__post_init__`` is what rejects a ``bool``
+    utility, a ``NaN``, and anything outside ``[0.0, 1.0]``; its ``ValueError``
+    is caught and recorded rather than allowed to propagate, so one bad entry
+    does not hide the other nine.
+    """
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        problems.append("candidates is missing, is not a list, or is empty")
+        return []
+
+    pool: list[PortfolioCandidate] = []
+    for index, entry in enumerate(raw_candidates):
+        if not isinstance(entry, Mapping):
+            problems.append(f"candidates[{index}] is not an object")
+            continue
+        subject = entry.get("subject_id")
+        utility = entry.get("utility")
+        if not isinstance(subject, str) or not subject.strip():
+            problems.append(f"candidates[{index}].subject_id is missing or is not a string")
+            continue
+        # `bool` before `float`: bool is a subclass of int and duck-types as a
+        # float, so `utility: true` would otherwise be read as 1.0 — the same
+        # trap PortfolioCandidate names, caught here too because this check
+        # decides whether the value even reaches it.
+        if isinstance(utility, bool) or not isinstance(utility, int | float):
+            problems.append(
+                f"candidates[{index}].utility must be a number, got {type(utility).__name__}"
+            )
+            continue
+        try:
+            pool.append(PortfolioCandidate(subject_id=subject.strip(), utility=float(utility)))
+        except ValueError as exc:
+            problems.append(f"candidates[{index}]: {exc}")
+    return pool
+
+
+def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
+    """Read a :class:`MatchRunCommand` out of a persisted payload.
+
+    Every problem is collected before raising, exactly as
+    :func:`_read_import_command` does and for the same reason.
+
+    Raises:
+        PolicyFailure: with the reason ``invalid_command_payload``. Terminal on
+            purpose — the payload is durable, so a re-drive re-reads the
+            identical bytes and fails identically, and ``failed_provider`` would
+            invite an operator to press a button that cannot work.
+    """
+    problems: list[str] = []
+    event_need_id: str | None = None
+    portfolio_size: int | None = None
+    random_seed: int | None = None
+
+    raw_need = payload.get("event_need_id")
+    if isinstance(raw_need, str) and raw_need.strip():
+        event_need_id = raw_need.strip()
+    else:
+        problems.append("event_need_id is missing, is not a string, or is blank")
+
+    raw_size = payload.get("portfolio_size")
+    if isinstance(raw_size, bool) or not isinstance(raw_size, int):
+        problems.append(f"portfolio_size must be an integer, got {type(raw_size).__name__}")
+    elif raw_size < 1:
+        problems.append(f"portfolio_size must be >= 1, got {raw_size}")
+    else:
+        portfolio_size = raw_size
+
+    raw_seed = payload.get("random_seed")
+    if isinstance(raw_seed, bool) or not isinstance(raw_seed, int):
+        problems.append(f"random_seed must be an integer, got {type(raw_seed).__name__}")
+    elif raw_seed < 0:
+        # Matches `ck_match_run_random_seed`. Refused here rather than left to
+        # the constraint so the failure names the field, not the constraint.
+        problems.append(f"random_seed must be >= 0, got {raw_seed}")
+    else:
+        random_seed = raw_seed
+
+    pool = _read_candidate_pool(payload.get("candidates"), problems)
+
+    subject_ids = [candidate.subject_id for candidate in pool]
+    if len(set(subject_ids)) != len(subject_ids):
+        # PortfolioRequest refuses a duplicate subject_id too. Caught here so
+        # the failure is a payload problem the operator can read, rather than a
+        # ValueError raised out of the solver call below.
+        problems.append("candidates contains a duplicate subject_id")
+
+    if problems or event_need_id is None or portfolio_size is None or random_seed is None:
+        raise PolicyFailure(
+            "the persisted match-run payload cannot be read: "
+            + "; ".join(problems or ["no usable fields were found"]),
+            reason="invalid_command_payload",
+        )
+
+    return MatchRunCommand(
+        event_need_id=event_need_id,
+        portfolio_size=portfolio_size,
+        random_seed=random_seed,
+        candidates=tuple(pool),
+    )
+
+
+def handle_match_run_create(context: CommandContext) -> HandlerResult:
+    """Execute ``match-run.create``: solve, then record an immutable snapshot.
+
+    Plan card M8a. The write is here rather than in a route because a match run
+    is durable, possibly slow work whose result a coordinator will act on, and
+    v1.1 §1.6 puts every such write on the command path: the API records intent,
+    the dispatcher moves it, and this executes it. Card M8b adds the routes that
+    submit the command and read the row back; until then the only way to reach
+    this handler is a job inserted directly, which is what the integration tests
+    do.
+
+    What it stores, and what it does not
+    -------------------------------------
+    One ``match_run`` row: the inputs hash, the registry version and weights in
+    force, the optimizer and route-estimate pins, the solver's verdict, and the
+    unit and tenant it is scoped to. **Not** the selected professionals — that
+    shortlist is card M10's surface, it has no table, and writing one here would
+    be storing an assignment nothing can display and no policy row authorizes.
+
+    The distinction matters for what a re-run means. Two runs with the same
+    ``inputs_hash`` and the same pins are two runs of the same problem under the
+    same rules, and if they disagreed about the shortlist that would be a defect
+    in the solver's determinism rather than a fact about the candidates. The
+    snapshot is what makes that statement checkable at all.
+
+    Fail closed at the registry
+    ----------------------------
+    :func:`~smartmatch_domain.factor_registry.assert_registry_approved` and
+    :func:`~smartmatch_domain.factor_registry.assert_scoring_ready` are both
+    called before anything is solved or written. That is the standing rule the
+    plan states — "every scoring path calls ``assert_registry_approved()``" —
+    and the failure is ``failed_policy`` because a re-drive against an
+    unapproved or half-implemented registry fails identically. Recording a run
+    under a registry that was not ready would produce a snapshot whose pins name
+    a state nobody approved, which is worse than no snapshot: it is a
+    reproducible-looking record of something unsanctioned.
+
+    Idempotent under re-drive
+    --------------------------
+    A second execution of the same job re-reads the identical payload, solves it
+    to the identical answer (the seed and the pool are both in the payload), and
+    finds ``uq_match_run_job`` already taken — so
+    :meth:`~smartmatch_persistence.match_runs.MatchRunRepository.record` returns
+    the first execution's row rather than writing a second. The summary says
+    which happened, because "already recorded" and "recorded now" are both
+    successes and a coordinator following the job is entitled to the difference.
+
+    Raises:
+        PolicyFailure: ``command_payload_missing`` when the job carries no
+            payload, ``invalid_command_payload`` when it carries one that cannot
+            be read, and ``registry_not_ready`` when the factor registry is not
+            approved or its implemented scoring set is not the approved set.
+    """
+    payload = context.job.payload
+    if payload is None:
+        # NULL is not an empty command; see handle_import_create for the full
+        # argument. A match run with no parameters is not a smaller match run,
+        # it is an unrecoverable one.
+        context.emit(
+            {
+                "type": "progress",
+                "detail": "this job carries no command payload, so there is no run to record",
+            }
+        )
+        raise PolicyFailure(
+            "match-run.create cannot be executed: this job has no persisted payload. "
+            "Its parameters cannot be recovered — the idempotency fingerprint is a "
+            "hash — and recording a run against invented inputs would be a "
+            "reproducible-looking record of nothing. Submit the run again.",
+            reason="command_payload_missing",
+        )
+
+    command = _read_match_run_command(payload)
+
+    try:
+        assert_registry_approved()
+        assert_scoring_ready()
+    except (RegistryNotApprovedError, RegistryNotReadyError) as exc:
+        raise PolicyFailure(
+            f"match-run.create refused before scoring: {exc}",
+            reason="registry_not_ready",
+        ) from exc
+
+    # Normalized over the implemented scoring factors only — the corrected form
+    # of the legacy `_normalize_weights`, whose denominator ranged over nine
+    # declared factors while its numerator summed seven, capping every score at
+    # 0.90. These are the weights the run is pinned to, so the stored copy is the
+    # normalized set that actually applied and not the proposed one.
+    weights = normalize_weights()
+
+    context.emit(
+        {
+            "type": "progress",
+            "detail": "solving the portfolio",
+            "candidates": len(command.candidates),
+            "portfolio_size": command.portfolio_size,
+            "registry_version": REGISTRY_VERSION,
+        }
+    )
+
+    result = solve_portfolio(
+        PortfolioRequest(
+            event_need_id=command.event_need_id,
+            candidates=command.candidates,
+            portfolio_size=command.portfolio_size,
+            random_seed=command.random_seed,
+        )
+    )
+
+    pins = MatchRunPins(
+        registry_version=REGISTRY_VERSION,
+        registry_hash=weights_fingerprint(weights),
+        optimizer_model_version=result.model_version,
+        solver_name=result.solver_name,
+        # From the result, not from this module's own import of ortools: the
+        # recorded build is the one that solved.
+        solver_version=result.solver_version,
+        # Straight-line today, and said so rather than implied: the D3 route
+        # matrix is deferred and `factors/travel_burden.py` computes a haversine
+        # estimate. When D3 lands, these older rows must keep saying what they
+        # actually used.
+        route_estimate_source="straight_line",
+        route_estimate_version=TRAVEL_BURDEN_FORMULA_VERSION,
+    )
+
+    record = _match_runs.record(
+        context.session,
+        # Both from the job row, never from the payload. See MatchRunCommand.
+        tenant_id=context.job.tenant_id,
+        owning_unit_id=context.job.owning_unit_id,
+        job_id=context.job.id,
+        event_need_id=command.event_need_id,
+        inputs_hash=inputs_fingerprint(
+            event_need_id=command.event_need_id,
+            candidate_subject_ids=[candidate.subject_id for candidate in command.candidates],
+            candidate_utilities=[candidate.utility for candidate in command.candidates],
+            portfolio_size=command.portfolio_size,
+            random_seed=command.random_seed,
+            weights=weights,
+        ),
+        portfolio_size=command.portfolio_size,
+        random_seed=command.random_seed,
+        weights=weights,
+        pins=pins,
+        portfolio_status=result.status.value,
+    )
+
+    return HandlerResult(
+        state=JobState.SUCCEEDED,
+        summary={
+            "match_run_id": str(record.id),
+            "inputs_hash": record.inputs_hash,
+            "registry_version": pins.registry_version,
+            "registry_hash": pins.registry_hash,
+            "optimizer_model_version": pins.optimizer_model_version,
+            "solver_name": pins.solver_name,
+            "solver_version": pins.solver_version,
+            "route_estimate_source": pins.route_estimate_source,
+            "route_estimate_version": pins.route_estimate_version,
+            "portfolio_status": result.status.value,
+            "candidates_considered": len(command.candidates),
+            # The count, not the ids: the shortlist is card M10's surface and a
+            # job event is not where it lands. A count says the search produced
+            # something without publishing a recommendation through a channel no
+            # policy row authorizes.
+            "selected_count": len(result.selected_subject_ids),
+            "already_recorded": record.was_already_recorded,
+        },
+    )
+
+
 #: Module-level, like every other repository instance in this codebase
 #: (``commands.py``'s ``_jobs``/``_outbox``, ``redrive.py``'s own ``_jobs``):
 #: stateless, so one instance safely serves every call.
 _reviews: Final[ReviewRepository] = ReviewRepository()
+
+#: Same reasoning as ``_reviews`` above.
+_match_runs: Final[MatchRunRepository] = MatchRunRepository()
 
 
 # Built by a function rather than exposed as a module-level constant, so that no
@@ -917,5 +1262,12 @@ def default_registry() -> CommandRegistry:
         handlers={
             "test.noop": handle_noop,
             "import.create": handle_import_create,
+            # Card M8a. It earns its place here before card M8b's routes exist
+            # because it can genuinely execute: it solves a portfolio and
+            # records the snapshot, and it genuinely refuses — an unapproved or
+            # half-implemented registry is a terminal `registry_not_ready`. What
+            # nothing can do yet is *submit* one over HTTP, which is M8b's card,
+            # so registering it opens no surface.
+            MATCH_RUN_COMMAND_TYPE: handle_match_run_create,
         }
     )
