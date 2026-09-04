@@ -42,6 +42,8 @@ __all__ = [
     "METADATA",
     "attendance_record",
     "concurrency_lease",
+    "contact_channel",
+    "delivery_event",
     "discovery_review_item",
     "event",
     "event_tag",
@@ -53,6 +55,8 @@ __all__ = [
     "membership",
     "org_unit",
     "outbox_record",
+    "outreach_draft",
+    "outreach_send",
     "pilot_credential",
     "pilot_login_attempt",
     "pilot_session",
@@ -66,6 +70,7 @@ __all__ = [
     "reward_item",
     "spend_ceiling_bucket",
     "spend_reservation",
+    "suppression_record",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -1430,4 +1435,313 @@ pilot_login_attempt = sa.Table(
     # Named because pilot_auth.py passes this name to ON CONFLICT DO UPDATE.
     sa.PrimaryKeyConstraint("caller_key", "window_start", name="pk_pilot_login_attempt"),
     sa.CheckConstraint("count >= 0", name="ck_pilot_login_attempt_count"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Outreach (migration 0021)
+#
+# Contacts and their consent evidence, drafts and their approvals, sends and
+# their delivery streams, and the one authoritative suppression list. Every
+# constraint's reasoning lives in that migration's module docstring and is not
+# repeated here; what is repeated is only what a reader of this mirror needs in
+# order to use the tables correctly.
+#
+# The one thing worth restating, because its absence is easy to read as an
+# oversight: there is **no `suppressed` column** on `contact_channel`.
+# Suppression lives only in `suppression_record`, so the two can never disagree
+# — see `OutreachRepository.load_recipient`, which computes eligibility by
+# joining rather than by reading a cached flag.
+# ---------------------------------------------------------------------------
+
+
+contact_channel = sa.Table(
+    "contact_channel",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as job.owning_unit_id and match_run.owning_unit_id are.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # No foreign key: no professional table exists in this schema yet, the same
+    # situation professional_unit_relationship.professional_id is already in.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("channel_kind", sa.Text, nullable=False),
+    sa.Column("address", sa.Text, nullable=False),
+    sa.Column("contact_state", sa.Text, nullable=False),
+    # Nullable because most lifecycle states legitimately have no consent
+    # behind them. What is not legitimate is 'active_candidate' without an
+    # approved one, which ck_contact_channel_sendable_consent forbids.
+    sa.Column("consent_source", sa.Text, nullable=True),
+    sa.Column("consent_recorded_at", _TS, nullable=True),
+    sa.Column("consent_evidence", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Carried, unlike match_run's deliberate omission: a contact's state moves
+    # through the lifecycle, so mutation is expected here.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="contact_channel_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_contact_channel_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "channel_kind", "address", name="uq_contact_channel_address"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("channel_kind IN ('email')", name="ck_contact_channel_kind"),
+    sa.CheckConstraint(
+        "contact_state IN ('discovered', 'corroborated', 'reviewed', "
+        "'relationship_recorded', 'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_state",
+    ),
+    sa.CheckConstraint(
+        "consent_source IS NULL OR consent_source IN ('self_service', 'authenticated', "
+        "'in_person', 'institutional_relationship', 'scraped', 'purchased', 'inferred')",
+        name="ck_contact_channel_consent_source",
+    ),
+    # The constraint this table exists for: the one state that authorizes a
+    # send must name an approved source for it. Research evidence can be
+    # recorded and reviewed; it can never reach 'active_candidate'.
+    sa.CheckConstraint(
+        "contact_state <> 'active_candidate' OR consent_source IN ('self_service', "
+        "'authenticated', 'in_person', 'institutional_relationship')",
+        name="ck_contact_channel_sendable_consent",
+    ),
+    sa.CheckConstraint(
+        "(consent_source IS NULL) = (consent_recorded_at IS NULL)",
+        name="ck_contact_channel_consent_dated",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(address)) > 0 AND position('@' in address) > 1",
+        name="ck_contact_channel_address_present",
+    ),
+)
+
+
+outreach_draft = sa.Table(
+    "outreach_draft",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    # A key of smartmatch_domain.outreach.TEMPLATES. Text, not a foreign key:
+    # the registry is code, closed, and reviewed in a diff.
+    sa.Column("template_id", sa.Text, nullable=False),
+    # Copied from the template at composition time. A template's status can
+    # change; what was composed did not.
+    sa.Column("content_status", sa.Text, nullable=False),
+    # The rendered text, stored — not re-rendered at send time, so the approved
+    # text and the sent text cannot differ.
+    sa.Column("subject", sa.Text, nullable=False),
+    sa.Column("body", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("approved_by", _UUID, nullable=True),
+    sa.Column("approved_at", _TS, nullable=True),
+    sa.Column("superseded_by_draft_id", _UUID, nullable=True),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="outreach_draft_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_outreach_draft_tenant_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "approved_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "superseded_by_draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('draft', 'approved', 'superseded')", name="ck_outreach_draft_status"
+    ),
+    sa.CheckConstraint(
+        "content_status IN ('synthetic', 'reviewed')",
+        name="ck_outreach_draft_content_status",
+    ),
+    sa.CheckConstraint(
+        "(approved_by IS NULL) = (approved_at IS NULL)",
+        name="ck_outreach_draft_approval_dated",
+    ),
+    # One-directional on purpose: a superseded draft that was once approved
+    # keeps its approval columns, because erasing them would destroy the record
+    # of who signed off on text that may already have been sent.
+    sa.CheckConstraint(
+        "status <> 'approved' OR approved_by IS NOT NULL",
+        name="ck_outreach_draft_approved_has_approver",
+    ),
+    sa.CheckConstraint(
+        "superseded_by_draft_id IS NULL "
+        "OR (status = 'superseded' AND superseded_by_draft_id <> id)",
+        name="ck_outreach_draft_supersession",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(template_id)) > 0 AND length(btrim(subject)) > 0 AND length(btrim(body)) > 0",
+        name="ck_outreach_draft_text_present",
+    ),
+)
+
+
+outreach_send = sa.Table(
+    "outreach_send",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("draft_id", _UUID, nullable=False),
+    # NOT NULL and constrained, which is what makes "no synchronous send" a
+    # property of the schema: jobs are created only by commands.submit_command.
+    sa.Column("job_id", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    # Snapshots taken at send time. "Who did we actually write to" must not
+    # change when the contact's address is later corrected.
+    sa.Column("recipient_address", sa.Text, nullable=False),
+    sa.Column("from_address", sa.Text, nullable=False),
+    # SHA-256 of the unsubscribe token, never the token itself.
+    sa.Column("unsubscribe_token_hash", sa.Text, nullable=False),
+    # NULL until the attempt concludes — an attempt in flight has no outcome,
+    # and ADR-0011's rule is that unknown is never silently something else.
+    sa.Column("disposition", sa.Text, nullable=True),
+    sa.Column("provider", sa.Text, nullable=True),
+    sa.Column("provider_message_id", sa.Text, nullable=True),
+    sa.Column("failure_reason", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("concluded_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="outreach_send_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_outreach_send_tenant_id"),
+    # Named here because outreach.py passes both to ON CONFLICT ON CONSTRAINT,
+    # which makes the names an interface.
+    sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_outreach_send_idempotency"),
+    sa.UniqueConstraint("tenant_id", "job_id", name="uq_outreach_send_job"),
+    # Globally unique, not tenant-scoped: the unsubscribe POST is
+    # unauthenticated and has no tenant to scope a lookup by.
+    sa.UniqueConstraint("unsubscribe_token_hash", name="uq_outreach_send_unsubscribe_token"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "disposition IS NULL OR disposition IN ('accepted', 'blocked', 'failed')",
+        name="ck_outreach_send_disposition",
+    ),
+    sa.CheckConstraint(
+        "(disposition IS NULL) = (concluded_at IS NULL)",
+        name="ck_outreach_send_concluded",
+    ),
+    # No fake success, structurally: a blocked or failed send cannot carry an
+    # id a reader — or a UI — would take for a receipt.
+    sa.CheckConstraint(
+        "provider_message_id IS NULL OR disposition = 'accepted'",
+        name="ck_outreach_send_message_id_means_accepted",
+    ),
+    sa.CheckConstraint(
+        "disposition <> 'accepted' OR (provider IS NOT NULL AND provider_message_id IS NOT NULL)",
+        name="ck_outreach_send_accepted_has_provider",
+    ),
+    sa.CheckConstraint(
+        "disposition IS NULL "
+        "OR (disposition IN ('blocked', 'failed')) = (failure_reason IS NOT NULL)",
+        name="ck_outreach_send_failure_reason",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(idempotency_key)) > 0 "
+        "AND length(btrim(recipient_address)) > 0 "
+        "AND length(btrim(from_address)) > 0 "
+        "AND length(btrim(unsubscribe_token_hash)) > 0",
+        name="ck_outreach_send_fields_present",
+    ),
+)
+
+
+delivery_event = sa.Table(
+    "delivery_event",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("send_id", _UUID, nullable=False),
+    sa.Column("event_type", sa.Text, nullable=False),
+    # Two columns because they genuinely differ: a bounce webhook can arrive
+    # hours after the bounce. Collapsing them would make the stream's ordering
+    # a claim about our network rather than about the message.
+    sa.Column("occurred_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # NULL for events this platform wrote itself. PostgreSQL treats NULLs as
+    # distinct in a unique index, so our own events never collide while a
+    # replayed provider webhook does.
+    sa.Column("provider_event_id", sa.Text, nullable=True),
+    sa.Column("detail", postgresql.JSONB, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="delivery_event_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id", "send_id", "provider_event_id", name="uq_delivery_event_provider_event"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "send_id"],
+        ["outreach_send.tenant_id", "outreach_send.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "event_type IN ('queued', 'blocked', 'accepted', 'delivered', 'bounced', "
+        "'complained', 'unsubscribed', 'failed')",
+        name="ck_delivery_event_type",
+    ),
+    sa.CheckConstraint(
+        "detail IS NULL OR jsonb_typeof(detail) = 'object'",
+        name="ck_delivery_event_detail_object",
+    ),
+)
+
+
+suppression_record = sa.Table(
+    "suppression_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # By address rather than by contact_channel_id: a person who unsubscribes
+    # is telling us to stop writing to *them*, and a suppression must outlive
+    # the record that provoked it.
+    sa.Column("address", sa.Text, nullable=False),
+    sa.Column("suppressed_at", _TS, nullable=False),
+    sa.Column("source", sa.Text, nullable=False),
+    # No foreign key to outreach_send: a suppression must survive the deletion
+    # of the message that caused it, and a RESTRICT here would instead make
+    # that message undeletable.
+    sa.Column("origin_send_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="suppression_record_pkey"),
+    # A repeated unsubscribe is the same instruction, not a second one. The
+    # repository relies on this to make it idempotent rather than an error the
+    # recipient would see.
+    sa.UniqueConstraint("tenant_id", "address", name="uq_suppression_record_address"),
+    sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
+    sa.CheckConstraint(
+        "source IN ('unsubscribe_link', 'one_click', 'coordinator', 'bounce', 'complaint')",
+        name="ck_suppression_record_source",
+    ),
+    sa.CheckConstraint("length(btrim(address)) > 0", name="ck_suppression_record_address_present"),
 )
