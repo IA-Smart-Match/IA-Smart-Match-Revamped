@@ -42,6 +42,42 @@ dependency or topology detail — not the database host, not the queue, not whic
 providers are configured (v1.1 §1.11). Readiness, which does check dependencies,
 is a separate private endpoint and is not part of the public surface.
 
+### The compose appliance's published ports
+
+`docker compose up --build -d` is one command and brings up the whole
+stakeholder path. What it publishes, all on loopback and nothing else:
+
+| Service | Published | What answers there |
+|---|---|---|
+| `db` | `127.0.0.1:5432` | PostgreSQL 16. Collides with a native `apt install postgresql-16`; see the note below. |
+| `api` | `127.0.0.1:8080` | `GET /api/health`, and every `/v1` route the smoke path uses. |
+| `worker` | `127.0.0.1:8081` | `GET /health`. Its `/tasks/execute` and `/operations/dispatch` are driven from inside the network, not from here. |
+| `web` | `127.0.0.1:5173` | The Vite dev server, and its `/api` + `/v1` proxy to `api`. |
+
+`migrate`, `seed`, `seed-review`, and `scheduler` publish nothing. The first
+three run to completion and exit `0`; `scheduler` makes outbound calls only.
+
+**The 5432 collision.** If `docker compose ps db` shows `5432/tcp` with no
+`127.0.0.1:5432->` prefix, a native PostgreSQL already holds the port and a
+host-side `psql` reaches *that* database, silently, with no error to say so.
+Every documented command reads the appliance's database through
+`docker compose exec -T db psql` for this reason, and `scripts/compose_smoke.sh`
+does the same in its `psql_scalar` helper.
+
+### The frontend's node_modules volume
+
+`npm ci` fails on a Windows-mounted path under WSL (DrvFs) — the reason the
+stack carried no frontend service for so long. The `web` service bind-mounts
+the checkout for its source but mounts a **named volume** over
+`/app/node_modules`, so every file npm writes lands on the VM's own filesystem
+rather than on `/mnt/c`. The blocker was the filesystem, not the toolchain.
+
+Two consequences worth stating: a first `up` runs `npm ci` and takes minutes
+(the service's healthcheck has a long `start_period` so `docker compose ps`
+distinguishes "still installing" from "broken"), and `docker compose down -v`
+discards the installed dependencies along with the database, so the next start
+pays that cost again.
+
 ## Configuration
 
 Every setting is read from a `SMARTMATCH_`-prefixed environment variable at
@@ -70,12 +106,14 @@ deployment defect, not something to tolerate.
 
 ## The local scheduler and loopback task queue (compose only)
 
-`docker-compose.yml` adds a `seed` one-shot service, a `scheduler` sidecar, and
-five new environment variables so that a queued import can be driven to
-completion on a developer's machine with **no manual dispatch step**. This
-section documents that mechanism in full: what each piece is, every setting it
-reads, how it fails, and — repeatedly, because this is the point most likely
-to be misread — what it is not.
+`docker-compose.yml` adds two one-shot services (`seed` and `seed-review`), a
+`scheduler` sidecar, a `web` dev server, and the environment variables they
+read, so that a queued import can be driven to completion on a developer's
+machine with **no manual dispatch step** — and so that a coordinator can open
+a browser and find a queue waiting. This section documents that mechanism in
+full: what each piece is, every setting it reads, how it fails, and —
+repeatedly, because this is the point most likely to be misread — what it is
+not.
 
 **This is a developer appliance. It is not a cloud queue, and it is not an
 institutional pilot deployment.** Nothing described here is provisioned,
@@ -103,6 +141,8 @@ worker-side dispatch boundary rather than bypassing it.
 | `SMARTMATCH_DEV_TASK_BEARER_TOKEN` / `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN` (worker) | Two separate dev-only bearer verifiers, one for `POST /tasks/execute`, one for `POST /operations/dispatch`. Deliberately different values — the worker refuses startup if they are equal, and refuses either being set under an edition other than `dev`. | Not a substitute for Cloud Tasks/Cloud Scheduler OIDC (`task_audience`, `scheduler_audience`, and the two service-account allowlists, all still unset here — see the `worker` service comment in `docker-compose.yml`). Those stay unconfigured and therefore fail-closed (401/501) in this stack, exactly as they do without any of this addition. |
 | Loopback task queue (`SMARTMATCH_LOCAL_TASK_QUEUE_ENABLED`, `SMARTMATCH_LOCAL_TASK_TARGET_URL`) | A `LocalPostgresHttpTaskQueue` inside the worker process. `enqueue()` does not deliver anything itself — it only validates that the durable outbox row is already committed `dispatched`. A separate delivery pump then reads that committed row and `POST`s `{tenant_id, job_id}` back to the worker's own `/tasks/execute`, using the task bearer token above. | Not `FixtureTaskQueue` (which loses work in process memory) and not a call directly into `TaskExecutor` — delivery goes over the real HTTP boundary, through the real verifier, exactly as Cloud Tasks would call it. Not Cloud Tasks: no durability guarantee beyond "this one PostgreSQL row committed", no retry-with-backoff policy beyond what the pump implements, and it accepts no tenant-controlled URL, header, or credential — the target is fixed at `http://127.0.0.1:<PORT>/tasks/execute`. |
 | `scheduler` service (`SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN`) | A sidecar built from `Dockerfile.worker`, running `python -m smartmatch_worker.local_scheduler`. Every two seconds it `POST`s to the fixed compose address `http://worker:8080/operations/dispatch` using the scheduler bearer token. Exits without sending a request unless `SMARTMATCH_EDITION=dev` and its own token are both set. | Not Cloud Scheduler. No job is provisioned, no OIDC token is minted, nothing here is reachable outside this compose network, and its target address is a hardcoded module constant, not something an environment variable can redirect. |
+| `seed-review` service | A second one-shot, running `tools/seed_pilot_review.py` against the API image, which gives the seeded coordinator a review queue to open. It writes no `review_item` rows: it `POST`s an ordinary import of two synthetic professionals through the running API with the ordinary dev bearer token, then polls the database until the ordinary worker/scheduler path has turned that import into pending items. Exits non-zero — loudly — if it does not. Idempotent by observation: it submits nothing if the unit already has pending items. | Not a fixture loader and not a database back-fill. The demo queue is produced by the product, so its presence is evidence the import path works; a broken path leaves an honestly empty queue and a failed container rather than rows that no pipeline created. Refuses to run outside `SMARTMATCH_EDITION=dev` + `SMARTMATCH_USE_FIXTURE_PROVIDERS=true`, reusing `seed_pilot.py`'s own gate rather than restating it. |
+| `web` service | The legacy Vite dev server (`apps/web/legacy-frontend`) on a pinned `node:20-bookworm-slim`, published on `127.0.0.1:5173`. `SMARTMATCH_API_PROXY_TARGET=http://api:8080` points its `/api` and `/v1` proxy at the compose API by service name; `VITE_SMARTMATCH_BEARER_TOKEN` puts the same fixture token the curl steps use into the bundle. A `web-node-modules` named volume holds the installed dependencies. | Not a production frontend serving story: unminified, HMR on, loopback only, and the dev server is also the proxy. **Not a login.** Institutional sign-in (A1b) is not connected; the browser carries a build-time credential and the server decides the identity. Without that variable every portal route redirects to `/login`, which says so — the stack does not fake a sign-in that appears to succeed. |
 
 ### The flow, end to end
 
@@ -256,6 +296,9 @@ Checked against the built images, not read off the Dockerfiles:
 | No environment file or credential in the image | none found |
 | Worker still fails closed | `POST /tasks/execute` → `401` without credentials, `501` with |
 | Graceful shutdown on SIGTERM | API stopped in 1s, worker in 0s, clean shutdown log |
+| Seeded demo review queue | `seed-review` exits `0` and leaves two pending `review_item` rows, created through `POST /v1/units/{id}/imports` and the scheduler-driven dispatch — not written directly |
+| Frontend served from the stack | `GET http://127.0.0.1:5173/` and `/coordinator-portal` both `200` |
+| Frontend proxy resolves the seeded identity | `GET /v1/me` through the dev server returns `compose-pilot-coordinator@example.invalid` with a server-assigned `coordinator` role on `pilot` |
 
 That last pair matters most. The worker's task endpoint is unauthenticated
 infrastructure until real OIDC verification lands (security finding S-001), and
@@ -278,6 +321,9 @@ the runtime stage, and that no `.git` directory reached the image.
 | Deployment | `ALLOW_CLOUD_DEPLOY=false` | Not scheduled here |
 | Image scanning, signing, provenance attestation | Listed as before-scale (R3+) gates | R3 |
 | A database in the build | The health endpoints do not touch one; a container cannot reach the host's `localhost` anyway | — |
+| An identity provider, and any login | The A1b worksheet is unfilled: there is no issuer URL, audience, JWKS URI, or client id to configure, and inventing one would be inventing a fact. The `web` service therefore carries a fixture bearer token and the portal states that institutional sign-in is not connected. | When A1b is filled |
+| A production build of the frontend | `web` runs `vite dev`. A built, minified bundle behind a real server is a deployment concern, and `ALLOW_CLOUD_DEPLOY=false` | With the deploy target |
+| Portal page data | The pages fetch `/api/portals/*`, a legacy backend this repository does not contain. Each page renders its own load-failure state under signed-in chrome; nothing fabricates content to fill it | Not scheduled here |
 
 `build.yml` authenticates to nothing, tags for no registry, pushes nowhere, and
 requests no permission beyond `contents: read`. The reasoning, and the
