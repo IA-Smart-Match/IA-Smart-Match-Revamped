@@ -224,17 +224,31 @@ jobs:
         run: docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
   compose-smoke:
-    name: compose smoke — import, dispatch, review decision, metrics
+    name: compose smoke — seeded queue, import, dispatch, review decision, metrics, web
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    # Proves the documented docker-compose.yml smoke path (INSTALL.md §4) works
-    # end to end, and that the review-decision loop actually moves a metric:
+    # 30 rather than 20: the stack now also builds and starts the `web`
+    # service, whose first start runs `npm ci` into an empty volume. That is
+    # minutes of dependency install on a cold runner, and a timeout sized for
+    # the old five services would fail this job for being slow rather than
+    # for being wrong.
+    timeout-minutes: 30
+    # Proves the documented docker-compose.yml stakeholder path (INSTALL.md §4)
+    # works end to end, and that the review-decision loop actually moves a
+    # metric:
     #
-    #   import -> scheduler dispatch -> pending_review_items == 1
-    #          -> review decision    -> pending_review_items == 0
+    #   seed-review leaves a demo queue of N pending items
+    #     -> import -> scheduler dispatch -> pending_review_items N -> N+1
+    #     -> review decision               -> back to N
+    #     -> events import -> accept       -> pipeline_matched 0 -> 1
+    #     -> the web dev server serves the portal route and proxies
+    #        GET /v1/me as the seeded coordinator
     #
     # with NO manual dispatch step anywhere in it — the compose `scheduler`
-    # sidecar is what drives the queued import to completion. Same posture as
+    # sidecar is what drives the queued import to completion. The counts are
+    # asserted as a change from the seeded baseline rather than against 0/1
+    # literals, because the appliance is deliberately no longer expected to
+    # come up with an empty review queue: a coordinator who opens it should
+    # find something to act on. Same posture as
     # the `images` job above: no login, no push, no registry, no cloud
     # resource, and no permission beyond `contents: read`. The dev bearer
     # tokens and local task queue this exercises are a developer appliance
@@ -256,9 +270,15 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Bring the stack up
+        # Every service, including `web` and the one-shot `seed-review` — this
+        # job exercises the same single command INSTALL.md tells a reader to
+        # run, not a hand-picked subset of it. `up -d` returns once containers
+        # have started, not once `web` has finished installing; the smoke
+        # script's stage 16 does the bounded wait for that rather than a sleep
+        # here.
         run: docker compose up --build -d
 
-      - name: Smoke the full import -> review -> metrics path
+      - name: Smoke the seeded queue -> import -> review -> metrics -> web path
         # scripts/compose_smoke.sh owns every assertion, exits non-zero on the
         # first stage that fails, and dumps the relevant service logs before it
         # does. It contains no `|| true` on any assertion, no swallowed exit
@@ -268,8 +288,28 @@ jobs:
         # token that drifted from the worker's, or a worker with dispatch
         # unconfigured), rather than letting that surface later as a metric
         # poll that merely looks slow.
+        # Its stage 3b is the equivalent guard for the `seed-review` one-shot:
+        # a container that has already exited leaves nothing for `compose ps`
+        # to look wrong about, so the script asserts its exit code and the
+        # contents of the queue it was supposed to create. Stage 16 does the
+        # same for `web` — serving, SPA route, and the /v1 proxy resolving to
+        # the seeded coordinator's server-assigned role.
         run: scripts/compose_smoke.sh
+
+      - name: Service states and logs on failure
+        if: failure()
+        # The smoke script dumps logs itself when one of its own assertions
+        # fails, but it is not the only way this job can fail — a service that
+        # never starts fails the `up` step above, before the script runs at
+        # all. This step is what makes that case readable rather than a bare
+        # non-zero exit.
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail=200
 
       - name: Stop the stack and discard the data volume
         if: always()
+        # -v so the database volume AND the web node_modules volume go with
+        # it; a self-hosted or reused runner must not carry either into the
+        # next run.
         run: docker compose down -v
