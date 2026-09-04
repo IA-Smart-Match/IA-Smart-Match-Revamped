@@ -62,6 +62,10 @@ def _env(name: str, **overrides: object) -> Environment:
         "task_queue": f"example-smartmatch-{name}-jobs",
         "api_service_account": f"example-smartmatch-{name}-api@example.invalid",
         "worker_service_account": f"example-smartmatch-{name}-worker@example.invalid",
+        "api_service": f"example-smartmatch-{name}-api-service",
+        "worker_service": f"example-smartmatch-{name}-worker-service",
+        "scheduler_job": f"example-smartmatch-{name}-dispatch-job",
+        "database_secret_id": f"example-smartmatch-{name}-database-url",
         "provider_secret_id": (
             None if name == "classroom" else f"example-smartmatch-{name}-provider-credentials"
         ),
@@ -70,6 +74,9 @@ def _env(name: str, **overrides: object) -> Environment:
         "region": "us-west1",
         "min_instances": 0,
         "max_instances": 2,
+        "database_version": "POSTGRES_16",
+        "database_tier": "db-custom-1-3840",
+        "dispatch_cron": "*/5 * * * *",
         **_SETTINGS[name],
     }
     values.update(overrides)
@@ -348,4 +355,208 @@ def test_a_resource_block_parses_and_is_then_rejected_rather_than_crashing():
 def test_the_committed_environments_are_clean():
     report = env_isolation_check.check(env_isolation_check.load_environments())
     assert sorted(report.environments) == sorted(env_isolation_check.EXPECTED_ENVIRONMENTS)
+    assert report.ok, "\n".join(f"[{f.code}] {f.message}" for f in report.findings)
+
+
+# ---------------------------------------------------------------------------
+# The module layer (F5)
+#
+# The environment registry above proves four sets of names are disjoint. That
+# proof is worth nothing if a module can mint a name of its own, so the tests
+# below are the same rule one level down: a module default is one value every
+# caller shares, and a literal name in a module is a name every environment
+# that calls it gets.
+# ---------------------------------------------------------------------------
+
+ModuleFile = env_isolation_check.ModuleFile
+
+_PLATFORM_INPUTS = sorted(
+    (
+        {entry.name for entry in env_isolation_check.IDENTIFIER_KEYS}
+        - env_isolation_check.NON_MODULE_IDENTIFIERS
+    )
+    | set(env_isolation_check.DEPLOY_INPUT_KEYS)
+)
+
+
+def _module(name: str, text: str, filename: str = "main.tf") -> ModuleFile:
+    """Parse module source the same way the gate parses the committed tree."""
+    path = f"infra/terraform/modules/{name}/{filename}"
+    return ModuleFile(module=name, path=path, blocks=env_isolation_check.parse_blocks(text, path))
+
+
+def _platform(
+    inputs: list[str] | None = None, defaults: dict[str, str] | None = None
+) -> ModuleFile:
+    """A composition module declaring the given inputs, with optional defaults."""
+    names = _PLATFORM_INPUTS if inputs is None else inputs
+    supplied = defaults or {}
+    text = ""
+    for name in names:
+        text += f'variable "{name}" {{\n  type = string\n'
+        if name in supplied:
+            text += f'  default = "{supplied[name]}"\n'
+        text += "}\n\n"
+    return _module("platform", text, "variables.tf")
+
+
+def _module_codes(*extra: ModuleFile, platform: ModuleFile | None = None) -> set[str]:
+    modules = ((platform or _platform()), *extra)
+    report = env_isolation_check.check(_tree(), modules=modules)
+    return {finding.code for finding in report.findings}
+
+
+def test_a_valid_module_set_is_clean():
+    """Otherwise every negative test below proves nothing."""
+    assert _module_codes() == set()
+
+
+def test_a_default_on_a_module_name_input_fails():
+    """The one way two environments still collide after the registry is disjoint."""
+    source = 'variable "service_name" {\n  type = string\n  default = "smartmatch-api"\n}\n'
+    assert "module-name-default" in _module_codes(
+        _module("cloud_run_service", source, "variables.tf")
+    )
+
+
+@pytest.mark.parametrize("name", sorted(env_isolation_check.DEPLOY_INPUT_KEYS))
+def test_a_default_on_a_deploy_input_fails(name: str):
+    """These name things that do not exist; their absence is what gates apply."""
+    platform = _platform(defaults={name: "a-value-somebody-invented"})
+    assert "deploy-input-default" in _module_codes(platform=platform)
+
+
+def test_a_literal_name_in_a_module_fails():
+    source = (
+        'resource "google_cloud_run_v2_service" "this" {\n'
+        "  project = var.project_id\n"
+        '  name    = "smartmatch-api"\n'
+        "}\n"
+    )
+    assert "hardcoded-name" in _module_codes(_module("cloud_run_service", source))
+
+
+def test_a_nested_name_attribute_is_not_mistaken_for_an_identifier():
+    """`name` inside a Cloud Run env block is a variable name, not a cloud name."""
+    source = (
+        'resource "google_cloud_run_v2_service" "this" {\n'
+        "  name = var.service_name\n"
+        "  template {\n"
+        "    containers {\n"
+        "      env {\n"
+        '        name  = "SMARTMATCH_EDITION"\n'
+        "        value = var.environment\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    assert "hardcoded-name" not in _module_codes(_module("cloud_run_service", source))
+
+
+def test_a_provider_block_in_a_module_fails():
+    source = 'provider "google" {\n  project = var.project_id\n}\n'
+    assert "module-block" in _module_codes(_module("cloud_run_service", source))
+
+
+def test_a_state_backend_in_a_module_fails():
+    source = 'terraform {\n  backend "gcs" {\n    bucket = "somewhere"\n  }\n}\n'
+    assert "state-backend" in _module_codes(_module("platform", source))
+
+
+@pytest.mark.parametrize("resource_type", sorted(env_isolation_check.FORBIDDEN_RESOURCE_TYPES))
+def test_a_resource_that_would_hold_a_credential_fails(resource_type: str):
+    """A version, a database user, and a long-lived credential all carry a value."""
+    source = f'resource "{resource_type}" "this" {{\n  project = var.project_id\n}}\n'
+    assert "forbidden-resource" in _module_codes(_module("secret_placeholders", source))
+
+
+def test_an_identifier_no_module_consumes_fails():
+    """Disjointness protects nothing if nothing actually consumes the name."""
+    trimmed = [name for name in _PLATFORM_INPUTS if name != "task_queue"]
+    assert "orphan-identifier" in _module_codes(platform=_platform(inputs=trimmed))
+
+
+def test_an_unclassified_module_input_fails():
+    """An input nobody classified is filled from somewhere nobody checks."""
+    extended = [*_PLATFORM_INPUTS, "shared_landing_bucket"]
+    assert "unclassified-module-input" in _module_codes(platform=_platform(inputs=extended))
+
+
+def test_a_missing_deploy_input_fails():
+    trimmed = [name for name in _PLATFORM_INPUTS if name != "worker_base_url"]
+    assert "missing-deploy-input" in _module_codes(platform=_platform(inputs=trimmed))
+
+
+def test_an_absent_composition_module_fails():
+    assert "missing-platform-module" in {
+        finding.code for finding in env_isolation_check.check(_tree(), modules=()).findings
+    }
+
+
+def test_parse_blocks_separates_a_blocks_own_attributes_from_nested_ones():
+    source = 'resource "x" "y" {\n  name = var.a\n  env {\n    name = "B"\n  }\n}\n'
+    block = env_isolation_check.parse_blocks(source, "x.tf")[0]
+    assert "name = var.a" in block.direct
+    assert 'name = "B"' not in block.direct
+    assert 'name = "B"' in block.body
+
+
+# ---------------------------------------------------------------------------
+# Nothing has been initialized, planned, or applied
+# ---------------------------------------------------------------------------
+
+
+def _layout_codes(root: Path) -> set[str]:
+    findings: list = []
+    env_isolation_check._check_layout(root, findings)
+    return {finding.code for finding in findings}
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["terraform.tfstate", "terraform.tfstate.backup", "plan.tfplan", "prod.tfvars"],
+)
+def test_a_file_produced_by_running_terraform_fails(tmp_path: Path, filename: str):
+    """Each of these records resolved values, and nothing here has been run."""
+    (tmp_path / filename).write_text("", encoding="utf-8")
+    assert "apply-artifact" in _layout_codes(tmp_path)
+
+
+def test_an_example_tfvars_is_allowed(tmp_path: Path):
+    (tmp_path / "classroom.tfvars.example").write_text("", encoding="utf-8")
+    assert "apply-artifact" not in _layout_codes(tmp_path)
+
+
+def test_a_root_module_fails(tmp_path: Path):
+    """A root module is the thing that makes an apply possible."""
+    (tmp_path / "main.tf").write_text("", encoding="utf-8")
+    assert "root-module" in _layout_codes(tmp_path)
+
+
+def test_a_second_file_in_an_environment_directory_fails(tmp_path: Path):
+    """Only main.tf is read, so a deploy.tf beside it would be unasserted."""
+    (tmp_path / "envs" / "dev").mkdir(parents=True)
+    (tmp_path / "envs" / "dev" / "main.tf").write_text("", encoding="utf-8")
+    (tmp_path / "envs" / "dev" / "deploy.tf").write_text("", encoding="utf-8")
+    assert "stray-environment-file" in _layout_codes(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# The gate, run against the committed module tree
+# ---------------------------------------------------------------------------
+
+
+def test_the_committed_modules_are_clean():
+    modules = env_isolation_check.load_modules()
+    assert {entry.module for entry in modules} == {
+        "cloud_run_service",
+        "cloud_scheduler_job",
+        "cloud_sql_postgres",
+        "cloud_tasks_queue",
+        "platform",
+        "secret_placeholders",
+        "storage_buckets",
+    }
+    report = env_isolation_check.check(env_isolation_check.load_environments(), modules=modules)
     assert report.ok, "\n".join(f"[{f.code}] {f.message}" for f in report.findings)
