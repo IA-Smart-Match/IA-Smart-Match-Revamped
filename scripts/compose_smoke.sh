@@ -203,9 +203,50 @@ done
 is not answering POST /operations/dispatch 2xx for it"
 
 # =============================================================================
-# Stage 3 — the seeded unit. Looked up, never guessed.
+# Stage 3 — the seed-review one-shot, then the seeded unit and the baselines.
+#
+# The wait comes FIRST, and it is not optional. `docker compose up -d` returns
+# when containers have STARTED, not when a one-shot has finished: seed-review
+# submits an import and then waits for the dispatch path to turn it into
+# review items, which takes seconds. Reading the baseline before it exits
+# reads a queue that is not there yet — a race that fails on a fast CI runner
+# and passes on a slower developer's terminal, which is the worst kind.
+#
+# Bounded poll of the actual condition, like every other wait in this file.
 # =============================================================================
-log "== stage 3: recover the seeded '${UNIT_PATH}' unit =="
+log "== stage 3: wait for the seed-review one-shot to finish =="
+seed_review_state=""
+for attempt in $(seq 1 "$READY_ATTEMPTS"); do
+  # `-a`: a finished one-shot is absent from a bare `compose ps`, and "absent"
+  # is a state this must be able to name rather than read as an empty string.
+  seed_review_state="$(docker compose ps -a --format '{{.State}}' seed-review)"
+  [ -n "$seed_review_state" ] || seed_review_state="absent"
+  log "  attempt ${attempt}: seed-review state=${seed_review_state}"
+  [ "$seed_review_state" = "exited" ] && break
+  sleep 2
+done
+[ "$seed_review_state" = "exited" ] \
+  || fail "the seed-review one-shot is '${seed_review_state}' and never finished. It polls \
+for its own import to reach review and gives up loudly if dispatch is broken, so a container \
+still running after this budget means it is still waiting on that — \
+'docker compose logs seed-review' shows which attempt it is on."
+
+# Its exit code, asserted deliberately: a one-shot that has already exited
+# leaves no running container for `docker compose ps` to look wrong about, so
+# a failed seed would otherwise show up only as a surprising count below.
+seed_review_exit="$(docker compose ps -a --format '{{.ExitCode}}' seed-review)"
+[ -n "$seed_review_exit" ] || seed_review_exit="unknown"
+log "  seed-review exit code=${seed_review_exit}"
+[ "$seed_review_exit" = "0" ] \
+  || fail "the seed-review one-shot exited '${seed_review_exit}', not 0. It submits the \
+demo import through the real API and polls until dispatch has produced review items, so a \
+non-zero exit is an import or dispatch failure, not a cosmetic one — \
+'docker compose logs seed-review' names the stage it stopped at."
+
+# =============================================================================
+# Stage 3a — the seeded unit. Looked up, never guessed.
+# =============================================================================
+log "== stage 3a: recover the seeded '${UNIT_PATH}' unit =="
 unit_id="$(psql_scalar "select id from org_unit where path = '${UNIT_PATH}'")"
 [ -n "$unit_id" ] || fail "seed did not produce a '${UNIT_PATH}' org unit"
 log "  unit_id=${unit_id}"
@@ -236,26 +277,10 @@ baseline_plus_one="$(( baseline + 1 ))"
 # =============================================================================
 # Stage 3b — the seeded demo queue itself. The count asserted above says how
 # many pending items exist; this says they are the ones `seed-review` was
-# supposed to create, and that the container which created them succeeded.
-#
-# Both halves matter. A one-shot service that exited non-zero leaves no
-# running container to notice, so `docker compose ps` alone would show a
-# healthy-looking stack whose demo queue came from somewhere else; and a count
-# that happens to match tells nothing about *what* is in the queue.
+# supposed to create. A count that happens to match tells nothing about *what*
+# is in the queue, and stage 3's exit-code check tells nothing about it either.
 # =============================================================================
 log "== stage 3b: the seed-review demo queue =="
-# `docker compose ps -a --format '{{.ExitCode}}'` rather than `wait`: the
-# container has already exited by the time this runs, and `wait` on a
-# completed one-shot is not portable across compose versions.
-seed_review_exit="$(docker compose ps -a --format '{{.ExitCode}}' seed-review)"
-[ -n "$seed_review_exit" ] || seed_review_exit="absent"
-log "  seed-review exit code=${seed_review_exit}"
-[ "$seed_review_exit" = "0" ] \
-  || fail "the seed-review one-shot exited '${seed_review_exit}', not 0. It submits the \
-demo import through the real API and polls until dispatch has produced review items, so a \
-non-zero exit is an import or dispatch failure, not a cosmetic one — \
-'docker compose logs seed-review' names the stage it stopped at."
-
 # The rows themselves, read from the database rather than inferred from the
 # count. tools/seed_pilot_review.py's DEMO_ROWS are synthetic names against the
 # ratified `professionals` contract; anything else in this queue did not come

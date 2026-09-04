@@ -167,8 +167,12 @@ give it several minutes. It is finished when `docker compose ps` shows this:
 | `seed-review` | `exited (0)` | — |
 | `web` | `running (healthy)` | `127.0.0.1:5173` |
 
-`web` stays `starting` while `npm ci` runs on a first start — that is the long
-step, and `docker compose logs -f web` shows it happening. A `seed-review` that
+`docker compose up -d` returns when the containers have *started*, not when
+they are finished — `seed-review` submits its import and then waits several
+seconds for the dispatch path to turn it into review items, so a `ps` run
+immediately afterwards can still show it `running`. Give it a moment and look
+again. `web` likewise stays `starting` while `npm ci` runs on a first start —
+that is the long step, and `docker compose logs -f web` shows it happening. A `seed-review` that
 is `exited (1)` rather than `exited (0)` means the demo import never reached
 review; `docker compose logs seed-review` names the stage it stopped at, and
 that is a real failure of the import path, not a cosmetic one.

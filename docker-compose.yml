@@ -423,6 +423,13 @@ services:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
       SMARTMATCH_EDITION: dev
       SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+    # The API image carries a HEALTHCHECK that probes /api/health. This
+    # container serves nothing, so that probe can only ever fail, and a
+    # one-shot reporting `health: starting` in `docker compose ps` is a
+    # misleading signal about a container whose only meaningful state is its
+    # exit code. Turned off rather than left to look broken.
+    healthcheck:
+      disable: true
     volumes:
       # Both files: seed_pilot_review.py imports seed_pilot's edition guard
       # rather than restating it, so a change to what "dev fixture settings"
