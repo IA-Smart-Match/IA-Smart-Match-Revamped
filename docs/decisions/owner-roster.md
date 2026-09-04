@@ -46,6 +46,16 @@ writing; it does not grant, request, or change repository permissions.
 | **Chau Nguyen** | `@Chau-Nguyen-Developer` | 4 September 2026 | Danny Tran (@dangt) |
 | **Janice H.** | `@starey6789` | 4 September 2026 | Danny Tran (@dangt) |
 
+**A third collaborator account, `@BrooklynD23`, is not a fourth signer.**
+`gh api users/BrooklynD23` resolves to profile name "Danny Tran", and
+`gh api repos/.../collaborators/BrooklynD23/permission` returns `admin`. It is
+the same account this roster already credits as approver and as the named
+owner of rows 1–7 above, and it authors 10 of the last 30 commits on `main`
+as `Danny Tran <91554483+BrooklynD23@users.noreply.github.com>`, alongside 20
+as `DangT <dt110202@gmail.com>`. `@BrooklynD23` is Danny Tran's own GitHub
+account, recorded here for completeness — not a new person added to this
+table.
+
 **Scope.** This authority covers ADR-0001 through ADR-0015 and the decision
 artifacts under `docs/decisions/`. ADR-0016 does not exist yet — it is
 reserved for agent-memory Slice 1 per
