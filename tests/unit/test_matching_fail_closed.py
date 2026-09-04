@@ -50,6 +50,34 @@ the router to the same list from the other side, and
 methods, because "a coordinator may ask for a shortlist and read one back" is
 what was authorized — not a surface that could grow a decision endpoint.
 
+## The D6 rewards flip (card P-REWARDS-API)
+
+Four routes now exist where this file previously asserted that no reward,
+redemption, balance or catalog path could:
+
+* ``GET  /v1/units/{unit_id}/rewards``
+* ``POST /v1/units/{unit_id}/redemptions``
+* ``GET  /v1/units/{unit_id}/redemptions``
+* ``POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision``
+
+Same shape as the two flips above, made in the commit that lands the capability,
+and narrower than the gate it opens. :data:`_D6_FORBIDDEN_SEGMENTS` is
+*untouched* — ``rewards`` and ``redemptions`` are still forbidden segments, so a
+fifth rewards path is refused by the segment rule — and
+:data:`D6_AUTHORIZED_REWARD_PATHS` is an exact, literal allowlist of the three
+paths those four operations occupy, admitted by name. ``balance``, ``balances``
+and ``catalog`` remain forbidden with no exception at all: the balance is a field inside the catalog
+response, not a resource of its own, and there is no route whose path says
+otherwise.
+
+What this flip does **not** open is a catalog *writer* or a coordinator's view
+of other students' redemptions. ``smartmatch_persistence.rewards`` has no
+``reward_item`` writer by construction, the four method/path pairs are pinned by
+:func:`test_the_rewards_router_exposes_two_reads_and_two_commands`, and
+``D6_AUTHORIZED_REWARD_PATHS`` cannot grow without a visible edit to a named
+list. The D6/D7 figures themselves are untouched: nothing here promotes the
+tentative earn rate, the bands, or calibration N.
+
 What the flip does **not** open is the part G3 actually gates. The forbidden
 segment families below are untouched: no ``crawl``, ``crawler``, ``crawlers``
 or ``discovery`` path may exist, ``POST /api/crawler/start`` remains a named
@@ -67,7 +95,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smartmatch_api.routers import engagement, events, match_runs
+from smartmatch_api.routers import engagement, events, match_runs, rewards
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
     assert_registry_approved,
@@ -152,6 +180,19 @@ G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
 )
 
 
+# D6 — the exact unit-scoped rewards paths card P-REWARDS-API authorizes, and
+# no others. `_D6_FORBIDDEN_SEGMENTS` still names `rewards` and `redemptions`,
+# so these four are admitted by name and a fifth is refused; `balance`,
+# `balances` and `catalog` are not admitted at all, by this list or any other.
+D6_AUTHORIZED_REWARD_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/rewards",
+        "/v1/units/{unit_id}/redemptions",
+        "/v1/units/{unit_id}/redemptions/{redemption_id}/decision",
+    }
+)
+
+
 def _path_segments(path: str) -> list[str]:
     """Return literal path segments, ignoring ``{param}`` placeholders."""
     return [
@@ -170,6 +211,12 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     # A path not spelled out here gets no such exception, which is the property
     # that keeps the flip narrow.
     if path in G1_AUTHORIZED_MATCH_RUN_PATHS:
+        return None
+
+    # D6's exception, for the identical reason and in the identical position:
+    # `_D6_FORBIDDEN_SEGMENTS` contains `rewards` and `redemptions`, so the loop
+    # below refuses these paths and only this list admits them.
+    if path in D6_AUTHORIZED_REWARD_PATHS:
         return None
 
     for segment in segments:
@@ -303,6 +350,61 @@ def test_a_match_run_path_outside_the_allowlist_is_still_refused():
     assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs/{run_id}/decision") == "G1"
     assert _forbidden_gate_for_path("/v1/units/{unit_id}/matches") == "G1"
     assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs") is None
+
+
+def test_the_rewards_router_declares_exactly_the_authorized_routes():
+    """The D6 flip is bounded by a list, not by the router's own contents.
+
+    The same successor the G3 and G1 flips took: an exact equality against
+    :data:`D6_AUTHORIZED_REWARD_PATHS`, so a fifth rewards path added to this
+    router fails here whether or not anyone regenerated the contract.
+    """
+    declared = {str(route.path) for route in rewards.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == D6_AUTHORIZED_REWARD_PATHS, (
+        "D6: the rewards router declares routes outside the P-REWARDS-API "
+        f"allowlist: {sorted(declared - D6_AUTHORIZED_REWARD_PATHS)}"
+    )
+
+
+def test_the_rewards_router_exposes_two_reads_and_two_commands():
+    """Exactly what was authorized: read a catalog, ask, read your tickets, decide.
+
+    Pinning the methods rather than the paths alone is what keeps a later card
+    from hanging a catalog *writer* off ``/rewards`` — a ``POST`` there would
+    seed items the D6/D7 artifacts do not authorize — or a ``DELETE`` off
+    ``/redemptions``, which would contradict the state machine's terminal states
+    outright: a redemption is closed by moving it, never by removing it.
+    """
+    observed = {
+        (str(route.path), method)  # type: ignore[attr-defined]
+        for route in rewards.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert observed == {
+        ("/v1/units/{unit_id}/rewards", "GET"),
+        ("/v1/units/{unit_id}/redemptions", "POST"),
+        ("/v1/units/{unit_id}/redemptions", "GET"),
+        ("/v1/units/{unit_id}/redemptions/{redemption_id}/decision", "POST"),
+    }, f"D6: unexpected rewards methods: {sorted(observed)}"
+
+
+def test_a_rewards_path_outside_the_allowlist_is_still_refused():
+    """The untouched segment list is load-bearing, not decoration.
+
+    If these assertions ever pass trivially — because ``rewards`` or
+    ``redemptions`` left :data:`_D6_FORBIDDEN_SEGMENTS` — the allowlist stopped
+    admitting anything and started merely describing, and the next rewards path
+    added would clear the scan without anyone naming it. The balance and catalog
+    families are checked here too, because no allowlist admits either and none
+    should: neither is a resource this API exposes.
+    """
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/rewards/{item_id}") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/balance") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/catalog") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/rewards") is None
 
 
 def test_openapi_exposes_no_gated_product_surface_routes():

@@ -745,6 +745,85 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The three student rewards operations share one authorizer,
+    # ``_authorize_student_rewards`` in ``routers/rewards.py``, for the reason
+    # the two event reads and the two match-run operations share theirs: all
+    # three ask the identical question — may this caller act on this unit's
+    # rewards as a student — against the identical ``org_unit`` resource, so a
+    # widening applies to all of them or to none.
+    #
+    # ``student``, and no second role. These are the first operations in this
+    # file whose role set is not ``{admin, coordinator}``, and that is what card
+    # P-REWARDS-API authorizes: "students see a server catalog and request
+    # redemption". ``docs/decisions/d6-rewards-budget-decision-record.md`` §5
+    # still lists "Read/redemption roles" among the fields no artifact resolves,
+    # so a wider set would be the router inventing a decision; under
+    # deny-by-default the absence of a permit is a denial. A coordinator is
+    # therefore refused all three — including the catalog read, which they have
+    # no need of: the catalog they administer is seeded, not browsed, and the
+    # ticket list is a self-read that would show them only their own.
+    #
+    # This is also why ``test_every_operation_denies_a_principal_without_its_role``
+    # now *chooses* its wrong-role shape rather than hard-coding
+    # ``student_at_owning_unit``: for these three, ``student`` is the *right*
+    # role, and ``coordinator_at_owning_unit`` is the active covering membership
+    # carrying the wrong one.
+    Operation(
+        key="rewards.catalog.read",
+        method="GET",
+        path="/v1/units/{unit_id}/rewards",
+        module="smartmatch_api.routers.rewards",
+        authorizer="_authorize_student_rewards",
+        roles_constant="_REWARDS_STUDENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="redemption.create",
+        method="POST",
+        path="/v1/units/{unit_id}/redemptions",
+        module="smartmatch_api.routers.rewards",
+        authorizer="_authorize_student_rewards",
+        roles_constant="_REWARDS_STUDENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="redemption.read",
+        method="GET",
+        path="/v1/units/{unit_id}/redemptions",
+        module="smartmatch_api.routers.rewards",
+        authorizer="_authorize_student_rewards",
+        roles_constant="_REWARDS_STUDENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    # The coordinator half, and a *different* authorizer on purpose:
+    # ``_authorize_redemption_decision`` reads a role set of its own, so widening
+    # the student surface cannot widen the surface that spends the budget, and
+    # vice versa. ``admin``/``coordinator`` matches ``review.py::_REVIEW_ROLES``
+    # — approving, denying or fulfilling a reward is the same kind of
+    # consequential act on a student's record that deciding a review item is —
+    # and ``d6-rewards-budget-decision-record.md`` §2 puts operational
+    # administration of the rewards program with the IA West Coordinator by name.
+    Operation(
+        key="redemption.decide",
+        method="POST",
+        path="/v1/units/{unit_id}/redemptions/{redemption_id}/decision",
+        module="smartmatch_api.routers.rewards",
+        authorizer="_authorize_redemption_decision",
+        roles_constant="_REDEMPTION_DECISION_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -872,7 +951,11 @@ SHAPES: tuple[Shape, ...] = (
     ),
     Shape(
         name="student_at_owning_unit",
-        description="an active membership at the right unit carrying the wrong role",
+        description=(
+            "an active membership at the right unit carrying the `student` role "
+            "— the wrong role for eleven of the fifteen operations, and the "
+            "right one for the three the rewards card gates on `student`"
+        ),
         memberships=(_member(OWNING_UNIT, "student"),),
     ),
     Shape(
@@ -1741,6 +1824,272 @@ MATRIX: dict[str, dict[str, Cell]] = {
             ),
         ),
     },
+    # The three student rewards operations share `_authorize_student_rewards`,
+    # so — like the event and match-run pairs above — they agree cell for cell
+    # today and each still states its own answer, so the day one diverges the
+    # diff shows which.
+    #
+    # These are the first rows in this file where `student_at_owning_unit`
+    # *permits* and `coordinator_at_owning_unit` denies. That inversion is the
+    # whole point of the operations: the person whose points are at stake is the
+    # person the surface is for. Everything else about the row is unchanged —
+    # tenant isolation, suspension, the explicit deny, the validity window and
+    # subtree containment all refuse exactly as they do everywhere else, which is
+    # what shows the permit is a role decision and not a hole.
+    "rewards.catalog.read": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`_REWARDS_STUDENT_ROLES` is `{student}` and an admin does not "
+                "hold it. Being an administrator is not being the student whose "
+                "balance this is: the response is one caller's own folded ledger "
+                "and the catalog measured against it. An admin reading another "
+                "person's standing is a different operation, gated on the "
+                "read-role decision D6 §5 still leaves open"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell for this operation — an active membership at "
+                "exactly the owning unit, refused for its role and nothing else. "
+                "A coordinator administers the catalog; they do not browse it as "
+                "a student, and this route would answer with the coordinator's "
+                "own balance if they did"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; either alone refuses. Unit "
+                "scoping applies here as it does everywhere else, even though "
+                "`reward_item` is tenant-scoped: the unit in the path is the "
+                "authorization scope, which is exactly what this cell measures"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "no committed artifact makes a rewards read tenant-wide the way "
+                "the metrics decision's §4 makes aggregates tenant-wide, so "
+                "`_authorize_student_rewards` passes no `tenant_wide_roles` — and "
+                "the role is wrong here in any case"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "the shape this operation exists for. Containment is inclusive, "
+                "so the membership's own path covers the unit, and `student` is "
+                "the required role"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance, "
+                "and it is evaluated *before* the required-role check — so this "
+                "principal is refused for the deny rather than for holding no "
+                "`student` role. Worth stating rather than assuming: the "
+                "precedence is what makes a carved-out deny binding on a surface "
+                "the principal was never going to reach on role grounds either, "
+                "which is the case an admin at the org root (one cell up, refused "
+                "with `no_grant`) shows by contrast"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a rewards read authorizes against the unit and has no job in it "
+                "at all, so the actor half of the shape is inert and what remains "
+                "is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; unlike "
+                "`admin_with_explicit_deny` this principal holds no membership, "
+                "so the grant path is where it is refused and the deny on the "
+                "unit is what answers"
+            ),
+        ),
+    },
+    "redemption.create": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "a redemption is opened *for the caller* — `subject_id` is "
+                "`principal.user_id` and there is no field that could name "
+                "anyone else — so an admin reaching this route could only spend "
+                "their own points. Role-gated to the students it is for"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why="the wrong-role cell: a coordinator decides redemptions, they do not open them",
+        ),
+        "coordinator_at_sibling_unit": deny("no_grant", why="wrong role and wrong department"),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, wrong department, and no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": permit(
+            why="the shape this operation exists for; containment is inclusive",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the deny is evaluated ahead of the role check; see `rewards.catalog.read`",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "redemption.read": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "this route returns the *caller's own* tickets, scoped to "
+                "`principal.user_id` in the query. An admin admitted here would "
+                "see their own and nobody else's, so admitting them would buy "
+                "nothing and would widen a surface a coordinator queue should "
+                "later occupy deliberately"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why="the wrong-role cell; see `redemption.decide` for what a coordinator may do",
+        ),
+        "coordinator_at_sibling_unit": deny("no_grant", why="wrong role and wrong department"),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, wrong department, and no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": permit(
+            why="the shape this operation exists for; containment is inclusive",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the deny is evaluated ahead of the role check; see `rewards.catalog.read`",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    # The coordinator half, authorized by `_authorize_redemption_decision` and
+    # therefore shaped like every other `{admin, coordinator}` row in this file —
+    # which is the point of it being a separate authorizer: the student rows
+    # above and this one cannot be widened together by one edit.
+    "redemption.decide": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive, and this is the shape the decision is "
+                "written for: the coordinator who administers the unit's rewards "
+                "program approves, denies, or hands the reward over"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "fulfilment debits a student's ledger, so it is scoped like every "
+                "other consequential write: a sibling department's coordinator "
+                "does not cover this unit"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell for this operation, and the one that matters "
+                "most on this surface: a student approving their own redemption "
+                "would delete ADR-0013's approval step, and fulfilling it would "
+                "let them hand themselves the reward and take the debit"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -1825,12 +2174,23 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # path with `_MATCH_RUN_ROLES`. It is one name for two operations for the
     # same reason `_authorize_event_read` is — the submission and the read ask
     # the identical question of the identical resource.
+    #
+    # `_authorize_student_rewards` and `_authorize_redemption_decision`
+    # (`routers/rewards.py`) are the sixth and seventh names, on the same terms
+    # again: load the unit, then make exactly this call against that row's path.
+    # They are two names rather than one because they are two decisions — one
+    # admits the student whose points are at stake (`_REWARDS_STUDENT_ROLES`),
+    # the other the person who spends the budget on their behalf
+    # (`_REDEMPTION_DECISION_ROLES`) — and a single helper taking the role set as
+    # an argument would make one call site the place both are widened from.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
         "_authorize_event_read",
         "_authorize_match_run",
+        "_authorize_student_rewards",
+        "_authorize_redemption_decision",
     ):
         assert_allowed(
             resolved.principal,
@@ -2419,6 +2779,49 @@ def test_the_matrix_describes_what_the_code_does(operation_key: str, shape_name:
         )
 
 
+#: Shapes carrying an active membership at exactly the owning unit, in the
+#: order :func:`_wrong_role_shape_for` prefers them. Every one of them differs
+#: from the others in nothing but its role, which is what makes a denial
+#: attributable to the role rather than to the path, the clock, or the tenant.
+_ACTIVE_OWNING_UNIT_SHAPES: tuple[str, ...] = (
+    "student_at_owning_unit",
+    "coordinator_at_owning_unit",
+)
+
+
+def _wrong_role_shape_for(operation: Operation) -> str:
+    """The shape that holds a covering membership carrying the *wrong* role here.
+
+    ``student_at_owning_unit`` for every operation that does not name
+    ``student``, which was the hard-coded answer before card P-REWARDS-API and
+    is still the answer for eleven of the fifteen operations. The four rewards
+    operations broke that assumption honestly rather than by accident: three of
+    them gate on ``student`` precisely, so for those the student shape is the
+    *right* role and asserting its denial would assert the opposite of the
+    intended behaviour.
+
+    Chosen rather than declared per operation, so a new operation cannot arrive
+    with a hand-picked shape that happens to deny for some other reason. The
+    returned shape is guaranteed to hold an active membership at exactly the
+    owning unit, so the only thing that can refuse it is the role.
+
+    Raises:
+        AssertionError: the operation requires every role any of these shapes
+            carries, so there is no wrong-role case left to test with. That is a
+            real hole, not a technicality — an operation nothing can be refused
+            from for role reasons needs a new shape, not a skipped assertion.
+    """
+    for shape_name in _ACTIVE_OWNING_UNIT_SHAPES:
+        role = SHAPES_BY_NAME[shape_name].memberships[0].role
+        if role not in operation.required_roles:
+            return shape_name
+    raise AssertionError(
+        f"{operation.key} requires every role the owning-unit shapes carry "
+        f"({sorted(operation.required_roles)}), so no cell in its row refuses a "
+        f"covering membership for its role. Add a shape rather than skip this."
+    )
+
+
 @pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
 def test_every_operation_denies_a_principal_without_its_role(operation: Operation) -> None:
     """A4's core requirement: a negative test per operation.
@@ -2441,9 +2844,11 @@ def test_every_operation_denies_a_principal_without_its_role(operation: Operatio
     """
     row = MATRIX[operation.key]
     if operation.key not in INTENTIONALLY_UNGATED_OPERATIONS | MEMBERSHIP_ONLY_OPERATIONS:
-        wrong_role = row["student_at_owning_unit"]
+        shape_name = _wrong_role_shape_for(operation)
+        wrong_role = row[shape_name]
         assert not wrong_role.permit and wrong_role.reason == "no_grant", (
-            f"{operation.key} admits an active membership carrying no required role"
+            f"{operation.key} admits {shape_name}, an active membership at the "
+            f"owning unit carrying none of {sorted(operation.required_roles)}"
         )
     nothing = row["member_with_no_memberships"]
     assert not nothing.permit, f"{operation.key} admits a principal holding nothing"

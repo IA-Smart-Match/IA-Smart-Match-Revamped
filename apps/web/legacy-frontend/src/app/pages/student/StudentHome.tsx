@@ -5,8 +5,7 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../components/ui/hover-card";
 import { AppIcon } from "../../../components/AppIcon";
-import { getStudentTotalPoints } from "../../../lib/studentPoints";
-import { rewardsSortedByPoints } from "../../../lib/studentRewardsCatalog";
+import { useRewards } from "../../hooks/useRewards";
 import {
   fetchStudentProfile,
   fetchStudentNudge,
@@ -24,6 +23,16 @@ export function StudentHome() {
   // before any caller-selectable `/api/portals/*` request is issued.
   const principal = useAuthenticatedPrincipal();
   const studentId = portalSubjectId(principal, "student") ?? "";
+
+  // Points and the reward preview come from the server, never from `profile`.
+  // The formula that used to live here — `attendance_streak * 100 +
+  // events_attended * 25`, in the deleted `lib/studentPoints.ts` — was a browser
+  // computing a balance, which ADR-0013 forbids outright, and it rendered `0`
+  // whenever the profile had not loaded.
+  const rewards = useRewards();
+  const rewardsReady = rewards.status === "ready" && rewards.catalog !== null;
+  const balancePoints = rewardsReady ? rewards.catalog!.balance.points : null;
+  const rewardPreview = rewardsReady ? rewards.catalog!.items.slice(0, 5) : [];
 
   const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
   const [nudge, setNudge] = useState<(RetentionNudge & { source: string }) | null>(null);
@@ -88,8 +97,10 @@ export function StudentHome() {
   if (!profile) return null;
 
   const churnHigh = profile.churn_risk === "high";
-  const totalPoints = getStudentTotalPoints(profile);
-  const rewardPreview = rewardsSortedByPoints().slice(0, 5);
+  // Rendered wherever a points figure appears. Never `?? 0`: `null` means the
+  // server has not established this balance (or the catalog has not loaded), and
+  // a zero there is precisely the ADR-0011 defect this page carried before.
+  const pointsLabel = balancePoints === null ? "—" : balancePoints.toLocaleString();
 
   return (
     <div className="space-y-6">
@@ -125,10 +136,14 @@ export function StudentHome() {
               <Link
                 to="/student-portal/rewards"
                 className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-primary outline-none transition hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring/40"
-                aria-label={`${totalPoints} points — open rewards catalog`}
+                aria-label={
+                  balancePoints === null
+                    ? "Points not established — open rewards catalog"
+                    : `${balancePoints} points — open rewards catalog`
+                }
               >
                 <AppIcon name="points" className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-                <span className="text-sm font-semibold text-primary">{totalPoints} points</span>
+                <span className="text-sm font-semibold text-primary">{pointsLabel} points</span>
                 <ChevronRight className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
               </Link>
             </HoverCardTrigger>
@@ -144,26 +159,37 @@ export function StudentHome() {
                   Hover preview — tap or click to see the full catalog and request redemptions.
                 </p>
               </div>
-              <ul className="max-h-[min(22rem,50vh)] divide-y divide-border/60 overflow-y-auto px-1 py-1">
-                {rewardPreview.map((item) => {
-                  const unlocked = totalPoints >= item.pointsCost;
-                  return (
-                    <li key={item.id} className="px-3 py-2.5">
+              {rewardPreview.length === 0 ? (
+                <p className="px-4 py-4 text-xs text-muted-foreground">
+                  {rewardsReady
+                    ? "No reward currently has both a named budget owner and confirmed funding."
+                    : "The rewards catalog has not loaded, so nothing is listed here."}
+                </p>
+              ) : (
+                <ul className="max-h-[min(22rem,50vh)] divide-y divide-border/60 overflow-y-auto px-1 py-1">
+                  {rewardPreview.map((item) => (
+                    // `affordable` is the server's answer, not a comparison this
+                    // component makes — a browser deciding what a student can
+                    // afford is the arithmetic ADR-0013 moved server-side.
+                    <li key={item.item_id} className="px-3 py-2.5">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium leading-snug text-foreground">{item.title}</p>
+                        <p className="text-sm font-medium leading-snug text-foreground">
+                          {item.name}
+                        </p>
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            unlocked ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                            item.affordable
+                              ? "bg-primary/15 text-primary"
+                              : "bg-muted text-muted-foreground"
                           }`}
                         >
-                          {item.pointsCost.toLocaleString()} pts
+                          {item.points_cost.toLocaleString()} pts
                         </span>
                       </div>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.subtitle}</p>
                     </li>
-                  );
-                })}
-              </ul>
+                  ))}
+                </ul>
+              )}
               <div className="border-t border-border/70 p-3">
                 <Link
                   to="/student-portal/rewards"
@@ -183,13 +209,20 @@ export function StudentHome() {
             <p className="text-2xl font-bold text-foreground">{profile.events_attended}</p>
             <p className="text-xs text-muted-foreground">Events Attended</p>
           </div>
+          {/* "Streak Points" stood here and was `attendance_streak * 100` — a
+              second browser-side reward formula, and one for an earn rule that
+              does not exist: points derive from recorded attendance and nothing
+              else (ADR-0013), so a streak earns nothing. Replaced with the
+              evidence behind the balance rather than deleted silently. */}
           <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{profile.attendance_streak * 100}</p>
-            <p className="text-xs text-muted-foreground">Streak Points</p>
+            <p className="text-2xl font-bold text-foreground">
+              {rewardsReady ? rewards.catalog!.balance.ledger_entry_count : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground">Point ledger entries</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{totalPoints}</p>
-            <p className="text-xs text-muted-foreground">Total points</p>
+            <p className="text-2xl font-bold text-foreground">{pointsLabel}</p>
+            <p className="text-xs text-muted-foreground">Redeemable points</p>
           </div>
         </div>
       </div>

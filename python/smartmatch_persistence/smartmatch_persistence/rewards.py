@@ -303,9 +303,22 @@ class RewardsRepository:
             # Inferred against the partial index rather than named as a
             # constraint: PostgreSQL has no constraint object for a partial
             # unique index, so the predicate is part of the inference.
+            #
+            # `literal_execute=True` is load-bearing, and was not discovered to
+            # be until the rewards API exercised this method more than ten times
+            # over one pooled connection. Without it SQLAlchemy renders the
+            # predicate as a bind parameter, which PostgreSQL accepts while the
+            # statement is planned per execution and *rejects* the moment
+            # psycopg server-prepares it (`prepare_threshold`, reached around the
+            # eleventh call on a connection): "there is no unique or exclusion
+            # constraint matching the ON CONFLICT specification", because a
+            # prepared plan cannot prove a parameterized predicate matches the
+            # index's own. The failure therefore never appeared in a short test
+            # and would have appeared in production under an ordinary pool.
             .on_conflict_do_nothing(
                 index_elements=["tenant_id", "source_attendance_id"],
-                index_where=ledger.c.kind == LedgerEntryKind.ATTENDANCE_CREDIT.value,
+                index_where=ledger.c.kind
+                == sa.literal(LedgerEntryKind.ATTENDANCE_CREDIT.value, literal_execute=True),
             )
             .returning(ledger.c.id)
         ).scalar_one_or_none()
@@ -655,10 +668,18 @@ class RewardsRepository:
                 points_cost_snapshot=opened.points_cost_snapshot,
                 state=opened.state.value,
             )
+            # `literal_execute=True` for the reason `credit_attendance` gives at
+            # length: a bind parameter here is accepted until psycopg
+            # server-prepares the statement and refused from then on, which on
+            # this method is the eleventh redemption request a running API
+            # process handles rather than anything a short test would reach.
             .on_conflict_do_nothing(
                 index_elements=["tenant_id", "subject_id", "item_id"],
                 index_where=table.c.state.in_(
-                    [RedemptionState.REQUESTED.value, RedemptionState.APPROVED.value]
+                    [
+                        sa.literal(RedemptionState.REQUESTED.value, literal_execute=True),
+                        sa.literal(RedemptionState.APPROVED.value, literal_execute=True),
+                    ]
                 ),
             )
             .returning(table.c.id)

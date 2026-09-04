@@ -42,6 +42,7 @@ from smartmatch_api.routers import (
     metrics,
     redrive,
     review,
+    rewards,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -219,6 +220,7 @@ app.include_router(events.router)
 app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
+app.include_router(rewards.router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")

@@ -1,98 +1,186 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * The student rewards page, rendered entirely from server values.
+ *
+ * What this page used to do, and no longer does:
+ *
+ * - computed a balance in the browser (`getStudentTotalPoints`, deleted);
+ * - held its own seven-item catalog with invented point costs
+ *   (`STUDENT_REWARD_CATALOG`, deleted — Fix #15);
+ * - rendered an unloaded profile as `0 points`;
+ * - drew a progress bar toward whichever item happened to be next in a
+ *   client-side sort, with no way to know whether that item was funded;
+ * - "sent" a redemption by adding an id to a local `Set` and calling it
+ *   `Request sent (demo)`.
+ *
+ * Every one of those is now a server fact: the balance is a fold over the point
+ * ledger, the items are the rows with a named budget owner and a funded balance,
+ * the progress numbers come with a `progress_state` saying whether they are
+ * numbers at all, and the request is `POST /v1/units/{unit_id}/redemptions`
+ * whose response is a durable ticket in state `requested`.
+ */
 import { Link } from "react-router";
 import { AlertTriangle, ArrowLeft, Check, Lock } from "lucide-react";
+
 import { Skeleton } from "../../components/ui/skeleton";
-import { DemoModeBadge } from "../../components/ui/DemoModeBadge";
 import { AppIcon } from "../../../components/AppIcon";
 import { Button } from "../../components/ui/button";
 import { Progress } from "../../components/ui/progress";
-import { fetchStudentProfile, type StudentProfile } from "../../../lib/api";
-import { getStudentTotalPoints } from "../../../lib/studentPoints";
-import {
-  REWARD_CATEGORY_LABELS,
-  STUDENT_REWARD_CATALOG,
-  type RewardCategoryId,
-  type StudentRewardItem,
-} from "../../../lib/studentRewardsCatalog";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-import { portalSubjectId } from "../../../lib/principal";
+import { useRewards } from "../../hooks/useRewards";
+import type { Redemption, RewardCatalogItem } from "../../../lib/api";
 
-function groupByCategory(items: StudentRewardItem[]): Map<RewardCategoryId, StudentRewardItem[]> {
-  const map = new Map<RewardCategoryId, StudentRewardItem[]>();
-  for (const item of items) {
-    const list = map.get(item.category) ?? [];
-    list.push(item);
-    map.set(item.category, list);
-  }
-  for (const list of map.values()) {
-    list.sort((a, b) => a.pointsCost - b.pointsCost);
-  }
-  return map;
+/** How a ticket's state reads to the student who owns it. */
+const REDEMPTION_STATE_LABELS: Record<Redemption["state"], string> = {
+  requested: "Requested — awaiting coordinator review",
+  approved: "Approved — awaiting fulfilment",
+  fulfilled: "Fulfilled",
+  denied: "Declined by your coordinator",
+  expired: "Expired",
+};
+
+/** Ticket states that still hold a claim on this item, so it cannot be re-requested. */
+const OPEN_REDEMPTION_STATES: ReadonlySet<Redemption["state"]> = new Set<Redemption["state"]>([
+  "requested",
+  "approved",
+]);
+
+/**
+ * The balance, or an honest dash.
+ *
+ * Never `?? 0`. `points` is null exactly when the server said the balance is
+ * unknown, and a zero there would be the ADR-0011 defect this page was rewritten
+ * to remove.
+ */
+function PointsBadge({ points }: { points: number | null }) {
+  return (
+    <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-primary">
+      <AppIcon name="points" className="h-4 w-4 text-primary" aria-hidden />
+      <span className="text-sm font-semibold text-primary">
+        {points === null ? "Points not established" : `${points.toLocaleString()} points`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One reward card.
+ *
+ * The progress bar is rendered only when `progress_state === "measured"` *and*
+ * the item is not already affordable — a bar toward something you can have now
+ * says nothing, and a bar toward something whose distance the server declined to
+ * compute would be the implication ("it's coming") the card fence forbids.
+ */
+function RewardCard({
+  item,
+  openTicket,
+  pending,
+  onRequest,
+}: {
+  item: RewardCatalogItem;
+  openTicket: Redemption | undefined;
+  pending: boolean;
+  onRequest: () => void;
+}) {
+  const measured = item.progress_state === "measured";
+  const showProgress =
+    measured && !item.affordable && item.points_still_needed !== null && item.points_cost > 0;
+
+  return (
+    <div
+      className={`flex flex-col rounded-2xl border p-6 shadow-sm transition ${
+        item.affordable
+          ? "border-primary/25 bg-[linear-gradient(180deg,hsl(var(--card))_0%,hsl(var(--primary)/0.06)_100%)]"
+          : "border-border/70 bg-card"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-semibold text-foreground">{item.name}</h3>
+          {!item.affordable && measured ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              <Lock className="h-3 w-3" aria-hidden />
+              Locked
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-3 text-sm font-semibold text-primary">
+          {item.points_cost.toLocaleString()} points
+        </p>
+
+        {showProgress ? (
+          <div className="mt-4">
+            <Progress
+              className="h-2 bg-primary/15"
+              value={Math.min(
+                100,
+                Math.round(
+                  ((item.points_cost - (item.points_still_needed as number)) / item.points_cost) *
+                    100,
+                ),
+              )}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              {(item.points_still_needed as number).toLocaleString()} more points
+              {item.events_still_needed !== null
+                ? ` — about ${item.events_still_needed} more verified ${
+                    item.events_still_needed === 1 ? "event" : "events"
+                  }`
+                : ""}
+            </p>
+          </div>
+        ) : null}
+
+        {!measured ? (
+          <p className="mt-4 text-xs text-muted-foreground">
+            Your distance to this reward has not been established, so no progress is shown.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+        {openTicket ? (
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+            <Check className="h-4 w-4 text-primary" aria-hidden />
+            {REDEMPTION_STATE_LABELS[openTicket.state]}
+          </span>
+        ) : (
+          <Button
+            type="button"
+            className="rounded-xl"
+            disabled={!item.affordable || pending}
+            onClick={onRequest}
+          >
+            {pending ? "Requesting…" : item.affordable ? "Request redemption" : "Not enough points"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function StudentRewards() {
-  // `/v1/me` verifies the account but does not provide a legacy student id;
-  // the API client rejects the empty value locally instead of guessing one.
-  const principal = useAuthenticatedPrincipal();
-  const studentId = portalSubjectId(principal, "student") ?? "";
+  const { status, catalog, redemptions, loadError, pendingItemIds, requestError, requestItem } =
+    useRewards();
 
-  const [profile, setProfile] = useState<(StudentProfile & { source: string }) | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [demoRequested, setDemoRequested] = useState<Set<string>>(() => new Set());
-
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const prof = await fetchStudentProfile(studentId);
-        if (!mounted) return;
-        setProfile(prof);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load profile");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [studentId]);
-
-  const totalPoints = profile ? getStudentTotalPoints(profile) : 0;
-  const nextAffordable = useMemo(() => {
-    const affordable = STUDENT_REWARD_CATALOG.filter((r) => r.pointsCost <= totalPoints);
-    const unaffordable = STUDENT_REWARD_CATALOG.filter((r) => r.pointsCost > totalPoints).sort(
-      (a, b) => a.pointsCost - b.pointsCost,
-    );
-    return { affordable, next: unaffordable[0] ?? null };
-  }, [totalPoints]);
-
-  const grouped = useMemo(() => groupByCategory(STUDENT_REWARD_CATALOG), []);
-  const categoryOrder: RewardCategoryId[] = ["linkedin", "platforms", "certs", "growth"];
-
-  if (loading) {
+  if (status === "loading" || status === "idle") {
     return (
       <div className="space-y-6">
         <Skeleton className="h-40 w-full rounded-2xl" />
         <div className="grid gap-4 md:grid-cols-2">
-          {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-48 rounded-2xl" />
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-48 rounded-2xl" />
           ))}
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (status === "unavailable" || catalog === null) {
     return (
       <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
         <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" />
-        <p className="font-medium text-destructive">{error}</p>
+        <p className="font-medium text-destructive">
+          {loadError ?? "The rewards catalog could not be loaded."}
+        </p>
         <Link
           to="/student-portal"
           className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
@@ -104,7 +192,19 @@ export function StudentRewards() {
     );
   }
 
-  if (!profile) return null;
+  const balance = catalog.balance;
+  // The open ticket per item, so a card shows the state of a request already
+  // made instead of offering to make it again. `POST` is idempotent per item
+  // server-side either way; this is what the student is told, not what enforces
+  // it.
+  const openTicketsByItem = new Map<string, Redemption>();
+  for (const ticket of redemptions) {
+    if (OPEN_REDEMPTION_STATES.has(ticket.state) && !openTicketsByItem.has(ticket.item_id)) {
+      openTicketsByItem.set(ticket.item_id, ticket);
+    }
+  }
+
+  const affordableCount = catalog.items.filter((item) => item.affordable).length;
 
   return (
     <div className="space-y-8">
@@ -121,133 +221,88 @@ export function StudentRewards() {
       <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-foreground">Rewards & professional development</h1>
-              {profile.source === "demo" && <DemoModeBadge />}
-            </div>
+            <h1 className="text-2xl font-semibold text-foreground">
+              Rewards &amp; professional development
+            </h1>
             <p className="mt-1 max-w-2xl text-muted-foreground">
-              Redeem chapter engagement points for curated learning tools and career resources. Redemptions are
-              reviewed by your coordinator (demo: requests are simulated only).
+              Every reward below has a named budget owner and confirmed funding. Redemptions are
+              reviewed by your coordinator before anything is handed over.
             </p>
-            {nextAffordable.affordable.length > 0 ? (
+            {balance.state === "unknown" ? (
               <p className="mt-3 text-sm text-foreground">
-                You qualify for{" "}
-                <span className="font-semibold text-primary">{nextAffordable.affordable.length}</span> catalog
-                reward{nextAffordable.affordable.length === 1 ? "" : "s"} at your current balance.
+                {balance.unknown_reason ??
+                  "Your point balance has not been established yet. It is not zero."}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Folded from {balance.ledger_entry_count.toLocaleString()} point ledger{" "}
+                {balance.ledger_entry_count === 1 ? "entry" : "entries"}
+                {affordableCount > 0
+                  ? ` — you qualify for ${affordableCount} of ${catalog.items.length} rewards.`
+                  : "."}
+              </p>
+            )}
+            {!catalog.earn_policy_ratified ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Earn rate: {catalog.points_per_verified_attendance} points per verified attendance.
+                This rate is a tentative working figure and has not been ratified.
               </p>
             ) : null}
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-primary">
-            <AppIcon name="points" className="h-4 w-4 text-primary" aria-hidden />
-            <span className="text-sm font-semibold text-primary">{totalPoints} points</span>
-          </div>
+          <PointsBadge points={balance.points} />
         </div>
-
-        {nextAffordable.next ? (
-          <div className="mt-6 rounded-2xl border border-primary/25 bg-primary/5 p-4">
-            <p className="text-sm font-medium text-foreground">Closest unlock</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              <span className="font-semibold text-primary">{nextAffordable.next.title}</span> — need{" "}
-              <span className="font-semibold text-foreground">
-                {nextAffordable.next.pointsCost - totalPoints} more pts
-              </span>{" "}
-              ({nextAffordable.next.pointsCost.toLocaleString()} total).
-            </p>
-            <Progress
-              className="mt-3 h-2 bg-primary/15"
-              value={Math.min(100, Math.round((totalPoints / nextAffordable.next.pointsCost) * 100))}
-            />
-          </div>
-        ) : (
-          <div className="mt-6 rounded-2xl border border-primary/25 bg-primary/5 p-4 text-sm text-foreground">
-            You have enough points for every catalog item right now — pick a reward below to request it.
-          </div>
-        )}
       </div>
 
-      {categoryOrder.map((cat) => {
-        const items = grouped.get(cat);
-        if (!items?.length) return null;
-        return (
-          <section key={cat} className="space-y-4">
-            <div className="flex items-center gap-2">
-              <AppIcon name="sparkles" className="h-5 w-5 text-primary" aria-hidden />
-              <h2 className="text-lg font-semibold text-foreground">{REWARD_CATEGORY_LABELS[cat]}</h2>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {items.map((reward) => {
-                const Icon = reward.icon;
-                const canAfford = totalPoints >= reward.pointsCost;
-                const requested = demoRequested.has(reward.id);
-                return (
-                  <div
-                    key={reward.id}
-                    className={`flex flex-col rounded-2xl border p-6 shadow-sm transition ${
-                      canAfford
-                        ? "border-primary/25 bg-[linear-gradient(180deg,hsl(var(--card))_0%,hsl(var(--primary)/0.06)_100%)]"
-                        : "border-border/70 bg-card"
-                    }`}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${
-                          canAfford ? "border-primary/30 bg-primary/10 text-primary" : "border-border/70 bg-muted/40 text-muted-foreground"
-                        }`}
-                      >
-                        <Icon className="h-6 w-6" aria-hidden />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-foreground">{reward.title}</h3>
-                          {!canAfford ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              <Lock className="h-3 w-3" aria-hidden />
-                              Locked
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{reward.subtitle}</p>
-                        <p className="mt-3 text-sm font-semibold text-primary">
-                          {reward.pointsCost.toLocaleString()} points
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-                      <Button
-                        type="button"
-                        className="rounded-xl"
-                        disabled={!canAfford || requested}
-                        onClick={() => {
-                          setDemoRequested((prev) => new Set([...prev, reward.id]));
-                        }}
-                      >
-                        {requested ? (
-                          <>
-                            <Check className="mr-2 h-4 w-4" aria-hidden />
-                            Request sent (demo)
-                          </>
-                        ) : canAfford ? (
-                          "Request redemption"
-                        ) : (
-                          <>
-                            <Lock className="mr-2 h-4 w-4" aria-hidden />
-                            Not enough points
-                          </>
-                        )}
-                      </Button>
-                      {!canAfford ? (
-                        <span className="text-xs text-muted-foreground">
-                          Earn {(reward.pointsCost - totalPoints).toLocaleString()} more points to unlock.
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+      {requestError ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          {requestError}
+        </div>
+      ) : null}
+
+      {catalog.items.length === 0 ? (
+        <div className="rounded-2xl border border-border/70 bg-card p-8 text-center text-sm text-muted-foreground">
+          No reward currently has both a named budget owner and confirmed funding, so there is
+          nothing to show. This is the catalog being honest, not empty by accident.
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {catalog.items.map((item) => (
+            <RewardCard
+              key={item.item_id}
+              item={item}
+              openTicket={openTicketsByItem.get(item.item_id)}
+              pending={pendingItemIds.has(item.item_id)}
+              onRequest={() => void requestItem(item.item_id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {redemptions.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">Your redemptions</h2>
+          <ul className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card">
+            {redemptions.map((ticket) => (
+              <li
+                key={ticket.redemption_id}
+                className="flex flex-wrap items-center justify-between gap-2 px-5 py-4"
+              >
+                <div className="min-w-0">
+                  {/* The name and cost the ticket snapshotted, not today's — a
+                      reward repriced or withdrawn since still reads correctly. */}
+                  <p className="text-sm font-medium text-foreground">{ticket.item_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {ticket.points_cost.toLocaleString()} points at request
+                  </p>
+                </div>
+                <span className="text-sm text-muted-foreground">
+                  {REDEMPTION_STATE_LABELS[ticket.state]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

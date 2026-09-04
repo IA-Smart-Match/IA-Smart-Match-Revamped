@@ -2004,3 +2004,109 @@ export interface AgentStepEvent {
   summary?: string;
   human_approval_required?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Rewards and redemptions (`contracts/openapi/smartmatch.json`, card U1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a points figure exists — carried beside the figure, never inferred.
+ *
+ * The client half of ADR-0011 for the rewards surface, and the same shape
+ * {@link MatchScoreState} already uses. Read `state` first; read the number
+ * only in the `"measured"` branch. This exists because the file it replaces
+ * (`studentPoints.ts`) did the opposite: its call sites wrote
+ * `profile ? getStudentTotalPoints(profile) : 0`, so "we have not loaded this
+ * student yet" rendered as a balance of zero.
+ */
+export type RewardPointsState = "measured" | "unknown";
+
+/** `balance` from `GET /v1/units/{unit_id}/rewards`. */
+export interface RewardBalance {
+  state: RewardPointsState;
+  /** Null whenever `state` is `"unknown"`. Never coerce this to 0. */
+  points: number | null;
+  /** How many ledger entries the server folded. The evidence for a measured zero. */
+  ledger_entry_count: number;
+  unknown_reason?: string | null;
+}
+
+/**
+ * One listable reward. Every item the server sends is funded and has a named
+ * budget owner — that filtering happens in SQL, so there is nothing for this
+ * client to filter and no `funded` flag to branch on.
+ */
+export interface RewardCatalogItem {
+  item_id: string;
+  name: string;
+  points_cost: number;
+  affordable: boolean;
+  /** `"unknown"` means render no progress bar: the distance has no honest value. */
+  progress_state: RewardPointsState;
+  points_still_needed: number | null;
+  events_still_needed: number | null;
+}
+
+export interface RewardCatalogResponse {
+  unit_id: string;
+  balance: RewardBalance;
+  points_per_verified_attendance: number;
+  /** False while D7 is tentative. Surfaced so the UI can say so rather than imply ratification. */
+  earn_policy_ratified: boolean;
+  items: RewardCatalogItem[];
+}
+
+export type RedemptionState =
+  | "requested"
+  | "approved"
+  | "fulfilled"
+  | "denied"
+  | "expired";
+
+/** One redemption ticket, rendered from the server's own snapshots. */
+export interface Redemption {
+  redemption_id: string;
+  item_id: string;
+  item_name: string;
+  points_cost: number;
+  state: RedemptionState;
+}
+
+export interface RedemptionListResponse {
+  unit_id: string;
+  redemptions: Redemption[];
+}
+
+/** `GET /v1/units/{unit_id}/rewards` — funded catalog plus the caller's own balance. */
+export async function fetchRewardCatalog(unitId: string): Promise<RewardCatalogResponse> {
+  return requestJson<RewardCatalogResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/rewards`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/units/{unit_id}/redemptions` — the caller's own tickets. */
+export async function fetchOwnRedemptions(unitId: string): Promise<RedemptionListResponse> {
+  return requestJson<RedemptionListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/redemptions`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/redemptions` — ask for one reward.
+ *
+ * The body carries `item_id` and nothing else. There is deliberately no
+ * `subject_id` parameter here and there must never be one: the server takes the
+ * student from the verified bearer token, which is the whole of stakeholder
+ * Fix #7 (MM-A01).
+ */
+export async function requestRedemption(unitId: string, itemId: string): Promise<Redemption> {
+  return requestJson<Redemption>(
+    `/v1/units/${encodeURIComponent(unitId)}/redemptions`,
+    { method: "POST", body: JSON.stringify({ item_id: itemId }) },
+    { authenticated: true },
+  );
+}
