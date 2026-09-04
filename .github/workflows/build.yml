@@ -313,3 +313,96 @@ jobs:
         # it; a self-hosted or reused runner must not carry either into the
         # next run.
         run: docker compose down -v
+
+  pilot-e2e:
+    name: pilot e2e — auth, columns contract, accept AND reject, metrics, match, events, rewards
+    runs-on: ubuntu-24.04
+    # Same 30 as compose-smoke and for the same reason: `web`'s first start
+    # runs `npm ci` into an empty volume, which is minutes on a cold runner.
+    timeout-minutes: 30
+    # The click-through `compose-smoke` above does not reach. That job proves
+    # the appliance's documented happy path — seeded queue, import, dispatch,
+    # ONE accept, the metric moving, the pipeline row, the web proxy. This one
+    # walks the rest of what a coordinator actually does with it:
+    #
+    #   fixture auth (role read from GET /v1/me, never chosen by the caller)
+    #     -> the columns.yaml contract refusing a malformed import
+    #     -> a live import -> scheduler dispatch
+    #     -> review ACCEPT *and* review REJECT (and a 409 on re-deciding)
+    #     -> metrics read, and the drill-down rows behind the number
+    #     -> a match run: score, shortlist, per-factor explanation
+    #     -> events + tag quarantine
+    #     -> rewards
+    #
+    # and it is written to go red on DISHONESTY, not only on breakage. It fails
+    # if a rank or score is mocked rather than computed (two runs differing in
+    # one candidate's evidence must produce two different scores), if an
+    # unknown is rendered as 0 (ADR-0011 — a candidate with no expertise record
+    # must score null, while one with an empty record must score a classified
+    # measured_zero), if a role could be chosen by the caller rather than
+    # resolved from GET /v1/me, or if any match score is presented as a
+    # percentage (the ratified G1 rules forbid it: the label is
+    # "heuristic score", the shortlist is 2-3 speakers, and every score carries
+    # its registry version).
+    #
+    # Some steps CANNOT run on this appliance and are skipped by name rather
+    # than faked — rewards is gated on the `student` role alone pending the D6
+    # decision, so the coordinator principal is correctly refused; the portal
+    # pages fetch /api/portals/*, which no service in this repository serves.
+    # `-ra` in the `make e2e` target prints every skip in the summary, so a
+    # step that did not run can never be mistaken for one that passed. Nothing
+    # in that suite widens authorization to turn a refusal into a green check.
+    #
+    # Same posture as the two jobs above: no login, no push, no registry, no
+    # cloud resource, no permission beyond `contents: read`, and fixtures only.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned dependencies
+        # Hash-verified frozen install, matching verify.yml. The suite itself
+        # needs only pytest and httpx, but installing the same locked set CI
+        # installs everywhere else keeps one answer to "what is on the runner".
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements/dev.txt
+
+      - name: Bring the stack up
+        # The same single command INSTALL.md §4 tells a reader to run. `up -d`
+        # returns once containers have STARTED, not once the one-shot
+        # `seed-review` has FINISHED — the suite's own session fixture does the
+        # bounded poll for that (`compose ps -a` until it reports `exited`)
+        # rather than a sleep here. That race is exactly what PR #31 hit.
+        run: docker compose up --build -d
+
+      - name: Click through the synthetic pilot
+        # `make e2e` owns the invocation, including the `-ra` that surfaces
+        # every skip. It does not bring the stack up or tear it down, so the
+        # `up` above and the always-run `down -v` below stay in this job, where
+        # a failure still leaves logs to collect.
+        #
+        # PYTEST=pytest because the step above installed into the runner's own
+        # interpreter rather than into ./.venv, which is what the target's
+        # default $(VENV)/bin/pytest would look for.
+        run: make e2e PYTEST=pytest
+
+      - name: Service states and logs on failure
+        if: failure()
+        # The suite reports which step failed and why, but it is not the only
+        # way this job can fail: a service that never starts fails the `up`
+        # step above, before pytest collects anything.
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail=200
+
+      - name: Stop the stack and discard the data volume
+        if: always()
+        run: docker compose down -v

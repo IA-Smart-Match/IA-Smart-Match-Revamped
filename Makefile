@@ -2,6 +2,9 @@ SHELL := /bin/bash
 VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
+# Overridable so `make e2e` can run on a CI runner that installed the pinned
+# requirements into its own interpreter instead of into ./.venv.
+PYTEST ?= $(VENV)/bin/pytest
 
 # Workspace packages live outside site-packages during development, so tooling
 # needs them on the path explicitly.
@@ -67,15 +70,38 @@ imports: ## Enforce architectural import boundaries
 
 .PHONY: test
 test: ## Run unit, golden, authz, and contract tests (no database needed)
-	$(VENV)/bin/pytest tests/ -m "not integration"
+	$(VENV)/bin/pytest tests/ -m "not integration and not e2e"
 
 .PHONY: test-integration
 test-integration: ## Run integration tests (requires PostgreSQL)
 	$(VENV)/bin/pytest tests/ -m integration
 
 .PHONY: test-all
-test-all: ## Run every test
-	$(VENV)/bin/pytest tests/
+test-all: ## Run every test that does not need a running appliance
+	# `not e2e` for the same reason `test` excludes it: tests/e2e talks HTTP to
+	# a stack `docker compose up` has to have started, which no gate in `check`
+	# brings up. It is not dropped silently — `make e2e` is the target that
+	# runs it, and the pilot-e2e CI job is what runs that.
+	$(VENV)/bin/pytest tests/ -m "not e2e"
+
+.PHONY: e2e
+e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
+	# Requires `docker compose up --build -d` first. This target deliberately
+	# does not bring the stack up or tear it down: CI owns `up` and an
+	# always-run `down -v` so logs survive a failure, and a developer running
+	# it by hand wants the stack still standing afterwards to look at.
+	#
+	# `-ra` is not decoration. Several steps in this suite cannot run on this
+	# appliance at all — rewards is gated on the `student` role pending the D6
+	# decision, and the portal pages have no backend in this repository — and
+	# each one calls pytest.skip naming its reason. `-ra` prints every one of
+	# them in the summary, so a skipped step can never be read as a passed one.
+	#
+	# $(PYTEST) rather than $(VENV)/bin/pytest directly: the CI job for this
+	# target installs the same pinned requirements into the runner's own
+	# interpreter rather than into ./.venv, and overrides PYTEST accordingly.
+	# Every other target keeps the literal venv path it already had.
+	$(PYTEST) tests/e2e -m e2e -ra
 
 .PHONY: scan
 scan: ## Scan for forbidden legacy behavior
