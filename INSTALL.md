@@ -279,6 +279,126 @@ done
 echo "OK: import -> scheduler dispatch -> review -> decision -> metric"
 ```
 
+**8. Submit one inline `events` row.** `pending_review_items` is not the only
+metric a coordinator's accept can move. This row uses the columns
+`docs/pilot-data/columns.yaml` ratifies for `events` (`Event / Program` and
+`Category` required) with an in-list category, so it queues the same way the
+professionals row in step 3 did.
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/v1/units/$UNIT_ID/imports" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: smoke-events-$(date +%s)" \
+  -d '{
+        "dataset": "events",
+        "dry_run": false,
+        "rows": [
+          {"Event / Program": "Portland Hackathon", "Category": "hackathon"}
+        ]
+      }'
+```
+
+**9. Poll for `pending_review_items` to reach `1` again**, exactly as step 4
+did.
+
+**10. Recover the new review item's UUID**, narrowing step 5's query to the
+`events` batch:
+
+```bash
+EVENTS_REVIEW_ITEM_ID=$(docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc "
+  select ri.id
+    from review_item ri
+    join import_batch ib
+      on ib.tenant_id = ri.tenant_id and ib.id = ri.import_batch_id
+    join org_unit ou
+      on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
+   where ou.path = 'pilot' and ri.status = 'pending' and ib.dataset = 'events'
+   order by ri.row_index
+   limit 1")
+echo "$EVENTS_REVIEW_ITEM_ID"
+```
+
+**11. Accept it**, exactly as step 6 did:
+
+```bash
+curl -sf -X POST "http://127.0.0.1:8080/v1/review-items/$EVENTS_REVIEW_ITEM_ID/decision" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "accepted"}'
+```
+
+**12. Confirm `pipeline_matched` moved from `0` to `1`.** This is the smoke
+path's other half, and the reason this branch exists: `pipeline_record` has
+never had a production caller before this branch, so `pipeline_matched` has
+been a permanent measured zero for every unit this appliance has ever seeded.
+A `2xx` from step 11 is not evidence of that on its own (§1.10 of the plan
+this branch implements) — the positive count polled below is.
+
+```bash
+for i in $(seq 1 30); do
+  value=$(curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+    -H "Authorization: Bearer compose-api" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pipeline_matched"), "null"))')
+  echo "attempt $i: pipeline_matched.value = $value"
+  [ "$value" = "1" ] && break
+  sleep 1
+done
+[ "$value" = "1" ] || { echo "FAILED: expected pipeline_matched.value == 1, got $value"; exit 1; }
+echo "OK: pipeline_matched moved 0 -> 1"
+```
+
+**13. Confirm `opportunities` also moved, from the same metrics route:**
+
+```bash
+curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+  -H "Authorization: Bearer compose-api" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(m["value"] for m in d["metrics"] if m["name"]=="opportunities"))'
+```
+
+Expect `1`.
+
+**14. Confirm the stored row says it is synthetic**, read directly from the
+table rather than through any route — this is the database-level half of the
+same claim step 12 makes at the metrics layer:
+
+```bash
+docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc \
+  "select matched_provenance from pipeline_record"
+```
+
+Expect exactly one row, reading `synthetic / coordinator-accepted`.
+
+**What `pipeline_matched` becoming `1` proves, and what it does not.** It
+proves that a coordinator accepted a synthetic, in-list `events` row for a
+synthetic professional inside this compose appliance, through the same
+authenticated route a real coordinator uses, and that the row it produced
+records itself in the database as synthetic rather than merely claiming so
+in a log line. It proves nothing about matching quality: there is no score,
+confidence, or ranking anywhere in this path (plan §1.3), and it says
+nothing about the separate matching engine landing on `pilot/match-engine-m2-m7`
+(`PR #12`), which this branch does not import from, depend on, or reference.
+
+For a demo that wants funnel *depth* — a coordinator's accept only ever opens
+a journey at Matched — `tools/seed_demo_pipeline.py` is the optional
+follow-on: a dev-only operator tool that walks already-open journeys toward
+Contacted, Confirmed, Attended, and Member Inquiry. It is **not** part of
+either shipped container image (its own module docstring says so), so it is
+invoked from the host, against the compose stack's published database port,
+the same way `tools/seed_pilot.py` already is. It exits non-zero if it finds
+nothing to advance, so a demo run that silently did nothing is never
+mistaken for one that worked:
+
+```bash
+SMARTMATCH_EDITION=dev \
+SMARTMATCH_USE_FIXTURE_PROVIDERS=true \
+SMARTMATCH_DATABASE_URL="postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch" \
+.venv/bin/python tools/seed_demo_pipeline.py \
+  --tenant-slug pilot --unit-path pilot --through attended --limit 2
+```
+
 Tear down when finished:
 
 ```bash
@@ -287,7 +407,7 @@ docker compose down -v
 
 ### The same path, non-interactively
 
-`scripts/compose_smoke.sh` runs steps 2 through 7 above as one command, with
+`scripts/compose_smoke.sh` runs steps 2 through 14 above as one command, with
 every assertion made explicit and the relevant `docker compose logs` dumped on
 the first failure. It is what the `compose smoke` CI job
 (`.github/workflows/build.yml`) runs, so the documented path and the enforced
