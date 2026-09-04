@@ -39,60 +39,89 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "python" / "smartmatch_providers" / "smartmatch_providers" / "jwks.py"
 
 # ---------------------------------------------------------------------------
-# Synthetic test keys. Generated for this file; not a credential of any system.
+# Synthetic test keys, derived at import time.
+#
+# Nothing here is a committed constant. An RSA modulus or private exponent
+# written out as a literal is a long high-entropy string sitting next to a name
+# containing "key", which is indistinguishable — to a secret scanner, and to a
+# reader skimming a diff — from a real credential that leaked. Deriving the
+# parameters from a short, obviously synthetic seed removes the literal
+# entirely, rather than teaching the scanner to ignore one.
+#
+# Derivation is deterministic, so a failure reproduces exactly. It runs once
+# per session at import, and takes well under a second.
 # ---------------------------------------------------------------------------
-
-
-def _hex_int(*chunks: str) -> int:
-    """Reassemble a hex literal split across lines to stay within the line limit."""
-    return int("".join(chunks), 16)
-
-
-_TEST_KEY_N = _hex_int(
-    "c88ecd252af500a32738aad7f7b7f5aae2a5b2d8748e6e84abf38d2d72153060"
-    "334d4773c31243345b62552599d766183a3ec3881d9dd9838c6c94f52c086d6e"
-    "ee4e80a3cd9390784b19f3a177878367080a4e39dc76980293e7a5fa33656af8"
-    "10064e5e2e43bb386f2455e5c6fbc49b3d816dd5b367c98f65c44ffbb65de79b"
-    "0d3df65936e2bd23c50184be0b523e4df1ff149c3a9049df321d8694ba3324df"
-    "a386f4f70e6b42eadc515a2470d357f9fe93adc8f3c7f62439d2d06720aa1dce"
-    "8aa0eec0a6d62e00324aadab42ba083f5889a027eb185e93ca9b21bf48919833"
-    "483397ae45d83013ee75ca6b64ee014efe5a723500056f5cd9ac550989460d93"
-)
-_TEST_KEY_D = _hex_int(
-    "2a61268f528ef80601dd3318b4d34e19c08fe4056247d0a9bf4e154883a15f9a"
-    "0c6d298a982f6d3d0c8c7052a43a046c5d2e7311f9b427c8e8eceee309dd7406"
-    "6b5bf249eac062585102585d87ccfe62d0aba0d110398d308a417a6caedca0e8"
-    "6f366debefd9c71f8b38c1dfee96b7fa57da5833be97d15b38556dd3523b709b"
-    "8e567959db48e1c338f362b9b53292336c276f25ae29bd81e313ccf4f8883bb9"
-    "72155cc085fd179dd5b7a51e43dccb8725162315bfc841f83be623855dcfb4a3"
-    "9e7f6df1766c590187c03ad35c28ecf3fd3a07f44630d0e1e5d94d1bead1f65b"
-    "bf5481e060648a5e9683e6b9f632a7eabd020e0d44e2e615564f1072a66dc9e5"
-)
-
-_OTHER_KEY_N = _hex_int(
-    "d3461881523b6414a3b5f0aaa0d927bb9d57ef1af919753813febfe12417bb87"
-    "ad4f3aebe5d273675856f444e9db0859b4664cb80433f046971d04c6954f70d2"
-    "d493ecce3b4250194b8629b9b25c07838a611d46e3a4292c356dcf8a00203949"
-    "4b887baceaf599e1373336600216fb353525c5d7d4e128122a038d2e84c2eb1b"
-    "cd99b0a75be92071d4e2d5d3bec7b0207e5cc097f55dcc9b9ef4b78e213e9ea6"
-    "176f9c5e8b9b038007370aee62953ae76dbf29165a933a06b93b2a09fc269b5b"
-    "2bf368ff70b45d7db9b2a67aa39362e07143b57747d1f2a934e2fbf9a6500d39"
-    "7cb7376161e5004f834fbf993b293bf692450d6b009a9e5679d4f9e0410bddaf"
-)
-_OTHER_KEY_D = _hex_int(
-    "51f7df9908e0eef6ccff5134b9fc165cc57270db8baa935e62ef92dd5425fb05"
-    "6c399198254dcda55a523e2a207af0d5f0d641cca120cf876ba8800a55b28108"
-    "e31dd321be3eff9998c2201d22346f5bdb0bcb928dce4a8512e39c4223c35cc6"
-    "718e2dc18c552653091a0eee17d177bc10772bb78da99f64d0b51908e3cc45ef"
-    "8a92b5af9ee678c97840afc1f4e937bbf082479304b0c6283c8118326e6e6823"
-    "d1f8665b3da354c561821d54d0512118508b9eb65adecc2ac972f1c49037e8a3"
-    "57ce9befc8457d44c53327c9d7058b7c29e66a7a7e9c387f6909fed03c6ed349"
-    "7ce40517983cb28e06ec773b8f079a98d0aaa7b0f315f44a214b2eb8751e4abd"
-)
 
 _TEST_KEY_E = 65537
 _TEST_KID = "test-key-1"
 _OTHER_KID = "test-key-2"
+
+#: Trial divisors, to discard most composite candidates before the costly test.
+_SMALL_PRIMES = [n for n in range(3, 1000, 2) if all(n % d for d in range(3, int(n**0.5) + 1, 2))]
+
+
+def _is_probable_prime(candidate: int, *, rounds: int = 24) -> bool:
+    """Miller-Rabin, with derived-but-fixed bases so the outcome is reproducible."""
+    for small in (2, *_SMALL_PRIMES):
+        if candidate % small == 0:
+            return candidate == small
+    odd_part, twos = candidate - 1, 0
+    while odd_part % 2 == 0:
+        odd_part //= 2
+        twos += 1
+    for round_index in range(rounds):
+        seed = hashlib.sha256(b"miller-rabin-base-%d" % round_index).digest()
+        base = 2 + int.from_bytes(seed, "big") % (candidate - 4)
+        witness = pow(base, odd_part, candidate)
+        if witness in (1, candidate - 1):
+            continue
+        for _ in range(twos - 1):
+            witness = witness * witness % candidate
+            if witness == candidate - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def _derive_prime(seed: str, bits: int) -> int:
+    """Derive a probable prime of exactly ``bits`` bits from a short seed.
+
+    The top two bits are set, so the product of two such primes is always
+    exactly ``2 * bits`` wide. That keeps the modulus above the 2048-bit floor
+    the module enforces.
+    """
+    material = b""
+    counter = 0
+    while len(material) * 8 < bits:
+        material += hashlib.sha256(f"{seed}|{counter}".encode()).digest()
+        counter += 1
+    candidate = int.from_bytes(material, "big") >> (len(material) * 8 - bits)
+    candidate |= (1 << (bits - 1)) | (1 << (bits - 2)) | 1
+    while not _is_probable_prime(candidate):
+        candidate += 2
+    return candidate
+
+
+def _derive_rsa_key(seed: str, bits: int = 1024) -> tuple[int, int]:
+    """Derive a synthetic RSA keypair as ``(modulus, private_exponent)``.
+
+    Synthetic in the strict sense: no provider issued it, it authenticates
+    nothing, and its only purpose is to let a test produce a signature the
+    verifier can then check. The verifier never sees the private half.
+    """
+    first = _derive_prime(f"{seed}|p", bits)
+    second = _derive_prime(f"{seed}|q", bits)
+    while True:
+        totient = (first - 1) * (second - 1)
+        try:
+            return first * second, pow(_TEST_KEY_E, -1, totient)
+        except ValueError:  # pragma: no cover - e is prime, so this is unreachable
+            second = _derive_prime(f"{seed}|q|{second}", bits)
+
+
+_TEST_KEY_N, _TEST_KEY_D = _derive_rsa_key(_TEST_KID)
+_OTHER_KEY_N, _OTHER_KEY_D = _derive_rsa_key(_OTHER_KID)
 
 #: Test literals, not configuration. Deliberately not URLs of anything real.
 ISSUER = "https://issuer.invalid/smartmatch-test"
