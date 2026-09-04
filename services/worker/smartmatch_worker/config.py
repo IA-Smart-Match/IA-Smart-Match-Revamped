@@ -397,6 +397,62 @@ class WorkerSettings(BaseSettings):
         description="Path to columns.yaml; empty resolves relative to the checkout",
     )
 
+    # --- Outreach (R4, gate G4) --------------------------------------------
+    #
+    # Four settings, and what matters about them is which way each one fails
+    # when it is unset. The rule throughout is that omission produces the
+    # fixture path, never a live one: a deployment acquires the ability to email
+    # a real person by naming every part of what that involves, and never by
+    # leaving something out.
+
+    #: The institutional From address. **No default that could reach a
+    #: mailbox**: ``example.invalid`` is RFC 2606 reserved and cannot resolve,
+    #: so a deployment that forgets to set this fails to deliver rather than
+    #: sending as somebody nobody chose. Choosing the real one is an
+    #: institutional identity claim — see OQ-001.
+    outreach_from_address: str = Field(
+        default="noreply@example.invalid",
+        description="From address for outreach; the default is deliberately undeliverable",
+    )
+
+    #: Origin the unsubscribe URLs in every message are built against. The local
+    #: default matches the compose appliance; a deployment that leaves it wrong
+    #: sends links that 404, which is visible, rather than links that silently
+    #: unsubscribe nothing.
+    outreach_public_base_url: str = Field(
+        default="http://localhost:8080",
+        description="Public origin for List-Unsubscribe URLs",
+    )
+
+    #: HMAC key for unsubscribe tokens. ``None`` is permitted only because the
+    #: fixture path falls back to a named, obviously-synthetic constant;
+    #: ``build_outreach_send_handler`` refuses that fallback in live mode and
+    #: fails at boot rather than minting forgeable links. See OQ-005.
+    outreach_unsubscribe_secret: SecretStr | None = Field(
+        default=None,
+        description="HMAC key for unsubscribe tokens; required for live sends",
+    )
+
+    #: Live email credential. **Absent everywhere in this repository.** Its
+    #: presence is what makes ``build_email_provider`` attempt a live client,
+    #: which today is still a named refusal — the live adapter is OQ-002.
+    email_api_key: SecretStr | None = Field(
+        default=None,
+        description="Live email provider credential; absent in every current environment",
+    )
+
+    @property
+    def outreach_live_mode(self) -> bool:
+        """Whether this deployment could reach a real mailbox.
+
+        True only when a credential is present *and* the edition is one that may
+        hold one. Written as a conjunction rather than as "not classroom" so
+        that a new fixture-only edition added later is live by nobody's
+        oversight: the credential is the positive signal, and there is no
+        environment in which its absence means anything but fixture mode.
+        """
+        return self.email_api_key is not None and self.edition not in {"classroom", "dev"}
+
     #: Included in the health response so a deployment can be identified without
     #: exposing topology.
     release: str = Field(default="dev", description="Release identifier")

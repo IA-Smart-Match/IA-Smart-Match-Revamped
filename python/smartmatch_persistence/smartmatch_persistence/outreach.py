@@ -127,6 +127,7 @@ class DraftRow:
     subject: str
     body: str
     status: str
+    version: int
     created_by: uuid.UUID
     created_at: datetime
     approved_by: uuid.UUID | None
@@ -284,6 +285,7 @@ class OutreachRepository:
         body: str,
         created_by: uuid.UUID,
         status: str,
+        version: int = 1,
         approved_by: uuid.UUID | None = None,
         approved_at: datetime | None = None,
         draft_id: uuid.UUID | None = None,
@@ -315,6 +317,7 @@ class OutreachRepository:
                 subject=subject,
                 body=body,
                 status=status,
+                version=version,
                 created_by=created_by,
                 approved_by=approved_by,
                 approved_at=approved_at,
@@ -699,6 +702,7 @@ def _to_draft(row: sa.Row[Any]) -> DraftRow:
         subject=row.subject,
         body=row.body,
         status=row.status,
+        version=row.version,
         created_by=row.created_by,
         created_at=row.created_at,
         approved_by=row.approved_by,

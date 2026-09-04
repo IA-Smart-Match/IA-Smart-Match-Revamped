@@ -318,6 +318,14 @@ def upgrade() -> None:
         sa.Column("subject", sa.Text, nullable=False),
         sa.Column("body", sa.Text, nullable=False),
         sa.Column("status", sa.Text, nullable=False),
+        # Which revision of this message a coordinator approved. A first draft
+        # is 1; a draft that supersedes another takes its predecessor's version
+        # plus one. It exists because ``SendRequest.approved_draft_version`` is
+        # a required field of the provider interface, and the only alternative
+        # to storing the real number was passing a constant — a plausible value
+        # nobody measured, which is the fabricated-field defect (Fix #15)
+        # arriving through a field that merely looks harmless.
+        sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
         sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "created_at",
@@ -404,6 +412,7 @@ def upgrade() -> None:
             "AND length(btrim(body)) > 0",
             name="ck_outreach_draft_text_present",
         ),
+        sa.CheckConstraint("version >= 1", name="ck_outreach_draft_version"),
     )
 
     op.create_index(

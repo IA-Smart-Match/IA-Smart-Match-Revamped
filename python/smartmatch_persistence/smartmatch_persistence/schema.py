@@ -1535,6 +1535,11 @@ outreach_draft = sa.Table(
     sa.Column("subject", sa.Text, nullable=False),
     sa.Column("body", sa.Text, nullable=False),
     sa.Column("status", sa.Text, nullable=False),
+    # Which revision a coordinator approved. Stored rather than assumed because
+    # SendRequest.approved_draft_version is a required field of the provider
+    # interface, and a constant there would be a plausible number nobody
+    # measured.
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
     sa.Column("created_by", _UUID, nullable=False),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("approved_by", _UUID, nullable=True),
@@ -1595,6 +1600,7 @@ outreach_draft = sa.Table(
         "length(btrim(template_id)) > 0 AND length(btrim(subject)) > 0 AND length(btrim(body)) > 0",
         name="ck_outreach_draft_text_present",
     ),
+    sa.CheckConstraint("version >= 1", name="ck_outreach_draft_version"),
 )
 
 

@@ -196,10 +196,11 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
+from smartmatch_domain.outreach import OUTREACH_SEND_COMMAND_TYPE
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
 from smartmatch_providers.base import Edition
-from smartmatch_providers.registry import build_paid_extraction_provider
+from smartmatch_providers.registry import build_email_provider, build_paid_extraction_provider
 from smartmatch_providers.tasks import TaskQueue
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -220,6 +221,7 @@ from smartmatch_worker.identity import (
     build_task_verifier,
 )
 from smartmatch_worker.local_tasks import LocalPostgresHttpTaskQueue, LocalTaskDeliveryPump
+from smartmatch_worker.outreach import build_outreach_send_handler, with_outreach_send
 from smartmatch_worker.paid_extraction import (
     build_paid_extraction_handler,
     with_paid_extraction,
@@ -446,6 +448,46 @@ def create_app(
         # synthetic-provider reservation implementation and its verification",
         # no paid call. That builder — not this call site — is what refuses a
         # live client, so wiring here cannot widen it.
+        # R4/G4. Composed at the root rather than registered inside
+        # `default_registry`, for the reason the paid-extraction block below
+        # gives about its own handler: this one takes collaborators — a
+        # provider, a From address, an HMAC key, a session factory — and a
+        # registry function that takes no arguments cannot supply them.
+        # `handlers` importing this module to reach them would also make a cycle
+        # out of a dependency that is genuinely one-way, since
+        # `smartmatch_worker.outreach` imports `CommandContext` and the failure
+        # types from `handlers`.
+        #
+        # Unlike paid extraction this is composed unconditionally, and the
+        # difference is what "unconfigured" means for each. A worker with no
+        # spend ceilings must not be able to spend money, so absence withholds
+        # the handler. A worker with no email credential is in *fixture* mode,
+        # which is a perfectly good thing for it to be and the mode the pilot
+        # runs in — so absence configures it rather than withholding it, and
+        # `build_email_provider` is what refuses a live client.
+        if registry_is_ours:
+            secret = resolved.outreach_unsubscribe_secret
+            app.state.registry = with_outreach_send(
+                app.state.registry,
+                build_outreach_send_handler(
+                    session_factory=app.state.session_factory,
+                    provider=build_email_provider(
+                        Edition(resolved.edition),
+                        api_key=(
+                            key.get_secret_value()
+                            if (key := resolved.email_api_key) is not None
+                            else None
+                        ),
+                        use_fixture=not resolved.outreach_live_mode,
+                    ),
+                    from_address=resolved.outreach_from_address,
+                    public_base_url=resolved.outreach_public_base_url,
+                    unsubscribe_secret=secret.get_secret_value() if secret else None,
+                    live_mode=resolved.outreach_live_mode,
+                ),
+                OUTREACH_SEND_COMMAND_TYPE,
+            )
+
         if registry_is_ours and (ceilings := resolved.spend_ceilings) is not None:
             app.state.registry = with_paid_extraction(
                 app.state.registry,
