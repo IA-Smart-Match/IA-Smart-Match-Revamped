@@ -48,11 +48,17 @@ resolved `Settings` describe `SMARTMATCH_EDITION=dev` with
 cannot be pointed at anything but the local fixture appliance.
 
 **A silent zero is never a success.** Advancing zero journeys is always
-reported — a one-line count on stdout, whatever the count is, every run —
-and by default it is also a failure: `main` returns non-zero unless
-`--allow-empty` was passed, in which case the same situation is reported as
-a warning on stderr and the exit code becomes ``0``. There is no code path in
-this module that can exit ``0`` having silently done nothing.
+reported — a one-line count, whatever the count is, every run — and by
+default it is also a failure: `main` returns non-zero unless `--allow-empty`
+was passed, in which case the same situation is reported as a warning on
+stderr and the exit code becomes ``0``. There is no code path in this module
+that can exit ``0`` having silently done nothing. This holds even when a
+journey's own walk raises partway through a run that has already advanced
+others: `main` catches `sqlalchemy.exc.SQLAlchemyError` and the domain
+errors `advance_stage`/`record_attendance` can raise around the walk, and
+reports the count reached so far — on stderr, alongside what failed — before
+returning ``1``, rather than letting the count go unprinted behind an
+uncaught traceback.
 
 **Transaction boundary.** Unlike every repository this tool calls
 (`PipelineRepository`, `AttendanceRepository` — neither commits, by
@@ -79,13 +85,37 @@ from typing import Final
 
 import sqlalchemy as sa
 from smartmatch_api.config import Settings
-from smartmatch_domain.pipeline import PIPELINE_STAGE_SEQUENCE, PipelineStage
+from smartmatch_domain.pipeline import (
+    PIPELINE_STAGE_SEQUENCE,
+    InvalidPipelineStageTransitionError,
+    PipelineStage,
+)
 from smartmatch_domain.synthetic_pilot import SYNTHETIC_ATTENDANCE_METHOD
 from smartmatch_persistence import schema
-from smartmatch_persistence.attendance import AttendanceRepository
+from smartmatch_persistence.attendance import AttendanceRepository, ConflictingOwningUnitError
 from smartmatch_persistence.engine import create_session_factory
-from smartmatch_persistence.pipeline import PipelineRepository
+from smartmatch_persistence.pipeline import (
+    PipelineRepository,
+    PipelineStageOrderError,
+    UnknownAttendanceEvidenceError,
+)
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+
+#: Every non-configuration error a journey's own walk can raise —
+#: `advance_stage`'s own preconditions, `record_attendance`'s own
+#: cross-unit conflict guard, and any database-level failure (an
+#: unreachable or unmigrated database, a constraint this tool's own
+#: application-code guards did not anticipate). Caught around the walk in
+#: `main` so a mid-run failure still reports how many journeys were
+#: already advanced, rather than an uncaught traceback that prints nothing.
+_WALK_ERRORS: Final[tuple[type[Exception], ...]] = (
+    SQLAlchemyError,
+    PipelineStageOrderError,
+    UnknownAttendanceEvidenceError,
+    InvalidPipelineStageTransitionError,
+    ConflictingOwningUnitError,
+)
 
 #: Minutes between consecutive funnel stages this tool writes — see the
 #: module docstring's "Transaction boundary" note for how each stage's
@@ -319,45 +349,59 @@ def main(argv: Sequence[str] | None = None) -> int:
     attendance_repo = AttendanceRepository()
 
     with session_factory() as session:
-        tenant_id = resolve_tenant_id(session, slug=args.tenant_slug)
-        if tenant_id is None:
-            print(
-                f"seed-demo-pipeline: no tenant with slug {args.tenant_slug!r}",
-                file=sys.stderr,
-            )
-            return 1
-
-        owning_unit_id = resolve_unit_id(session, tenant_id=tenant_id, path=args.unit_path)
-        if owning_unit_id is None:
-            print(
-                f"seed-demo-pipeline: no org_unit with path {args.unit_path!r} in tenant "
-                f"{args.tenant_slug!r}",
-                file=sys.stderr,
-            )
-            return 1
-
-        journeys = select_journeys(
-            session, tenant_id=tenant_id, owning_unit_id=owning_unit_id, limit=args.limit
-        )
-
         journeys_advanced = 0
-        for journey in journeys:
-            stages_transitioned = advance_journey(
-                session,
-                pipeline_repo=pipeline_repo,
-                attendance_repo=attendance_repo,
-                tenant_id=tenant_id,
-                owning_unit_id=owning_unit_id,
-                journey=journey,
-                through=through_stage,
+        try:
+            tenant_id = resolve_tenant_id(session, slug=args.tenant_slug)
+            if tenant_id is None:
+                print(
+                    f"seed-demo-pipeline: no tenant with slug {args.tenant_slug!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            owning_unit_id = resolve_unit_id(session, tenant_id=tenant_id, path=args.unit_path)
+            if owning_unit_id is None:
+                print(
+                    f"seed-demo-pipeline: no org_unit with path {args.unit_path!r} in tenant "
+                    f"{args.tenant_slug!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            journeys = select_journeys(
+                session, tenant_id=tenant_id, owning_unit_id=owning_unit_id, limit=args.limit
             )
-            session.commit()
-            if stages_transitioned > 0:
-                journeys_advanced += 1
+
+            for journey in journeys:
+                stages_transitioned = advance_journey(
+                    session,
+                    pipeline_repo=pipeline_repo,
+                    attendance_repo=attendance_repo,
+                    tenant_id=tenant_id,
+                    owning_unit_id=owning_unit_id,
+                    journey=journey,
+                    through=through_stage,
+                )
+                session.commit()
+                if stages_transitioned > 0:
+                    journeys_advanced += 1
+                print(
+                    f"seed-demo-pipeline: journey {journey.id} advanced {stages_transitioned} "
+                    f"stage(s) toward {through_stage.value!r}"
+                )
+        except _WALK_ERRORS as exc:
+            # §1.10: even a failure that strikes before or during the walk
+            # reports how many journeys this run had already advanced —
+            # never silently zero, never simply absent behind an uncaught
+            # traceback. Journeys already committed above stay committed;
+            # any uncommitted write from a journey in progress when this
+            # was raised is rolled back when this session closes below.
             print(
-                f"seed-demo-pipeline: journey {journey.id} advanced {stages_transitioned} "
-                f"stage(s) toward {through_stage.value!r}"
+                f"seed-demo-pipeline: advanced {journeys_advanced} journey(s) in unit "
+                f"{args.unit_path!r} before failing: {exc}",
+                file=sys.stderr,
             )
+            return 1
 
         # §1.10: the count is printed on every run, including a zero one —
         # never distinguishable from success by its absence.

@@ -22,16 +22,21 @@ the two guard tests below do instead, against the exact same
 ``require_development_fixture_settings`` check — this is the substance the
 card's assertions 1 and 2 are after (the tool refuses outside dev/fixture
 scope), proved with the mechanism that can actually exercise it.
+``test_dev_guard_default_is_permissive_when_edition_is_unset_characterization``
+separately pins that permissive default itself, named and documented as a
+characterization rather than a requirement this card's fence can change.
 
 Requires a live database, and is skipped when none is reachable.
 """
 
 from __future__ import annotations
 
+import ast
 import inspect
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from types import ModuleType
 
 import pytest
 
@@ -132,8 +137,20 @@ def _args(
 # ---------------------------------------------------------------------------
 
 
+def _pipeline_record_count(engine: Engine, tenant_id: uuid.UUID) -> int:
+    with engine.begin() as conn:
+        return int(
+            conn.execute(
+                text("SELECT count(*) FROM pipeline_record WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            ).scalar_one()
+        )
+
+
 def test_refuses_outside_dev_edition(
     monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+    tenant_id: uuid.UUID,
     tenant_slug: str,
     unit_id: uuid.UUID,
     capsys: pytest.CaptureFixture[str],
@@ -141,6 +158,13 @@ def test_refuses_outside_dev_edition(
     monkeypatch.setenv("SMARTMATCH_EDITION", "staging")
     monkeypatch.setenv("SMARTMATCH_USE_FIXTURE_PROVIDERS", "true")
     monkeypatch.setenv("SMARTMATCH_DATABASE_URL", DATABASE_URL)
+    with engine.begin() as conn:
+        record_id = _insert_pipeline_record(
+            conn,
+            tenant_id,
+            owning_unit_id=unit_id,
+            times={"matched_at": datetime.now(UTC) - timedelta(days=1)},
+        )
 
     exit_code = seed_demo_pipeline.main(_args(tenant_slug=tenant_slug))
 
@@ -148,10 +172,20 @@ def test_refuses_outside_dev_edition(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "dev" in captured.err.lower()
+    # "writes nothing" proven directly, not only by an empty stdout proxy:
+    # the pre-existing row is untouched and no new row was written.
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT contacted_at FROM pipeline_record WHERE id = :id"), {"id": record_id}
+        ).one()
+    assert row.contacted_at is None
+    assert _pipeline_record_count(engine, tenant_id) == 1
 
 
 def test_refuses_without_fixture_providers(
     monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+    tenant_id: uuid.UUID,
     tenant_slug: str,
     unit_id: uuid.UUID,
     capsys: pytest.CaptureFixture[str],
@@ -166,6 +200,38 @@ def test_refuses_without_fixture_providers(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "fixture" in captured.err.lower()
+    # "writes nothing" proven directly: no pipeline_record row exists at all.
+    assert _pipeline_record_count(engine, tenant_id) == 0
+
+
+def test_dev_guard_default_is_permissive_when_edition_is_unset_characterization(
+    monkeypatch: pytest.MonkeyPatch,
+    tenant_slug: str,
+    unit_id: uuid.UUID,
+):
+    """Pins today's permissive default — not a guarantee this tool controls.
+
+    ``services/api/smartmatch_api/config.py`` (outside this card's fence)
+    defaults ``edition`` to ``dev`` when ``SMARTMATCH_EDITION`` is absent
+    from the environment, so deleting the variable does not trip this
+    tool's guard today: it falls through to the same permissive default
+    the guard is built to accept. Confirmed directly by constructing
+    ``Settings()`` with every ``SMARTMATCH_*`` variable removed (see this
+    module's own docstring). This test pins that behaviour deliberately —
+    named and documented as a characterization, not a requirement — so a
+    future tightening of ``config.py``'s default shows up here as a
+    failing assertion instead of silently changing what "unset" means for
+    every dev-only tool that shares this guard.
+    """
+    monkeypatch.delenv("SMARTMATCH_EDITION", raising=False)
+    monkeypatch.setenv("SMARTMATCH_USE_FIXTURE_PROVIDERS", "true")
+    monkeypatch.setenv("SMARTMATCH_DATABASE_URL", DATABASE_URL)
+
+    # --allow-empty: this test is about the guard, not the walk, and the
+    # unit has no pipeline_record rows.
+    exit_code = seed_demo_pipeline.main(_args(tenant_slug=tenant_slug, allow_empty=True))
+
+    assert exit_code == 0
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +353,7 @@ def test_rerun_without_allow_empty_fails_loudly_once_fully_advanced(
     tenant_id: uuid.UUID,
     tenant_slug: str,
     unit_id: uuid.UUID,
+    capsys: pytest.CaptureFixture[str],
 ):
     """§1.10 also covers "found rows, but nothing left to advance" — not only "found none"."""
     _dev_env(monkeypatch)
@@ -297,9 +364,120 @@ def test_rerun_without_allow_empty_fails_loudly_once_fully_advanced(
         )
 
     assert seed_demo_pipeline.main(_args(tenant_slug=tenant_slug, through="attended")) == 0
+    capsys.readouterr()  # discard the first run's own output
 
     exit_code = seed_demo_pipeline.main(_args(tenant_slug=tenant_slug, through="attended"))
+
     assert exit_code != 0
+    captured = capsys.readouterr()
+    assert "advanced 0 journey(s)" in captured.out
+    # The "rows found, but already advanced" branch of _zero_advance_message,
+    # not the "no rows at all" branch — the two must not be confusable.
+    assert "were found there, but each had already reached" in captured.err
+    assert "no pipeline_record rows exist there yet" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Important fix — a mid-run failure still reports the count reached so far.
+# ---------------------------------------------------------------------------
+
+
+def test_mid_run_failure_still_reports_the_count_reached_so_far(
+    monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    tenant_slug: str,
+    unit_id: uuid.UUID,
+    capsys: pytest.CaptureFixture[str],
+):
+    """A journey that raises mid-walk must not swallow an already-advanced count.
+
+    The first journey is a normal, uncontested walk to Attended and gets
+    fully committed. The second shares no professional-visible relation to
+    the first, but its own subject+event pair already has an
+    ``attendance_record`` row under a *different* unit, so
+    ``AttendanceRepository.record_attendance`` raises
+    ``ConflictingOwningUnitError`` when this run's own Attended stage
+    tries to write it. ``main`` must catch that, report "advanced 1
+    journey(s) ... before failing", and return non-zero — not let the
+    exception surface as an uncaught traceback that prints no count at
+    all.
+    """
+    _dev_env(monkeypatch)
+    base = datetime.now(UTC) - timedelta(days=1)
+    with engine.begin() as conn:
+        other_unit_id = _make_unit(conn, tenant_id, "elsewhere")
+
+    subject_id = uuid.uuid4()
+    event_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :sub, :email)"
+            ),
+            {
+                "id": subject_id,
+                "tid": tenant_id,
+                "sub": f"synthetic-professional:{subject_id}",
+                "email": f"professional-{subject_id}@synthetic.invalid",
+            },
+        )
+        first_journey = _insert_pipeline_record(
+            conn, tenant_id, owning_unit_id=unit_id, times={"matched_at": base}
+        )
+        second_journey = _insert_pipeline_record(
+            conn,
+            tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            opportunity_event_id=event_id,
+            times={"matched_at": base + timedelta(hours=1)},
+        )
+        # Pre-existing attendance evidence for this exact (subject, event)
+        # pair, but scoped under a *different* unit than the journey it
+        # will collide with.
+        conn.execute(
+            text(
+                "INSERT INTO attendance_record "
+                "(id, tenant_id, owning_unit_id, subject_id, event_id, method) "
+                "VALUES (:id, :tid, :unit, :subject, :event, 'coordinator_entry')"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "unit": other_unit_id,
+                "subject": subject_id,
+                "event": event_id,
+            },
+        )
+
+    exit_code = seed_demo_pipeline.main(_args(tenant_slug=tenant_slug, through="attended", limit=2))
+
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert f"journey {first_journey}" in captured.out
+    assert "advanced 1 journey(s)" in captured.err
+    assert "before failing" in captured.err
+
+    with engine.begin() as conn:
+        first_row = conn.execute(
+            text("SELECT attended_at FROM pipeline_record WHERE id = :id"),
+            {"id": first_journey},
+        ).one()
+        second_row = conn.execute(
+            text(
+                "SELECT contacted_at, confirmed_at, attended_at FROM pipeline_record WHERE id = :id"
+            ),
+            {"id": second_journey},
+        ).one()
+
+    # The first journey's walk was committed before the second one failed.
+    assert first_row.attended_at is not None
+    # The second journey's own in-flight writes were rolled back with it.
+    assert second_row.contacted_at is None
+    assert second_row.confirmed_at is None
+    assert second_row.attended_at is None
 
 
 # ---------------------------------------------------------------------------
@@ -352,24 +530,30 @@ def test_limit_selects_earliest_by_matched_at_then_id(
     unit_id: uuid.UUID,
     capsys: pytest.CaptureFixture[str],
 ):
+    """(matched_at, id) ordering — including the id tie-break for equal matched_at.
+
+    ``earliest`` has the smallest ``matched_at`` and is always selected
+    first. ``tie_a``/``tie_b`` share the *same* ``matched_at``, so which of
+    the two takes the second and last slot depends only on ``id`` —
+    exercising the tie-break the ordering promises, not only the
+    ``matched_at`` ordering a distinct-timestamps fixture would already
+    prove on its own.
+    """
     _dev_env(monkeypatch)
     base = datetime.now(UTC) - timedelta(days=3)
+    tie_at = base + timedelta(hours=1)
     with engine.begin() as conn:
         earliest = _insert_pipeline_record(
             conn, tenant_id, owning_unit_id=unit_id, times={"matched_at": base}
         )
-        middle = _insert_pipeline_record(
-            conn,
-            tenant_id,
-            owning_unit_id=unit_id,
-            times={"matched_at": base + timedelta(hours=1)},
+        tie_a = _insert_pipeline_record(
+            conn, tenant_id, owning_unit_id=unit_id, times={"matched_at": tie_at}
         )
-        latest = _insert_pipeline_record(
-            conn,
-            tenant_id,
-            owning_unit_id=unit_id,
-            times={"matched_at": base + timedelta(hours=2)},
+        tie_b = _insert_pipeline_record(
+            conn, tenant_id, owning_unit_id=unit_id, times={"matched_at": tie_at}
         )
+
+    lower_tie, higher_tie = sorted((tie_a, tie_b))
 
     exit_code = seed_demo_pipeline.main(
         _args(tenant_slug=tenant_slug, through="contacted", limit=2)
@@ -386,8 +570,8 @@ def test_limit_selects_earliest_by_matched_at_then_id(
         }
 
     assert rows[earliest] is True
-    assert rows[middle] is True
-    assert rows[latest] is False
+    assert rows[lower_tie] is True
+    assert rows[higher_tie] is False
 
     captured = capsys.readouterr()
     assert "advanced 2 journey(s)" in captured.out
@@ -504,12 +688,115 @@ def test_attendance_evidence_check_constraint_still_enforced(
 
 
 # ---------------------------------------------------------------------------
-# Assertion 12 — no fabricated-fitness identifiers anywhere in this tool.
+# Assertion 12 — no fabricated-score identifiers anywhere in this tool.
+#
+# AST-based, mirroring tests/unit/test_synthetic_pilot_identity.py's own
+# ``_fabricated_score_identifiers`` exactly (the ruling made for Cards 2-4,
+# extended to Card 7): a substring scan over the whole source text also
+# scans docstrings, comments, and string literals — failing on ordinary
+# prose ("frankly", "ranking") and on this very module's own honest
+# statement that it computes none of these things. What actually matters is
+# whether the module *stores* a fabricated value under one of these names —
+# as a variable, an attribute, a function parameter, or a keyword/column
+# argument — or names a function after one. Only those AST shapes are
+# inspected; prose is free to say what this tool refuses to do.
+# ---------------------------------------------------------------------------
+
+#: Score-shaped identifier fragments. Checked against *identifiers* only —
+#: never against prose.
+_FABRICATED_SCORE_TOKENS = ("score", "confidence", "match_score", "rank", "weight")
+
+
+def _fabricated_score_identifiers(module: ModuleType) -> list[str]:
+    """Score-shaped names used as assignment targets, parameters, or keyword/column names."""
+    tree = ast.parse(inspect.getsource(module))
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        name: str | None
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            name = node.id
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            name = node.attr
+        elif isinstance(node, ast.arg | ast.keyword):
+            name = node.arg
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            name = node.name
+        else:
+            name = None
+        if name is not None and any(token in name.lower() for token in _FABRICATED_SCORE_TOKENS):
+            offenders.append(name)
+    return offenders
+
+
+def test_tool_stores_no_fabricated_score_identifier():
+    offenders = _fabricated_score_identifiers(seed_demo_pipeline)
+    assert not offenders, f"score-shaped identifier(s) found in seed_demo_pipeline: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Untested paths — tenant/unit resolution, and --through member_inquiry.
 # ---------------------------------------------------------------------------
 
 
-def test_tool_source_has_no_fabricated_fitness_identifiers():
-    source = inspect.getsource(seed_demo_pipeline).lower()
-    forbidden = ("sco" + "re", "confidence", "match_" + "score", "ra" + "nk", "wei" + "ght")
-    for word in forbidden:
-        assert word not in source, word
+def test_missing_tenant_fails_with_a_named_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    _dev_env(monkeypatch)
+
+    exit_code = seed_demo_pipeline.main(_args(tenant_slug="no-such-tenant-slug-in-this-database"))
+
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no-such-tenant-slug-in-this-database" in captured.err
+
+
+def test_missing_unit_fails_with_a_named_message(
+    monkeypatch: pytest.MonkeyPatch, tenant_slug: str, capsys: pytest.CaptureFixture[str]
+):
+    # Deliberately no `unit_id` fixture here: the tenant exists, but no
+    # org_unit at this path does.
+    _dev_env(monkeypatch)
+
+    exit_code = seed_demo_pipeline.main(
+        _args(tenant_slug=tenant_slug, unit_path="no-such-unit-path")
+    )
+
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no-such-unit-path" in captured.err
+    assert tenant_slug in captured.err
+
+
+def test_through_member_inquiry_exercises_the_full_funnel(
+    monkeypatch: pytest.MonkeyPatch,
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    tenant_slug: str,
+    unit_id: uuid.UUID,
+):
+    _dev_env(monkeypatch)
+    matched_at = datetime.now(UTC) - timedelta(days=1)
+    with engine.begin() as conn:
+        record_id = _insert_pipeline_record(
+            conn, tenant_id, owning_unit_id=unit_id, times={"matched_at": matched_at}
+        )
+
+    exit_code = seed_demo_pipeline.main(_args(tenant_slug=tenant_slug, through="member_inquiry"))
+    assert exit_code == 0
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT contacted_at, confirmed_at, attended_at, member_inquiry_at "
+                "FROM pipeline_record WHERE id = :id"
+            ),
+            {"id": record_id},
+        ).one()
+
+    assert row.contacted_at is not None
+    assert row.confirmed_at is not None
+    assert row.attended_at is not None
+    assert row.member_inquiry_at is not None
+    assert row.attended_at <= row.member_inquiry_at
