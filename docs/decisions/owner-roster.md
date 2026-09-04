@@ -46,6 +46,9 @@ writing; it does not grant, request, or change repository permissions.
 | **Chau Nguyen** | `@Chau-Nguyen-Developer` | 4 September 2026 | Danny Tran (@dangt) |
 | **Janice H.** | `@starey6789` | 4 September 2026 | Danny Tran (@dangt) |
 
+(`@dangt` above is the group's internal shorthand for Danny Tran, not a
+GitHub handle — unlike `@Chau-Nguyen-Developer` and `@starey6789`, which are.)
+
 **A third collaborator account, `@BrooklynD23`, is not a fourth signer.**
 `gh api users/BrooklynD23` resolves to profile name "Danny Tran", and
 `gh api repos/.../collaborators/BrooklynD23/permission` returns `admin`. It is
