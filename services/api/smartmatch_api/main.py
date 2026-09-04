@@ -52,6 +52,7 @@ from smartmatch_api.routers import (
     match_runs,
     me,
     metrics,
+    outreach,
     portals,
     redrive,
     review,
@@ -236,6 +237,12 @@ app.include_router(review.router)
 app.include_router(rewards.router)
 app.include_router(auth.router)
 app.include_router(portals.router)
+# Two routers from one module: the unit-scoped operations, and the one
+# unauthenticated operation. See `routers/outreach.py` — "this route takes no
+# principal" is worth being visible in a declaration rather than discoverable by
+# reading a handler.
+app.include_router(outreach.router)
+app.include_router(outreach.public_router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")

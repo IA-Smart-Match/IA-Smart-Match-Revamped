@@ -74,6 +74,95 @@ pytestmark = pytest.mark.integration
 #: changed the normalisation would fail this test, and reviewing that diff on
 #: purpose is the intended behaviour rather than a cost.
 CHECK_CONSTRAINT_DEFINITIONS = {
+    # --- Outreach (migration 0021) -------------------------------------
+    #
+    # Every one of these is a claim about a real person that the application
+    # layer also enforces, which is why the expressions are pinned here as
+    # well as attempted in `test_outreach_persistence.py`: a vocabulary that
+    # quietly widened would pass every behavioural test, because the values
+    # it newly admits are exactly the ones nothing tries to write.
+    ("contact_channel", "ck_contact_channel_address_present"): (
+        "CHECK (((length(btrim(address)) > 0) AND (POSITION(('@'::text) IN (address)) > 1)))"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_dated"): (
+        "CHECK (((consent_source IS NULL) = (consent_recorded_at IS NULL)))"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_source"): (
+        "CHECK (((consent_source IS NULL) OR (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text, 'scraped'::text, 'purchased'::text, "
+        "'inferred'::text]))))"
+    ),
+    ("contact_channel", "ck_contact_channel_kind"): ("CHECK ((channel_kind = 'email'::text))"),
+    ("contact_channel", "ck_contact_channel_sendable_consent"): (
+        "CHECK (((contact_state <> 'active_candidate'::text) OR ((consent_source IS NOT NULL) "
+        "AND (consent_source = ANY (ARRAY['self_service'::text, 'authenticated'::text, "
+        "'in_person'::text, 'institutional_relationship'::text])))))"
+    ),
+    ("contact_channel", "ck_contact_channel_state"): (
+        "CHECK ((contact_state = ANY (ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text])))"
+    ),
+    ("delivery_event", "ck_delivery_event_detail_object"): (
+        "CHECK (((detail IS NULL) OR (jsonb_typeof(detail) = 'object'::text)))"
+    ),
+    ("delivery_event", "ck_delivery_event_type"): (
+        "CHECK ((event_type = ANY (ARRAY['queued'::text, 'blocked'::text, 'accepted'::text, "
+        "'delivered'::text, 'bounced'::text, 'complained'::text, 'unsubscribed'::text, "
+        "'failed'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approval_dated"): (
+        "CHECK (((approved_by IS NULL) = (approved_at IS NULL)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approved_has_approver"): (
+        "CHECK (((status <> 'approved'::text) OR (approved_by IS NOT NULL)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_content_status"): (
+        "CHECK ((content_status = ANY (ARRAY['synthetic'::text, 'reviewed'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_status"): (
+        "CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'superseded'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_supersession"): (
+        "CHECK (((superseded_by_draft_id IS NULL) OR ((status = 'superseded'::text) AND "
+        "(superseded_by_draft_id <> id))))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_text_present"): (
+        "CHECK (((length(btrim(template_id)) > 0) AND (length(btrim(subject)) > 0) AND "
+        "(length(btrim(body)) > 0)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_version"): ("CHECK ((version >= 1))"),
+    ("outreach_send", "ck_outreach_send_accepted_has_provider"): (
+        "CHECK (((disposition <> 'accepted'::text) OR ((provider IS NOT NULL) AND "
+        "(provider_message_id IS NOT NULL))))"
+    ),
+    ("outreach_send", "ck_outreach_send_concluded"): (
+        "CHECK (((disposition IS NULL) = (concluded_at IS NULL)))"
+    ),
+    ("outreach_send", "ck_outreach_send_disposition"): (
+        "CHECK (((disposition IS NULL) OR (disposition = ANY (ARRAY['accepted'::text, "
+        "'blocked'::text, 'failed'::text]))))"
+    ),
+    ("outreach_send", "ck_outreach_send_failure_reason"): (
+        "CHECK (((disposition IS NULL) OR ((disposition = ANY (ARRAY['blocked'::text, "
+        "'failed'::text])) = (failure_reason IS NOT NULL))))"
+    ),
+    ("outreach_send", "ck_outreach_send_fields_present"): (
+        "CHECK (((length(btrim(idempotency_key)) > 0) AND (length(btrim(recipient_address)) > "
+        "0) AND (length(btrim(from_address)) > 0) AND (length(btrim(unsubscribe_token_hash)) "
+        "> 0)))"
+    ),
+    ("outreach_send", "ck_outreach_send_message_id_means_accepted"): (
+        "CHECK (((provider_message_id IS NULL) OR (disposition = 'accepted'::text)))"
+    ),
+    ("suppression_record", "ck_suppression_record_address_present"): (
+        "CHECK ((length(btrim(address)) > 0))"
+    ),
+    ("suppression_record", "ck_suppression_record_source"): (
+        "CHECK ((source = ANY (ARRAY['unsubscribe_link'::text, 'one_click'::text, "
+        "'coordinator'::text, 'bounce'::text, 'complaint'::text])))"
+    ),
     ("attendance_record", "ck_attendance_record_method"): (
         "CHECK ((method = ANY (ARRAY['qr_scan'::text, 'coordinator_entry'::text, 'import'::text])))"
     ),
@@ -294,6 +383,81 @@ CHECK_CONSTRAINT_DEFINITIONS = {
 #: it, and are recorded here rather than duplicated — a reader asking "is
 #: ``ck_job_status`` exercised?" gets an answer without grepping.
 BEHAVIOURAL_COVERAGE = {
+    # --- Outreach (migration 0021) -------------------------------------
+    ("contact_channel", "ck_contact_channel_address_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_dated"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_source"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_kind"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_sendable_consent"): (
+        "test_outreach_persistence.py::TestContactConstraints — attempts each refusable "
+        "consent source and the absent one"
+    ),
+    ("contact_channel", "ck_contact_channel_state"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("delivery_event", "ck_delivery_event_detail_object"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_delivery_event_refuses "
+        "— a JSON array and a JSON scalar"
+    ),
+    ("delivery_event", "ck_delivery_event_type"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_delivery_event_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approval_dated"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approved_has_approver"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_content_status"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_status"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_supersession"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses "
+        "— both halves: a non-superseded draft naming a successor, and a draft naming itself"
+    ),
+    ("outreach_draft", "ck_outreach_draft_text_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_version"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_send", "ck_outreach_send_accepted_has_provider"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_an_acceptance_without_a_provider_is_refused"
+    ),
+    ("outreach_send", "ck_outreach_send_concluded"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses "
+        "— both directions"
+    ),
+    ("outreach_send", "ck_outreach_send_disposition"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses"
+    ),
+    ("outreach_send", "ck_outreach_send_failure_reason"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_a_refusal_must_say_why"
+    ),
+    ("outreach_send", "ck_outreach_send_fields_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses "
+        "— one case per field"
+    ),
+    ("outreach_send", "ck_outreach_send_message_id_means_accepted"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_a_blocked_send_cannot_carry_a_provider_message_id"
+    ),
+    ("suppression_record", "ck_suppression_record_address_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_suppression_record_refuses"
+    ),
+    ("suppression_record", "ck_suppression_record_source"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_suppression_record_refuses"
+    ),
     ("job", "ck_job_status"): (
         "test_job_states_match_domain.py — reads the admitted set out of the "
         "catalogue and compares it to JobState both directions, and inserts one "

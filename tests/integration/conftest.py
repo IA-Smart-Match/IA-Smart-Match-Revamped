@@ -76,6 +76,16 @@ _TENANT_SCOPED_TABLES = (
     # question that card does not decide and a table nothing could delete from
     # would make its tenant undeletable.
     "match_run",
+    # Migration 0021, in dependency order among themselves and all before
+    # `job`, which `outreach_send` references ON DELETE RESTRICT — the same
+    # ordering hazard `match_run` above records. `suppression_record` is listed
+    # with them although it references only `tenant`: this tuple is read as the
+    # full set of tenant-scoped tables, not as the minimum a cascade would miss.
+    "delivery_event",
+    "outreach_send",
+    "outreach_draft",
+    "contact_channel",
+    "suppression_record",
     "job",
     "membership",
     "resource_grant",
@@ -157,6 +167,14 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
         conn.execute(text("DELETE FROM outbox_record"))
         conn.execute(text("DELETE FROM redrive_record"))
         conn.execute(text("DELETE FROM match_run"))
+        # Migration 0021, for exactly the reason `match_run` is here: both hold
+        # an ON DELETE RESTRICT foreign key to `job`, so a send left behind by
+        # an aborted earlier run would make the `DELETE FROM job` below fail in
+        # *every* test, including every test written before these tables
+        # existed. `delivery_event` first, since it RESTRICTs against
+        # `outreach_send` in turn.
+        conn.execute(text("DELETE FROM delivery_event"))
+        conn.execute(text("DELETE FROM outreach_send"))
         conn.execute(text("DELETE FROM job"))
     yield
 

@@ -118,6 +118,163 @@
         "title": "CommandAcceptedResponse",
         "type": "object"
       },
+      "DeliveryEventView": {
+        "description": "One entry of the append-only delivery stream.",
+        "properties": {
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "provider_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Event Id"
+          }
+        },
+        "required": [
+          "event_type",
+          "occurred_at",
+          "provider_event_id"
+        ],
+        "title": "DeliveryEventView",
+        "type": "object"
+      },
+      "DraftListResponse": {
+        "description": "A page of drafts, and how many were asked for.",
+        "properties": {
+          "drafts": {
+            "items": {
+              "$ref": "#/components/schemas/DraftResponse"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "drafts",
+          "limit",
+          "offset"
+        ],
+        "title": "DraftListResponse",
+        "type": "object"
+      },
+      "DraftRequest": {
+        "description": "Compose one message from a registry template.\n\nNote what cannot be supplied: **body text**. A caller names a template and\nits placeholder values, and the closed registry in\n``smartmatch_domain.outreach`` decides what the words are. Accepting free-form\ntext would reopen by a different door the hole the template registry closes \u2014\nthere would be nothing stopping a message that asks a scraped address to opt\nin, which ``consent.py`` records as itself prohibited outreach.",
+        "properties": {
+          "approve": {
+            "default": false,
+            "description": "Approve this draft on creation. An unapproved draft cannot be sent. Defaults to false so approving is an act, not an omission.",
+            "title": "Approve",
+            "type": "boolean"
+          },
+          "contact_channel_id": {
+            "description": "The stored contact to address.",
+            "format": "uuid",
+            "title": "Contact Channel Id",
+            "type": "string"
+          },
+          "template_id": {
+            "description": "A key of the closed outreach template registry.",
+            "examples": [
+              "pilot.event_invitation.v1",
+              "pilot.schedule_change.v1",
+              "pilot.visit_confirmation.v1"
+            ],
+            "title": "Template Id",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Exactly the template's declared placeholders \u2014 no more, no fewer.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "contact_channel_id",
+          "template_id",
+          "values"
+        ],
+        "title": "DraftRequest",
+        "type": "object"
+      },
+      "DraftResponse": {
+        "description": "One stored draft, including the text that was actually composed.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "contact_channel_id": {
+            "format": "uuid",
+            "title": "Contact Channel Id",
+            "type": "string"
+          },
+          "content_status": {
+            "description": "'synthetic' for pilot copy that has not been through institutional review, 'reviewed' otherwise. A synthetic draft sends against the fixture provider and is refused by a live send.",
+            "title": "Content Status",
+            "type": "string"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "recipient_address": {
+            "title": "Recipient Address",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "draft_id",
+          "contact_channel_id",
+          "template_id",
+          "content_status",
+          "subject",
+          "body",
+          "status",
+          "version",
+          "recipient_address"
+        ],
+        "title": "DraftResponse",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The inner error object.",
         "properties": {
@@ -1804,6 +1961,152 @@
           "items"
         ],
         "title": "RewardCatalogResponse",
+        "type": "object"
+      },
+      "SendAcceptedResponse": {
+        "description": "What a submitted send command reports.\n\nA job id and where to follow it. **No status field**, deliberately: when\nthis is returned nothing has been sent, and the smallest hint otherwise is\nthe fake success this whole slice exists to remove.",
+        "properties": {
+          "events_url": {
+            "title": "Events Url",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "replayed": {
+            "description": "True when this exact request had already been accepted under the same key.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "job_id",
+          "events_url",
+          "replayed"
+        ],
+        "title": "SendAcceptedResponse",
+        "type": "object"
+      },
+      "SendResponse": {
+        "description": "One send attempt and the events recorded against it.",
+        "properties": {
+          "delivery_events": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryEventView"
+            },
+            "title": "Delivery Events",
+            "type": "array"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'accepted', 'blocked', 'failed', or null while the attempt is still in flight. Null is a third state, not a missing value: render it as in-progress, never as a failure. Note that 'accepted' means a provider took custody \u2014 delivery is a later event in the stream, and may never arrive.",
+            "title": "Disposition"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Message Id"
+          },
+          "recipient_address": {
+            "title": "Recipient Address",
+            "type": "string"
+          },
+          "send_id": {
+            "format": "uuid",
+            "title": "Send Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "send_id",
+          "draft_id",
+          "job_id",
+          "recipient_address",
+          "disposition",
+          "provider",
+          "provider_message_id",
+          "failure_reason",
+          "delivery_events"
+        ],
+        "title": "SendResponse",
+        "type": "object"
+      },
+      "UnsubscribeRequest": {
+        "description": "The signed token from a message's unsubscribe link.",
+        "properties": {
+          "token": {
+            "maxLength": 256,
+            "minLength": 16,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "UnsubscribeRequest",
+        "type": "object"
+      },
+      "UnsubscribeResponse": {
+        "description": "The answer to an unsubscribe, which is the same for every token.\n\nSee :func:`unsubscribe`: a response that distinguished a real token from an\ninvented one would let anyone holding a guess confirm whether an address is\non our list.",
+        "properties": {
+          "unsubscribed": {
+            "description": "Always true. The request was accepted; nothing is confirmed about the token.",
+            "title": "Unsubscribed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unsubscribed"
+        ],
+        "title": "UnsubscribeResponse",
         "type": "object"
       }
     }
@@ -4113,6 +4416,595 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/outreach/drafts": {
+      "get": {
+        "description": "One unit's drafts, newest first.\n\n``limit`` is bounded by the query validator *and* clamped again in the\nrepository. Not redundant: the repository is also reachable from the worker,\nand a bound that only exists in a route is a bound that stops applying the\nmoment a second caller appears.\n\nThe recipient address is resolved per draft rather than joined, which is a\npage-sized number of small lookups. Left simple deliberately \u2014 a coordinator\nlist is a screen, not an export, and MAX_DRAFT_PAGE_SIZE is what keeps that\ntrue.",
+        "operationId": "list_drafts_v1_units__unit_id__outreach_drafts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's outreach drafts",
+        "tags": [
+          "outreach"
+        ]
+      },
+      "post": {
+        "description": "Compose a message and store it. Nothing is sent.\n\n``201`` rather than ``202``: unlike the send, this *has* completed when it\nreturns \u2014 a row exists and a coordinator can read it back. Reserving ``202``\nfor the operation that genuinely defers work is what keeps the distinction\nmeaningful.\n\nThe consent gate runs inside ``compose_draft``, before any message text\nexists, so an ineligible recipient never has a body composed about them. A\nrefusal is a ``403``, not a ``422``: the caller is not permitted to write to\nthis person, which is an authorization fact, and reporting it as a validation\nproblem would invite them to try different inputs.\n\nRaises:\n    ApiError: 404 when the contact does not exist in this tenant; 403 when\n        the recipient may not be contacted; 400 when the template is unknown\n        or the placeholder values do not match it.",
+        "operationId": "create_draft_v1_units__unit_id__outreach_drafts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Compose an outreach draft",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/outreach/drafts/{draft_id}/send": {
+      "post": {
+        "description": "Enqueue ``outreach.send``. **Nothing is sent when this returns.**\n\n``202``, and the response body carries no status: the command is recorded and\nthe dispatcher has not moved it. Follow ``events_url``, then read the send.\n\nThe draft's approval is checked here so a coordinator is told immediately\nrather than by a job failure \u2014 but this is not the gate that protects the\nrecipient. That one is the worker's, run against state read at delivery time,\nbecause consent can be withdrawn in the window this route cannot see.\n\nRaises:\n    ApiError: 404 when the draft is not in this unit; 409 when the draft is\n        not approved; 400 when the idempotency key is missing.",
+        "operationId": "send_draft_v1_units__unit_id__outreach_drafts__draft_id__send_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit an outreach send command",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/outreach/sends/{send_id}": {
+      "get": {
+        "description": "One send attempt, with the events recorded against it.\n\nThe delivery stream is returned rather than folded into a single status,\nbecause folding it would require choosing which fact to forget: a provider\ncan report ``delivered`` and then ``complained`` an hour later, and both are\ntrue. A client that wants one word can project the stream itself; a client\nthat wants to explain what happened to a coordinator needs all of it.\n\nRaises:\n    ApiError: 404 when the send is not in this unit.",
+        "operationId": "read_send_v1_units__unit_id__outreach_sends__send_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "send_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Send Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one outreach send and its delivery events",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/redemptions": {
       "get": {
         "description": "Return the caller's own redemption tickets, newest request first.\n\nScoped to ``principal.user_id`` **in the query**, not filtered afterwards, so\nthere is no shape of this handler in which another student's ticket is loaded\nand then dropped. See the module docstring for why there is no coordinator\nqueue here.",
@@ -4788,6 +5680,118 @@
         "summary": "List a unit's tag values awaiting human review",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/unsubscribe": {
+      "post": {
+        "description": "Suppress the address a token belongs to. **Unauthenticated by design.**\n\nThis is the mutating half of the pair whose read half is ``GET /u/{token}``.\nThe split is v1.1 \u00a71.10's correction of the v1.0 mutating GET: a GET is\nreached by link scanners, mail-client prefetchers, and security proxies,\nwhich would silently unsubscribe recipients who never clicked. So the GET\nrenders a page and this POST does the work.\n\nNo principal, and no way to add one. RFC 8058 one-click unsubscribe is\nissued by the recipient's *mail provider* with no session at all, and a\nperson who has stopped reading our mail should not have to sign in to stop\nreceiving it. The token is the entire authorization: 256 bits derived by\nHMAC in the worker, stored only as a SHA-256 hash, so possession of the\ndatabase does not confer the ability to unsubscribe anybody.\n\n## The response is identical for every token\n\nA real token and an invented one both return ``{\"unsubscribed\": true}``, and\na token that matches nothing writes nothing. This is not sloppiness about\nerrors \u2014 it is the point. A ``404`` for an unknown token would turn this\nroute into an oracle: anyone could confirm whether a guessed token, and\ntherefore an address, is on our list. Reporting success for an invented\ntoken is not a fake success either, because the claim being made is about\nthe *request* (\"we have accepted this\"), not about a person we cannot\nidentify.\n\nRepeating an unsubscribe is a no-op and also returns true. Someone clicking\ntwice has not made an error, and showing them one would be alarming for no\nreason.",
+        "operationId": "unsubscribe_v1_unsubscribe_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnsubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnsubscribeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Unsubscribe using a signed token",
+        "tags": [
+          "outreach"
         ]
       }
     }
