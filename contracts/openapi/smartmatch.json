@@ -21,6 +21,73 @@
         "title": "AbandonedResponse",
         "type": "object"
       },
+      "CandidateExplanationView": {
+        "description": "One candidate's heuristic score and every factor behind it.",
+        "properties": {
+          "factors": {
+            "description": "Every implemented Stage B factor, unknown ones included.",
+            "items": {
+              "$ref": "#/components/schemas/FactorExplanationView"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "formula_version": {
+            "title": "Formula Version",
+            "type": "string"
+          },
+          "heuristic_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The composite in [0.0, 1.0], or null when any factor's evidence was absent. Not a percentage and never rendered as one.",
+            "title": "Heuristic Score"
+          },
+          "registry_version": {
+            "description": "The registry version this score was produced under.",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "score_label": {
+            "description": "Always \"heuristic score\".",
+            "title": "Score Label",
+            "type": "string"
+          },
+          "state": {
+            "description": "measured or unknown.",
+            "title": "State",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "unknown_factor_keys": {
+            "description": "The factors that had no evidence, in registry order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Factor Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "subject_id",
+          "state",
+          "score_label",
+          "registry_version",
+          "formula_version",
+          "unknown_factor_keys",
+          "factors"
+        ],
+        "title": "CandidateExplanationView",
+        "type": "object"
+      },
       "CommandAcceptedResponse": {
         "description": "Standard acknowledgement for every command resource.",
         "properties": {
@@ -299,6 +366,108 @@
         "title": "EventTimeView",
         "type": "object"
       },
+      "FactorExplanationView": {
+        "description": "One factor's contribution to one candidate's score, or its absence.",
+        "properties": {
+          "basis": {
+            "description": "Where the number came from \u2014 or why there is none.",
+            "title": "Basis",
+            "type": "string"
+          },
+          "display_label": {
+            "title": "Display Label",
+            "type": "string"
+          },
+          "estimate_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the value is an explicitly coarse estimate.",
+            "title": "Estimate Label"
+          },
+          "factor_key": {
+            "title": "Factor Key",
+            "type": "string"
+          },
+          "kind": {
+            "description": "suitability or penalty \u2014 the two read in opposite directions.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "state": {
+            "description": "measured or unknown. Read this before reading value.",
+            "title": "State",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The factor value in [0.0, 1.0], or null when state is unknown. A null is an absence of evidence and is never a zero.",
+            "title": "Value"
+          },
+          "weight": {
+            "description": "The normalized Stage B weight actually applied.",
+            "title": "Weight",
+            "type": "number"
+          },
+          "zero_classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "measured_zero, unknown, or null when the value is neither.",
+            "title": "Zero Classification"
+          }
+        },
+        "required": [
+          "factor_key",
+          "display_label",
+          "kind",
+          "weight",
+          "state",
+          "basis"
+        ],
+        "title": "FactorExplanationView",
+        "type": "object"
+      },
+      "GeoPointRequest": {
+        "description": "A synthetic pilot coordinate pair.\n\nOptional wherever it appears, and its absence is meaningful: no coordinate\nis *unknown* travel evidence, which\n:func:`~smartmatch_domain.factors.travel_burden.score_travel_burden`\nreports as ``None`` and never as a distance of zero. Synthetic fixtures\nonly \u2014 nothing here geocodes, and no provider is consulted.",
+        "properties": {
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "GeoPointRequest",
+        "type": "object"
+      },
       "ImportRequest": {
         "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.\n\nThe ``oneOf`` below is what makes that exclusivity a *documented* part of\nthe contract rather than a rule only ``create_import`` enforces at\nruntime \u2014 a generated client, or a human reading the OpenAPI document, can\nsee it without reading this docstring. It does not replace the runtime\ncheck: ``oneOf`` describes the shape a request should take, and\n``create_import`` is still what actually rejects both or neither, in the\nAPI's own stable error envelope rather than in whatever validator a\ngenerated client's own OpenAPI tooling produces from this schema.",
         "oneOf": [
@@ -422,6 +591,340 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "MatchCandidateRequest": {
+        "description": "One professional's evidence, as the caller submits it.\n\nCarries evidence, never a score. A caller-supplied score would be a caller\nchoosing their own shortlist, and the registry would be decoration.\n\n``expertise_topics`` is nullable **and** that is different from ``[]``:\n``null`` means no expertise record exists for this professional (unknown),\nan empty list means the record exists and is empty (measurable, and\nmeasurably zero against any declared topic). ADR-0011 lives in that\ndistinction, and\n:class:`~smartmatch_domain.factors.topic_relevance.TopicRelevanceInputs`\ndraws it the same way, so the field is passed through rather than\nnormalized.",
+        "properties": {
+          "expertise_topics": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recorded expertise topics. null means no expertise record exists (unknown); [] means the record exists and is empty (a measured zero against any declared topic). The two are not interchangeable.",
+            "title": "Expertise Topics"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoPointRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The professional's synthetic coordinates, or null when none are on file."
+          },
+          "subject_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id"
+        ],
+        "title": "MatchCandidateRequest",
+        "type": "object"
+      },
+      "MatchRunAcceptedResponse": {
+        "description": "Acknowledgement for an accepted match-run command.\n\n``scored_candidates`` and ``unscorable_candidates`` are reported at\nsubmission rather than only on the read, because they are the one thing a\ncaller cannot infer from a job id: a pool of forty that produced eleven\nscorable candidates is a different submission from one that produced forty,\nand both are accepted.",
+        "properties": {
+          "events_url": {
+            "description": "Where to follow the work.",
+            "title": "Events Url",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "registry_version": {
+            "description": "The factor registry version the pool was scored under.",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when an identical request under the same key was already accepted.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "score_label": {
+            "default": "heuristic score",
+            "description": "The only label these scores may be displayed under. Never a percentage.",
+            "title": "Score Label",
+            "type": "string"
+          },
+          "scored_candidates": {
+            "description": "Candidates with complete evidence, entered into the pool.",
+            "title": "Scored Candidates",
+            "type": "integer"
+          },
+          "status": {
+            "default": "accepted",
+            "title": "Status",
+            "type": "string"
+          },
+          "unscorable_candidates": {
+            "description": "Candidates excluded because at least one factor's evidence was absent. Reported, never entered at zero (ADR-0011).",
+            "title": "Unscorable Candidates",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "events_url",
+          "registry_version",
+          "scored_candidates",
+          "unscorable_candidates"
+        ],
+        "title": "MatchRunAcceptedResponse",
+        "type": "object"
+      },
+      "MatchRunRequest": {
+        "description": "One match-run submission.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).",
+        "properties": {
+          "candidates": {
+            "description": "The candidate pool, at most 200 entries.",
+            "items": {
+              "$ref": "#/components/schemas/MatchCandidateRequest"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "event_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoPointRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event_need's synthetic coordinates, or null when none are on file \u2014 in which case travel burden is unknown for every candidate and no distance is guessed."
+          },
+          "event_need_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Need Id",
+            "type": "string"
+          },
+          "portfolio_size": {
+            "default": 2,
+            "description": "How many speakers to shortlist. Bounded to 2-3 by the ratified G1 presentation rule, enforced here rather than at render time.",
+            "maximum": 3.0,
+            "minimum": 2.0,
+            "title": "Portfolio Size",
+            "type": "integer"
+          },
+          "preferred_topics": {
+            "description": "Topics the event_need declares as preferred.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Preferred Topics",
+            "type": "array"
+          },
+          "random_seed": {
+            "default": 0,
+            "description": "Seed handed to the solver. Part of the reproducibility contract: the same pool, size and seed always produce the same selection.",
+            "minimum": 0.0,
+            "title": "Random Seed",
+            "type": "integer"
+          },
+          "required_topics": {
+            "description": "Topics the event_need declares as required.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "event_need_id",
+          "candidates"
+        ],
+        "title": "MatchRunRequest",
+        "type": "object"
+      },
+      "MatchRunResponse": {
+        "description": "One persisted run, its shortlist, and the explanations behind it.",
+        "properties": {
+          "considered": {
+            "description": "Scored candidates that were not selected, in ranked order.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateExplanationView"
+            },
+            "title": "Considered",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_need_id": {
+            "title": "Event Need Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs_hash": {
+            "title": "Inputs Hash",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "optimizer_model_version": {
+            "title": "Optimizer Model Version",
+            "type": "string"
+          },
+          "portfolio_size": {
+            "title": "Portfolio Size",
+            "type": "integer"
+          },
+          "portfolio_status": {
+            "description": "The solver's recorded verdict: optimal, feasible, infeasible, or unknown. 'unknown' is a stalled search, never 'no valid portfolio exists'.",
+            "title": "Portfolio Status",
+            "type": "string"
+          },
+          "random_seed": {
+            "title": "Random Seed",
+            "type": "integer"
+          },
+          "registry_hash": {
+            "title": "Registry Hash",
+            "type": "string"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "route_estimate_source": {
+            "title": "Route Estimate Source",
+            "type": "string"
+          },
+          "route_estimate_version": {
+            "title": "Route Estimate Version",
+            "type": "string"
+          },
+          "score_label": {
+            "default": "heuristic score",
+            "description": "The ratified provenance label. Every score on this response is a \"heuristic score\" and none of them is a percentage.",
+            "title": "Score Label",
+            "type": "string"
+          },
+          "shortlist": {
+            "description": "The selected speakers, at most 3 per the ratified presentation rule. Empty when shortlist_available is false.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateExplanationView"
+            },
+            "title": "Shortlist",
+            "type": "array"
+          },
+          "shortlist_available": {
+            "description": "False when the shortlist could not be reconstructed from the recorded inputs. It is then empty rather than approximated.",
+            "title": "Shortlist Available",
+            "type": "boolean"
+          },
+          "shortlist_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the shortlist could not be reconstructed, when it could not be.",
+            "title": "Shortlist Unavailable Reason"
+          },
+          "solver_name": {
+            "title": "Solver Name",
+            "type": "string"
+          },
+          "solver_version": {
+            "title": "Solver Version",
+            "type": "string"
+          },
+          "supersedes_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run this one corrects, when it corrects one. A correction is a new run.",
+            "title": "Supersedes Run Id"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "unscorable": {
+            "description": "Candidates excluded from the pool because at least one factor's evidence was absent. Present so an absence is visible rather than silently dropped, and never scored at zero (ADR-0011).",
+            "items": {
+              "$ref": "#/components/schemas/CandidateExplanationView"
+            },
+            "title": "Unscorable",
+            "type": "array"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "The normalized weights this run applied.",
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "unit_id",
+          "job_id",
+          "event_need_id",
+          "created_at",
+          "registry_version",
+          "registry_hash",
+          "weights",
+          "optimizer_model_version",
+          "solver_name",
+          "solver_version",
+          "route_estimate_source",
+          "route_estimate_version",
+          "inputs_hash",
+          "portfolio_size",
+          "random_seed",
+          "portfolio_status",
+          "shortlist",
+          "shortlist_available",
+          "considered",
+          "unscorable"
+        ],
+        "title": "MatchRunResponse",
         "type": "object"
       },
       "MeResponse": {
@@ -2217,6 +2720,304 @@
         "summary": "Submit an import command",
         "tags": [
           "imports"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/match-runs": {
+      "post": {
+        "description": "Score the submitted pool and enqueue ``match-run.create``.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate ``subject_id``; 422 when\n        fewer candidates have complete evidence than the requested shortlist\n        needs.",
+        "operationId": "create_match_run_v1_units__unit_id__match_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchRunAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit a match-run command",
+        "tags": [
+          "match-runs"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/match-runs/{match_run_id}": {
+      "get": {
+        "description": "Return the persisted snapshot with the shortlist and the explanations.\n\nAuthorization runs against the unit in the path, before the run is read. The\nrun is then required to *belong* to that unit \u2014 a run filed under another\nsubtree is a 404 here even when the caller could have read it at its own\npath, because a resource that answers to two paths is a resource whose\nauthorization depends on which one the caller chose.\n\nEverything on the response about versions and weights comes off the\nsnapshot, never off today's registry: a run recorded under an earlier\nregistry version keeps saying so, which is the whole point of pinning it\n(worksheet agenda item 4). The explanations come off the durable command\npayload, which is what was actually scored.\n\nRaises:\n    ApiError: 503 when the registry is not ready; 404 when no such run\n        exists in this unit and tenant.",
+        "operationId": "read_match_run_v1_units__unit_id__match_runs__match_run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "match_run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Match Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one match run, its shortlist, and its per-factor explanations",
+        "tags": [
+          "match-runs"
         ]
       }
     },

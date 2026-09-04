@@ -73,11 +73,23 @@ export function unavailablePendingReviewMetric(
   };
 }
 
-/** G1 closed 2026-09-03; M2 scoring routes and factor implementations pending. */
+/**
+ * Why a score is absent on every page that is not the shortlist surface.
+ *
+ * Updated with card M10, and the change is a narrowing rather than a removal.
+ * It used to say match scoring was not yet available at all, which was true
+ * while G1 was open and no routes existed. Both have since changed: the factor
+ * registry is approved and implemented (M6j), and
+ * `/v1/units/{unit_id}/match-runs/{match_run_id}` reads persisted runs (M8b).
+ * What remains true — and is the only honest thing these pages can say — is
+ * that *they* do not fetch one. Leaving the old wording would have made a
+ * stale claim about the platform; replacing it with nothing would have left a
+ * bare "Unknown" carrying no reason, which ADR-0011 rule 1 exists to prevent.
+ */
 export const MATCHING_UNAVAILABLE_REASON =
-  "The factor registry is approved, but match scoring is not yet available: topic_relevance and travel_burden implementations (M2) and match API routes are still in progress.";
+  "The factor registry is approved, and heuristic scores live on persisted match runs read from /v1/units/{unit_id}/match-runs/{match_run_id} on the speaker-shortlist surface. This page does not fetch one, and it never derives a score locally.";
 
-/** Placeholder until match_run exists and M2 scoring is wired. */
+/** Unknown-state stand-in for a score this page does not read. */
 export function unavailableMatchingMetric(
   reason: string = MATCHING_UNAVAILABLE_REASON,
 ): AccountableMetric {

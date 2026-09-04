@@ -6,13 +6,17 @@ and the only way to check it is to drive the real path: accept a job and its
 outbox row in one transaction, dispatch with the real dispatcher, execute with
 the real executor and the registry that ships, and then look for the row.
 
-No HTTP anywhere in this file, and that is not an omission. Card M8b adds the
-routes that submit this command; until they exist the only way to create one is
-to insert the job directly, which is what
-``test_worker_execution.py::accept_command`` does for every other command type
-and what is done here. ``tests/unit/test_matching_fail_closed.py``'s OpenAPI
-scan still asserts that no match, score, or rank operation exists, and this card
-leaves that true.
+No HTTP anywhere in this file, and that is still not an omission — though the
+reason has changed. Card M8b has since landed
+``POST /v1/units/{unit_id}/match-runs``, and
+``tests/contract/test_match_runs_api.py`` drives the whole path over HTTP,
+including the assertion that a ``202`` writes a job and *no* snapshot. What this
+file proves is the half that does not depend on a route existing: that the
+handler, the outbox and the executor together produce one immutable,
+version-pinned row. Accepting the job directly — the same idiom
+``test_worker_execution.py::accept_command`` uses for every other command type —
+keeps that proof independent of whatever the API happens to accept today, so a
+change to the request contract cannot quietly change what this file checks.
 
 Requires a live database, and is skipped when none is reachable.
 """

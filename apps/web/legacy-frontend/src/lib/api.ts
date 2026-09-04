@@ -1890,6 +1890,105 @@ export async function fetchMetricDrillDown(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Match runs (`contracts/openapi/smartmatch.json`, cards M8b/M9/M10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a number exists — carried beside the number, never inferred from it.
+ *
+ * This is the client half of ADR-0011. The API sends `state` next to `value`
+ * precisely so no consumer has to reconstruct "unknown" from a `null`, because
+ * a `null` is one `?? 0` away from becoming a fabricated zero. Read `state`
+ * first; read `value` only in the `"measured"` branch.
+ */
+export type MatchScoreState = "measured" | "unknown";
+
+/** One factor's contribution to one candidate's score, or its absence. */
+export interface MatchFactorExplanation {
+  factor_key: string;
+  display_label: string;
+  /** `suitability` or `penalty` — the two read in opposite directions. */
+  kind: string;
+  /** The normalized Stage B weight actually applied for this run. */
+  weight: number;
+  state: MatchScoreState;
+  /** null when `state` is "unknown": absent evidence, never a measured zero. */
+  value: number | null;
+  /** `measured_zero`, `unknown`, or null when the value is neither. */
+  zero_classification: string | null;
+  /** Where the number came from — or why there is none. */
+  basis: string;
+  /** Set when the value is an explicitly coarse estimate. */
+  estimate_label: string | null;
+}
+
+/** One candidate's heuristic score and every factor behind it. */
+export interface MatchCandidateExplanation {
+  subject_id: string;
+  /** In [0, 1]. Never a percentage, and null when `state` is "unknown". */
+  heuristic_score: number | null;
+  state: MatchScoreState;
+  /** Always "heuristic score" — the ratified G1 provenance label. */
+  score_label: string;
+  /** The factor-registry version this score was produced under. */
+  registry_version: string;
+  formula_version: string;
+  unknown_factor_keys: string[];
+  factors: MatchFactorExplanation[];
+}
+
+/**
+ * One persisted match run: the pinned snapshot, its shortlist, and the
+ * explanations behind every candidate.
+ *
+ * `shortlist` holds 2-3 speakers per the ratified presentation rule, and is
+ * empty when `shortlist_available` is false — in which case
+ * `shortlist_unavailable_reason` says why. It is never approximated, so a
+ * client must render that reason rather than treat an empty list as a result.
+ */
+export interface MatchRunRead {
+  id: string;
+  unit_id: string;
+  job_id: string;
+  event_need_id: string;
+  created_at: string;
+  supersedes_run_id: string | null;
+
+  score_label: string;
+  registry_version: string;
+  registry_hash: string;
+  weights: Record<string, number>;
+  optimizer_model_version: string;
+  solver_name: string;
+  solver_version: string;
+  route_estimate_source: string;
+  route_estimate_version: string;
+  inputs_hash: string;
+  portfolio_size: number;
+  random_seed: number;
+  portfolio_status: string;
+
+  shortlist: MatchCandidateExplanation[];
+  shortlist_available: boolean;
+  shortlist_unavailable_reason: string | null;
+  considered: MatchCandidateExplanation[];
+  /** Candidates excluded because a factor had no evidence. Never scored at 0. */
+  unscorable: MatchCandidateExplanation[];
+}
+
+/** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */
+export async function fetchMatchRun(
+  unitId: string,
+  matchRunId: string,
+): Promise<MatchRunRead> {
+  return requestJson<MatchRunRead>(
+    `/v1/units/${encodeURIComponent(unitId)}/match-runs/${encodeURIComponent(matchRunId)}`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
 export interface AgentStepEvent {
   event: "workflow_start" | "agent_queued" | "agent_running" | "agent_done" | "workflow_complete";
   agent_id?: string;
