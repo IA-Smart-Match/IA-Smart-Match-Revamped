@@ -111,6 +111,12 @@ DEV_LOCK = REPO_ROOT / "requirements" / "dev.txt"
 #: widen it when the program has decided the obligation is acceptable.
 ALLOWED_LICENSES: dict[str, str] = {
     "MIT": "Permissive; attribution only.",
+    "MIT-0": (
+        "MIT No Attribution: MIT with the attribution clause removed, so it "
+        "is public-domain-equivalent and strictly weaker in obligations than "
+        "MIT, which is already allowed above. Recorded as its own identifier "
+        "because it is a distinct SPDX id, not an alias for MIT."
+    ),
     "BSD-2-Clause": "Permissive; attribution only.",
     "BSD-3-Clause": "Permissive; attribution and no-endorsement only.",
     "BSD": (
