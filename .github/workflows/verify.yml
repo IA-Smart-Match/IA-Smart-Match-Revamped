@@ -93,8 +93,14 @@ jobs:
         run: cd db && alembic upgrade head
 
       - name: Tests
+        # `not e2e` because tests/e2e talks HTTP to a `docker compose` appliance
+        # this job never brings up. Left in, its session fixture would spend its
+        # whole readiness budget polling 127.0.0.1 for a stack that is not there
+        # before skipping — two minutes of nothing, in the gate everyone waits
+        # on. It is not dropped: the `pilot e2e` job in build.yml runs it behind
+        # a real `docker compose up`, which is the only place it means anything.
         run: >-
-          pytest tests/
+          pytest tests/ -m "not e2e"
           --cov=smartmatch_domain --cov=smartmatch_authz --cov=smartmatch_providers
           --cov=smartmatch_persistence --cov-report=term-missing
 
