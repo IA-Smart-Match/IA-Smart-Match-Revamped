@@ -59,9 +59,10 @@ occurred" the instant it exists (``matched_at`` is ``NOT NULL``); what this
 module writes into that row is the true, complete story of how that
 assertion came to be true here — a coordinator, in the pilot appliance,
 accepted an in-list opportunity row, and every professional already linked
-to that opportunity's unit was opened a journey as a consequence. That is a
-real event. It is just not a fitness judgement, and this module never
-pretends otherwise.
+to that opportunity's unit, up to
+:data:`~smartmatch_domain.synthetic_pilot.MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT`,
+was opened a journey as a consequence. That is a real event. It is just not
+a fitness judgement, and this module never pretends otherwise.
 
 ## The provenance is stored, not merely logged
 
@@ -136,7 +137,20 @@ second, independent line of defense for the cases that condition does not
 cover — a replayed import producing a *new* review item for a person or
 opportunity this module has already provisioned once.
 
-## Silent zero is a defect (plan §1.10)
+**What "converges" means when a unit is over the cap.**
+``professional_ids_for_unit`` returns ids ascending by ``professional_id``,
+and this module always retains the smallest
+:data:`~smartmatch_domain.synthetic_pilot.MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT`
+of whatever it reads. So a re-accept of the same ``events`` row against a
+unit that is over the cap re-selects that same smallest subset and re-opens
+the same journeys — it does **not** reach further into the roster on a
+second call, and it never opens a journey for the professionals the first
+call already omitted. Convergence here means "the same accept always
+targets the same rows", not "an accept eventually covers everyone the unit
+has linked" — the cap is a hard ceiling per accept, not a queue that later
+calls drain.
+
+## Silent zero — and silent partial fan-out — are both a defect (plan §1.10)
 
 An accepted in-list ``events`` row that finds no professional already
 linked to its unit is not an error — the coordinator's decision to accept
@@ -146,6 +160,22 @@ successful accept that opened journeys. :func:`provision_on_accept` emits a
 ``WARNING`` in exactly that case, naming the review item and the unit, so
 that "nothing happened" is a visible, searchable fact rather than a silence
 indistinguishable from success.
+
+The same defect class applies one step short of zero: a unit with *more*
+professionals linked than
+:data:`~smartmatch_domain.synthetic_pilot.MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT`
+still opens journeys, but not for everyone, and "opened 50 journeys" reads
+identically in the log whether that was every linked professional or a
+truncated subset unless the truncation itself is said out loud. This module
+requests one more row than the cap allows and, only when that extra row
+comes back, emits a second ``WARNING`` naming the review item, the unit, and
+the cap, before truncating to the cap and opening journeys for the
+retained, smallest-``professional_id`` subset. Exactly at the cap — the
+common case once a unit's roster stabilizes — nothing was dropped, and no
+warning fires; the naive check "did we hit the limit exactly" would produce
+a false positive there; over the cap, the warning fires and the log line
+naming how many journeys were opened is now provably a *ceiling*, not a
+silent full count.
 """
 
 from __future__ import annotations
@@ -243,11 +273,15 @@ def provision_on_accept(
     - ``"events"`` whose ``row_data["category"]`` is in-list per
       ``smartmatch_domain.metrics.shape_opportunity_category``: opens one
       ``pipeline_record`` journey for every professional already linked to
-      ``owning_unit_id``, capped at
-      ``smartmatch_domain.synthetic_pilot.MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT``.
-      An ``events`` row whose category is out-of-list or absent provisions
-      nothing and is not an error — the ratified rule is that such a row is
-      *pending coordinator review*, not invalid, and this function does not
+      ``owning_unit_id``, **up to**
+      ``smartmatch_domain.synthetic_pilot.MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT``
+      — a unit linking more professionals than the cap gets only the cap's
+      worth of journeys (the smallest ``professional_id`` values), and a
+      second ``WARNING`` names the omission; see the module docstring's
+      "Silent zero — and silent partial fan-out" section. An ``events`` row
+      whose category is out-of-list or absent provisions nothing and is not
+      an error — the ratified rule is that such a row is *pending
+      coordinator review*, not invalid, and this function does not
       re-implement or second-guess that rule.
     - Anything else: provisions nothing and logs nothing. An unrecognised
       ``dataset`` is not this function's error to raise — the import
@@ -285,6 +319,18 @@ def provision_on_accept(
             opportunity_event_id)`` pair that already exists under a
             *different* owning unit. Deliberately left to propagate — see
             above.
+        sqlalchemy.exc.IntegrityError: a ``professionals`` accept names an
+            ``owning_unit_id`` that does not exist in ``org_unit`` for this
+            tenant. ``ProfessionalIdentityRepository.link_to_unit`` issues
+            its insert against the composite foreign key
+            ``(tenant_id, unit_id) -> (org_unit.tenant_id, org_unit.id)``
+            (``schema.py``) with no pre-check of its own, so a bogus unit id
+            surfaces as a raw ``IntegrityError`` rather than a catchable
+            application error. Not reachable through Card 6's call site —
+            the router derives ``owning_unit_id`` from the review item's own
+            ``import_batch`` (a row that only exists with a real unit
+            behind it) — so this is documented rather than guarded against
+            here; rollback is the correct outcome if it were ever reached.
     """
     if accepted_at.tzinfo is None:
         raise ValueError("accepted_at must be timezone-aware")
@@ -379,11 +425,16 @@ def _provision_event(
         tenant_id=tenant_id, review_item_id=review_item_id
     )
 
+    # Request one more row than the cap allows. That extra row coming back
+    # is exactly the signal that distinguishes "the unit has more linked
+    # professionals than the cap" from "the unit has exactly the cap's
+    # worth" — a signal `limit=MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT` alone
+    # cannot give, because both cases return exactly MAX rows at that limit.
     subject_ids = _professionals.professional_ids_for_unit(
         session,
         tenant_id=tenant_id,
         unit_id=owning_unit_id,
-        limit=MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
+        limit=MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT + 1,
     )
 
     if not subject_ids:
@@ -398,6 +449,25 @@ def _provision_event(
             owning_unit_id,
         )
         return ProvisionOutcome(opportunity_event_id=opportunity_event_id)
+
+    if len(subject_ids) > MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT:
+        # Plan §1.10 again, one step short of zero: a truncated fan-out must
+        # not read, from the log, the same as a complete one. Exactly at the
+        # cap this branch is never taken — the len(subject_ids) == MAX case
+        # lost nothing, and warning here would be a false positive.
+        omitted = len(subject_ids) - MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
+        logger.warning(
+            "accepted in-list events review_item %s in unit %s links more "
+            "professionals than the synthetic pilot cap of %d: opening journeys "
+            "for only the %d smallest professional_id values; %d professional(s) "
+            "were NOT opened a journey by this accept.",
+            review_item_id,
+            owning_unit_id,
+            MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
+            MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
+            omitted,
+        )
+        subject_ids = subject_ids[:MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT]
 
     journeys: list[uuid.UUID] = []
     for subject_id in subject_ids:

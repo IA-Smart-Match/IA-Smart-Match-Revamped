@@ -57,7 +57,6 @@ from smartmatch_persistence.pipeline import (
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
-from test_pipeline_record_constraints import _make_unit
 
 pytestmark = pytest.mark.integration
 
@@ -168,6 +167,29 @@ def _accept_event(
         )
         session.commit()
     return outcome
+
+
+def _make_second_org_unit(conn, tenant_id: uuid.UUID, path: str) -> uuid.UUID:
+    """A second ``org_unit`` row in ``tenant_id``, for the unit-conflict test.
+
+    A local copy of the identical helper
+    ``test_pipeline_record_constraints.py::_make_unit`` and
+    ``test_professional_identity_writers.py::_make_unit`` both define,
+    rather than an import of either — those files are owned by Cards 1 and
+    3, closed to this card's fence, and importing a private helper from a
+    file this card cannot modify would make this file's tests break the
+    moment that helper is renamed or removed for reasons unrelated to this
+    module.
+    """
+    unit_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+            "VALUES (:id, :tid, CAST(:path AS ltree), 'department', 'Other Unit')"
+        ),
+        {"id": unit_id, "tid": tenant_id, "path": path},
+    )
+    return unit_id
 
 
 # ---------------------------------------------------------------------------
@@ -427,8 +449,28 @@ def test_accepting_the_same_events_row_twice_opens_the_same_journeys(
 
 
 # ---------------------------------------------------------------------------
-# 8 — fan-out is capped
+# 8 — fan-out is capped, and truncation is announced rather than silent
 # ---------------------------------------------------------------------------
+
+
+def _accept_n_professionals(
+    session_factory: sessionmaker[Session],
+    *,
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    count: int,
+    label: str,
+) -> list[uuid.UUID]:
+    """Accept ``count`` distinct ``professionals`` rows; return their subject ids in order."""
+    subject_ids: list[uuid.UUID] = []
+    for i in range(count):
+        name = f"{label} {i:03d} {uuid.uuid4().hex[:8]}"
+        outcome = _accept_professional(
+            session_factory, tenant_id=tenant_id, owning_unit_id=owning_unit_id, name=name
+        )
+        assert outcome.professional_subject_id is not None
+        subject_ids.append(outcome.professional_subject_id)
+    return subject_ids
 
 
 def test_fan_out_is_capped_at_the_configured_maximum(
@@ -440,15 +482,13 @@ def test_fan_out_is_capped_at_the_configured_maximum(
     total_professionals = 55
     assert total_professionals > MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
 
-    all_subject_ids: list[uuid.UUID] = []
-    for i in range(total_professionals):
-        name = f"Fanout Professional {i:03d} {uuid.uuid4().hex[:8]}"
-        outcome = _accept_professional(
-            session_factory, tenant_id=tenant_id, owning_unit_id=owning_unit_id, name=name
-        )
-        assert outcome.professional_subject_id is not None
-        all_subject_ids.append(outcome.professional_subject_id)
-
+    all_subject_ids = _accept_n_professionals(
+        session_factory,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        count=total_professionals,
+        label="Fanout Professional",
+    )
     expected_smallest = set(sorted(all_subject_ids)[:MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT])
 
     outcome = _accept_event(
@@ -471,6 +511,95 @@ def test_fan_out_is_capped_at_the_configured_maximum(
         }
 
     assert len(matched_subject_ids) == MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
+    assert matched_subject_ids == expected_smallest
+
+
+def test_exactly_at_the_cap_opens_everyone_and_does_not_warn(
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The boundary the naive ``len(subject_ids) == MAX`` check would misfire on.
+
+    At exactly the cap, nothing was omitted — every linked professional got a
+    journey — so no truncation ``WARNING`` may fire. A check that only asked
+    "did we hit the limit" could not tell this apart from the over-the-cap
+    case; this module asks "did the *(cap + 1)*-th row come back" instead.
+    """
+    _accept_n_professionals(
+        session_factory,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        count=MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
+        label="At-Cap Professional",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="smartmatch_api.pipeline_provisioning"):
+        outcome = _accept_event(
+            session_factory,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            review_item_id=uuid.uuid4(),
+            category="hackathon",
+        )
+
+    assert len(outcome.journeys_opened) == MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
+    assert not any(record.levelno == logging.WARNING for record in caplog.records)
+
+    with engine.begin() as conn:
+        count = conn.execute(
+            text("SELECT COUNT(*) FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tenant_id}
+        ).scalar_one()
+    assert count == MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
+
+
+def test_one_over_the_cap_warns_and_still_opens_exactly_the_cap(
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One professional past the cap is enough to make the omission visible."""
+    total_professionals = MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT + 1
+    all_subject_ids = _accept_n_professionals(
+        session_factory,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        count=total_professionals,
+        label="Over-Cap Professional",
+    )
+    expected_smallest = set(sorted(all_subject_ids)[:MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT])
+
+    with caplog.at_level(logging.WARNING, logger="smartmatch_api.pipeline_provisioning"):
+        outcome = _accept_event(
+            session_factory,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            review_item_id=uuid.uuid4(),
+            category="hackathon",
+        )
+
+    assert len(outcome.journeys_opened) == MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT
+
+    cap_warnings = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "links more professionals than the synthetic pilot cap" in record.getMessage()
+    ]
+    assert len(cap_warnings) == 1
+
+    with engine.begin() as conn:
+        matched_subject_ids = {
+            row.subject_id
+            for row in conn.execute(
+                text("SELECT subject_id FROM pipeline_record WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            ).all()
+        }
     assert matched_subject_ids == expected_smallest
 
 
@@ -720,7 +849,7 @@ def test_conflicting_owning_unit_propagates_rather_than_being_absorbed(
     assert opportunity_event_id is not None
 
     with engine.begin() as conn:
-        other_unit_id = _make_unit(conn, tenant_id, "iawest.provisioning-conflict")
+        other_unit_id = _make_second_org_unit(conn, tenant_id, "iawest.provisioning-conflict")
 
     pipeline_repo = PipelineRepository()
     with (
@@ -736,3 +865,103 @@ def test_conflicting_owning_unit_propagates_rather_than_being_absorbed(
             matched_at=datetime.now(UTC),
             matched_provenance=SYNTHETIC_MATCH_PROVENANCE,
         )
+
+
+# ---------------------------------------------------------------------------
+# 16 — an unrecognised dataset is a no-op, not an error
+# ---------------------------------------------------------------------------
+
+
+def test_an_unrecognised_dataset_provisions_nothing_and_logs_nothing(
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ``dataset`` branch every one of the 21 tests above never took.
+
+    Every other test in this file passes ``PROFESSIONALS_DATASET`` or
+    ``EVENTS_DATASET`` — this one proves the fourth documented branch (an
+    unrecognised ``dataset``) actually returns a bare ``ProvisionOutcome()``
+    and writes nothing, rather than relying on reading the source and
+    trusting it.
+    """
+    with (
+        session_factory() as session,
+        caplog.at_level(logging.WARNING, logger="smartmatch_api.pipeline_provisioning"),
+    ):
+        outcome = provision_on_accept(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            review_item_id=uuid.uuid4(),
+            dataset="not-a-real-dataset",
+            row_data={PROFESSIONAL_NAME_KEY: "Irrelevant Name"},
+            accepted_at=datetime.now(UTC),
+        )
+        session.commit()
+
+    assert outcome == ProvisionOutcome()
+    assert caplog.records == []
+
+    with engine.begin() as conn:
+        account_count = conn.execute(
+            text("SELECT COUNT(*) FROM user_account WHERE tenant_id = :tid"), {"tid": tenant_id}
+        ).scalar_one()
+        pipeline_count = conn.execute(
+            text("SELECT COUNT(*) FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tenant_id}
+        ).scalar_one()
+    assert account_count == 0
+    assert pipeline_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 17 — name convergence by case/whitespace, proven at composition level
+# ---------------------------------------------------------------------------
+
+
+def test_names_differing_only_by_case_or_whitespace_converge_on_one_account(
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """``synthetic_professional_subject_id``'s ``.strip().casefold()`` folding, through this module.
+
+    Card 2 proves the *derivation* folds case and whitespace; assertion 2 in
+    this file only ever re-accepts an identical name, which would pass even
+    if this module accidentally bypassed that folding. This test accepts
+    three textually different spellings of the same person and proves the
+    composition — this module calling the deriver, then
+    ``ensure_account``/``link_to_unit`` — still converges on exactly one
+    ``user_account`` and one relationship row.
+    """
+    base_name = f"Case Fold Professional {uuid.uuid4().hex[:8]}"
+    spellings = [base_name, base_name.upper(), f"   {base_name.lower()}  "]
+
+    outcomes = [
+        _accept_professional(
+            session_factory, tenant_id=tenant_id, owning_unit_id=owning_unit_id, name=spelling
+        )
+        for spelling in spellings
+    ]
+
+    subject_ids = {outcome.professional_subject_id for outcome in outcomes}
+    assert len(subject_ids) == 1
+    (subject_id,) = subject_ids
+
+    with engine.begin() as conn:
+        account_count = conn.execute(
+            text("SELECT COUNT(*) FROM user_account WHERE id = :id"), {"id": subject_id}
+        ).scalar_one()
+        relationship_count = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM professional_unit_relationship "
+                "WHERE tenant_id = :tid AND professional_id = :pid"
+            ),
+            {"tid": tenant_id, "pid": subject_id},
+        ).scalar_one()
+
+    assert account_count == 1
+    assert relationship_count == 1
