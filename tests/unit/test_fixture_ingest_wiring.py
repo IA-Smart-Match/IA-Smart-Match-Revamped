@@ -1,24 +1,34 @@
-"""`smartmatch_providers.fixture_ingest` is not wired to anything. Proof.
+"""`smartmatch_providers.fixture_ingest` is reachable from one place. Proof.
 
 `tests/unit/test_fixture_ingest.py` covers what the module *does*. What that
-file cannot see is the property this PR actually ships: that the module is
-reachable only by a test. Same shape as
-`tests/unit/test_paid_extraction_wiring.py`, and for the same reason — a
-capability that must not be live is guarded by asserting its absence from the
-composition roots, not by trusting that nobody wired it.
+file cannot see is the property this one exists for: exactly which code can
+reach it. Same shape as `tests/unit/test_paid_extraction_wiring.py`, and for
+the same reason — a capability that must stay bounded is guarded by asserting
+where it is absent, not by trusting that nobody wired it.
 
-Why absence is the deliverable here. The signed threat model
-(`docs/security/crawler-threat-model-draft.md` revision 4) is explicit that it
-"does **not** authorize HTTP crawl code, worker routes, UI, or live provider
-calls", and its non-goals name `POST /api/crawler/start` and the legacy
-`CrawlerFeed` specifically. The S6 plan card puts the crawl adapter behind
-S4/S5 and makes its HTTP surface conditional on a signed artifact that does not
-call for one. So this scaffold ships readable, tested, and unreferenced: no
-route, no command type, no migration, no OpenAPI change. The day someone wires
-it, this file fails, which is the point.
+Why absence was the whole deliverable, and what changed. The signed threat
+model (`docs/security/crawler-threat-model-draft.md` revision 4) is explicit
+that it "does **not** authorize HTTP crawl code, worker routes, UI, or live
+provider calls", and its non-goals name `POST /api/crawler/start` and the
+legacy `CrawlerFeed` specifically. When the reader first landed, nothing
+imported it at all, and this file said so of both services.
 
-Persistence is likewise out of scope — the `event` tables are a later card
-(P-EVENTS-SCHEMA) — so the migration tree must not mention this module either.
+Card P-EVENTS-API wired the half that is authorized. G3 §9 puts every network
+action worker-side and leaves API handlers "commands and review decisions
+only", so the reader is now imported by exactly one worker module —
+`smartmatch_worker.event_ingest`, which carries committed fixtures into the
+`event` tables migration `0017` created. Nothing else may import it, and in
+particular **the API still may not**: `TestTheApiCannotReachIt` keeps that half
+of the original assertion exactly as strict as it was, and
+`TestOnlyTheEventIngestSeamImportsIt` pins the worker's single importer by name
+rather than loosening the check to "the worker may".
+
+Everything the threat model actually gates is unchanged and still asserted
+below: no crawl/discovery/scrape command type on the shipped registry, no such
+path in the committed contract or on the live app, and no migration citing this
+module. The reader itself still reaches no persistence layer — the write
+happens in `smartmatch_persistence.events`, on the far side of the seam — which
+is what `TestNoPersistence` continues to hold it to.
 """
 
 from __future__ import annotations
@@ -28,8 +38,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -46,6 +54,13 @@ MIGRATIONS_ROOT = REPO_ROOT / "db" / "migrations" / "versions"
 
 MODULE_NAME = "fixture_ingest"
 QUALIFIED_NAME = f"smartmatch_providers.{MODULE_NAME}"
+
+#: The one module card P-EVENTS-API authorizes to import the reader: the seam
+#: that carries a committed fixture into `smartmatch_persistence.events`. Named
+#: as a literal so widening the permission is an edit to this line rather than
+#: a side effect of adding an import somewhere in the worker tree.
+EVENT_INGEST_MODULE = "smartmatch_worker.event_ingest"
+EVENT_INGEST_PATH = WORKER_ROOT / "event_ingest.py"
 
 #: Path/command-type substrings that would mean a discovery surface exists.
 #: The first two are named as non-goals by the threat model itself.
@@ -81,11 +96,16 @@ def _python_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
 
 
-class TestNoCompositionRootImportsIt:
-    """Neither service can reach the module, at any depth."""
+class TestTheApiCannotReachIt:
+    """The API half of the original assertion, unchanged and still absolute.
 
-    @pytest.mark.parametrize("root", [API_ROOT, WORKER_ROOT], ids=["api", "worker"])
-    def test_no_service_module_imports_it(self, root: Path):
+    G3 §9: "All network activity is worker-side; API handlers record commands
+    and review decisions only." The reader is the thing that opens documents,
+    so no file the API process can load may import it — not a router, not a
+    helper a router imports, nothing.
+    """
+
+    def test_no_api_module_imports_it(self):
         """Every file in the tree, not only `main.py`.
 
         Checking only the composition root would miss a helper importing it and
@@ -93,11 +113,68 @@ class TestNoCompositionRootImportsIt:
         """
         offenders = [
             path.relative_to(REPO_ROOT).as_posix()
-            for path in _python_files(root)
+            for path in _python_files(API_ROOT)
             if any(name.startswith(QUALIFIED_NAME) for name in _imported_modules(path))
         ]
 
-        assert offenders == [], f"{QUALIFIED_NAME} is imported by: {offenders}"
+        assert offenders == [], f"{QUALIFIED_NAME} is imported by the API: {offenders}"
+
+
+class TestOnlyTheEventIngestSeamImportsIt:
+    """The worker half: one importer, named, and nothing else."""
+
+    def test_exactly_one_worker_module_imports_it(self):
+        """A list of one, compared by equality rather than by membership.
+
+        `assert EVENT_INGEST_PATH in offenders` would pass while three other
+        worker modules had quietly acquired the import too. The point of this
+        file is knowing the exact reachable set, so the assertion is an
+        equality against it.
+        """
+        offenders = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in _python_files(WORKER_ROOT)
+            if any(name.startswith(QUALIFIED_NAME) for name in _imported_modules(path))
+        ]
+
+        assert offenders == [EVENT_INGEST_PATH.relative_to(REPO_ROOT).as_posix()], (
+            f"{QUALIFIED_NAME} must be imported by {EVENT_INGEST_MODULE} and nothing "
+            f"else in the worker; found {offenders}"
+        )
+
+    def test_the_seam_reaches_the_writer_rather_than_writing_anything_itself(self):
+        """The seam imports the repository; it does not open its own connection.
+
+        `smartmatch_persistence.events` is the only module permitted to write
+        `event`, `event_tag` and `discovery_review_item`. A seam that reached
+        for an engine, or built its own INSERT, would be a second writer —
+        which is how a table acquires two definitions of what a valid row is.
+        """
+        imported = _imported_modules(EVENT_INGEST_PATH)
+
+        assert "smartmatch_persistence.events" in imported
+        assert not any(name.startswith("alembic") for name in imported)
+        assert not any(name == "sqlalchemy" for name in imported), (
+            "the seam imports sqlalchemy directly; the repository owns the "
+            f"statements. Reached: {sorted(imported)}"
+        )
+
+    def test_the_seam_imports_no_http_client(self):
+        """The reader has no transport, and neither does its caller.
+
+        Structural rather than behavioural, for the reason
+        `tests/unit/test_fixture_ingest.py` gives about the same check on the
+        reader: asserting "this call made no request" only covers the paths a
+        test happens to exercise.
+        """
+        transports = {"httpx", "requests", "urllib", "urllib3", "http", "socket", "aiohttp"}
+        reached = {name.split(".")[0] for name in _imported_modules(EVENT_INGEST_PATH)}
+
+        assert not (reached & transports), f"the seam can reach: {sorted(reached & transports)}"
+
+
+class TestNoCompositionRootImportsIt:
+    """What neither service may do, regardless of which one is asking."""
 
     def test_the_providers_package_does_not_re_export_it(self):
         """A re-export would import it into both services for free.
