@@ -39,6 +39,9 @@ PROVIDERS_INIT = (
     REPO_ROOT / "python" / "smartmatch_providers" / "smartmatch_providers" / "__init__.py"
 )
 OPENAPI_PATH = REPO_ROOT / "contracts" / "openapi" / "smartmatch.json"
+FIXTURE_INGEST_PATH = (
+    REPO_ROOT / "python" / "smartmatch_providers" / "smartmatch_providers" / "fixture_ingest.py"
+)
 MIGRATIONS_ROOT = REPO_ROOT / "db" / "migrations" / "versions"
 
 MODULE_NAME = "fixture_ingest"
@@ -47,6 +50,12 @@ QUALIFIED_NAME = f"smartmatch_providers.{MODULE_NAME}"
 #: Path/command-type substrings that would mean a discovery surface exists.
 #: The first two are named as non-goals by the threat model itself.
 _CRAWL_TOKENS = ("crawler", "crawl", "discovery", "scrape")
+
+#: Top-level packages a module would have to reach to own persistent state, and
+#: therefore to need a migration. The ORM and the migration tool are listed
+#: alongside this project's persistence package because a module could reach a
+#: table through either without going through it.
+_PERSISTENCE_ROOTS = ("smartmatch_persistence", "sqlalchemy", "alembic")
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -181,13 +190,34 @@ class TestNoPersistence:
         assert offenders == []
 
     def test_this_scaffold_adds_no_revision(self):
-        """The head revision this PR was written against, named so a reader can check.
+        """The scaffold contributed no migration, stated without naming a head.
 
-        Deliberately not a hash of the whole tree: revisions land in other PRs,
-        and a hash would make this file conflict on every one of them. What is
-        pinned is that *this* scaffold contributed none.
+        This assertion used to pin the newest migration filename as a literal.
+        That was a fair reading of "this PR added no revision" on the day it was
+        written, but the head is not this file's property: the next revision by
+        anyone — ``0017_event_persistence.py`` was the one that actually did it —
+        fails a test about the crawl scaffold, for a reason that has nothing to
+        do with the crawl scaffold. A guard that cries wolf on every unrelated
+        migration is a guard people learn to edit rather than read.
+
+        So the property is asserted directly instead. A module contributes a
+        revision when it has schema to migrate, and this one cannot: it reaches
+        no persistence layer, no ORM, and no migration machinery. Together with
+        :meth:`test_no_migration_references_the_module` — nothing in the tree
+        cites it — that is the whole of "adds no revision", and neither half
+        moves when somebody else lands one.
+
+        ``import-linter`` enforces the layering in general; this asserts it for
+        the one module whose isolation the threat model made a deliverable.
         """
         revisions = sorted(path.name for path in MIGRATIONS_ROOT.glob("[0-9]*.py"))
-
         assert revisions, "no migrations found; the path is probably wrong"
-        assert revisions[-1] == "0016_pipeline_record_provenance.py"
+
+        reached = _imported_modules(FIXTURE_INGEST_PATH)
+        offenders = sorted(
+            name
+            for name in reached
+            if any(name == root or name.startswith(f"{root}.") for root in _PERSISTENCE_ROOTS)
+        )
+
+        assert offenders == [], f"{QUALIFIED_NAME} reaches persistence via: {offenders}"
