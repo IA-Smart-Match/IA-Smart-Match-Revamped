@@ -699,6 +699,52 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two match-run operations share one authorizer,
+    # ``_authorize_match_run`` in ``routers/match_runs.py``, for the reason the
+    # two event reads share theirs: both ask the identical question — may this
+    # caller work with this unit's match runs — against the identical
+    # ``org_unit`` resource, so a widening applies to both or to neither and
+    # cannot reach one by accident.
+    #
+    # ``admin``/``coordinator``, and no third role. The G1 worksheet's program
+    # direction makes the shortlist a coordinator instrument ("coordinator
+    # batch-invites; return 2-3 speakers") and names nobody else; under
+    # deny-by-default the absence of a permit is a denial rather than an
+    # invitation to guess. In particular a ``student`` is refused both: the
+    # response carries every candidate professional's expertise evidence, the
+    # weights in force, and the reasons some candidates could not be scored at
+    # all, which is coordinator-and-above material.
+    #
+    # No ``require_membership`` — ``_MATCH_RUN_ROLES`` is non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles
+    # check before the membership question is reached. No ``tenant_wide_roles``
+    # — the metrics decision's §4 is the only artifact in this repository that
+    # makes anything tenant-wide, it says so of aggregate reads specifically,
+    # and no committed artifact says it of a match run.
+    Operation(
+        key="match_run.create",
+        method="POST",
+        path="/v1/units/{unit_id}/match-runs",
+        module="smartmatch_api.routers.match_runs",
+        authorizer="_authorize_match_run",
+        roles_constant="_MATCH_RUN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="match_run.read",
+        method="GET",
+        path="/v1/units/{unit_id}/match-runs/{match_run_id}",
+        module="smartmatch_api.routers.match_runs",
+        authorizer="_authorize_match_run",
+        roles_constant="_MATCH_RUN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -1555,6 +1601,146 @@ MATRIX: dict[str, dict[str, Cell]] = {
             ),
         ),
     },
+    # `match_run.create` and `match_run.read` share one authorizer, so — like
+    # the two event rows above — they agree cell for cell today and each still
+    # states its own answer, so the day one diverges the diff shows which.
+    "match_run.create": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive, and this is the shape the ratified "
+                "program direction is written for: the coordinator who runs "
+                "the unit asks for its shortlist and batch-invites from it"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "unit scoping works here as it does for import.create: the run "
+                "is filed under `job.owning_unit_id`, taken from the loaded "
+                "unit rather than the body, and a sibling department's "
+                "coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the "
+                "only thing refusing this principal is the path. No committed "
+                "artifact makes match runs tenant-wide the way the metrics "
+                "decision's §4 makes aggregates tenant-wide, so "
+                "`_authorize_match_run` passes no `tenant_wide_roles` and "
+                "ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "submitting a run is role-gated, not membership-gated: it "
+                "queues durable work and its body carries every candidate "
+                "professional's expertise evidence"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "there is no job yet when this operation is authorized — it is "
+                "the request that creates one — so the actor half of the shape "
+                "is inert and what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "match_run.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`match_run.owning_unit_id` is what a run is scoped by — "
+                "written by the worker from the job row, never from a payload "
+                "— and a sibling department's coordinator does not cover it. "
+                "The route additionally requires the run to belong to the unit "
+                "in the path, so an authorized caller cannot reach another "
+                "unit's run through their own"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; see the row above",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "reading a run is role-gated: it returns per-factor "
+                "explanations naming which candidates had no evidence on file, "
+                "which is a statement about individual professionals' records"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a match-run read authorizes against the unit, not against the "
+                "job that produced the run, so submitting that job conveys "
+                "nothing here — the shape degenerates to a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason "
+                "above; what is left is a deny on the unit"
+            ),
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -1633,11 +1819,18 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # terms and for the same reason: it loads the unit, then makes exactly this
     # call against it with `_EVENT_ROLES`. It is one name rather than two
     # because both event operations share it — see their rows in `OPERATIONS`.
+    #
+    # `_authorize_match_run` (`routers/match_runs.py`) is the fifth name on the
+    # same terms: load the unit, then make exactly this call against that row's
+    # path with `_MATCH_RUN_ROLES`. It is one name for two operations for the
+    # same reason `_authorize_event_read` is — the submission and the read ask
+    # the identical question of the identical resource.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
         "_authorize_event_read",
+        "_authorize_match_run",
     ):
         assert_allowed(
             resolved.principal,
@@ -2879,17 +3072,25 @@ def test_a_job_with_no_recorded_actor_is_not_readable_by_a_role_less_member() ->
 #: A router module that declares one authenticated route. Used to prove the
 #: derivation and the completeness check actually fire, rather than trusting
 #: that they would.
+#:
+#: The synthetic path was ``/v1/units/{unit_id}/match-runs`` until card
+#: P-MATCH-API landed that route for real, at which point this stopped being a
+#: route "nobody added to the matrix" and the completeness check found nothing
+#: missing — a control passing because its own probe had become real. The path
+#: is therefore one that does not and should not exist. Any future card landing
+#: a ``synthetic-commands`` resource has to rename it again, for the same
+#: reason.
 _SYNTHETIC_ROUTER = '''
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/v1/units", tags=["synthetic"])
 
 
-@router.post("/{unit_id}/match-runs")
-def create_match_run(principal: CurrentPrincipal, session: DbSession) -> None:
+@router.post("/{unit_id}/synthetic-commands")
+def create_synthetic_command(principal: CurrentPrincipal, session: DbSession) -> None:
     """A new command resource that nobody added to the matrix."""
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
-    assert_allowed(principal.principal, unit, at=utc_now(), required_roles=_MATCH_ROLES)
+    assert_allowed(principal.principal, unit, at=utc_now(), required_roles=_SOME_ROLES)
 
 
 @router.get("/public-thing")
@@ -2903,10 +3104,10 @@ def test_the_derivation_finds_routes_and_their_authorizers() -> None:
     """The parser reports the method, the prefixed path, and what authorizes it."""
     routes = {route.key: route for route in _routes_in_source(_SYNTHETIC_ROUTER, "synthetic")}
 
-    command = routes[("POST", "/v1/units/{unit_id}/match-runs")]
+    command = routes[("POST", "/v1/units/{unit_id}/synthetic-commands")]
     assert command.authenticated
     assert command.authorizers == ("assert_allowed",)
-    assert command.handler == "create_match_run"
+    assert command.handler == "create_synthetic_command"
 
     public = routes[("GET", "/v1/units/public-thing")]
     assert not public.authenticated
@@ -2992,7 +3193,7 @@ def test_the_completeness_check_reports_an_operation_with_no_row() -> None:
         routes[route.key] = route
 
     missing = _missing_rows(routes)
-    assert missing == [("POST", "/v1/units/{unit_id}/match-runs")], (
+    assert missing == [("POST", "/v1/units/{unit_id}/synthetic-commands")], (
         f"adding an authenticated route with no matrix row was not reported as a "
         f"hole; _missing_rows returned {missing}"
     )
@@ -3006,11 +3207,11 @@ def test_an_unprotected_route_is_visible_as_unprotected() -> None:
     so this pins the signal it depends on.
     """
     source = _SYNTHETIC_ROUTER.replace(
-        "assert_allowed(principal.principal, unit, at=utc_now(), required_roles=_MATCH_ROLES)",
+        "assert_allowed(principal.principal, unit, at=utc_now(), required_roles=_SOME_ROLES)",
         "pass",
     )
     routes = {route.key: route for route in _routes_in_source(source, "synthetic")}
-    unprotected = routes[("POST", "/v1/units/{unit_id}/match-runs")]
+    unprotected = routes[("POST", "/v1/units/{unit_id}/synthetic-commands")]
     assert unprotected.authenticated
     assert unprotected.authorizers == ()
 

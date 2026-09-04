@@ -17,6 +17,39 @@ P6·S6b among the four that would do it — and the shape card S6b prescribes:
 "routes, policy-matrix rows, OpenAPI regeneration, and the deliberate flip of
 the fail-closed scan, all in one commit."
 
+## The G1 match-run flip (card P-MATCH-API)
+
+Two routes now exist where this file previously asserted that no match/score/
+rank path could: ``POST /v1/units/{unit_id}/match-runs`` and
+``GET /v1/units/{unit_id}/match-runs/{match_run_id}``. That is a deliberate
+flip made in the commit that lands the capability, on the authority of three
+committed artifacts and no judgement of this file's own:
+
+* ``docs/plans/workshops/g1-workshop-output-worksheet.md`` — gate G1's output,
+  ratified 2026-09-03 by the named program owner, fixing the factor list, the
+  weights, the golden-case ADR-0011 classifications, and the presentation rules
+  (2-3 speakers, no percentage display).
+* ``docs/plans/2026-08-28-g1-matching-m1-m10-plan.md`` card **M8b** — the card
+  that authorizes routes at all, and which states the rule this file is being
+  changed under: "Update the fail-closed OpenAPI scan in the same commit the
+  routes land — that is its deliberate flip."
+* ``smartmatch_domain.factor_registry`` at ``REGISTRY_STATUS == "approved"``
+  with ``assert_scoring_ready()`` passing, which card M6j made the condition
+  for scoring to run at all.
+
+The flip is **narrower than the gate it opens**, in the same shape card
+P-EVENTS-API used. :data:`_G1_FORBIDDEN_SEGMENTS` is *widened* rather than
+relaxed — ``match-run`` and ``match-runs`` are added to it, so the two paths
+below are refused by the segment rule and admitted only by name — and
+:data:`G1_AUTHORIZED_MATCH_RUN_PATHS` is an exact, literal allowlist of two
+paths. A third match-run path, or a ``/v1/units/{unit_id}/matches``, fails here
+whether or not anyone regenerated the contract.
+:func:`test_the_match_run_router_declares_exactly_the_authorized_routes` holds
+the router to the same list from the other side, and
+:func:`test_the_match_run_router_exposes_one_command_and_one_read` pins the
+methods, because "a coordinator may ask for a shortlist and read one back" is
+what was authorized — not a surface that could grow a decision endpoint.
+
 What the flip does **not** open is the part G3 actually gates. The forbidden
 segment families below are untouched: no ``crawl``, ``crawler``, ``crawlers``
 or ``discovery`` path may exist, ``POST /api/crawler/start`` remains a named
@@ -34,7 +67,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smartmatch_api.routers import engagement, events
+from smartmatch_api.routers import engagement, events, match_runs
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
     assert_registry_approved,
@@ -43,9 +76,18 @@ from smartmatch_domain.factor_registry import (
 OPENAPI_PATH = Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "smartmatch.json"
 
 # G1 — forbidden path segments until D1/G1 program owner approves the registry.
+# ``match-run``/``match-runs`` are listed even though card P-MATCH-API landed
+# exactly those paths, and that is the point: the allowlist below is what admits
+# them, so it is load-bearing rather than decorative. Without these two entries
+# ``/v1/units/{unit_id}/match-runs`` would sail past this scan on the technicality
+# that ``"match-runs" != "match"``, and every future match-run path would too.
 _G1_FORBIDDEN_SEGMENTS = frozenset(
     {
         "match",
+        "match-run",
+        "match-runs",
+        "match_run",
+        "match_runs",
         "matches",
         "matching",
         "score",
@@ -96,6 +138,20 @@ G3_AUTHORIZED_EVENT_PATHS = frozenset(
 )
 
 
+# G1 — the exact unit-scoped match-run paths card P-MATCH-API authorizes, and
+# no others. Every segment family this gate guards is *still* forbidden, these
+# two paths included: `_G1_FORBIDDEN_SEGMENTS` names `match-runs`, so admitting
+# them is a deliberate, by-name exception rather than a gap in the pattern. A
+# third match-run path fails here, and so does a path that differs from one of
+# these by a single segment.
+G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/match-runs",
+        "/v1/units/{unit_id}/match-runs/{match_run_id}",
+    }
+)
+
+
 def _path_segments(path: str) -> list[str]:
     """Return literal path segments, ignoring ``{param}`` placeholders."""
     return [
@@ -106,6 +162,15 @@ def _path_segments(path: str) -> list[str]:
 def _forbidden_gate_for_path(path: str) -> str | None:
     """Return the gate id blocking ``path``, or None when the path is allowed."""
     segments = [segment.lower() for segment in _path_segments(path)]
+
+    # The by-name exception comes first, and is the single place a match-run
+    # path is admitted. G1's allowlist has to precede the segment loop rather
+    # than follow it (as G3's does) because `_G1_FORBIDDEN_SEGMENTS`
+    # deliberately contains `match-runs`: the loop below refuses these paths.
+    # A path not spelled out here gets no such exception, which is the property
+    # that keeps the flip narrow.
+    if path in G1_AUTHORIZED_MATCH_RUN_PATHS:
+        return None
 
     for segment in segments:
         if segment in _G1_FORBIDDEN_SEGMENTS:
@@ -183,6 +248,61 @@ def test_the_authorized_event_routes_are_read_only():
     )
 
     assert offenders == [], f"G3: the events router is read-only; found {offenders}"
+
+
+def test_the_match_run_router_declares_exactly_the_authorized_routes():
+    """The G1 flip is bounded by a list, not by the router's own contents.
+
+    The honest successor to "no match router exists" is not "a match router may
+    now declare things" — that would be a gate replaced by nothing — but an
+    exact equality against :data:`G1_AUTHORIZED_MATCH_RUN_PATHS`, exactly as
+    :func:`test_the_events_router_declares_exactly_the_authorized_routes` does
+    for G3. A third route added to this router fails here whether or not anyone
+    regenerated the contract.
+    """
+    declared = {str(route.path) for route in match_runs.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == G1_AUTHORIZED_MATCH_RUN_PATHS, (
+        "G1: the match-run router declares routes outside the P-MATCH-API "
+        f"allowlist: {sorted(declared - G1_AUTHORIZED_MATCH_RUN_PATHS)}"
+    )
+
+
+def test_the_match_run_router_exposes_one_command_and_one_read():
+    """One submission and one read — and nothing that decides anything.
+
+    Card M8b authorizes routes that "submit the command and read the row back".
+    A ``PATCH`` or ``PUT`` on a match run would contradict the snapshot's whole
+    design (``0018``'s ``match_run_is_immutable`` trigger, and
+    ``MatchRunRepository`` having no update method by construction); a
+    ``DELETE`` would contradict it harder. Pinning the methods rather than the
+    paths alone is what keeps a later card from hanging a decision endpoint off
+    an already-admitted path.
+    """
+    observed = {
+        (str(route.path), method)  # type: ignore[attr-defined]
+        for route in match_runs.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert observed == {
+        ("/v1/units/{unit_id}/match-runs", "POST"),
+        ("/v1/units/{unit_id}/match-runs/{match_run_id}", "GET"),
+    }, f"G1: unexpected match-run methods: {sorted(observed)}"
+
+
+def test_a_match_run_path_outside_the_allowlist_is_still_refused():
+    """The widened segment list is load-bearing, not decoration.
+
+    If the first two assertions ever pass trivially — because ``match-runs``
+    left :data:`_G1_FORBIDDEN_SEGMENTS` — then the allowlist above stopped
+    admitting anything and started merely describing, and the next match-run
+    path added would clear the scan without anyone naming it.
+    """
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs/{run_id}/decision") == "G1"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/matches") == "G1"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs") is None
 
 
 def test_openapi_exposes_no_gated_product_surface_routes():
