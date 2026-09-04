@@ -74,25 +74,6 @@ pytestmark = pytest.mark.integration
 #: changed the normalisation would fail this test, and reviewing that diff on
 #: purpose is the intended behaviour rather than a cost.
 CHECK_CONSTRAINT_DEFINITIONS = {
-    # --- Pilot login (migration 0020) -----------------------------------
-    #
-    # Undeclared since `0020` merged, which is why this file's completeness
-    # check has been failing on `main`. Three of the five are about
-    # cryptographic material — salt length, digest width, KDF cost — and each
-    # is the kind of rule whose violation leaves a login system that works
-    # perfectly and protects nothing.
-    ("pilot_credential", "ck_pilot_credential_algorithm"): (
-        "CHECK ((algorithm = 'pbkdf2_hmac_sha256'::text))"
-    ),
-    ("pilot_credential", "ck_pilot_credential_material"): (
-        "CHECK (((octet_length(salt) >= 16) AND (octet_length(password_hash) = 32) AND "
-        "(iterations >= 100000)))"
-    ),
-    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): ("CHECK ((count >= 0))"),
-    ("pilot_session", "ck_pilot_session_token_hash"): ("CHECK ((octet_length(token_hash) = 32))"),
-    ("pilot_session", "ck_pilot_session_window"): (
-        "CHECK (((expires_at > issued_at) AND ((revoked_at IS NULL) OR (revoked_at >= issued_at))))"
-    ),
     # --- Outreach (migration 0021) -------------------------------------
     #
     # Every one of these is a claim about a real person that the application
@@ -382,6 +363,19 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("redemption", "ck_redemption_snapshot_present"): (
         "CHECK (((points_cost_snapshot > 0) AND (length(btrim(item_name_snapshot)) > 0)))"
     ),
+    # Migration 0020, pilot login credentials and sessions.
+    ("pilot_credential", "ck_pilot_credential_algorithm"): (
+        "CHECK ((algorithm = 'pbkdf2_hmac_sha256'::text))"
+    ),
+    ("pilot_credential", "ck_pilot_credential_material"): (
+        "CHECK (((octet_length(salt) >= 16) AND (octet_length(password_hash) = 32) "
+        "AND (iterations >= 100000)))"
+    ),
+    ("pilot_session", "ck_pilot_session_window"): (
+        "CHECK (((expires_at > issued_at) AND ((revoked_at IS NULL) OR (revoked_at >= issued_at))))"
+    ),
+    ("pilot_session", "ck_pilot_session_token_hash"): "CHECK ((octet_length(token_hash) = 32))",
+    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "CHECK ((count >= 0))",
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -389,24 +383,6 @@ CHECK_CONSTRAINT_DEFINITIONS = {
 #: it, and are recorded here rather than duplicated — a reader asking "is
 #: ``ck_job_status`` exercised?" gets an answer without grepping.
 BEHAVIOURAL_COVERAGE = {
-    # --- Pilot login (migration 0020) -----------------------------------
-    ("pilot_credential", "ck_pilot_credential_algorithm"): (
-        "test_pilot_login_constraints.py::TestPilotCredential::test_only_the_one_approved_algorithm_is_storable"
-    ),
-    ("pilot_credential", "ck_pilot_credential_material"): (
-        "test_pilot_login_constraints.py::TestPilotCredential — one case per clause: a short "
-        "salt, a hash at 31 and at 33 bytes, and an iteration count below the floor"
-    ),
-    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): (
-        "test_pilot_login_constraints.py::TestPilotLoginAttempt::test_a_negative_attempt_count_is_refused"
-    ),
-    ("pilot_session", "ck_pilot_session_token_hash"): (
-        "test_pilot_login_constraints.py::TestPilotSession::test_a_token_hash_of_the_wrong_width_is_refused"
-    ),
-    ("pilot_session", "ck_pilot_session_window"): (
-        "test_pilot_login_constraints.py::TestPilotSession — both clauses, plus the `>=` "
-        "boundary the constraint deliberately admits"
-    ),
     # --- Outreach (migration 0021) -------------------------------------
     ("contact_channel", "ck_contact_channel_address_present"): (
         "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
@@ -580,6 +556,12 @@ BEHAVIOURAL_COVERAGE = {
     ),
     ("redemption", "ck_redemption_closure_evidence"): "test_redemption_durability.py",
     ("redemption", "ck_redemption_snapshot_present"): "test_redemption_durability.py",
+    # Migration 0020.
+    ("pilot_credential", "ck_pilot_credential_algorithm"): "this file",
+    ("pilot_credential", "ck_pilot_credential_material"): "this file",
+    ("pilot_session", "ck_pilot_session_window"): "this file",
+    ("pilot_session", "ck_pilot_session_token_hash"): "this file",
+    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "this file",
 }
 
 
@@ -1203,6 +1185,173 @@ def test_spend_reservation_rejects_lease_token_state_mismatches(
 def test_spend_reservation_accepts_reserved_with_a_lease_token(engine: Engine, tenant_id) -> None:
     with engine.begin() as conn:
         _insert_spend_reservation(conn, tenant_id)
+
+
+# ---------------------------------------------------------------------------
+# Migration 0020 pilot-login constraints
+# ---------------------------------------------------------------------------
+
+
+def _insert_pilot_credential(
+    conn,
+    tenant_id,
+    *,
+    algorithm: str = "pbkdf2_hmac_sha256",
+    iterations: int = 100_000,
+    salt: bytes = b"0123456789abcdef",
+    password_hash: bytes = b"x" * 32,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_credential "
+            "(id, tenant_id, user_id, algorithm, iterations, salt, password_hash) "
+            "VALUES (:id, :tenant_id, :user_id, :algorithm, :iterations, :salt, :password_hash)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tenant_id": tenant_id,
+            "user_id": _make_user(conn, tenant_id),
+            "algorithm": algorithm,
+            "iterations": iterations,
+            "salt": salt,
+            "password_hash": password_hash,
+        },
+    )
+
+
+def _insert_pilot_session(
+    conn,
+    tenant_id,
+    *,
+    token_hash: bytes = b"x" * 32,
+    issued_at: str = _EARLY,
+    expires_at: str = _LATE,
+    revoked_at: str | None = None,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_session "
+            "(id, tenant_id, user_id, token_hash, issued_at, expires_at, revoked_at) "
+            "VALUES (:id, :tenant_id, :user_id, :token_hash, :issued_at, :expires_at, :revoked_at)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tenant_id": tenant_id,
+            "user_id": _make_user(conn, tenant_id),
+            "token_hash": token_hash,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "revoked_at": revoked_at,
+        },
+    )
+
+
+def _insert_pilot_login_attempt(conn, *, caller_key: str, count: int) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_login_attempt (caller_key, window_start, count) "
+            "VALUES (:caller_key, :window_start, :count)"
+        ),
+        {"caller_key": caller_key, "window_start": _EARLY, "count": count},
+    )
+
+
+def test_pilot_credential_algorithm_rejects_unknown_values(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_credential_algorithm"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_credential(conn, tenant_id, algorithm="argon2id")
+
+
+@pytest.mark.parametrize(
+    ("salt", "password_hash", "iterations"),
+    [
+        (b"short", b"x" * 32, 100_000),
+        (b"0123456789abcdef", b"short", 100_000),
+        (b"0123456789abcdef", b"x" * 32, 99_999),
+    ],
+)
+def test_pilot_credential_material_rejects_invalid_shape(
+    engine: Engine, tenant_id, salt: bytes, password_hash: bytes, iterations: int
+) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_credential_material"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_credential(
+            conn,
+            tenant_id,
+            salt=salt,
+            password_hash=password_hash,
+            iterations=iterations,
+        )
+
+
+def test_pilot_credential_material_accepts_boundary_values(engine: Engine, tenant_id) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_credential(
+            conn, tenant_id, iterations=100_000, salt=b"0" * 16, password_hash=b"x" * 32
+        )
+
+
+@pytest.mark.parametrize(
+    ("issued_at", "expires_at", "revoked_at"),
+    [
+        (_EARLY, _EARLY, None),
+        (_LATE, _EARLY, None),
+        (_LATE, _LATE, _EARLY),
+    ],
+)
+def test_pilot_session_window_rejects_invalid_temporal_order(
+    engine: Engine,
+    tenant_id,
+    issued_at: str,
+    expires_at: str,
+    revoked_at: str | None,
+) -> None:
+    with pytest.raises(IntegrityError, match="ck_pilot_session_window"), engine.begin() as conn:
+        _insert_pilot_session(
+            conn,
+            tenant_id,
+            issued_at=issued_at,
+            expires_at=expires_at,
+            revoked_at=revoked_at,
+        )
+
+
+def test_pilot_session_token_hash_rejects_non_sha256_width(engine: Engine, tenant_id) -> None:
+    with pytest.raises(IntegrityError, match="ck_pilot_session_token_hash"), engine.begin() as conn:
+        _insert_pilot_session(conn, tenant_id, token_hash=b"short")
+
+
+def test_pilot_session_constraints_accept_valid_rows(engine: Engine, tenant_id) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_session(
+            conn, tenant_id, token_hash=b"x" * 32, issued_at=_EARLY, expires_at=_LATE
+        )
+        _insert_pilot_session(
+            conn,
+            tenant_id,
+            token_hash=b"y" * 32,
+            issued_at=_EARLY,
+            expires_at=_LATE,
+            revoked_at=_LATE,
+        )
+
+
+def test_pilot_login_attempt_count_rejects_negative_values(engine: Engine) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_login_attempt_count"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=-1)
+
+
+def test_pilot_login_attempt_count_accepts_zero_and_above(engine: Engine) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=0)
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=1)
 
 
 # ---------------------------------------------------------------------------

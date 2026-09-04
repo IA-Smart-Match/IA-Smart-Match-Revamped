@@ -44,17 +44,31 @@
 
 name: build
 
+# ---------------------------------------------------------------------------
+# Reusable: the deployment workflow calls this one
+# ---------------------------------------------------------------------------
+# `workflow_call` makes this workflow invokable by .github/workflows/deploy.yml,
+# which runs it — and `verify` — as the gate before anything reaches the pilot
+# VM. Nothing about what runs changes; the trigger is the only addition, and
+# the permissions below still stop at `contents: read`, so being callable
+# cannot become a way to reach a deployment credential from here.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseding an in-flight run is right for a pull request and wrong for
+  # `deploy`: a cancelled gate there would abort the deployment that is
+  # waiting on it, potentially while the VM is mid-migration. Pushes to
+  # `deploy` therefore queue rather than cancel, and .github/workflows/deploy.yml
+  # serializes the deployments themselves on its own never-cancelling group.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/deploy' }}
 
 jobs:
   images:
@@ -269,14 +283,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Bring the stack up
-        # Every service, including `web` and the one-shot `seed-review` — this
-        # job exercises the same single command INSTALL.md tells a reader to
-        # run, not a hand-picked subset of it. `up -d` returns once containers
-        # have started, not once `web` has finished installing; the smoke
-        # script's stage 16 does the bounded wait for that rather than a sleep
-        # here.
-        run: docker compose up --build -d
+      - name: Bring the stack up through the launcher
+        # `./smartmatch.sh install` is the command README.md and INSTALL.md now
+        # tell a reader to run, so it is the command this job runs. It
+        # validates the compose file, checks for a port collision, builds,
+        # starts every service including `web` and the one-shot `seed-review`,
+        # and then waits on scripts/compose_health.sh rather than on a sleep.
+        #
+        # Running the launcher here rather than a bare `docker compose up` is
+        # the point: the documented path and the enforced path are the same
+        # path, so a launcher that breaks fails this job instead of failing on
+        # a stakeholder's machine.
+        env:
+          SMARTMATCH_READY_TIMEOUT: "1200"
+        run: ./smartmatch.sh install
+
+      - name: The launcher's own status output agrees
+        # `status --json` is a public interface — it is what a wrapper script or
+        # a monitoring check would read. Asserting it here means its shape is
+        # covered by CI rather than by whoever first tries to parse it.
+        run: |
+          ./smartmatch.sh status --json | tee /tmp/status.json
+          python3 -c "
+          import json, sys
+          document = json.load(open('/tmp/status.json'))
+          assert document['ok'] is True, document
+          names = {service['service'] for service in document['services']}
+          assert {'db', 'api', 'worker', 'scheduler', 'web'} <= names, names
+          print('status --json:', len(document['services']), 'services, ok')
+          "
 
       - name: Smoke the seeded queue -> import -> review -> metrics -> web path
         # scripts/compose_smoke.sh owns every assertion, exits non-zero on the
@@ -294,7 +329,12 @@ jobs:
         # contents of the queue it was supposed to create. Stage 16 does the
         # same for `web` — serving, SPA route, and the /v1 proxy resolving to
         # the seeded coordinator's server-assigned role.
-        run: scripts/compose_smoke.sh
+        #
+        # Invoked through `./smartmatch.sh verify --full`, which runs the
+        # bounded health suite first and then that script. The extra layer is
+        # deliberate: `verify --full` is the documented command, and running
+        # the script directly here would leave the documented one unexercised.
+        run: ./smartmatch.sh verify --full
 
       - name: Service states and logs on failure
         if: failure()

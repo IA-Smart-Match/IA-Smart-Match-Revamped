@@ -42,10 +42,84 @@ dependency or topology detail — not the database host, not the queue, not whic
 providers are configured (v1.1 §1.11). Readiness, which does check dependencies,
 is a separate private endpoint and is not part of the public surface.
 
+### The launchers
+
+`./smartmatch.sh` (bash) and `.\smartmatch.ps1` (Windows PowerShell) are the
+canonical way to run the appliance. They wrap `docker compose` with the three
+things a bare `up -d` does not do: they validate the compose file before
+starting, they refuse to start when something else already holds a published
+port, and they wait on a real health suite instead of returning the moment the
+containers exist.
+
+| Command | What it does |
+|---|---|
+| `install [--developer]` | Validate, build, start, wait for health, print URLs |
+| `start` / `stop` / `restart` | `stop` keeps the data volumes |
+| `status [--json]` | Per-service state, health, and exit code |
+| `health [--wait]` | The bounded health suite. Non-mutating |
+| `verify [--full]` | Health, plus (`--full`) `scripts/compose_smoke.sh` |
+| `logs [service] [-f]` | Container logs |
+
+Exit codes: `0` ok, `1` unhealthy or verification failed, `2` usage error, `3`
+missing prerequisite, `4` port collision, `5` timed out.
+
+Neither launcher removes a volume — `stop`, never `down`, and never `-v`.
+Discarding the database stays `docker compose down -v`, typed out by hand.
+`tests/unit/test_launcher_parity.py` asserts that property across both
+launchers, both setup scripts, the VM bootstrap and deployment scripts, the
+systemd unit, the VM compose override, and the deployment workflow.
+
+### The health suite
+
+`scripts/compose_health.sh` is the bash implementation and the one
+`./smartmatch.sh health` runs; `smartmatch.ps1` reimplements the same checks
+natively, because Windows without WSL has Docker Desktop and PowerShell but no
+bash. The two are held together by the same parity test, which reads the check
+identifiers out of both files and fails the build if the sets differ — so a
+check added to one platform and forgotten on the other is a red build rather
+than a platform that quietly verifies less.
+
+Eleven checks, every one a read, and the command exits nonzero unless all pass:
+
+| Check | What it proves |
+|---|---|
+| `db-healthy` | PostgreSQL's own healthcheck is green |
+| `migrations-at-head` | `alembic_version` equals the head computed from `db/migrations/versions/` |
+| `migrate-exited-ok` | the one-shot migration exited 0 |
+| `seed-exited-ok` | the pilot principal was seeded |
+| `seed-review-exited-ok` | the demo review queue was created — which means an import reached review through real dispatch |
+| `api-health` | `GET /api/health` is 200, `status=ok`, and the release matches what this checkout expects |
+| `worker-health` | `GET /health` is 200 and `status=ok` |
+| `scheduler-heartbeat` | the worker reports a *recent* completed dispatch pass |
+| `frontend-root` | `GET /` is 200 |
+| `frontend-spa-route` | `GET /coordinator-portal` is 200 — the deep-route fallback a bookmark hits |
+| `frontend-api-proxy` | `GET /v1/me` **through the frontend** authenticates as the seeded coordinator |
+
+Two of those deserve a note.
+
+`api-health` compares the reported release against the value compose would pass
+for `SMARTMATCH_RELEASE` — resolved in the same order compose resolves it (the
+environment, then `./.env`, then the `compose-dev` default). Locally that is a
+consistency check; on the pilot VM, where the deployment sets it to the deployed
+git SHA, it is what makes "the containers are older than the code" a failure
+rather than a green stack.
+
+`scheduler-heartbeat` reads the worker's own `GET /operations/dispatch`, which
+reports what *that process* last completed. In compose the sidecar drives that
+same process, so a populated and recent `last_completed` is exactly "the
+scheduler is still dispatching". It is **not** the production absence alert:
+that question cannot be answered by anything held in a process's memory, and
+`deploy-runbook.md` §J8 is where it is answered instead.
+
+`health` never writes. `verify --full` runs `scripts/compose_smoke.sh`
+afterwards, which does. The split is deliberate: a health check that mutates
+the thing it is checking cannot be run against something you care about.
+
 ### The compose appliance's published ports
 
-`docker compose up --build -d` is one command and brings up the whole
-stakeholder path. What it publishes, all on loopback and nothing else:
+`./smartmatch.sh install` — or `docker compose up --build -d` — is one command
+and brings up the whole stakeholder path. What it publishes, all on loopback and
+nothing else:
 
 | Service | Published | What answers there |
 |---|---|---|
@@ -90,7 +164,7 @@ the only safe default.
 | `SMARTMATCH_EDITION` | `dev` | `classroom` triggers boot-time isolation validation |
 | `SMARTMATCH_DATABASE_URL` | local PostgreSQL | Not read by the health endpoints |
 | `SMARTMATCH_USE_FIXTURE_PROVIDERS` | `true` | Stays true until the corresponding release gate opens |
-| `SMARTMATCH_RELEASE` | `dev` | Identifies a running instance without exposing topology |
+| `SMARTMATCH_RELEASE` | `dev` | Identifies a running instance without exposing topology. `docker-compose.yml` passes `${SMARTMATCH_RELEASE:-compose-dev}`, so a deployment can set it to the git SHA it checked out and `/api/health` then answers "which revision is this?" from one unauthenticated GET |
 | `PORT` | `8080` | Supplied by Cloud Run |
 
 Configuration arrives at run time, never at build time. That is what allows one
@@ -318,7 +392,7 @@ the runtime stage, and that no `.git` directory reached the image.
 | Absent | Why | Introduced |
 |---|---|---|
 | Image publication to a registry | No destination exists or is owned, and no credential binding has been decided | When a registry and a release policy exist |
-| Deployment | `ALLOW_CLOUD_DEPLOY=false` | Not scheduled here |
+| Deployment to managed GCP | `ALLOW_CLOUD_DEPLOY=false` | Not scheduled here. The synthetic pilot VM in [`vm-deploy.md`](vm-deploy.md) is a compose appliance on one instance, not this |
 | Image scanning, signing, provenance attestation | Listed as before-scale (R3+) gates | R3 |
 | A database in the build | The health endpoints do not touch one; a container cannot reach the host's `localhost` anyway | — |
 | An identity provider, and any login | The A1b worksheet is unfilled: there is no issuer URL, audience, JWKS URI, or client id to configure, and inventing one would be inventing a fact. The `web` service therefore carries a fixture bearer token and the portal states that institutional sign-in is not connected. | When A1b is filled |
@@ -329,3 +403,20 @@ the runtime stage, and that no `.git` directory reached the image.
 requests no permission beyond `contents: read`. The reasoning, and the
 conditions that would have to be met before a push step belongs there, are
 recorded in that file's header rather than duplicated here.
+
+---
+
+## The synthetic pilot VM
+
+The same compose appliance also runs on one GCE instance, updated automatically
+on every push to a protected `deploy` branch. It is the same images, the same
+compose file plus a small override, the same health suite, and the same
+synthetic data — no identity provider, no real user, no live provider
+credential, and `ALLOW_CLOUD_DEPLOY=false` unchanged. Its every published port
+stays on `127.0.0.1`; the only externally reachable surface is a Cloudflare
+Tunnel to `127.0.0.1:5173` behind Cloudflare Access.
+
+[`vm-deploy.md`](vm-deploy.md) is the runbook: standing the VM up, what a
+deployment does and refuses to do, the branch protection and GitHub environment
+it requires, and the gates that must close before any of it becomes a
+production deployment.

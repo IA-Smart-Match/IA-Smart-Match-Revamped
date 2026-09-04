@@ -94,6 +94,52 @@ data has been imported.
 
 ## Quick start
 
+Two launchers sit at the repository root and are the canonical commands.
+`./smartmatch.sh` on Ubuntu and WSL — and anywhere else with bash and Docker;
+`.\smartmatch.ps1` on Windows with Docker Desktop. They take the same commands
+and return the same exit codes, and `tests/unit/test_launcher_parity.py` fails
+the build if they drift apart. `./setup.sh` installs prerequisites with `apt`,
+so it is Ubuntu and Debian-family WSL only; `./setup.sh --check` validates on
+any platform and tells you what is missing.
+
+```bash
+./setup.sh                # first time only: Git, Docker Engine, Compose v2
+./smartmatch.sh install   # validate, build, start, wait for health, print the URL
+```
+
+Then open **http://127.0.0.1:5173/**. That is the whole appliance: PostgreSQL 16,
+migrations, seed data, the API, the worker, the scheduler sidecar, and the
+frontend. Docker Compose installs every runtime dependency, so nothing above
+needs Python or Node on the host.
+
+```bash
+./smartmatch.sh status [--json]   # per-service state; --json is a stable interface
+./smartmatch.sh health [--wait]   # eleven bounded checks; non-mutating
+./smartmatch.sh verify --full     # health, then the end-to-end smoke path
+./smartmatch.sh logs api          # one service's logs
+./smartmatch.sh stop              # stop, KEEPING the database
+```
+
+Exit codes are stable: `0` ok, `1` unhealthy or verification failed, `2` usage,
+`3` missing prerequisite, `4` port collision, `5` timed out.
+
+`./smartmatch.sh stop` never removes a volume, and neither does anything else in
+either launcher. Discarding the database is `docker compose down -v`, typed out
+by hand, on purpose.
+
+To work on the code rather than just run it:
+
+```bash
+./setup.sh --developer               # ...plus Python 3.11, Node 22, Make
+./smartmatch.sh install --developer  # ...plus .venv, npm ci, and `make check`
+```
+
+The rest of this section is the underlying toolchain, which the developer
+install performs for you and which is still the right reference when a step
+fails.
+
+---
+
 **Python 3.11 or 3.12** — `pyproject.toml` requires `>=3.11,<3.13`, so **3.13
 does not work**. CI runs 3.11 and both images are `python:3.11-slim-bookworm`,
 which makes 3.11 the version everything is actually verified against. Plus
@@ -238,6 +284,9 @@ Contract-Refs: v1.1 §N.N
 | Document | Contents |
 |---|---|
 | [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
+| [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
+| [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance, its automated deployment, and the gates before production |
+| [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |

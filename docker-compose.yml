@@ -323,7 +323,15 @@ services:
       dockerfile: Dockerfile.api
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
-      SMARTMATCH_RELEASE: compose-dev
+      # The release string /api/health reports. It is a variable rather than a
+      # literal so that a deployment can set it to the git SHA it just checked
+      # out — which is what makes "is the running container the code I
+      # deployed?" answerable from a single unauthenticated GET, rather than by
+      # trusting that a restart happened. scripts/vm/deploy.sh exports it,
+      # docker-compose.vm.yml carries it through, and
+      # scripts/compose_health.sh fails when the reported value is not the one
+      # this checkout expects. Locally it stays `compose-dev`.
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       PORT: "8080"
       # Maps one local-only bearer token to the subject `seed` creates above.
       # See the header note on dev bearer tokens: this is not an account
@@ -350,7 +358,7 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
-      SMARTMATCH_RELEASE: compose-dev
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       PORT: "8080"
       # SMARTMATCH_COLUMN_CONTRACT_PATH is deliberately NOT set here. The image
       # sets it itself (Dockerfile.worker), so leaving it alone is what proves
