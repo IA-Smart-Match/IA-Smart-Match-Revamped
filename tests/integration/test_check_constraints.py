@@ -1126,7 +1126,9 @@ def test_pilot_credential_material_rejects_invalid_shape(
 
 def test_pilot_credential_material_accepts_boundary_values(engine: Engine, tenant_id) -> None:
     with engine.begin() as conn:
-        _insert_pilot_credential(conn, tenant_id, iterations=100_000, salt=b"0" * 16, password_hash=b"x" * 32)
+        _insert_pilot_credential(
+            conn, tenant_id, iterations=100_000, salt=b"0" * 16, password_hash=b"x" * 32
+        )
 
 
 @pytest.mark.parametrize(
@@ -1161,7 +1163,9 @@ def test_pilot_session_token_hash_rejects_non_sha256_width(engine: Engine, tenan
 
 def test_pilot_session_constraints_accept_valid_rows(engine: Engine, tenant_id) -> None:
     with engine.begin() as conn:
-        _insert_pilot_session(conn, tenant_id, token_hash=b"x" * 32, issued_at=_EARLY, expires_at=_LATE)
+        _insert_pilot_session(
+            conn, tenant_id, token_hash=b"x" * 32, issued_at=_EARLY, expires_at=_LATE
+        )
         _insert_pilot_session(
             conn,
             tenant_id,
@@ -1173,7 +1177,10 @@ def test_pilot_session_constraints_accept_valid_rows(engine: Engine, tenant_id) 
 
 
 def test_pilot_login_attempt_count_rejects_negative_values(engine: Engine) -> None:
-    with pytest.raises(IntegrityError, match="ck_pilot_login_attempt_count"), engine.begin() as conn:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_login_attempt_count"),
+        engine.begin() as conn,
+    ):
         _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=-1)
 
 
