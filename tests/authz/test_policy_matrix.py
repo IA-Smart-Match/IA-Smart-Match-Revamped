@@ -410,7 +410,7 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "unauthenticated caller cannot use it as a free credential oracle. "
         "Every failure that is not a suspension returns one code and one "
         "message, so it cannot be used to discover which addresses exist. "
-        "This is emphatically not the archived POST /auth/mock-login "
+        "This is emphatically not the archived caller-selected identity endpoint "
         "(MM-A01), which was public *and* let the caller choose an identity. "
         "Here the caller must present a secret only the account holder has."
     ),

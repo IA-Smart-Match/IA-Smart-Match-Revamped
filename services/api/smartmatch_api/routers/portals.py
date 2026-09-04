@@ -268,9 +268,7 @@ def get_my_portals(principal: CurrentPrincipal, session: DbSession) -> MyPortals
         # and it must not open a door.
         if not membership.role.strip():
             continue
-        descriptor = _descriptor_for(
-            session, tenant_id=principal.tenant_id, membership=membership
-        )
+        descriptor = _descriptor_for(session, tenant_id=principal.tenant_id, membership=membership)
         # De-duplicated by portal, not by membership: two coordinator
         # memberships over different subtrees are two grants of the same shell,
         # and listing the shell twice would make the UI ask which one to open —

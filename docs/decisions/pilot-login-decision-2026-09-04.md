@@ -43,9 +43,9 @@ demonstration without waiting on an institutional process that has not started.
   `get_current_principal`, or by anything else this change touches.
 * **It invents no IdP identifiers.** No issuer, audience, JWKS URI, or client id
   appears anywhere in this work. The worksheet stays unfilled.
-* **It is not `POST /auth/mock-login`.** That route (archived as MM-A01,
-  stakeholder Fix #7) let the *caller choose an identity*. This one requires a
-  secret only the account holder has.
+* **It is not the archived caller-selected identity endpoint.** That route
+  (MM-A01, stakeholder Fix #7) let the *caller choose an identity*. This one
+  requires a secret only the account holder has.
 
 ## The property that does not bend
 
