@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
 
-__all__ = ["ATTENDANCE_METHODS", "AttendanceRepository"]
+__all__ = ["ATTENDANCE_METHODS", "AttendanceRepository", "ConflictingOwningUnitError"]
 
 #: ``attendance_record.method``'s closed vocabulary — mirrors
 #: ``ck_attendance_record_method`` (migration ``0009``) exactly. Checked in
@@ -41,6 +41,23 @@ __all__ = ["ATTENDANCE_METHODS", "AttendanceRepository"]
 #: caller gets a catchable ``ValueError`` naming the constraint rather than a
 #: database round-trip that would only end in ``IntegrityError``.
 ATTENDANCE_METHODS: Final[frozenset[str]] = frozenset({"qr_scan", "coordinator_entry", "import"})
+
+
+class ConflictingOwningUnitError(ValueError):
+    """An ``attendance_record`` already exists under a different ``owning_unit_id``.
+
+    ``uq_attendance_record_subject_event`` — this module's idempotency key —
+    is ``(tenant_id, subject_id, event_id)`` and does not cover
+    ``owning_unit_id``, the same shape
+    :class:`~smartmatch_persistence.pipeline.ConflictingOwningUnitError`
+    documents itself with for ``pipeline_record``. A second call naming a
+    different unit for the same subject and event would otherwise be
+    silently absorbed by ``ON CONFLICT DO NOTHING``: the row stays scoped
+    under the first unit and never the second, with no signal a caller could
+    see from the returned id alone. Refused rather than accepted silently,
+    per §1.10's standing rule that a silent zero — here, silently
+    discarding a caller's differing ``owning_unit_id`` — is a defect.
+    """
 
 
 class AttendanceRepository:
@@ -77,6 +94,13 @@ class AttendanceRepository:
         :meth:`~smartmatch_persistence.pipeline.PipelineRepository.advance_stage`
         checks its own preconditions before its ``UPDATE``.
 
+        ``owning_unit_id`` is checked against the row's own value after the
+        read-back, whether this call's insert won or an earlier call's did:
+        the idempotency key above does not include it, so a second call
+        naming a different unit for the same subject and event is refused
+        rather than silently kept under the first unit — see
+        :class:`ConflictingOwningUnitError`.
+
         Returns:
             ``attendance_record.id`` — freshly inserted by this call, or the
             one an earlier call already wrote for this exact
@@ -84,6 +108,9 @@ class AttendanceRepository:
 
         Raises:
             ValueError: ``method`` is not one of :data:`ATTENDANCE_METHODS`.
+            ConflictingOwningUnitError: a row already exists for this
+                ``(tenant_id, subject_id, event_id)`` under a different
+                ``owning_unit_id``.
             RuntimeError: the read-back after the insert found no row. This
                 should be unreachable — the insert above is either the row
                 that now exists or lost its own ``ON CONFLICT`` to one that
@@ -112,14 +139,16 @@ class AttendanceRepository:
             )
             .on_conflict_do_nothing(constraint="uq_attendance_record_subject_event")
         )
-        raw_record_id = session.execute(
-            sa.select(schema.attendance_record.c.id).where(
+        row = session.execute(
+            sa.select(
+                schema.attendance_record.c.id, schema.attendance_record.c.owning_unit_id
+            ).where(
                 schema.attendance_record.c.tenant_id == tenant_id,
                 schema.attendance_record.c.subject_id == subject_id,
                 schema.attendance_record.c.event_id == event_id,
             )
-        ).scalar_one_or_none()
-        if raw_record_id is None:
+        ).one_or_none()
+        if row is None:
             # Unreachable: the insert above is either the row that now
             # exists or lost an ON CONFLICT to one that does — either way a
             # row must be there. Not asserted — see this method's own
@@ -129,4 +158,10 @@ class AttendanceRepository:
                 f"event {event_id} immediately after an insert targeting that exact key "
                 "— this should be unreachable"
             )
-        return cast(uuid.UUID, raw_record_id)
+        if row.owning_unit_id != owning_unit_id:
+            raise ConflictingOwningUnitError(
+                f"attendance_record {row.id} already exists for tenant {tenant_id}, subject "
+                f"{subject_id}, event {event_id} under owning unit {row.owning_unit_id}, not "
+                f"the {owning_unit_id} this call named"
+            )
+        return cast(uuid.UUID, row.id)
