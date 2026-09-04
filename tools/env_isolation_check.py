@@ -12,8 +12,8 @@ What it asserts, over ``infra/terraform/envs/*/main.tf``:
 
 * **Nothing here can be applied.** Only ``terraform`` and ``locals`` blocks are
   permitted. A ``provider``, ``backend``, ``resource``, ``module``, or ``data``
-  block fails the check — an environment skeleton that can be applied is not a
-  skeleton, and this repository has no credentials and no deployment path.
+  block fails the check — an environment file is a registry of names, not a
+  deployment, and this repository has no credentials and no deployment path.
 * **Every environment declares exactly the same keys.** Without this, the
   disjointness assertion below could be satisfied by *deleting* an identifier,
   which is the one way to make a uniqueness check pass by making the
@@ -31,6 +31,26 @@ What it asserts, over ``infra/terraform/envs/*/main.tf``:
   provider secret at all, and no environment promotes into or out of classroom.
 * **Live data implies gated providers**, and only ``prod`` may hold anything
   other than synthetic data.
+
+And, since F5 added them, over ``infra/terraform/modules/**/*.tf``:
+
+* **No module mints an identifier of its own.** Every variable that names a
+  cloud object is declared without a default, and no module writes a literal
+  name into a resource attribute. A default is one value shared by every
+  caller, so it is the one way two environments can still collide after the
+  registry above has been proven disjoint.
+* **The registry and the composition module name exactly the same things.**
+  Every identifier the environments declare is consumed by ``modules/platform``
+  and every input ``modules/platform`` declares is classified. An input nobody
+  classified could be filled from somewhere nobody checks.
+* **No module carries a provider, a backend, a secret version, a database
+  user, or a service-account credential.** The first two would name a project
+  and a credential; the rest would put a value into Terraform state.
+* **Nothing has been initialized, planned, or applied.** There is no root
+  module, no state, no plan file, no ``.tfvars``, and no lock file anywhere in
+  the tree, and four ``modules/platform`` inputs name things that do not exist
+  yet — no image has been pushed and nothing has ever been deployed — so a
+  plan cannot be produced at all. ``ALLOW_CLOUD_DEPLOY`` remains false.
 
 This parses a deliberately small subset of HCL rather than shelling out to
 ``terraform``: the check must run in CI and on a laptop with no Terraform
@@ -99,6 +119,15 @@ IDENTIFIER_KEYS: tuple[IdentifierKey, ...] = (
     IdentifierKey("task_queue"),
     IdentifierKey("api_service_account"),
     IdentifierKey("worker_service_account"),
+    # Cloud Run service names. Two environments naming one service is the
+    # collision the F5 direction names first, because it is the one a reviewer
+    # is least likely to notice: the services are supposed to look alike.
+    IdentifierKey("api_service"),
+    IdentifierKey("worker_service"),
+    IdentifierKey("scheduler_job"),
+    # A Secret Manager placeholder holding the database URL. A name only — the
+    # modules create no secret version anywhere, which is asserted below.
+    IdentifierKey("database_secret_id"),
     # Classroom holds no provider credential at all (v1.1 §3.3): not an empty
     # one, not an unused one — none, so there is nothing to reach for.
     IdentifierKey("provider_secret_id", null_in=("classroom",)),
@@ -119,9 +148,134 @@ SETTING_KEYS: frozenset[str] = frozenset(
         "data_class",
         "min_instances",
         "max_instances",
+        "database_version",
+        "database_tier",
+        "dispatch_cron",
         "promotion_source",
     }
 )
+
+# ---------------------------------------------------------------------------
+# The module tree
+#
+# The environment files are a registry of names. The modules under
+# `infra/terraform/modules` are what would turn those names into resources. A
+# registry whose names are disjoint is worth nothing if a module can mint a name
+# of its own, so the rules below are the same isolation rule pushed one level
+# down: every name a module gives a cloud object must arrive from the caller.
+# ---------------------------------------------------------------------------
+
+MODULES_ROOT = REPO_ROOT / "infra" / "terraform" / "modules"
+
+#: The composition module — one instance describes one environment's topology.
+PLATFORM_MODULE = "platform"
+
+#: Blocks a module file may contain. `provider` is absent on purpose: a provider
+#: block is where credentials and a project would be named, and no module here
+#: may carry either.
+MODULE_ALLOWED_BLOCKS: frozenset[str] = frozenset(
+    {
+        "terraform",
+        "variable",
+        "output",
+        "locals",
+        "resource",
+        "module",
+        "data",
+    }
+)
+
+#: Resource types no module may declare, and why.
+FORBIDDEN_RESOURCE_TYPES: dict[str, str] = {
+    "google_secret_manager_secret_version": (
+        "a secret version carries the value. A value in Terraform is a value in "
+        "state, and state is a file somebody eventually commits by accident. "
+        "This tree creates secret containers and never contents."
+    ),
+    "google_sql_user": (
+        "a database user resource carries a password, with the same consequence. "
+        "The application credential is supplied out of band."
+    ),
+    "google_service_account_key": (
+        "a long-lived credential this repository must never hold or create."
+    ),
+}
+
+#: Attributes that name a cloud object. Checked only where they are a block's
+#: own attribute, never inside a nested block — `name` on a resource is an
+#: identifier, `name` inside a Cloud Run `env` block is an environment variable.
+NAME_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "name",
+        "name_prefix",
+        "project",
+        "project_id",
+        "secret_id",
+        "queue_name",
+        "job_name",
+        "service_name",
+        "instance",
+        "instance_name",
+        "database_name",
+        "evidence_bucket",
+        "artifact_bucket",
+        "bucket",
+        "service_account",
+        "service_account_email",
+        "runtime_identity",
+        "caller_identity",
+    }
+)
+
+#: Module inputs that name something. None may declare a `default`: a default is
+#: one value shared by every caller, and two environments accepting the same
+#: default share an identifier — which is the collision this whole file exists
+#: to prevent, arriving through the one door the registry cannot see.
+NAME_INPUT_VARIABLES: frozenset[str] = frozenset(
+    {
+        "project_id",
+        "service_name",
+        "instance_name",
+        "database_name",
+        "queue_name",
+        "job_name",
+        "evidence_bucket",
+        "artifact_bucket",
+        "placeholder_ids",
+        "runtime_identity",
+        "caller_identity",
+        "database_url_ref",
+        "container_image",
+        "target_url",
+        "token_audience",
+    }
+    | {entry.name for entry in IDENTIFIER_KEYS}
+)
+
+#: Platform inputs that name something which does not exist yet: no image has
+#: been pushed to any registry, and nothing has ever been deployed, so no URL
+#: exists and no audience exists to bind a token to. None may declare a default,
+#: which is the apply gate — a plan cannot be produced without a human supplying
+#: values nobody can supply today.
+DEPLOY_INPUT_KEYS: frozenset[str] = frozenset(
+    {
+        "api_container_image",
+        "worker_container_image",
+        "worker_base_url",
+        "scheduler_token_audience",
+    }
+)
+
+#: Registry identifiers that are deliberately not module inputs. A release tag
+#: prefix decides which releases an environment may deploy; it names no cloud
+#: object and no module consumes it.
+NON_MODULE_IDENTIFIERS: frozenset[str] = frozenset({"release_tag_prefix"})
+
+#: File names that must never appear under `infra/terraform`. Each is produced
+#: by running something — a plan, an apply, an init — and this tree has had none
+#: of them run against it.
+_ARTIFACT_SUFFIXES: tuple[str, ...] = (".tfstate", ".tfplan", ".tfvars")
+_ARTIFACT_NAMES: frozenset[str] = frozenset({".terraform.lock.hcl"})
 
 #: The token that marks a value as a placeholder rather than a real name.
 PLACEHOLDER_TOKEN = "example"
@@ -152,11 +306,24 @@ class ParseError(ValueError):
 
 @dataclass(frozen=True)
 class Block:
-    """One top-level block of an environment file."""
+    """One top-level block of a Terraform file.
+
+    Attributes:
+        type: The block keyword — ``resource``, ``variable``, ``locals``, …
+        labels: The quoted labels on the header line.
+        body: Every line inside the block, nesting flattened.
+        direct: The subset of ``body`` that are the block's own attributes,
+            excluding anything nested inside a child block. The distinction
+            matters: ``name`` on a resource is a cloud identifier, while
+            ``name`` inside a Cloud Run ``env`` block is an environment
+            variable, and a rule that cannot tell the two apart is a rule
+            somebody eventually switches off.
+    """
 
     type: str
     labels: tuple[str, ...]
     body: tuple[str, ...]
+    direct: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -167,6 +334,15 @@ class Environment:
     path: str
     blocks: tuple[Block, ...]
     values: dict[str, Scalar]
+
+
+@dataclass(frozen=True)
+class ModuleFile:
+    """One parsed ``.tf`` file belonging to a module."""
+
+    module: str
+    path: str
+    blocks: tuple[Block, ...]
 
 
 @dataclass(frozen=True)
@@ -184,6 +360,7 @@ class IsolationReport:
 
     findings: list[Finding] = field(default_factory=list)
     environments: list[str] = field(default_factory=list)
+    modules: list[str] = field(default_factory=list)
     identifiers_checked: int = 0
 
     @property
@@ -242,13 +419,19 @@ def parse_value(raw: str) -> Scalar:
     raise ParseError(f"unsupported value: {raw!r}")
 
 
-def parse_environment_file(name: str, text: str, path: str) -> Environment:
-    """Parse one ``main.tf`` into blocks and ``locals`` values."""
+def parse_blocks(text: str, path: str) -> tuple[Block, ...]:
+    """Split a Terraform file into its top-level blocks.
+
+    Shared by the environment registry and the module tree, so both are read by
+    the same subset of HCL and neither gets a more forgiving parser than the
+    other.
+    """
     blocks: list[Block] = []
     depth = 0
     block_type = ""
     labels: tuple[str, ...] = ()
     body: list[str] = []
+    direct: list[str] = []
 
     for raw_line in strip_comments(text).splitlines():
         line = raw_line.strip()
@@ -261,18 +444,29 @@ def parse_environment_file(name: str, text: str, path: str) -> Environment:
             block_type = match.group(1)
             labels = tuple(re.findall(r'"([^"]*)"', match.group(2)))
             body = []
+            direct = []
             depth = 1
             continue
 
+        if depth == 1 and line and not line.startswith("}"):
+            direct.append(line)
+
         depth += line.count("{") - line.count("}")
         if depth == 0:
-            blocks.append(Block(block_type, labels, tuple(body)))
+            blocks.append(Block(block_type, labels, tuple(body), tuple(direct)))
         else:
             if line:
                 body.append(line)
 
     if depth != 0:
         raise ParseError(f"{path}: unbalanced braces")
+
+    return tuple(blocks)
+
+
+def parse_environment_file(name: str, text: str, path: str) -> Environment:
+    """Parse one ``main.tf`` into blocks and ``locals`` values."""
+    blocks = parse_blocks(text, path)
 
     values: dict[str, Scalar] = {}
     for block in blocks:
@@ -307,6 +501,32 @@ def load_environments(root: Path | None = None) -> dict[str, Environment]:
             directory.name, main.read_text(encoding="utf-8"), relative
         )
     return found
+
+
+def _relative(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def load_modules(root: Path | None = None) -> tuple[ModuleFile, ...]:
+    """Parse every ``.tf`` file under ``infra/terraform/modules``."""
+    modules_root = MODULES_ROOT if root is None else root
+    if not modules_root.exists():
+        return ()
+
+    files: list[ModuleFile] = []
+    for path in sorted(modules_root.rglob("*.tf")):
+        module = path.relative_to(modules_root).parts[0]
+        files.append(
+            ModuleFile(
+                module=module,
+                path=_relative(path),
+                blocks=parse_blocks(path.read_text(encoding="utf-8"), _relative(path)),
+            )
+        )
+    return tuple(files)
 
 
 # ---------------------------------------------------------------------------
@@ -571,9 +791,226 @@ def _check_policy(environments: dict[str, Environment], findings: list[Finding])
             )
 
 
-def check(environments: dict[str, Environment]) -> IsolationReport:
-    """Run every rule over a set of parsed environments."""
-    report = IsolationReport(environments=sorted(environments))
+def _has_default(block: Block) -> bool:
+    """Whether a ``variable`` block declares a default."""
+    return any(re.match(r"^default\s*=", line) for line in block.direct)
+
+
+def _check_modules(files: tuple[ModuleFile, ...], findings: list[Finding]) -> None:
+    """The isolation rule pushed down into the modules that consume the names."""
+    for entry in files:
+        for block in entry.blocks:
+            if block.type not in MODULE_ALLOWED_BLOCKS:
+                findings.append(
+                    Finding(
+                        "module-block",
+                        entry.module,
+                        f"{entry.path}: {block.type!r} block. A module may not "
+                        "configure a provider or a backend: that is where a "
+                        "project and a credential would be named, and this "
+                        "repository holds neither.",
+                    )
+                )
+
+            if block.type == "terraform":
+                for line in block.body:
+                    if re.match(r"^(backend|cloud)\b", line):
+                        findings.append(
+                            Finding(
+                                "state-backend",
+                                entry.module,
+                                f"{entry.path}: {line!r}. A state backend points "
+                                "at real storage and real credentials.",
+                            )
+                        )
+
+            if block.type == "resource" and block.labels:
+                reason = FORBIDDEN_RESOURCE_TYPES.get(block.labels[0])
+                if reason is not None:
+                    findings.append(
+                        Finding(
+                            "forbidden-resource",
+                            entry.module,
+                            f"{entry.path}: {block.labels[0]!r} — {reason}",
+                        )
+                    )
+
+            if block.type == "variable" and block.labels and _has_default(block):
+                name = block.labels[0]
+                if name in NAME_INPUT_VARIABLES:
+                    findings.append(
+                        Finding(
+                            "module-name-default",
+                            entry.module,
+                            f"{entry.path}: variable {name!r} declares a default. "
+                            "A default is one value shared by every caller, so two "
+                            "environments accepting it share an identifier — the "
+                            "collision architecture v1.1 §3.2 forbids, arriving "
+                            "through the one door the environment registry cannot "
+                            "see. Names come from the caller, always.",
+                        )
+                    )
+                elif name in DEPLOY_INPUT_KEYS:
+                    findings.append(
+                        Finding(
+                            "deploy-input-default",
+                            entry.module,
+                            f"{entry.path}: variable {name!r} declares a default. "
+                            "It names something that does not exist — no image has "
+                            "been pushed and nothing has been deployed — and its "
+                            "absence is what stops a plan being produced at all.",
+                        )
+                    )
+
+            if block.type in {"resource", "module"}:
+                for line in block.direct:
+                    match = _ASSIGNMENT.match(line)
+                    if match is None:
+                        continue
+                    attribute, raw = match.group(1), match.group(2)
+                    if attribute not in NAME_ATTRIBUTES:
+                        continue
+                    if raw.startswith('"') and "${" not in raw:
+                        findings.append(
+                            Finding(
+                                "hardcoded-name",
+                                entry.module,
+                                f"{entry.path}: {attribute} = {raw}. A literal name "
+                                "in a module is a name every environment that calls "
+                                "it would share. It has to come from the caller.",
+                            )
+                        )
+
+
+def _check_module_coverage(files: tuple[ModuleFile, ...], findings: list[Finding]) -> None:
+    """The registry and the composition module must name exactly the same things."""
+    declared = {
+        block.labels[0]
+        for entry in files
+        if entry.module == PLATFORM_MODULE
+        for block in entry.blocks
+        if block.type == "variable" and block.labels
+    }
+    if not declared:
+        findings.append(
+            Finding(
+                "missing-platform-module",
+                PLATFORM_MODULE,
+                f"infra/terraform/modules/{PLATFORM_MODULE} declares no variables. "
+                "Without it there is nothing tying the registry's identifiers to "
+                "the modules that would consume them.",
+            )
+        )
+        return
+
+    classified = (
+        {entry.name for entry in IDENTIFIER_KEYS} | set(SETTING_KEYS) | set(DEPLOY_INPUT_KEYS)
+    )
+    unclassified = sorted(declared - classified)
+    if unclassified:
+        findings.append(
+            Finding(
+                "unclassified-module-input",
+                PLATFORM_MODULE,
+                f"{', '.join(unclassified)} is in none of IDENTIFIER_KEYS, "
+                "SETTING_KEYS, or DEPLOY_INPUT_KEYS. An input nobody classified "
+                "can be filled from somewhere nobody checks for uniqueness.",
+            )
+        )
+
+    required = {entry.name for entry in IDENTIFIER_KEYS} - NON_MODULE_IDENTIFIERS
+    orphaned = sorted(required - declared)
+    if orphaned:
+        findings.append(
+            Finding(
+                "orphan-identifier",
+                PLATFORM_MODULE,
+                f"{', '.join(orphaned)} is declared by every environment but "
+                "consumed by no module. An identifier nothing consumes is an "
+                "identifier whose disjointness protects nothing.",
+            )
+        )
+
+    absent = sorted(DEPLOY_INPUT_KEYS - declared)
+    if absent:
+        findings.append(
+            Finding(
+                "missing-deploy-input",
+                PLATFORM_MODULE,
+                f"{', '.join(absent)} is missing. Each names something that does "
+                "not exist yet, and requiring them is what keeps a plan from "
+                "being produced.",
+            )
+        )
+
+
+def _check_layout(root: Path, findings: list[Finding]) -> None:
+    """Nothing here has been planned, applied, or even initialized."""
+    if not root.exists():
+        return
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        name = path.name
+        if name.endswith(".tfvars.example"):
+            continue
+        # `.tfstate.backup` is the one that does not end in a listed suffix, and
+        # it is the copy of state that survives a failed apply.
+        if name in _ARTIFACT_NAMES or name.endswith(_ARTIFACT_SUFFIXES) or ".tfstate." in name:
+            findings.append(
+                Finding(
+                    "apply-artifact",
+                    "tree",
+                    f"{_relative(path)}: this file is produced by running "
+                    "Terraform. Nothing in this tree has been initialized, "
+                    "planned, or applied, and each of these files records "
+                    "resolved values — which is how a real project id first gets "
+                    "written down. .gitignore covers them; a tracked one is a "
+                    "failure regardless.",
+                )
+            )
+
+    for path in sorted(root.glob("*.tf")):
+        findings.append(
+            Finding(
+                "root-module",
+                "tree",
+                f"{_relative(path)}: a root module at the top of the tree. A root "
+                "module is what makes an apply possible; there is deliberately "
+                "none, and ALLOW_CLOUD_DEPLOY remains false.",
+            )
+        )
+
+    envs = root / "envs"
+    if not envs.exists():
+        return
+    for directory in sorted(p for p in envs.iterdir() if p.is_dir()):
+        for path in sorted(p for p in directory.iterdir() if p.is_file()):
+            if path.name == "main.tf":
+                continue
+            findings.append(
+                Finding(
+                    "stray-environment-file",
+                    directory.name,
+                    f"{_relative(path)}: only main.tf is read here, so a second "
+                    "file in an environment directory is configuration this check "
+                    "asserts nothing about — which is the whole way around it.",
+                )
+            )
+
+
+def check(
+    environments: dict[str, Environment],
+    modules: tuple[ModuleFile, ...] | None = None,
+    layout_root: Path | None = None,
+) -> IsolationReport:
+    """Run every rule over a set of parsed environments and modules."""
+    files = load_modules() if modules is None else modules
+    report = IsolationReport(
+        environments=sorted(environments),
+        modules=sorted({entry.module for entry in files}),
+    )
     findings = report.findings
 
     missing = sorted(set(EXPECTED_ENVIRONMENTS) - set(environments))
@@ -608,6 +1045,12 @@ def check(environments: dict[str, Environment]) -> IsolationReport:
 
     _check_disjoint(environments, findings)
     _check_policy(environments, findings)
+    _check_modules(files, findings)
+    _check_module_coverage(files, findings)
+    _check_layout(
+        (REPO_ROOT / "infra" / "terraform") if layout_root is None else layout_root,
+        findings,
+    )
     return report
 
 
@@ -633,6 +1076,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "ok": report.ok,
                     "environments": report.environments,
+                    "modules": report.modules,
                     "identifiers_checked": report.identifiers_checked,
                     "findings": [f.__dict__ for f in report.findings],
                 },
@@ -648,7 +1092,9 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Environment isolation clean: {len(report.environments)} environments "
             f"({', '.join(report.environments)}), "
-            f"{report.identifiers_checked} identifiers, none shared."
+            f"{report.identifiers_checked} identifiers, none shared; "
+            f"{len(report.modules)} modules mint no identifier of their own and "
+            "nothing in the tree can be applied."
         )
 
     return 0 if report.ok else 1

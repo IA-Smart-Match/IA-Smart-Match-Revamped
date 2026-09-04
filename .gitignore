@@ -45,9 +45,16 @@ apps/web/.vite/
 *.tsbuildinfo
 
 # Terraform
+# Nothing under infra/terraform has ever been applied, so none of these has
+# ever existed in this repository. They are ignored so that the first person
+# to run `terraform init` or a plan cannot commit one by accident: state and
+# a plan file both contain resolved values, and a .tfvars is where a real
+# project id would first be written down.
 .terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
+*.tfplan
 *.tfvars
 !*.tfvars.example
 

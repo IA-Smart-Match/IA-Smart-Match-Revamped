@@ -137,9 +137,14 @@ jobs:
         # §3.3. A shared project, database, queue, bucket, service account, or
         # secret is invisible in a diagram and is how a classroom workload
         # reaches production data, so it is asserted rather than reviewed for.
-        # Also fails on anything applyable (a provider, backend, resource,
-        # module, or data block) and on any identifier that is not visibly a
-        # placeholder. Stdlib only — no Terraform, no plugins, no network.
+        # Also fails on anything applyable — a provider or backend block, a
+        # root module, committed state, a plan, a .tfvars, a lock file — and
+        # on any identifier that is not visibly a placeholder. Since F5 it
+        # covers infra/terraform/modules as well: a module variable that
+        # names a cloud object may declare no default, because a default is
+        # one value every caller shares and is the last way two environments
+        # can still collide once the registry is disjoint.
+        # Stdlib only — no Terraform, no plugins, no network.
         # Self-tested in tests/unit/test_env_isolation_check.py.
         run: python tools/env_isolation_check.py
 
