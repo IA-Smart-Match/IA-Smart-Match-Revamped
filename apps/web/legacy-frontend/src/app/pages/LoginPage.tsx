@@ -124,10 +124,10 @@ export function LoginPage() {
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <Link to="/" className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20">
-              IW
+              CBA
             </span>
             <div className="leading-tight">
-              <p className="font-semibold text-foreground">IA West Smart Match</p>
+              <p className="font-semibold text-foreground">CBA Smart Match</p>
               <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">
                 Portal login
               </p>

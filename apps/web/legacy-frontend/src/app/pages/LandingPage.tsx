@@ -93,10 +93,10 @@ export function LandingPage() {
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <Link to="/" className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20">
-              IW
+              CBA
             </span>
             <div className="leading-tight">
-              <p className="font-semibold text-foreground">IA West Smart Match</p>
+              <p className="font-semibold text-foreground">CBA Smart Match</p>
               <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">Coordinator Platform</p>
             </div>
           </Link>
@@ -111,7 +111,7 @@ export function LandingPage() {
           className="mx-auto max-w-5xl px-6 py-16 text-center lg:px-8 lg:py-24"
         >
           <motion.div {...introReveal} className="space-y-8">
-            <span className="public-pill">AI-Driven Volunteer Coordination for IA West</span>
+            <span className="public-pill">AI-Driven Speaker Coordination for CBA</span>
 
             <div className="space-y-6">
               <h1 className="font-[Inter_Tight] text-5xl font-bold leading-[1.08] tracking-tight text-foreground md:text-6xl lg:text-7xl">
@@ -274,7 +274,7 @@ export function LandingPage() {
 
       <footer className="border-t border-border/70 bg-background/80">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-8 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between lg:px-8">
-          <p className="font-medium text-foreground">IA West Smart Match</p>
+          <p className="font-medium text-foreground">CBA Smart Match</p>
         </div>
       </footer>
     </div>

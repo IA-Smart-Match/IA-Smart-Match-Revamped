@@ -272,7 +272,7 @@ export function AgenticOutreachPanel({
                 {emailBody}
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Voice: host school event coordinator inviting the volunteer — not IA West admin or chapter leadership.
+                Voice: host school event coordinator inviting the volunteer — not CBA admin or CBA leadership.
               </p>
             </div>
           )}

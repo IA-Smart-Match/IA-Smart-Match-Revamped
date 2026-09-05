@@ -87,7 +87,7 @@ export function CaliforniaCampusHeatmap() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 bg-slate-50/50 px-6 py-4">
         <div>
           <h4 className="font-[Inter_Tight] text-base font-bold text-slate-900">Regional Footprint</h4>
-          <p className="text-xs text-slate-500">Live campus engagements and chapter events</p>
+          <p className="text-xs text-slate-500">Live campus engagements and CBA events</p>
         </div>
         <div className="flex flex-wrap gap-4">
           {(Object.keys(KIND_STYLES) as CampusKind[]).map((k) => (
@@ -224,7 +224,7 @@ export function CaliforniaCampusHeatmap() {
 
       <div className="bg-slate-50/80 px-6 py-4 text-center border-t border-border/40">
         <p className="text-[11px] font-medium text-slate-400 uppercase tracking-widest">
-          IA West Chapter • Operational Signal Density
+          CBA • Operational Signal Density
         </p>
       </div>
     </div>

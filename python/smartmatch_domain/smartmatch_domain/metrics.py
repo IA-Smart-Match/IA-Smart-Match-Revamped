@@ -52,7 +52,7 @@ __all__ = [
 
 # The ratified in-list programmatic engagement types, copied verbatim from
 # `docs/decisions/p8-opportunities-decision-draft.md` §1 (CLOSED 2026-09-02).
-# This set is non-exhaustive by design: the IA West Coordinator may extend
+# This set is non-exhaustive by design: the CBA coordinator may extend
 # practice through review without treating an unmapped label as an error.
 # Comparison against it must be case-insensitive (see
 # `shape_opportunity_category`), so the set itself is stored lower-cased.
@@ -180,12 +180,12 @@ METRIC_REGISTER: tuple[MetricDefinition, ...] = (
     ),
     MetricDefinition(
         canonical_name="opportunities",
-        display_name="Opportunities",
+        display_name="Speaker Requests",
         definition=(
             "An event row counts toward opportunities when its category is one of the "
             "in-list programmatic engagement types: hackathon, datathon, competition, "
             "guest lecturer event, school event. Rows whose category is out-of-list "
-            "(including raw/unmapped examples) do not count until the IA West Coordinator "
+            "(including raw/unmapped examples) do not count until the CBA coordinator "
             "reviews and either assigns an in-list category or explicitly approves "
             "inclusion. Out-of-list does not mean invalid — the in-list set is "
             "non-exhaustive; coordinators may extend practice through review without "

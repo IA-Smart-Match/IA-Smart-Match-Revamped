@@ -1,5 +1,5 @@
 /**
- * IA West contact — coordinator portal.
+ * CBA contact — coordinator portal.
  *
  * This page used to load outreach *threads* from the legacy `/api/portals/*`
  * backend, which is not part of this repository. That is still true and the
@@ -143,8 +143,8 @@ export function CoordinatorOutreach() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">IA West contact</h1>
-        <p className="text-sm text-muted-foreground">Your outreach conversations with the IA West team.</p>
+        <h1 className="text-2xl font-semibold text-foreground">CBA contact</h1>
+        <p className="text-sm text-muted-foreground">Your outreach conversations with the CBA team.</p>
         <p className="text-xs text-muted-foreground">
           Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
         </p>

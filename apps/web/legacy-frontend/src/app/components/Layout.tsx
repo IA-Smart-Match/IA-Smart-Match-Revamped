@@ -71,8 +71,12 @@ const navigationSections: readonly { label: string; items: readonly NavItem[] }[
   {
     label: "DISCOVER",
     items: [
-      { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
-      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank specialists against open opportunities" },
+      { name: "Speaker Requests", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
+      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank speakers against open speaker requests" },
+      // CBA-TERMINOLOGY owns the wording here; this card owns the `requires`.
+      // The two are orthogonal on purpose: renaming a label must never change
+      // what the product offers, and gating a capability must never depend on
+      // how its entry happens to be spelled.
       {
         name: "Outreach",
         href: "/outreach",
@@ -149,7 +153,7 @@ export function Layout() {
               </div>
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs text-[#5a6472]">IA West Chapter</p>
+                <p className="text-xs text-[#5a6472]">CBA</p>
               </div>
             </div>
             <button
