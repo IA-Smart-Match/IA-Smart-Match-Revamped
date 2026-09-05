@@ -65,13 +65,20 @@ def test_no_classroom_path_can_construct_a_live_client():
 
 
 # ---------------------------------------------------------------------------
-# Live adapters are skeletons and cannot initialize
+# Live adapters cannot initialize
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("edition", [Edition.DEV, Edition.STAGING, Edition.PRODUCTION])
-def test_live_email_adapter_is_not_implemented(edition: Edition):
-    with pytest.raises(ProviderConfigurationError, match="not implemented"):
+def test_live_email_adapter_cannot_initialize_without_a_transport(edition: Edition):
+    """The Resend adapter exists now; nothing connects it.
+
+    This assertion used to read "not implemented", and the rewrite is the
+    point: a credential alone still fails at boot, and the reason it fails
+    changed from "no code" to "no approved tenant" (OQ-002). See
+    ``tests/unit/test_resend_email_adapter.py`` for the adapter itself.
+    """
+    with pytest.raises(ProviderConfigurationError, match="no transport is wired"):
         build_email_provider(edition, api_key="live-key")
 
 
