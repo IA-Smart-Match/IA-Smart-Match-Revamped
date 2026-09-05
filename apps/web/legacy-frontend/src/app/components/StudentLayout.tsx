@@ -91,7 +91,7 @@ export function StudentLayout() {
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  Student Portal
+                  {grant.display_name}
                 </p>
               </div>
             </div>
@@ -167,7 +167,7 @@ export function StudentLayout() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <GraduationCap className="h-5 w-5" />
               </div>
-              <span className="font-semibold text-sidebar-foreground">Student Portal</span>
+              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
             </div>
             <div className="w-6" />
           </div>

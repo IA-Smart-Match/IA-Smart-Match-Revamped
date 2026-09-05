@@ -449,3 +449,124 @@ def test_the_archived_browser_login_shim_is_absent() -> None:
         if "mockLogin" in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"mockLogin resurfaced in: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# CBA role presentation: one label map, and it is never a permission
+#
+# Wave 1 card `CBA-ROLE-PRESENTATION`. Stored `membership.role` strings are
+# unchanged; what changed is what a reader is told they mean. These assertions
+# guard the two ways that can go wrong in a browser: the label map getting a
+# second copy that drifts, and a label leaking into a place where it would
+# look like a power or a choice.
+# ---------------------------------------------------------------------------
+
+#: The frontend mirror of `smartmatch_domain.role_presentation`. The *only*
+#: file allowed to spell a stored role and its visible label together;
+#: `tests/unit/test_role_presentation.py` checks it against the Python map.
+ROLE_LABEL_MODULE = WEB_SRC / "lib" / "roleLabels.ts"
+
+#: The files this track owns, minus the map itself. Scoped to the card's fence
+#: rather than the whole tree on purpose: sibling tracks are rewriting
+#: user-facing copy in pages and `Layout.tsx`, and a persona *word* appearing
+#: in a sentence there is terminology, not a second role table.
+ROLE_LABEL_CONSUMERS = (
+    "lib/principal.ts",
+    "app/components/PortalGate.tsx",
+    "app/components/StudentLayout.tsx",
+    "app/components/CoordinatorPortalLayout.tsx",
+    "app/components/VolunteerPortalLayout.tsx",
+)
+
+#: The visible labels, as literals. Written out rather than imported so that a
+#: label changed in one place and not the other fails here too.
+PERSONA_LABELS = (
+    "Student",
+    "Event Host",
+    "Speaker Connector",
+    "Speaker Connector (administrator)",
+)
+
+
+def test_only_one_frontend_file_maps_a_role_to_a_label() -> None:
+    """No second role table anywhere in the frontend tree.
+
+    A file that names a *stored role string* and a *persona label* together is
+    a role-to-label map, whatever it calls itself. Exactly one file may be
+    that, for `lib/principal.ts`'s reason about the role-to-portal rule: two
+    copies drift, and the browser's copy is the one nobody checks.
+    """
+    offenders = []
+    for path in _web_sources():
+        if path == ROLE_LABEL_MODULE:
+            continue
+        source = _without_block_comments(path.read_text(encoding="utf-8"))
+        names_a_stored_role = any(
+            f'"{role}"' in source for role in ("student", "coordinator", "volunteer", "admin")
+        )
+        names_a_label = any(f'"{label}"' in source for label in PERSONA_LABELS)
+        if names_a_stored_role and names_a_label:
+            offenders.append(_web_relative(path))
+    assert not offenders, (
+        f"{offenders} pair a stored role with a visible label. The map lives in "
+        "lib/roleLabels.ts alone, mirroring smartmatch_domain.role_presentation."
+    )
+
+
+def test_the_role_label_consumers_import_the_map_and_hardcode_nothing() -> None:
+    """This track's own files translate through the map or not at all."""
+    for relative in ROLE_LABEL_CONSUMERS:
+        source = _without_block_comments((WEB_SRC / relative).read_text(encoding="utf-8"))
+        for label in PERSONA_LABELS:
+            assert f'"{label}"' not in source, (
+                f"{relative} hardcodes the persona label {label!r}; import "
+                "visibleRoleLabel from lib/roleLabels.ts instead"
+            )
+
+
+def test_the_role_label_map_grants_nothing_and_routes_nothing() -> None:
+    """The map is a translation table, not a gate and not a router.
+
+    A conditional on a persona inside this module would be a browser-side
+    permission or a browser-side portal rule wearing a label's clothes.
+    """
+    source = _without_block_comments(ROLE_LABEL_MODULE.read_text(encoding="utf-8"))
+    for forbidden in ("fetch(", "sessionStorage", "localStorage", "useNavigate", "Navigate"):
+        assert forbidden not in source, (
+            f"lib/roleLabels.ts references {forbidden!r}: a label map must not "
+            "fetch, store, or route"
+        )
+
+
+def test_the_portal_shells_show_the_server_s_own_portal_name() -> None:
+    """Each shell's header names the portal the server said it granted.
+
+    `GET /v1/me/portals` already carries `display_name` for the portal it
+    granted, so a shell that hardcoded its own title would be a second naming
+    authority — and the one that goes stale the day the map changes.
+    """
+    for relative in (
+        "app/components/StudentLayout.tsx",
+        "app/components/CoordinatorPortalLayout.tsx",
+        "app/components/VolunteerPortalLayout.tsx",
+    ):
+        source = (WEB_SRC / relative).read_text(encoding="utf-8")
+        assert "{grant.display_name}" in source, (
+            f"{relative} does not render the granted portal's server-provided name"
+        )
+        for stale in ("Volunteer Portal", "Event Coordinator Portal", "IA West"):
+            assert stale not in source, f"{relative} still hardcodes {stale!r}"
+
+
+def test_the_login_screen_names_no_role_at_all() -> None:
+    """A persona before sign-in would be a chooser, whatever it was called.
+
+    Roles are assigned in the backend and read after authentication (customer
+    §3). The login page therefore has no business importing the label map or
+    naming a persona, and this pins that the CBA rename did not quietly
+    reintroduce the affordance Fix #7A removed.
+    """
+    source = _without_block_comments(LOGIN_PAGE.read_text(encoding="utf-8"))
+    assert "roleLabels" not in source
+    for label in PERSONA_LABELS:
+        assert label not in source, f"LoginPage names the persona {label!r} before sign-in"

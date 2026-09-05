@@ -87,7 +87,7 @@ export function VolunteerPortalLayout() {
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  Volunteer Portal
+                  {grant.display_name}
                 </p>
               </div>
             </div>
@@ -163,7 +163,7 @@ export function VolunteerPortalLayout() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Briefcase className="h-5 w-5" />
               </div>
-              <span className="font-semibold text-sidebar-foreground">Volunteer Portal</span>
+              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
             </div>
             <div className="w-6" />
           </div>

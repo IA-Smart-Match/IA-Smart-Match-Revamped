@@ -1627,7 +1627,7 @@
             "title": "Default Unit Id"
           },
           "display_name": {
-            "description": "Human-readable name for the portal.",
+            "description": "Human-readable name for the portal, from the single CBA role-presentation map (`smartmatch_domain.role_presentation`). A label only: it names the shell and never widens what the caller may do.",
             "title": "Display Name",
             "type": "string"
           },

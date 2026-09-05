@@ -45,7 +45,9 @@ import pytest
 from smartmatch_api import job_authz
 from smartmatch_api.routers import imports as imports_router
 from smartmatch_api.routers import me as me_router
+from smartmatch_api.routers import portals as portals_router
 from smartmatch_api.routers import review as review_router
+from smartmatch_domain import role_presentation
 
 #: The three role sets every gated route in this ledger currently reads from,
 #: written as literals rather than as ``job_authz.JOB_OVERSIGHT_ROLES`` /
@@ -74,6 +76,17 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("POST", "/v1/units/{unit_id}/imports"): _IMPORT,
     ("POST", "/v1/review-items/{review_item_id}/decision"): _REVIEW,
     ("GET", "/v1/me"): None,
+    ("GET", "/v1/me/portals"): None,
+}
+
+#: The auth-only routes, and where each one's handler lives.
+#: :func:`test_an_auth_only_route_calls_no_authorizer` walks this rather than
+#: hard-coding the single route that used to be the only ``None`` row — the
+#: extension that test asked for in so many words when it said "extend the
+#: lookup below rather than skip the check".
+_AUTH_ONLY_HANDLERS: dict[tuple[str, str], tuple[object, str]] = {
+    ("GET", "/v1/me"): (me_router, "get_me"),
+    ("GET", "/v1/me/portals"): (portals_router, "get_my_portals"),
 }
 
 
@@ -152,18 +165,20 @@ def test_an_auth_only_route_calls_no_authorizer(method: str, path: str) -> None:
     exists to catch, in the direction of a route *gaining* a gate rather than
     changing one it already had.
     """
-    assert (method, path) == ("GET", "/v1/me"), (
+    located = _AUTH_ONLY_HANDLERS.get((method, path))
+    assert located is not None, (
         f"an auth-only route was added to the ledger ({method} {path}) that this "
-        f"test does not know how to locate the handler for; extend the lookup "
-        f"below rather than skip the check"
+        f"test does not know how to locate the handler for; extend "
+        f"_AUTH_ONLY_HANDLERS rather than skip the check"
     )
+    module, handler_name = located
 
-    source = inspect.getsource(me_router)
+    source = inspect.getsource(module)
     tree = ast.parse(source)
     handler = next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_me"
+        if isinstance(node, ast.FunctionDef) and node.name == handler_name
     )
     calls = {
         child.func.id
@@ -193,4 +208,53 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("POST", "/v1/units/{unit_id}/imports"),
         ("POST", "/v1/review-items/{review_item_id}/decision"),
         ("GET", "/v1/me"),
+        ("GET", "/v1/me/portals"),
     }
+
+
+# ---------------------------------------------------------------------------
+# CBA role presentation: regression only, no new powers
+#
+# Wave 1 card `CBA-ROLE-PRESENTATION` renames what roles are *called*. These
+# assertions exist so that rename can be reviewed as what it claims to be: the
+# role sets above are untouched, and nothing a user reads is a value any of
+# them would accept.
+# ---------------------------------------------------------------------------
+
+
+def test_every_gated_role_set_holds_only_stored_role_strings() -> None:
+    """No authorizer gates on a persona, a label, or anything a screen shows.
+
+    ``smartmatch_domain.role_presentation`` translates stored roles for the
+    reader; this pins that the translation stayed on the reader's side of the
+    line. A persona value or visible label appearing in a ``required_roles``
+    set would mean renaming a persona could change who gets in.
+    """
+    stored_roles = set(role_presentation.KNOWN_ROLES)
+    visible = {
+        role_presentation.presentation_for_role(role).role_label
+        for role in role_presentation.KNOWN_ROLES
+    }
+    personas = {persona.value for persona in role_presentation.Persona}
+
+    for key, roles in ROUTE_ROLE_LEDGER.items():
+        if roles is None:
+            continue
+        assert roles <= stored_roles, (
+            f"{key} gates on {sorted(set(roles) - stored_roles)}, which is not a "
+            f"stored membership.role string"
+        )
+        assert not (set(roles) & visible), f"{key} gates on a visible label"
+        assert not (set(roles) & personas), f"{key} gates on a persona"
+
+
+def test_the_presentation_map_covers_the_roles_the_ledger_gates_on() -> None:
+    """Every role that can open a door has a name a reader can be given.
+
+    Not a permission claim in either direction: it only means no gated role is
+    left nameless in the UI, which is how a refusal ends up shown to somebody
+    as a raw database string.
+    """
+    gated = {role for roles in ROUTE_ROLE_LEDGER.values() if roles for role in roles}
+    unnamed = sorted(role for role in gated if role_presentation.visible_role_label(role) is None)
+    assert not unnamed, f"gated roles with no visible label: {unnamed}"

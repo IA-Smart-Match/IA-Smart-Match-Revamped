@@ -19,7 +19,7 @@ import { principalDisplayName, principalInitials } from "../../lib/principal";
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
-  { name: "IA West Contact", href: "/coordinator-portal/outreach", icon: Mail },
+  { name: "CBA Contact", href: "/coordinator-portal/outreach", icon: Mail },
   { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 
@@ -89,7 +89,7 @@ export function CoordinatorPortalLayout() {
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  Event Coordinator Portal
+                  {grant.display_name}
                 </p>
               </div>
             </div>
@@ -165,7 +165,7 @@ export function CoordinatorPortalLayout() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Building className="h-5 w-5" />
               </div>
-              <span className="font-semibold text-sidebar-foreground">Event Coordinator Portal</span>
+              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
             </div>
             <div className="w-6" />
           </div>
