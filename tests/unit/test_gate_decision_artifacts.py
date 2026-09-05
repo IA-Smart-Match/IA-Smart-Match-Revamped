@@ -9,11 +9,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 G1_PACKET = REPO_ROOT / "docs/plans/workshops/g1-factor-registry-workshop-packet.md"
 G3_THREAT_MODEL = REPO_ROOT / "docs/security/crawler-threat-model-draft.md"
 D6_WORKSHEET = REPO_ROOT / "docs/pilot-data/rewards-catalog-worksheet.md"
+CBA_SCORING_ADR = REPO_ROOT / "docs/architecture/decisions/ADR-0016-cba-scoring-policy.md"
+
+#: OQ-CBA-004's named owner, and the reason every approval assertion about
+#: ADR-0016 is expected to fail. Duplicated deliberately from
+#: ``tests/unit/test_cba_scoring_decision_artifact.py``: that file is the
+#: artifact's own completeness suite, this one is the register of *gates*, and a
+#: gate whose reason string lived in another module would be a gate whose
+#: justification a reader has to go and find.
+OQ_CBA_004_OWNER = "Danny Tran"
+OQ_CBA_004_PENDING = (
+    "OQ-CBA-004 is open: ADR-0016 (CBA scoring policy) is Proposed and its named "
+    f"owner ({OQ_CBA_004_OWNER}, Development Lead / program owner of record) has "
+    "not decided. Remove this marker in the same change that records the approval."
+)
 
 
 def test_g1_packet_remains_unapproved_prep() -> None:
@@ -95,3 +111,68 @@ def test_d6_worksheet_names_required_catalog_and_calibration_fields() -> None:
     )
     for phrase in required_phrases:
         assert phrase in lowered, f"D6 worksheet missing required field: {phrase!r}"
+
+
+def test_cba_scoring_adr_remains_an_undecided_proposal() -> None:
+    """ADR-0016 must not read as ratified while OQ-CBA-004 is open.
+
+    The failure this catches is the one the whole file guards against in the
+    other three packets: a decision document that acquires the *voice* of an
+    approval — "the neutral value is 0.5", "the virtual weights are 42.86 /
+    35.71 / 21.43" — without anyone with authority having said so. A proposal
+    that says "Proposed" at the top and then reads as settled underneath is the
+    more dangerous half of that, because the reader who quotes it downstream
+    quotes the body, not the header.
+    """
+    text = CBA_SCORING_ADR.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "**status:** proposed" in lowered
+    assert "not approved" in lowered
+    assert "oq-cba-004" in lowered
+    assert OQ_CBA_004_OWNER.lower() in lowered
+    assert "must not be implemented" in lowered
+
+
+def test_cba_scoring_adr_names_every_field_the_owner_must_decide() -> None:
+    """ADR-0016 must enumerate every field the OQ-CBA-004 owner has to rule on."""
+    lowered = CBA_SCORING_ADR.read_text(encoding="utf-8").lower()
+    required_phrases = (
+        "neutral topic",
+        "policy_neutral",
+        "unknown",
+        "cba_neutral_topic_value",
+        "proximity band",
+        "boundary ownership",
+        "lower-inclusive, upper-exclusive",
+        "virtual",
+        "cba-virtual-1",
+        "proportional renormalization",
+        "serialization",
+        "ui label",
+        "registry_version",
+        "pin policy",
+        "golden case",
+        "program owner of record",
+    )
+    for phrase in required_phrases:
+        assert phrase in lowered, f"ADR-0016 missing required decision field: {phrase!r}"
+
+
+@pytest.mark.xfail(reason=OQ_CBA_004_PENDING, strict=True)
+def test_cba_scoring_adr_is_accepted_with_an_owner_and_a_date() -> None:
+    """The gate itself. Fails while the owner has not decided — correctly.
+
+    ``strict=True`` so this cannot stay quietly red after the decision lands:
+    the moment the status flips and the ``**Decided:**`` line names the owner
+    and a date, the test XPASSes and the suite fails until the marker is
+    removed. That is the point — the marker records an *open* gate, and an
+    open-gate marker outliving its gate is exactly the stale artifact this file
+    exists to prevent.
+    """
+    text = CBA_SCORING_ADR.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "**status:** accepted" in lowered, "ADR-0016 status is not Accepted"
+    assert "**decided:**" in lowered, "ADR-0016 records no decision date"
+    assert OQ_CBA_004_OWNER.lower() in lowered.split("**decided:**", 1)[1][:200], (
+        "ADR-0016's decision line does not name the approving owner"
+    )
