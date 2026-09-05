@@ -1134,6 +1134,66 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two Speaker Request operations (card ``CBA-EVENT-REQUEST``). They do
+    # **not** share one authorizer, unlike the two event reads above, and the
+    # split is the decision rather than an accident of layout.
+    #
+    # ``speaker_request.create`` is customer §12: "Event Hosts should be able
+    # to create a new event / Speaker Request". The Event Host is the stored
+    # ``volunteer`` role — ``smartmatch_domain.role_presentation`` maps it
+    # there, following customer §4's "Volunteer — **Event Host** when
+    # referring to the event-requesting role" — so ``volunteer`` is in this
+    # role set and in no other role set in this file. ``admin`` and
+    # ``coordinator`` are the Speaker Connector persona, which already owns
+    # every other write to an ``event`` row in the same unit
+    # (``review.decide`` decides it, ``pipeline.stage.advance`` moves it,
+    # ``match_run.create`` runs against it); refusing them the creation of one
+    # would not be a narrower policy, it would be an inconsistent one, and §13
+    # makes them the recipients of these requests.
+    #
+    # ``speaker_request.list`` is customer §13: "Speaker Connectors should be
+    # able to view incoming Speaker Requests", and §13 names nobody else. Under
+    # deny-by-default the absence of a permit is a denial rather than an
+    # invitation to guess, so ``volunteer`` is **not** in the read set even
+    # though it is in the write set: no committed artifact says an Event Host
+    # may read the other hosts' requests filed under the same unit, and the
+    # create response hands a host back its own request without needing the
+    # queue (OQ-CBA-011). That asymmetry is exactly why the two operations do
+    # not share an authorizer — one helper taking the role set as an argument
+    # would make one call site the place both are widened from, which is the
+    # rule ``tests/authz/test_route_roles.py`` states in its own words.
+    #
+    # No ``require_membership`` on either: both role sets are non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles
+    # check before the membership question is reached (S-007). No
+    # ``tenant_wide_roles`` on either — the metrics decision's §4 is the only
+    # artifact in this repository that makes anything tenant-wide, it says so
+    # of aggregate reads specifically, and a Speaker Request is a row in one
+    # unit's own catalog.
+    Operation(
+        key="speaker_request.create",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-requests",
+        module="smartmatch_api.routers.speaker_requests",
+        authorizer="_authorize_speaker_request_create",
+        roles_constant="_SPEAKER_REQUEST_CREATE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator", "volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_request.list",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-requests",
+        module="smartmatch_api.routers.speaker_requests",
+        authorizer="_authorize_speaker_request_read",
+        roles_constant="_SPEAKER_REQUEST_READ_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -3655,6 +3715,169 @@ MATRIX: dict[str, dict[str, Cell]] = {
             ),
         ),
     },
+    # The two Speaker Request rows. They differ in exactly one cell —
+    # ``volunteer_at_owning_unit`` — and that cell is the whole of customer
+    # §12 against customer §13. Written out in full rather than derived from
+    # each other for the reason the two ``events`` rows are: the rectangle is
+    # the artifact a reviewer reads, and the day one of them diverges further
+    # the diff has to show which one.
+    "speaker_request.create": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive, and `coordinator` is in this role "
+                "set: the Speaker Connector persona already decides, publishes "
+                "and matches on the same `event` row"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a Speaker Request is filed under the unit that hosts it "
+                "(`event.host_org_unit_id`), and a sibling department's "
+                "coordinator does not cover it — the same scoping "
+                "`events.read` applies to the catalog it lands in"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`admin` is a required role here and the membership is active, "
+                "so the only thing refusing this principal is the path. No "
+                "committed artifact makes a Speaker Request tenant-wide, so "
+                "`_authorize_speaker_request_create` passes no "
+                "`tenant_wide_roles`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, calendar "
+                "and feedback — not the asking. §12 gives creation to the Event "
+                "Host, and the membership here is active at exactly the owning "
+                "unit, so the role is the only thing left that can refuse it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the cell this whole card exists for, and the only permit any "
+                "`volunteer` shape has in this file. Customer §4 maps the "
+                "stored `volunteer` role onto the **Event Host** persona and "
+                "§12 makes the Event Host the person who creates a Speaker "
+                "Request. The permit is not the whole rule the route enforces: "
+                "the body is still held to the two closed taxonomies, to a "
+                "resolved date (ADR-0010 rule 2) and to the virtual/location "
+                "exclusion, and those are facts about a payload rather than "
+                "about a principal, so `evaluate` cannot express them and "
+                "`tests/contract/test_speaker_requests_api.py` asserts them"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "creating a Speaker Request queues no job — it writes the row "
+                "in the request's own transaction — so the actor half of the "
+                "shape is inert and what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "speaker_request.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive, and customer §13 makes viewing "
+                "incoming Speaker Requests a Speaker Connector capability"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="unit scoping is a path question, not a role question",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path — and no "
+                "`tenant_wide_roles`, for the reason the create row gives"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the queue carries every host's request text for the unit, "
+                "which §13 puts in front of a Speaker Connector and nobody "
+                "else; the membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the one cell where this operation is deliberately narrower "
+                "than the create above it. §12 lets an Event Host file a "
+                "request; §13 names only the Speaker Connector as the reader "
+                "of the queue, and reading it would hand one host every other "
+                "host's request under the same unit. Under deny-by-default the "
+                "narrower reading is the only one available — OQ-CBA-011 is "
+                "where the question of a host reading back their own requests "
+                "is recorded rather than answered here"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -3787,6 +4010,15 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_outreach",
         "_authorize_pipeline",
         "_authorize_invite_read",
+        # The eleventh and twelfth names (`routers/speaker_requests.py`), on
+        # the same terms as every one before them: load the unit, then make
+        # exactly this call against that row's path. Two names rather than one
+        # because they are two decisions — customer §12 admits the Event Host
+        # to the create, §13 admits only the Speaker Connector to the queue —
+        # and a shared helper taking the role set as an argument would make one
+        # call site the place both are widened from.
+        "_authorize_speaker_request_create",
+        "_authorize_speaker_request_read",
     ):
         assert_allowed(
             resolved.principal,

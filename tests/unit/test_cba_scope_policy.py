@@ -51,6 +51,11 @@ PRESERVED_UNDER_CBA = frozenset(
     {
         Capability.AUTHENTICATED_LOGIN,
         Capability.EVENT_READS,
+        # Customer §12 (an Event Host files a Speaker Request) and §13 (a
+        # Speaker Connector reads the queue). Enabled under CBA because it is
+        # the CBA workflow's entry point, and under the legacy scope because the
+        # volunteer-opportunity surface it renames was already there.
+        Capability.SPEAKER_REQUEST_INTAKE,
         Capability.MATCH_RUNS,
         Capability.DISCOVERY_METRICS,
         Capability.CONSENTED_OUTREACH,

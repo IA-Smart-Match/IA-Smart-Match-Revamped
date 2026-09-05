@@ -43,6 +43,7 @@ a missing environment variable cannot widen what the system offers.
 |---|:--:|:--:|---|
 | `authenticated_login` | on | on | Customer §3: one standard login, no portal chooser, roles assigned in the backend. |
 | `event_reads` | on | on | Customer §22 preserves event browsing. |
+| `speaker_request_intake` | on | on | Customer §12 (an Event Host files a Speaker Request) and §13 (a Speaker Connector reads the queue). Separate from `event_reads` because it is a write, and from `operator_record_import` because a host stating a new intention is not an operator loading records the institution already holds. |
 | `match_runs` | on | on | Customer §1: matching occurs between records already in the system. |
 | `discovery_metrics` | on | on | Customer §17 keeps the R/Y/G discovery feed and forbids redesigning it merely because the target customer changed. |
 | `consented_outreach` | on | on | Customer §22 preserves the speaker invitation workflow. Consent stays authoritative and is re-checked at delivery. |

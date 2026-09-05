@@ -26,6 +26,10 @@ import {
 const PRESERVED: readonly Capability[] = [
   "authenticated_login",
   "event_reads",
+  // Customer §12 (an Event Host files a Speaker Request) and §13 (a Speaker
+  // Connector reads the queue). Its own capability rather than a share of
+  // `event_reads` because it is a write — see `product_scope.py`.
+  "speaker_request_intake",
   "match_runs",
   "discovery_metrics",
   "consented_outreach",

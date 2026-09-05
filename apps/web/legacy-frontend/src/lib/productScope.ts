@@ -50,6 +50,8 @@ export const CBA_CAPABILITY_POLICY = {
   authenticated_login: true,
   /** Reading the event catalog already in the system (customer §22). */
   event_reads: true,
+  /** An Event Host files a Speaker Request; a Connector reads them (§12, §13). */
+  speaker_request_intake: true,
   /** Match runs over records already entered in the system (customer §1). */
   match_runs: true,
   /** The red/yellow/green discovery feed and its funnel metrics (customer §17). */

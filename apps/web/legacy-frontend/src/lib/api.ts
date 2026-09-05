@@ -2395,3 +2395,95 @@ export async function fetchOutreachSend(unitId: string, sendId: string): Promise
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Speaker Requests (CBA-EVENT-REQUEST, customer §12)
+//
+// One call, and the shape that matters runs through it: **the response is the
+// stored request, not an echo of what was sent.** `submitSpeakerRequest`
+// resolves with the row the server read back after committing — publication
+// status, review status, timestamps and the resolved taxonomy names included —
+// so a caller has something real to render and nothing optimistic to invent.
+//
+// There is deliberately no `Idempotency-Key` here, unlike `submitOutreachSend`
+// above. A Speaker Request has a deterministic identity server-side (ADR-0012:
+// host unit, folded title, resolved date), so a second submission of the same
+// request updates the first rather than filing a duplicate — a stronger promise
+// than a per-attempt key, which only recognises a byte-identical repeat.
+// ---------------------------------------------------------------------------
+
+/** What an Event Host is asking for. Codes come from `lib/cbaTaxonomies.ts`. */
+export interface SpeakerRequestPayload {
+  title: string;
+  /** IANA zone the event happens in, e.g. `America/Los_Angeles`. Never the browser's. */
+  time_zone: string;
+  /** One or more NAICS sector codes (customer §7). */
+  industry_codes: string[];
+  /** One or more CBA role-category codes (customer §8). */
+  role_codes: string[];
+  is_virtual: boolean;
+  /** ISO-8601 instant, e.g. `2026-10-14T19:30:00Z`. Send this or `on_date`. */
+  starts_at?: string;
+  /** ISO-8601 instant. Only alongside `starts_at`, and only when the host stated one. */
+  ends_at?: string;
+  /** Calendar date, e.g. `2026-10-14`, when the hour is not settled. */
+  on_date?: string;
+  description?: string;
+  location_city?: string;
+  location_postal_code?: string;
+}
+
+/** One resolved target of a request, with the name the released taxonomy gives it. */
+export interface SpeakerRequestClassificationView {
+  code: string;
+  display_name: string;
+  taxonomy_version: string;
+}
+
+/** One filed Speaker Request, exactly as the server read it back. */
+export interface SpeakerRequest {
+  unit_id: string;
+  request_id: string;
+  title: string;
+  description: string | null;
+  time: {
+    precision: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    on_date: string | null;
+    time_zone: string | null;
+  };
+  is_virtual: boolean;
+  location_city: string | null;
+  location_postal_code: string | null;
+  industries: SpeakerRequestClassificationView[];
+  roles: SpeakerRequestClassificationView[];
+  publication_status: string;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-requests` — file one request.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed. The
+ * body carries no tenant, host unit or actor and must never gain one: the server
+ * takes all three from the verified bearer token and the path, which is
+ * stakeholder Fix #7 (MM-A01).
+ *
+ * Rejects with `ApiRequestError` on a 4xx, so a caller renders the server's own
+ * refusal — an unreleased taxonomy code, an undated request, a virtual request
+ * carrying a location — rather than a message the browser made up.
+ */
+export async function submitSpeakerRequest(
+  unitId: string,
+  payload: SpeakerRequestPayload,
+): Promise<SpeakerRequest> {
+  return requestJson<SpeakerRequest>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-requests`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
