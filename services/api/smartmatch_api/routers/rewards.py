@@ -187,7 +187,12 @@ _REWARDS_STUDENT_ROLES: Final[frozenset[str]] = frozenset({"student"})
 #: fulfilling a reward is the same kind of consequential act on a student's
 #: record that deciding a review item is, and
 #: ``d6-rewards-budget-decision-record.md`` §2 puts operational administration of
-#: the rewards program with the IA West Coordinator by name.
+#: the rewards program with the coordinator role by name. That record predates
+#: the CBA pivot and names the role in the legacy institution's words; the role
+#: it means is the stored ``coordinator`` below, which CBA presents to a reader
+#: as **Speaker Connector** (``docs/product/cba-role-presentation.md``). The
+#: stored strings in this set are unchanged, and no label may ever be added to
+#: it: authorization is over storage, never over presentation.
 _REDEMPTION_DECISION_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
 #: v1.1 §3.4 pilot default. A redemption request writes one row inside the

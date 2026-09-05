@@ -51,6 +51,10 @@ from smartmatch_providers import FixtureTokenVerifier
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+# The shipped §4 scanner's own rules, applied to response bodies. Importing
+# them keeps one list of retired terms rather than a second one that drifts.
+from tools.scan_cba_terminology import RULES as TERMINOLOGY_RULES
+
 pytestmark = pytest.mark.integration
 
 #: A second department in the same tenant, containing none of the unit the
@@ -786,3 +790,68 @@ def test_the_recorded_bands_are_cited_in_order(rewards_api: Fixture) -> None:
     """
     assert CHEAP_COST < MID_COST < DEAR_COST
     assert rewards_api.get("/rewards", "student").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The CBA pivot — the capability survives it, and so does its vocabulary
+# ---------------------------------------------------------------------------
+
+
+def test_the_whole_reward_path_still_answers_under_the_cba_scope(rewards_api: Fixture) -> None:
+    """Customer §4: "Rewards / points — **Keep**".
+
+    The refinements §25 files under P2 are wording. This walks the four
+    operations end to end so a copy change that had disabled one of them fails
+    here rather than in a demo: catalog, request, own tickets, decision. Each
+    assertion above owns one operation's *semantics*; this owns the fact that
+    all four are still reachable at once.
+    """
+    catalog = rewards_api.get("/rewards", "student")
+    assert catalog.status_code == 200, catalog.text
+    assert catalog.json()["items"], "the catalog answered with nothing to redeem"
+
+    opened = rewards_api.post(
+        "/redemptions", "student", {"item_id": str(rewards_api.items["cheap"])}
+    )
+    assert opened.status_code == 201, opened.text
+
+    tickets = rewards_api.get("/redemptions", "student")
+    assert tickets.status_code == 200, tickets.text
+    assert [t["redemption_id"] for t in tickets.json()["redemptions"]] == [
+        opened.json()["redemption_id"]
+    ]
+
+    decided = rewards_api.post(
+        f"/redemptions/{opened.json()['redemption_id']}/decision",
+        "coordinator",
+        {"decision": "approved"},
+    )
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["state"] == "approved"
+
+
+def test_no_server_written_string_in_the_response_carries_a_retired_term(
+    rewards_api: Fixture,
+) -> None:
+    """§4's vocabulary, checked where the strings actually reach a student.
+
+    ``tests/unit/test_cba_rewards_copy.py`` reads the page's own copy; this
+    reads what the *server* puts on the wire for that page to render — the
+    balance's ``unknown_reason`` most of all, which is prose composed in
+    ``routers/rewards.py`` rather than anything a client wrote.
+
+    Item names here are this file's own fixtures, named ``Synthetic ... reward``
+    and matching no rule, so a finding is the server's and not the fixture's.
+    """
+    payloads = [
+        rewards_api.get("/rewards", "student").text,
+        rewards_api.get("/rewards", "uncredited_student").text,
+        rewards_api.get("/redemptions", "student").text,
+    ]
+    offenders = [
+        (rule.code, payload)
+        for rule in TERMINOLOGY_RULES
+        for payload in payloads
+        if rule.regex.search(payload)
+    ]
+    assert offenders == []

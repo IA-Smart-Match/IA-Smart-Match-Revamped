@@ -27,13 +27,25 @@ import { Button } from "../../components/ui/button";
 import { Progress } from "../../components/ui/progress";
 import { useRewards } from "../../hooks/useRewards";
 import type { Redemption, RewardCatalogItem } from "../../../lib/api";
+import { ROLE_PRESENTATION } from "../../../lib/roleLabels";
+
+/**
+ * Who reviews a redemption, in the vocabulary the rest of CBA uses.
+ *
+ * The decision roles are the stored `coordinator` and `admin`
+ * (`routers/rewards.py::_REDEMPTION_DECISION_ROLES`), and both present as the
+ * Speaker Connector persona — so this reads the label out of the one map
+ * (`docs/product/cba-role-presentation.md`) instead of spelling a persona a
+ * fourth time. Nothing stored changes; only what a student is told.
+ */
+const REVIEWER_LABEL = ROLE_PRESENTATION.coordinator.roleLabel;
 
 /** How a ticket's state reads to the student who owns it. */
 const REDEMPTION_STATE_LABELS: Record<Redemption["state"], string> = {
-  requested: "Requested — awaiting coordinator review",
+  requested: `Requested — awaiting ${REVIEWER_LABEL} review`,
   approved: "Approved — awaiting fulfilment",
   fulfilled: "Fulfilled",
-  denied: "Declined by your coordinator",
+  denied: `Declined by your ${REVIEWER_LABEL}`,
   expired: "Expired",
 };
 
@@ -224,9 +236,14 @@ export function StudentRewards() {
             <h1 className="text-2xl font-semibold text-foreground">
               Rewards &amp; professional development
             </h1>
+            {/* What the server actually checked, said in those words: a named
+                `budget_owner_id` and `funded IS TRUE` on the row. D6 §3 records
+                the programme's ceiling as a $5,000 placeholder "explicitly not
+                a ratified figure", so "confirmed funding" would promise an
+                institutional fact this page cannot see. */}
             <p className="mt-1 max-w-2xl text-muted-foreground">
-              Every reward below has a named budget owner and confirmed funding. Redemptions are
-              reviewed by your coordinator before anything is handed over.
+              Every reward below has a named budget owner and is recorded as funded. Redemptions are
+              reviewed by a {REVIEWER_LABEL} before anything is handed over.
             </p>
             {balance.state === "unknown" ? (
               <p className="mt-3 text-sm text-foreground">
@@ -261,8 +278,8 @@ export function StudentRewards() {
 
       {catalog.items.length === 0 ? (
         <div className="rounded-2xl border border-border/70 bg-card p-8 text-center text-sm text-muted-foreground">
-          No reward currently has both a named budget owner and confirmed funding, so there is
-          nothing to show. This is the catalog being honest, not empty by accident.
+          No reward currently has both a named budget owner and a funded record, so there is nothing
+          to show. This is the catalog being honest, not empty by accident.
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

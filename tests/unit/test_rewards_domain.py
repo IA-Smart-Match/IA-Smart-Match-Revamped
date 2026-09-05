@@ -33,8 +33,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
+from smartmatch_domain import rewards
 from smartmatch_domain.rewards import (
     CALIBRATION_N_TENTATIVE,
     D7_TENTATIVE_POINT_BANDS,
@@ -661,3 +663,49 @@ def test_transition_returns_a_new_value_and_leaves_the_original_alone():
     assert approved.redemption_id == opened.redemption_id
     assert approved.points_cost_snapshot == opened.points_cost_snapshot
     assert approved.transition(RedemptionState.FULFILLED).is_terminal is True
+
+
+# ---------------------------------------------------------------------------
+# The CBA P2 refinement pass — what it is not allowed to have changed
+# ---------------------------------------------------------------------------
+
+
+def test_the_cba_refinement_introduced_no_new_point_value():
+    """Customer §25 files rewards work as a *refinement*, not a new economy.
+
+    Every number in this module is a transcription of a recorded decision:
+    ``docs/decisions/pilot-decisions.md`` §D7 for the bands and the earn rate,
+    and the calibration ``N`` beside them. A wording pass that added a constant
+    here would be inventing an economy under cover of copy, which is exactly
+    what the CBA rewards card forbids — so the *set* of numbers the module
+    publishes is pinned, not only the values of the ones already known.
+
+    ``test_d7_numbers_match_the_recorded_decision`` pins what those numbers
+    *are*. This pins that there are no others.
+    """
+    published_numbers = {
+        name
+        for name in dir(rewards)
+        if not name.startswith("_")
+        and isinstance(getattr(rewards, name), (int, tuple))
+        and not isinstance(getattr(rewards, name), bool)
+    }
+    assert published_numbers == {
+        "CALIBRATION_N_TENTATIVE",
+        "D7_TENTATIVE_POINT_BANDS",
+        "POINTS_PER_VERIFIED_ATTENDANCE",
+    }
+
+
+def test_the_domain_publishes_no_role_label_or_institutional_name():
+    """A persona is presentation; this layer decides economics and nothing else.
+
+    ``docs/product/cba-role-presentation.md`` keeps one map of what a stored
+    role is called, and a second spelling of "Speaker Connector" reached from
+    the rewards domain would be a second map. The domain also holds no
+    institutional name to have to re-brand: §4's rename cannot reach a module
+    that never named the institution.
+    """
+    source = Path(rewards.__file__).read_text(encoding="utf-8")
+    for forbidden in ("Speaker Connector", "Event Host", "IA West", "Insights Association"):
+        assert forbidden not in source, f"{forbidden!r} belongs to presentation, not the domain"
