@@ -272,3 +272,71 @@ class TestUrlShapeFindings:
         row = {"Category": "Outreach", "Public URL": "http://example.edu/x"}
         normalized = _normalize_row(row, withhold=())
         assert normalized["public_url"] == "http://example.edu/x"
+
+
+class TestCbaContactColumns:
+    """Customer §18's contact fields ride the wiring P9 already built.
+
+    CBA-IMPORT-CONTRACT added columns to ``columns.yaml`` and no code. These
+    tests are the check on that claim: the handler helpers written for Gate A
+    and Gate B carry the new columns unchanged, and the one field behind an
+    open gate is withheld by exactly the mechanism Gate B's fields used while
+    Gate B was open.
+    """
+
+    def test_a_cba_row_survives_normalization_except_the_withheld_column(
+        self, professionals
+    ) -> None:
+        row = {
+            "Name": "A. Rivera",
+            "Metro Region": "Inland Empire",
+            "Company": "Pomona Ridge Analytics",
+            "Title": "Director of Data Science",
+            "Contact Email": "nobody@example.edu",
+            "Alumni": "Y",
+            "Graduation Year": "2014",
+            "Major": "Finance",
+            "Willingness to Partner with CPP": "Y",
+            "Past Engagement": "Spoke at the 2025 careers panel",
+            "Primary Industry Code": "52",
+            "Primary Role Code": "finance",
+            "Location City": "Pomona",
+            "Location Postal Code": "91768",
+            "Prior Talk": "Careers in analytics, Oct 2025",
+        }
+        normalized = _normalize_row(row, withhold=professionals.withheld_columns)
+
+        assert "contact_email" not in normalized, (
+            "CBA Gate C is open; the address must be dropped before any write"
+        )
+        # Everything else survives. The customer's Title Case headers and the
+        # YAML's snake_case declarations are the same columns after
+        # normalize_header, which is why no alias table was needed.
+        assert normalized["graduation_year"] == "2014"
+        assert normalized["willingness_to_partner_with_cpp"] == "Y"
+        assert normalized["primary_industry_code"] == "52"
+        assert normalized["location_postal_code"] == "91768"
+        assert normalized["prior_talk"] == "Careers in analytics, Oct 2025"
+
+    def test_the_withheld_column_is_reported_not_silently_dropped(self, professionals) -> None:
+        rows = [{"name": "A. Rivera", "contact_email": "nobody@example.edu"}]
+        findings = _gate_pending_findings(professionals, rows)
+        assert [f.code for f in findings] == ["columns_withheld_pending_gate"]
+        assert "CBA Gate C" in findings[0].message
+
+    def test_no_finding_when_the_submission_omits_the_withheld_column(self, professionals) -> None:
+        """A warning about a column nobody sent trains coordinators to skim."""
+        rows = [{"name": "A. Rivera", "metro_region": "Inland Empire", "major": "Finance"}]
+        assert _gate_pending_findings(professionals, rows) == ()
+
+    def test_the_classification_columns_are_carried_verbatim(self, professionals) -> None:
+        """No taxonomy resolution happens at import — that is CBA-IMPORT-CLASSIFY.
+
+        A value outside the released NAICS / CBA role vocabularies is not
+        corrected, rejected, or dropped here; it reaches review exactly as
+        submitted, so the unmapped value survives as input to the next
+        taxonomy revision.
+        """
+        row = {"name": "A. Rivera", "primary_industry_code": "Banking"}
+        normalized = _normalize_row(row, withhold=professionals.withheld_columns)
+        assert normalized["primary_industry_code"] == "Banking"
