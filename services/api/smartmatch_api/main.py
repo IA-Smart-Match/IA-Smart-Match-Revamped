@@ -63,6 +63,7 @@ from smartmatch_api.routers import (
     review,
     rewards,
     speaker_requests,
+    student_events,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -284,6 +285,21 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # makes no network call, holds no credential, and writes into nobody's
     # calendar. See `docs/plans/open-questions/calendar-deferred.md`.
     (calendar.router, Capability.EVENT_READS),
+    # The student's two reads of the same catalog (customer §15, card
+    # `CBA-STUDENT-EVENTS`). `EVENT_READS` again, and for the reason `calendar`
+    # is: this is the same event in a third presentation, behind a different
+    # role, and a product that offers no event reads has nothing for a student
+    # to browse. Its own capability would have implied a deployment could offer
+    # the coordinator catalog and withhold the student one, which is not a
+    # decision any committed artifact makes — customer §22 keeps event reads and
+    # §15 says students are among the readers.
+    #
+    # It is emphatically not a *registration* capability. This card ships no
+    # registration route: `attendance_record` is attendance and ADR-0013 makes
+    # it the only input to points, so a row written at registration time would
+    # credit a student for an event they had not attended. See
+    # `routers/student_events.py` and OQ-CBA-018.
+    (student_events.router, Capability.EVENT_READS),
     # The Speaker Request intake and its queue (customer §§12-13). Its own
     # capability rather than a share of `events`, and the distinction is the
     # direction of the arrow: `events` and `calendar` hand a coordinator what
