@@ -195,6 +195,44 @@ class EventRegistrationRepository:
         ).one_or_none()
         return None if record is None else _row(record)
 
+    def rows_for_events(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        subject_id: uuid.UUID,
+        event_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, RegistrationRow]:
+        """This student's registrations among these events, keyed by event, in one query.
+
+        Restricted to the ids actually being rendered, so a truncated listing
+        does not read registrations it will not show — the same narrowing
+        ``routers/student_events.py``'s attendance lookup performs.
+
+        **Every status is returned, including ``cancelled``**, and the caller
+        narrows. That is the opposite of the obvious design and it is deliberate:
+        a listing has to render "you cancelled this" differently from "you never
+        registered", so a reader that dropped cancelled rows would force the one
+        caller who needs the distinction to issue a second query for the rows the
+        first one deliberately hid. :func:`is_active` is how a caller asks the
+        narrower question, and it is one call rather than a second round trip.
+
+        Keyed by ``event_id`` rather than returned as a list because
+        ``uq_event_registration_subject_event`` makes that key unique for a fixed
+        student — the mapping cannot lose a row, and building it here saves every
+        caller writing the same fold.
+        """
+        if not event_ids:
+            return {}
+        records = session.execute(
+            sa.select(*_REGISTRATION_COLUMNS).where(
+                schema.event_registration.c.tenant_id == tenant_id,
+                schema.event_registration.c.subject_id == subject_id,
+                schema.event_registration.c.event_id.in_(event_ids),
+            )
+        ).all()
+        return {record.event_id: _row(record) for record in records}
+
     def active_event_ids(
         self,
         session: Session,
@@ -203,17 +241,11 @@ class EventRegistrationRepository:
         subject_id: uuid.UUID,
         event_ids: list[uuid.UUID],
     ) -> set[uuid.UUID]:
-        """Which of these events the caller currently holds a place at, in one query.
+        """Which of these events the caller currently holds a place at.
 
-        Restricted to the ids actually being rendered, so a truncated listing
-        does not read registrations it will not show — the same narrowing
-        ``routers/student_events.py::_attended_event_ids`` performs against
-        ``attendance_record``.
-
-        ``cancelled`` rows are excluded here rather than filtered by the caller.
-        A cancelled registration is a fact the table keeps and a place the
-        student does not hold, and returning it would make every caller
-        responsible for remembering the difference.
+        The narrowed form of :meth:`rows_for_events`, filtered in the database
+        rather than in Python because a caller that only wants the set should not
+        pay to transport the cancelled rows it is about to discard.
         """
         if not event_ids:
             return set()

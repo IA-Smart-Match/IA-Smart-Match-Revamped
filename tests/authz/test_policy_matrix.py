@@ -5038,6 +5038,20 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # `tests/contract/test_student_events_api.py`, the same division of
         # labour `_authorize_invite_read` already uses.
         "_authorize_student_event_read",
+        # The fifteenth (`routers/student_events.py` again), on the same terms
+        # with `_STUDENT_REGISTRATION_ROLES`. One name for the two registration
+        # writes, the `_authorize_speaker_contacts` arrangement: registering and
+        # cancelling are one persona managing one thing.
+        #
+        # It is a *separate* name from the read authorizer directly above even
+        # though both sets read `{student}` today, because the read function is
+        # named for what it authorizes and a write routed through it would make
+        # this file's own `authorizer` column say something false. The self-scope
+        # — both routes take `subject_id` from the principal, so a student can
+        # only ever register themselves — is again not a policy decision and
+        # could not be one; it is asserted over HTTP in
+        # `tests/contract/test_student_events_api.py`.
+        "_authorize_student_registration_write",
     ):
         assert_allowed(
             resolved.principal,

@@ -64,18 +64,21 @@ caller can skip it. Neither is load-bearing alone.
 the same role set and the same unit-scoped question ``routers/events.py``
 already answers for the catalog these ids come from.
 
-A ``student`` may download **only an event they are actually attached to**: a
-row in ``attendance_record`` naming them and it. Holding a student membership
-over the unit is not by itself a licence to enumerate its calendar. An event
-with no such row is a ``404`` rather than a ``403`` — the same reasoning
-``load_unit_or_404`` gives for a cross-tenant unit, that a denial distinguished
-from an absence is an existence oracle.
+A ``student`` may download **only an event they are actually attached to**: an
+active row in ``event_registration``, or a row in ``attendance_record``, naming
+them and it. Holding a student membership over the unit is not by itself a
+licence to enumerate its calendar. An event with neither is a ``404`` rather
+than a ``403`` — the same reasoning ``load_unit_or_404`` gives for a
+cross-tenant unit, that a denial distinguished from an absence is an existence
+oracle.
 
-``attendance_record`` is the only link between a student and an event that this
-schema has; there is no registration table, so "their own events" today means
-"events they attended". That is a real limitation of the read, not of the
-authorization, and it is recorded as an open question rather than papered over
-by widening the student's reach to the whole unit catalog.
+Registration is the newer of the two links and the one that makes this route
+useful. Until migration ``0026`` there was no registration table, so "their own
+events" meant "events they attended" — which handed a student their invite only
+after the event had happened, exactly when a calendar entry stops being worth
+having. That was recorded as a limitation of the read rather than papered over
+by widening the student's reach to the whole catalog, and ``0026`` is the card
+that ended it. See :func:`_student_is_attached`.
 """
 
 from __future__ import annotations
@@ -88,6 +91,7 @@ from fastapi import APIRouter, Path, Response, status
 from smartmatch_authz import OrgPath, Resource, assert_allowed, evaluate
 from smartmatch_domain.calendar_invite import ICS_CONTENT_TYPE, build_invite_ics
 from smartmatch_persistence import schema
+from smartmatch_persistence.event_registration import EventRegistrationRepository
 from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession
@@ -113,6 +117,11 @@ _STUDENT_ROLES: Final[frozenset[str]] = frozenset({"student"})
 #: check and the two branches below cannot drift into a state where a role
 #: passes the gate and then matches neither branch.
 _INVITE_ROLES: Final[frozenset[str]] = _COORDINATOR_ROLES | _STUDENT_ROLES
+
+#: Read-only here. This route asks ``event_registration`` one question — is this
+#: student attached to this event — and never writes it; the two write routes
+#: live in ``routers/student_events.py``.
+_registrations = EventRegistrationRepository()
 
 #: The one ``event.time_precision`` an invite can be written from. The other
 #: two values carry no instant — see the module docstring.
@@ -185,17 +194,36 @@ def _authorize_invite_read(
     return evaluate(principal.principal, resource, at=at, required_roles=_COORDINATOR_ROLES).allowed
 
 
-def _student_attended(
+def _student_is_attached(
     session: Session, *, tenant_id: uuid.UUID, subject_id: uuid.UUID, event_id: uuid.UUID
 ) -> bool:
-    """Whether an ``attendance_record`` ties this student to this event.
+    """Whether this student is attached to this event: registered, or recorded at it.
 
-    ``uq_attendance_record_subject_event`` makes the triple unique, so this is
-    a point lookup rather than a count, and ``tenant_id`` is in the query
-    itself rather than applied afterwards — the discipline
+    Both links, since migration ``0026``. Before it there was only
+    ``attendance_record``, and this function was called ``_student_attended``
+    because that was the whole of what "their own events" could mean — a
+    limitation the module docstring recorded as an open question rather than
+    papering over by widening the student's reach to the unit's whole catalog.
+
+    Registration is what closes it, and closing it is the point of registering:
+    an event a student has just taken a place at is exactly the event they want
+    in their calendar, and refusing the invite until they had *attended* it made
+    the download available only after it could no longer help.
+
+    "Registered" means actively registered. A cancelled registration is a row the
+    table keeps and a place the student does not hold, so cancelling withdraws
+    the invite as well as the agenda entry — which is the behaviour that makes
+    cancelling mean something.
+
+    Attendance is checked first and short-circuits: it is the older link and the
+    one a student cannot revoke, so somebody recorded at an event keeps the
+    invite whatever happened to their registration.
+
+    Both lookups are point lookups on a unique triple, and ``tenant_id`` is in
+    each query rather than applied afterwards — the discipline
     ``routers/review.py`` states for its own joins.
     """
-    return (
+    attended = (
         session.execute(
             sa.select(schema.attendance_record.c.id).where(
                 schema.attendance_record.c.tenant_id == tenant_id,
@@ -204,6 +232,11 @@ def _student_attended(
             )
         ).first()
         is not None
+    )
+    if attended:
+        return True
+    return _registrations.is_registered(
+        session, tenant_id=tenant_id, subject_id=subject_id, event_id=event_id
     )
 
 
@@ -280,7 +313,7 @@ def download_event_invite(
     if row is None:
         raise _event_not_found()
 
-    if not reads_whole_unit and not _student_attended(
+    if not reads_whole_unit and not _student_is_attached(
         session,
         tenant_id=principal.tenant_id,
         subject_id=principal.user_id,
