@@ -95,10 +95,13 @@ FORBIDDEN_IN_STUDENT_EVENTS = (
     # events the two reads above it returned.
     "MockStudentCalendar",
     "mockEvents",
-    # B06 — a Register control with no command behind it. There is no
-    # registration table (OQ-CBA-018), so there is nothing for such a button to
-    # call, and a client-side set of "registered" ids would be a claim the server
-    # cannot confirm on the next page load.
+    # B06 — a Register control backed by browser state rather than by a command.
+    # The control itself is now real: migration `0026` gave it a table and two
+    # routes. These three names remain the shape it must never take, because a
+    # client-side set of "registered" ids is a claim the server cannot confirm on
+    # the next page load — which is the defect B06 recorded, rather than the
+    # button that carried it. The page reads `event.registration` out of each
+    # response and re-runs both reads after a write.
     "registeredEventIds",
     "setRegistered",
     "handleRegister",
@@ -192,17 +195,49 @@ class TestThePageRendersServerData:
             assert reader in code, f"the Events page no longer calls {reader}"
 
     def test_the_client_functions_name_the_routes_the_api_serves(self) -> None:
-        """The two paths, spelled in the client exactly as the router registers them.
+        """The paths, spelled in the client exactly as the router registers them.
 
-        ``tests/integration/test_event_registration.py`` asserts the served route
-        set contains these two and no registration path; this asserts the browser
-        asks for the same two, so a rename on either side is caught from both
-        directions.
+        ``tests/unit/test_calendar_invite_wiring.py`` asserts the served student
+        route set; this asserts the browser asks for the same ones, so a rename
+        on either side is caught from both directions.
         """
         client = API_CLIENT.read_text(encoding="utf-8")
 
-        for path in ("/student/events", "/student/agenda"):
+        for path in ("/student/events", "/student/agenda", "/registration"):
             assert path in client, f"lib/api.ts no longer requests {path}"
+
+    def test_the_register_control_calls_the_two_write_functions(self, code: str) -> None:
+        """The button has a command behind it, and it is the server's.
+
+        B06's instruction was "a real idempotent registration command, or the
+        label must say 'View events'". The page took the second option while
+        there was no table; this asserts it took the first once there was.
+        """
+        for writer in ("registerForEvent", "cancelEventRegistration"):
+            assert writer in code, f"the Events page no longer calls {writer}"
+
+    def test_a_write_is_followed_by_a_re_read_rather_than_a_local_flip(self, code: str) -> None:
+        """The "no toast-only success" rule, as a source assertion.
+
+        The card that shipped this page's calendar link removed a toast that
+        reported a calendar entry nobody had made. The register control is the
+        next control that could have made the same mistake, and the property that
+        stops it is that the *only* success signal is the page reloading both
+        reads and rendering what came back.
+
+        ``onChanged`` is that reload, threaded from the page into the card so
+        there is one owner of "what is currently true". A card that set its own
+        "registered" flag would pass every other test here and would be wrong the
+        moment a write failed.
+        """
+        assert "onChanged" in code, (
+            "the Events page no longer re-reads after a registration write; "
+            "without it the control would be reporting its own optimism"
+        )
+        assert "event.registration" in code, (
+            "the Events page no longer reads the server's registration state per "
+            "event, which is the only thing that survives a page reload"
+        )
 
     def test_the_download_link_is_rendered_from_the_servers_own_verdict(self, code: str) -> None:
         """The page reads ``calendar.download_path``; it does not build one.
@@ -238,13 +273,19 @@ class TestTheRemovedDefectsStayRemoved:
             "`docs/plans/frontend-broken-buttons.md` B06/B07/B09 for what it was."
         )
 
-    def test_the_page_claims_attendance_rather_than_registration(self, code: str) -> None:
-        """The wording B06 asked for, held to.
+    def test_the_page_tells_a_registration_and_an_attendance_apart(self, code: str) -> None:
+        """The wording B06 asked for, kept honest now that both states exist.
 
-        "Registered" is a state this deployment cannot produce: the only link
-        between a student and an event is ``attendance_record``, and writing one
-        when somebody signs up would credit them under ADR-0013 for an event they
-        had not attended. So the page says what the row actually means.
+        "Registered" was once a state this deployment could not produce, and the
+        page said "recorded at" because that is what an ``attendance_record``
+        means. Migration ``0026`` added the other state without removing the
+        first: a student can be recorded at an event they never registered for —
+        a coordinator entry, or an imported roster — so the two wordings must
+        both survive and must not be merged into one badge.
+
+        Collapsing them would hide which fact a student is looking at, and only
+        one of the two is theirs to undo.
         """
-        assert "recorded at" in code
+        assert "recorded at" in code, "the attendance wording is gone; it is still a real state"
+        assert "registered for this event" in code, "the page no longer says you registered"
         assert "on_my_agenda" in code

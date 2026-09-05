@@ -63,6 +63,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
 from smartmatch_domain.event_registration import (
@@ -148,7 +149,7 @@ _REGISTRATION_COLUMNS = (
 )
 
 
-def _row(record: sa.Row) -> RegistrationRow:
+def _row(record: sa.Row[Any]) -> RegistrationRow:
     """Build the read model from a row selected through :data:`_REGISTRATION_COLUMNS`."""
     return RegistrationRow(
         id=record.id,
