@@ -46,11 +46,26 @@ And, since F5 added them, over ``infra/terraform/modules/**/*.tf``:
 * **No module carries a provider, a backend, a secret version, a database
   user, or a service-account credential.** The first two would name a project
   and a credential; the rest would put a value into Terraform state.
-* **Nothing has been initialized, planned, or applied.** There is no root
-  module, no state, no plan file, no ``.tfvars``, and no lock file anywhere in
-  the tree, and four ``modules/platform`` inputs name things that do not exist
-  yet — no image has been pushed and nothing has ever been deployed — so a
-  plan cannot be produced at all. ``ALLOW_CLOUD_DEPLOY`` remains false.
+* **Nothing has been initialized, planned, or applied.** There is no state, no
+  plan file, no ``.tfvars``, and no lock file anywhere in the tree, and the four
+  ``modules/platform`` deploy inputs stay defaultless — no image has been pushed
+  and nothing has ever been deployed. ``ALLOW_CLOUD_DEPLOY`` remains false.
+
+And, over ``infra/terraform/envs/<env>/root.tf``, where one exists:
+
+* **Only a listed environment may carry a root module at all.** Classroom does,
+  because it holds no provider credential; ``ROOT_MODULE_ENVIRONMENTS`` is the
+  decision, and an unlisted environment growing one fails.
+* **A root module is plan-only.** No ``provider`` block — so nothing to
+  authenticate as — no ``backend``, no ``resource``, no ``data``, and no
+  ``locals`` that could mint a name the registry never saw. It is exactly one
+  call into ``modules/platform`` by local path, passing every input the module
+  declares, each from ``local.*`` or ``var.*`` and never a literal.
+* **Its deploy inputs cannot hold a real value.** The four names that do not
+  exist yet are supplied here as reserved-namespace placeholders, and each
+  carries a ``validation`` requiring the ``example`` token — so a ``-var`` on
+  the command line cannot slip a real image reference past review either. A
+  plan produced from this root plans a deployment of nothing, to nowhere.
 
 This parses a deliberately small subset of HCL rather than shelling out to
 ``terraform``: the check must run in CI and on a laptop with no Terraform
@@ -271,6 +286,40 @@ DEPLOY_INPUT_KEYS: frozenset[str] = frozenset(
 #: object and no module consumes it.
 NON_MODULE_IDENTIFIERS: frozenset[str] = frozenset({"release_tag_prefix"})
 
+# ---------------------------------------------------------------------------
+# The root module
+#
+# One environment — classroom, and only classroom — carries a caller for
+# `modules/platform` beside its registry, so that `terraform validate` can be
+# run over a composed environment rather than one leaf module at a time. A
+# caller is the thing that makes an apply *conceivable*, so the rules below are
+# what keep it plan-only: no provider to authenticate as, no backend to keep
+# state in, nothing declared that is not a call into the composition module,
+# and every deploy input pinned to a value that is visibly not real.
+#
+# The registry itself is untouched by any of this. `envs/*/main.tf` still holds
+# only `terraform` and `locals`, and `ALLOWED_BLOCKS` above still says so.
+# ---------------------------------------------------------------------------
+
+#: The one file name an environment directory may hold beside `main.tf`.
+ROOT_MODULE_FILE = "root.tf"
+
+#: Environments permitted to carry one. Classroom is the F5 deploy target
+#: (`docs/decisions/f5-deploy-target-note-2026-09-03.md`) and holds no provider
+#: credential at all, which makes it the only environment where a root module
+#: cannot be one credential away from an apply.
+ROOT_MODULE_ENVIRONMENTS: frozenset[str] = frozenset({"classroom"})
+
+#: Blocks a root file may contain. `provider` and `locals` are both absent on
+#: purpose: the first names a project and a credential, and the second would let
+#: the root mint a name the registry never saw. `resource` and `data` are absent
+#: because a root module composes and declares nothing of its own.
+ROOT_ALLOWED_BLOCKS: frozenset[str] = frozenset({"terraform", "variable", "module", "output"})
+
+#: The only module source a root file may name, and it is a local path. A
+#: registry source would fetch code nobody in this repository reviewed.
+PLATFORM_MODULE_SOURCE = "../../modules/platform"
+
 #: File names that must never appear under `infra/terraform`. Each is produced
 #: by running something — a plan, an apply, an init — and this tree has had none
 #: of them run against it.
@@ -346,6 +395,15 @@ class ModuleFile:
 
 
 @dataclass(frozen=True)
+class RootFile:
+    """One parsed ``root.tf`` — an environment's caller for the platform module."""
+
+    environment: str
+    path: str
+    blocks: tuple[Block, ...]
+
+
+@dataclass(frozen=True)
 class Finding:
     """One violation, with the environment and rule that produced it."""
 
@@ -361,6 +419,7 @@ class IsolationReport:
     findings: list[Finding] = field(default_factory=list)
     environments: list[str] = field(default_factory=list)
     modules: list[str] = field(default_factory=list)
+    roots: list[str] = field(default_factory=list)
     identifiers_checked: int = 0
 
     @property
@@ -522,6 +581,27 @@ def load_modules(root: Path | None = None) -> tuple[ModuleFile, ...]:
         files.append(
             ModuleFile(
                 module=module,
+                path=_relative(path),
+                blocks=parse_blocks(path.read_text(encoding="utf-8"), _relative(path)),
+            )
+        )
+    return tuple(files)
+
+
+def load_roots(root: Path | None = None) -> tuple[RootFile, ...]:
+    """Parse every ``root.tf`` under ``infra/terraform/envs``."""
+    envs_root = ENVS_ROOT if root is None else root
+    if not envs_root.exists():
+        return ()
+
+    files: list[RootFile] = []
+    for directory in sorted(p for p in envs_root.iterdir() if p.is_dir()):
+        path = directory / ROOT_MODULE_FILE
+        if not path.exists():
+            continue
+        files.append(
+            RootFile(
+                environment=directory.name,
                 path=_relative(path),
                 blocks=parse_blocks(path.read_text(encoding="utf-8"), _relative(path)),
             )
@@ -944,6 +1024,260 @@ def _check_module_coverage(files: tuple[ModuleFile, ...], findings: list[Finding
         )
 
 
+def _platform_inputs(files: tuple[ModuleFile, ...]) -> set[str]:
+    """Every variable ``modules/platform`` declares."""
+    return {
+        block.labels[0]
+        for entry in files
+        if entry.module == PLATFORM_MODULE
+        for block in entry.blocks
+        if block.type == "variable" and block.labels
+    }
+
+
+def _check_root_variable(entry: RootFile, block: Block, findings: list[Finding]) -> None:
+    """One ``variable`` in a root file: a defaulted, self-evidently fake value."""
+    name = block.labels[0]
+    if name not in DEPLOY_INPUT_KEYS:
+        findings.append(
+            Finding(
+                "root-unclassified-input",
+                entry.environment,
+                f"{entry.path}: variable {name!r} is not one of the deploy inputs "
+                f"({', '.join(sorted(DEPLOY_INPUT_KEYS))}). A root module supplies "
+                "the four values that do not exist yet and nothing else; every "
+                "identifier comes from the registry in main.tf, where it is "
+                "checked for uniqueness.",
+            )
+        )
+        return
+
+    default: Scalar = None
+    found_default = False
+    for line in block.direct:
+        match = _ASSIGNMENT.match(line)
+        if match is None or match.group(1) != "default":
+            continue
+        found_default = True
+        try:
+            default = parse_value(match.group(2))
+        except ParseError:
+            default = match.group(2)
+
+    if not found_default:
+        findings.append(
+            Finding(
+                "root-input-unset",
+                entry.environment,
+                f"{entry.path}: variable {name!r} declares no default, so the only "
+                "way to run a validate here is for somebody to supply a value — "
+                "and the value they would reach for is a real one. The placeholder "
+                "belongs in the file, where review can see it.",
+            )
+        )
+        return
+
+    if not isinstance(default, str) or PLACEHOLDER_TOKEN not in default.lower():
+        findings.append(
+            Finding(
+                "root-input-not-a-placeholder",
+                entry.environment,
+                f"{entry.path}: variable {name!r} defaults to {default!r}, which "
+                f"does not carry the {PLACEHOLDER_TOKEN!r} token. Nothing here is "
+                "deployed, so no image, URL, or audience named here may be one "
+                "that could resolve.",
+            )
+        )
+        return
+
+    host = re.sub(r"^[a-z]+://", "", default.lower()).split("/")[0].split(":")[0]
+    if "." in host and not any(
+        host == domain or host.endswith(domain) for domain in RESERVED_DOMAINS
+    ):
+        findings.append(
+            Finding(
+                "root-input-unreserved-domain",
+                entry.environment,
+                f"{entry.path}: variable {name!r} defaults to {default!r}, whose "
+                f"host {host!r} is not a reserved documentation domain (RFC 2606). "
+                "A resolvable host here is a registry or a service somebody owns.",
+            )
+        )
+
+    if not any(re.match(r"^validation\b", line) for line in block.body):
+        findings.append(
+            Finding(
+                "root-input-unguarded",
+                entry.environment,
+                f"{entry.path}: variable {name!r} declares no validation block. The "
+                "default alone is only a suggestion — a `-var` on the command line "
+                "overrides it silently. The validation is what makes passing a real "
+                "value fail loudly instead.",
+            )
+        )
+        return
+
+    guarded = any(
+        re.match(r"^condition\s*=", line) and PLACEHOLDER_TOKEN in line for line in block.body
+    )
+    if not guarded:
+        findings.append(
+            Finding(
+                "root-input-unguarded",
+                entry.environment,
+                f"{entry.path}: variable {name!r} has a validation that does not "
+                f"require the {PLACEHOLDER_TOKEN!r} token. A validation that accepts "
+                "a real image reference is not the gate it looks like.",
+            )
+        )
+
+
+def _check_root_call(
+    entry: RootFile, block: Block, expected_inputs: set[str], findings: list[Finding]
+) -> None:
+    """The ``module "platform"`` call itself: local source, no name minted here."""
+    if block.labels[:1] != (PLATFORM_MODULE,):
+        findings.append(
+            Finding(
+                "root-foreign-module",
+                entry.environment,
+                f"{entry.path}: module {block.labels!r}. The only module a root "
+                f"file may call is {PLATFORM_MODULE!r}; anything else composes a "
+                "topology nobody reviewed as one.",
+            )
+        )
+        return
+
+    supplied: set[str] = set()
+    source: Scalar = None
+    for line in block.direct:
+        match = _ASSIGNMENT.match(line)
+        if match is None:
+            continue
+        attribute, raw = match.group(1), match.group(2)
+        if attribute == "source":
+            try:
+                source = parse_value(raw)
+            except ParseError:
+                source = raw
+            continue
+        supplied.add(attribute)
+        if raw.startswith('"') or raw.startswith("'"):
+            findings.append(
+                Finding(
+                    "root-literal-input",
+                    entry.environment,
+                    f"{entry.path}: {attribute} = {raw}. A literal at the call site "
+                    "is a name the registry never saw and the disjointness check "
+                    "cannot read. Every input comes from local.* or var.*.",
+                )
+            )
+
+    if source != PLATFORM_MODULE_SOURCE:
+        findings.append(
+            Finding(
+                "root-module-source",
+                entry.environment,
+                f"{entry.path}: source = {source!r}, not {PLATFORM_MODULE_SOURCE!r}. "
+                "A remote or registry source fetches code this repository did not "
+                "review, and the composition module is the only thing a root here "
+                "may compose.",
+            )
+        )
+
+    if not expected_inputs:
+        return
+    missing = sorted(expected_inputs - supplied)
+    unknown = sorted(supplied - expected_inputs)
+    if missing:
+        findings.append(
+            Finding(
+                "root-missing-input",
+                entry.environment,
+                f"{entry.path}: the platform call omits {', '.join(missing)}. An "
+                "omitted input is one Terraform would prompt for or take from a "
+                "default, which is how an unchecked value gets in.",
+            )
+        )
+    if unknown:
+        findings.append(
+            Finding(
+                "root-unknown-input",
+                entry.environment,
+                f"{entry.path}: the platform call passes {', '.join(unknown)}, which "
+                f"modules/{PLATFORM_MODULE} does not declare.",
+            )
+        )
+
+
+def _check_roots(
+    roots: tuple[RootFile, ...], files: tuple[ModuleFile, ...], findings: list[Finding]
+) -> None:
+    """A root module is permitted, in one environment, and only plan-only."""
+    expected_inputs = _platform_inputs(files)
+
+    for entry in roots:
+        if entry.environment not in ROOT_MODULE_ENVIRONMENTS:
+            findings.append(
+                Finding(
+                    "unlisted-root-module",
+                    entry.environment,
+                    f"{entry.path}: {entry.environment} is not in "
+                    "ROOT_MODULE_ENVIRONMENTS in tools/env_isolation_check.py. A "
+                    "root module is what makes an apply conceivable; which "
+                    "environments may hold one is a decision, not a default.",
+                )
+            )
+
+        calls = 0
+        for block in entry.blocks:
+            if block.type not in ROOT_ALLOWED_BLOCKS:
+                findings.append(
+                    Finding(
+                        "root-deployable-block",
+                        entry.environment,
+                        f"{entry.path}: {block.type!r} block. A root file composes "
+                        "the platform module and nothing else — a provider block "
+                        "names the credential an apply would use, and a resource or "
+                        "data block reaches a live project directly. Only "
+                        f"{sorted(ROOT_ALLOWED_BLOCKS)} are permitted, and "
+                        "ALLOW_CLOUD_DEPLOY remains false.",
+                    )
+                )
+                continue
+
+            if block.type == "terraform":
+                for line in block.body:
+                    if re.match(r"^(backend|cloud)\b", line):
+                        findings.append(
+                            Finding(
+                                "state-backend",
+                                entry.environment,
+                                f"{entry.path}: {line!r}. A state backend points at "
+                                "real storage and real credentials; a validate needs "
+                                "none, which is what `-backend=false` means.",
+                            )
+                        )
+
+            if block.type == "variable" and block.labels:
+                _check_root_variable(entry, block, findings)
+
+            if block.type == "module":
+                calls += 1
+                _check_root_call(entry, block, expected_inputs, findings)
+
+        if calls != 1:
+            findings.append(
+                Finding(
+                    "root-call-count",
+                    entry.environment,
+                    f"{entry.path}: {calls} module calls. A root file is exactly one "
+                    f"call into modules/{PLATFORM_MODULE} — the composition is where "
+                    "an environment's topology is reviewed as a whole.",
+                )
+            )
+
+
 def _check_layout(root: Path, findings: list[Finding]) -> None:
     """Nothing here has been planned, applied, or even initialized."""
     if not root.exists():
@@ -989,13 +1323,19 @@ def _check_layout(root: Path, findings: list[Finding]) -> None:
         for path in sorted(p for p in directory.iterdir() if p.is_file()):
             if path.name == "main.tf":
                 continue
+            if path.name == ROOT_MODULE_FILE and directory.name in ROOT_MODULE_ENVIRONMENTS:
+                # Read, and asserted over, by `_check_roots`. The exemption is
+                # by file name and by environment, so a `deploy.tf` — or a
+                # `root.tf` in prod — is still an unasserted file.
+                continue
             findings.append(
                 Finding(
                     "stray-environment-file",
                     directory.name,
-                    f"{_relative(path)}: only main.tf is read here, so a second "
-                    "file in an environment directory is configuration this check "
-                    "asserts nothing about — which is the whole way around it.",
+                    f"{_relative(path)}: only main.tf and, where "
+                    "ROOT_MODULE_ENVIRONMENTS permits it, root.tf are read here, so "
+                    "a third file in an environment directory is configuration this "
+                    "check asserts nothing about — which is the whole way around it.",
                 )
             )
 
@@ -1004,12 +1344,15 @@ def check(
     environments: dict[str, Environment],
     modules: tuple[ModuleFile, ...] | None = None,
     layout_root: Path | None = None,
+    roots: tuple[RootFile, ...] | None = None,
 ) -> IsolationReport:
-    """Run every rule over a set of parsed environments and modules."""
+    """Run every rule over a set of parsed environments, modules, and roots."""
     files = load_modules() if modules is None else modules
+    root_files = load_roots() if roots is None else roots
     report = IsolationReport(
         environments=sorted(environments),
         modules=sorted({entry.module for entry in files}),
+        roots=sorted(entry.environment for entry in root_files),
     )
     findings = report.findings
 
@@ -1047,6 +1390,7 @@ def check(
     _check_policy(environments, findings)
     _check_modules(files, findings)
     _check_module_coverage(files, findings)
+    _check_roots(root_files, files, findings)
     _check_layout(
         (REPO_ROOT / "infra" / "terraform") if layout_root is None else layout_root,
         findings,
@@ -1077,6 +1421,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ok": report.ok,
                     "environments": report.environments,
                     "modules": report.modules,
+                    "roots": report.roots,
                     "identifiers_checked": report.identifiers_checked,
                     "findings": [f.__dict__ for f in report.findings],
                 },
@@ -1093,8 +1438,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Environment isolation clean: {len(report.environments)} environments "
             f"({', '.join(report.environments)}), "
             f"{report.identifiers_checked} identifiers, none shared; "
-            f"{len(report.modules)} modules mint no identifier of their own and "
-            "nothing in the tree can be applied."
+            f"{len(report.modules)} modules mint no identifier of their own; "
+            f"{len(report.roots)} root module(s) "
+            f"({', '.join(report.roots) or 'none'}) compose the platform module "
+            "with placeholder inputs, hold no provider and no backend, and so "
+            "cannot be applied."
         )
 
     return 0 if report.ok else 1

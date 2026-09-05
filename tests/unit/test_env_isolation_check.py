@@ -402,7 +402,9 @@ def _platform(
 
 def _module_codes(*extra: ModuleFile, platform: ModuleFile | None = None) -> set[str]:
     modules = ((platform or _platform()), *extra)
-    report = env_isolation_check.check(_tree(), modules=modules)
+    # No roots: these are the module rules. The root-module rules are exercised
+    # against a synthetic root further down, and against the committed one.
+    report = env_isolation_check.check(_tree(), modules=modules, roots=())
     return {finding.code for finding in report.findings}
 
 
@@ -559,4 +561,240 @@ def test_the_committed_modules_are_clean():
         "storage_buckets",
     }
     report = env_isolation_check.check(env_isolation_check.load_environments(), modules=modules)
+    assert report.ok, "\n".join(f"[{f.code}] {f.message}" for f in report.findings)
+
+
+# ---------------------------------------------------------------------------
+# The classroom root module
+#
+# A root module is the thing that makes an apply conceivable, so a check that
+# merely tolerated one would give up the property the rest of this file exists
+# to hold. The tests below are the negative ones that matter: a provider block,
+# a backend, a literal name at the call site, and a real image reference passed
+# to a deploy input. Each must fail. A gate on the one file that could deploy
+# something, never shown to fail, is `return 0` with extra steps.
+# ---------------------------------------------------------------------------
+
+RootFile = env_isolation_check.RootFile
+
+_DEPLOY_INPUTS = sorted(env_isolation_check.DEPLOY_INPUT_KEYS)
+_IDENTIFIER_INPUTS = sorted(set(_PLATFORM_INPUTS) - set(_DEPLOY_INPUTS))
+
+_PLACEHOLDER_DEFAULTS: dict[str, str] = {
+    "api_container_image": "example.invalid/smartmatch/example-classroom-api:example",
+    "worker_container_image": "example.invalid/smartmatch/example-classroom-worker:example",
+    "worker_base_url": "https://example-smartmatch-classroom-worker.example.invalid",
+    "scheduler_token_audience": (
+        "https://example-smartmatch-classroom-worker.example.invalid/operations/dispatch"
+    ),
+}
+
+
+def _variable_block(
+    name: str,
+    default: str | None = None,
+    validation: bool = True,
+    condition: str | None = None,
+) -> str:
+    """One root `variable`, with whichever part a test wants to break left out."""
+    value = _PLACEHOLDER_DEFAULTS.get(name, "example-placeholder") if default is None else default
+    text = f'variable "{name}" {{\n  type = string\n'
+    if value != "":
+        text += f'  default = "{value}"\n'
+    if validation:
+        guard = condition or f'can(regex("example", var.{name}))'
+        text += (
+            "  validation {\n"
+            f"    condition     = {guard}\n"
+            '    error_message = "placeholders only."\n'
+            "  }\n"
+        )
+    return text + "}\n\n"
+
+
+def _variables_text(**replacements: str) -> str:
+    """Every deploy input, with named ones replaced by a prepared block."""
+    return "".join(replacements.get(name) or _variable_block(name) for name in _DEPLOY_INPUTS)
+
+
+def _call_text(
+    source: str = env_isolation_check.PLATFORM_MODULE_SOURCE,
+    label: str = "platform",
+    omit: str = "",
+    overrides: dict[str, str] | None = None,
+    extra: dict[str, str] | None = None,
+) -> str:
+    """The `module "platform"` block, with any one input altered."""
+    supplied = overrides or {}
+    lines = [f'module "{label}" {{\n', f'  source = "{source}"\n']
+    for name in (*_IDENTIFIER_INPUTS, *_DEPLOY_INPUTS):
+        if name == omit:
+            continue
+        reference = "var" if name in _DEPLOY_INPUTS else "local"
+        lines.append(f"  {name} = {supplied.get(name, f'{reference}.{name}')}\n")
+    for name, value in (extra or {}).items():
+        lines.append(f"  {name} = {value}\n")
+    return "".join(lines) + "}\n"
+
+
+def _root_text(
+    variables: str | None = None,
+    call: str | None = None,
+    terraform: str | None = None,
+    extra: str = "",
+) -> str:
+    """A root file that passes every rule, with any one part replaced."""
+    header = terraform or 'terraform {\n  required_version = ">= 1.6.0"\n}\n\n'
+    body = _variables_text() if variables is None else variables
+    return header + body + (call or _call_text()) + extra
+
+
+def _root(text: str, environment: str = "classroom") -> RootFile:
+    """Parse root source the same way the gate parses the committed tree."""
+    path = f"infra/terraform/envs/{environment}/root.tf"
+    return RootFile(
+        environment=environment,
+        path=path,
+        blocks=env_isolation_check.parse_blocks(text, path),
+    )
+
+
+def _root_codes(*roots: RootFile) -> set[str]:
+    report = env_isolation_check.check(_tree(), modules=(_platform(),), roots=roots)
+    return {finding.code for finding in report.findings}
+
+
+def test_a_valid_root_module_is_clean():
+    """Otherwise every negative test below proves nothing."""
+    assert _root_codes(_root(_root_text())) == set()
+
+
+def test_no_root_module_at_all_is_still_clean():
+    """The root is permitted, not required — three environments carry none."""
+    assert _root_codes() == set()
+
+
+@pytest.mark.parametrize("block_type", ["provider", "resource", "data", "locals"])
+def test_a_block_that_would_make_an_apply_possible_fails(block_type: str):
+    """A provider names the credential; a local would mint an unchecked name."""
+    extra = f'{block_type} "google" {{\n  project = "example-smartmatch-classroom"\n}}\n'
+    assert "root-deployable-block" in _root_codes(_root(_root_text(extra=extra)))
+
+
+def test_a_state_backend_in_a_root_module_fails():
+    terraform = 'terraform {\n  backend "gcs" {\n    bucket = "example-state"\n  }\n}\n\n'
+    assert "state-backend" in _root_codes(_root(_root_text(terraform=terraform)))
+
+
+def test_a_root_module_in_an_unlisted_environment_fails():
+    """Classroom is the F5 target and holds no credential; prod is neither."""
+    assert "unlisted-root-module" in _root_codes(_root(_root_text(), environment="prod"))
+
+
+def test_root_tf_is_exempt_from_the_stray_file_rule_in_classroom_alone(tmp_path: Path):
+    """The exemption is by file name *and* environment, or it is a loophole."""
+    for name in env_isolation_check.EXPECTED_ENVIRONMENTS:
+        directory = tmp_path / "envs" / name
+        directory.mkdir(parents=True)
+        (directory / "main.tf").write_text("", encoding="utf-8")
+        (directory / "root.tf").write_text("", encoding="utf-8")
+
+    findings: list = []
+    env_isolation_check._check_layout(tmp_path, findings)
+    flagged = {f.environment for f in findings if f.code == "stray-environment-file"}
+    assert flagged == set(env_isolation_check.EXPECTED_ENVIRONMENTS) - {"classroom"}
+
+
+def test_a_deploy_tf_beside_a_root_tf_still_fails(tmp_path: Path):
+    directory = tmp_path / "envs" / "classroom"
+    directory.mkdir(parents=True)
+    for name in ("main.tf", "root.tf", "deploy.tf"):
+        (directory / name).write_text("", encoding="utf-8")
+    assert "stray-environment-file" in _layout_codes(tmp_path)
+
+
+def test_a_second_module_call_in_a_root_fails():
+    extra = 'module "second" {\n  source = "../../modules/platform"\n}\n'
+    assert "root-call-count" in _root_codes(_root(_root_text(extra=extra)))
+
+
+def test_a_root_calling_something_other_than_the_platform_module_fails():
+    call = 'module "buckets" {\n  source = "../../modules/storage_buckets"\n}\n'
+    assert "root-foreign-module" in _root_codes(_root(_root_text(call=call)))
+
+
+def test_a_remote_module_source_fails():
+    """A registry source fetches code nobody in this repository reviewed."""
+    call = _call_text(source="example-org/platform/google")
+    assert "root-module-source" in _root_codes(_root(_root_text(call=call)))
+
+
+def test_a_literal_name_at_the_call_site_fails():
+    """The name the registry never saw is the one disjointness cannot check."""
+    call = _call_text(overrides={"project_id": '"example-smartmatch-classroom"'})
+    assert "root-literal-input" in _root_codes(_root(_root_text(call=call)))
+
+
+def test_an_omitted_platform_input_fails():
+    """Terraform would prompt for it, or take a default nobody checked."""
+    call = _call_text(omit="task_queue")
+    assert "root-missing-input" in _root_codes(_root(_root_text(call=call)))
+
+
+def test_an_input_the_platform_module_does_not_declare_fails():
+    call = _call_text(extra={"invented": "local.project_id"})
+    assert "root-unknown-input" in _root_codes(_root(_root_text(call=call)))
+
+
+def test_a_root_variable_that_is_not_a_deploy_input_fails():
+    """Identifiers come from the registry, where uniqueness is asserted."""
+    variables = _variables_text() + _variable_block(
+        "project_id", default="example-smartmatch-classroom"
+    )
+    assert "root-unclassified-input" in _root_codes(_root(_root_text(variables=variables)))
+
+
+@pytest.mark.parametrize("name", sorted(env_isolation_check.DEPLOY_INPUT_KEYS))
+def test_a_real_looking_deploy_input_default_fails(name: str):
+    """The one that matters: a real image reference pasted into the root."""
+    broken = _variable_block(name, default="us-west1-docker.pkg.dev/smartmatch/api:v1")
+    variables = _variables_text(**{name: broken})
+    assert "root-input-not-a-placeholder" in _root_codes(_root(_root_text(variables=variables)))
+
+
+def test_a_placeholder_on_an_unreserved_domain_fails():
+    """`example` in the path is not enough; the host has to be unresolvable."""
+    broken = _variable_block("worker_base_url", default="https://example.smartmatch.io")
+    variables = _variables_text(worker_base_url=broken)
+    assert "root-input-unreserved-domain" in _root_codes(_root(_root_text(variables=variables)))
+
+
+def test_a_deploy_input_with_no_default_fails():
+    """Without one, running a validate means somebody supplying a real value."""
+    variables = _variables_text(worker_base_url=_variable_block("worker_base_url", default=""))
+    assert "root-input-unset" in _root_codes(_root(_root_text(variables=variables)))
+
+
+def test_a_deploy_input_without_a_validation_fails():
+    """A default alone is a suggestion: a `-var` overrides it silently."""
+    broken = _variable_block("api_container_image", validation=False)
+    variables = _variables_text(api_container_image=broken)
+    assert "root-input-unguarded" in _root_codes(_root(_root_text(variables=variables)))
+
+
+def test_a_validation_that_would_accept_a_real_value_fails():
+    broken = _variable_block("api_container_image", condition="length(var.api_container_image) > 0")
+    variables = _variables_text(api_container_image=broken)
+    assert "root-input-unguarded" in _root_codes(_root(_root_text(variables=variables)))
+
+
+def test_the_committed_root_module_is_clean():
+    """The gate, run against the classroom root as it is actually committed."""
+    roots = env_isolation_check.load_roots()
+    assert [entry.environment for entry in roots] == ["classroom"]
+    report = env_isolation_check.check(
+        env_isolation_check.load_environments(),
+        modules=env_isolation_check.load_modules(),
+        roots=roots,
+    )
     assert report.ok, "\n".join(f"[{f.code}] {f.message}" for f in report.findings)
