@@ -84,6 +84,12 @@ _TENANT_SCOPED_TABLES = (
     "delivery_event",
     "outreach_send",
     "outreach_draft",
+    # Migration 0022. Before `contact_channel` and before `user_account`, both
+    # of which it references ON DELETE RESTRICT. Deletable although its rows are
+    # immutable, for `match_run`'s reason: 0022 blocks UPDATE only, because
+    # retention is a separate decision and a table nothing could delete from
+    # would make its tenant undeletable.
+    "contact_channel_transition",
     "contact_channel",
     "suppression_record",
     "job",
