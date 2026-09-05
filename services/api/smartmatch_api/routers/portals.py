@@ -89,6 +89,7 @@ from typing import Final
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from smartmatch_authz import Membership
+from smartmatch_domain.role_presentation import KNOWN_ROLES, portal_display_name_for_role
 from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession
@@ -119,7 +120,13 @@ class PortalDescriptor(BaseModel):
     portal: str = Field(
         description="Stable portal identifier: `student`, `coordinator`, `volunteer`, or `admin`."
     )
-    display_name: str = Field(description="Human-readable name for the portal.")
+    display_name: str = Field(
+        description=(
+            "Human-readable name for the portal, from the single CBA "
+            "role-presentation map (`smartmatch_domain.role_presentation`). A "
+            "label only: it names the shell and never widens what the caller may do."
+        )
+    )
     home_path: str = Field(
         description=(
             "The frontend route this portal's shell is mounted at. Reported by the "
@@ -181,16 +188,38 @@ class MyPortalsResponse(BaseModel):
 #: a portal, which is what makes an unmapped role produce an empty list instead
 #: of a plausible guess. Adding a role to this table is a deliberate act.
 #:
-#: ``admin`` maps to the IA-admin surface, which the frontend mounts on a
+#: This table decides *routing* only — the stable portal id and the path its
+#: shell is mounted at. What each portal is **called** is not here: it comes
+#: from :mod:`smartmatch_domain.role_presentation`, the single CBA
+#: role-presentation map the frontend's label helper mirrors. Splitting them
+#: this way is what stops the wire from naming the same person one thing in a
+#: portal header and another in a sidebar chip.
+#:
+#: ``admin`` maps to the administration surface, which the frontend mounts on a
 #: pathless layout route whose first page is ``/dashboard`` — hence a home path
 #: that is not ``/admin-portal``. The path is reported by the server precisely
 #: so that mismatch lives in one place rather than in every shell.
-_PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str, str]]] = {
-    "student": ("student", "Student portal", "/student-portal"),
-    "coordinator": ("coordinator", "Event coordinator portal", "/coordinator-portal"),
-    "volunteer": ("volunteer", "Volunteer portal", "/volunteer-portal"),
-    "admin": ("admin", "IA West admin", "/dashboard"),
+#:
+#: The keys are the **stored** ``membership.role`` strings, unchanged by the
+#: CBA pivot. A permanent rename is a separate, deferred decision; presenting a
+#: row as "Speaker Connector" while it still says ``coordinator`` is exactly
+#: what the presentation map exists to do.
+_PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str]]] = {
+    "student": ("student", "/student-portal"),
+    "coordinator": ("coordinator", "/coordinator-portal"),
+    "volunteer": ("volunteer", "/volunteer-portal"),
+    "admin": ("admin", "/dashboard"),
 }
+
+if set(_PORTAL_FOR_ROLE) != set(KNOWN_ROLES):  # pragma: no cover - import-time assertion
+    # Routing and presentation must cover the same stored roles. A role with a
+    # portal but no label would be listed with an empty name; a role with a
+    # label but no portal would be a persona the product talks about and never
+    # opens. Either is a silent half-decision, so it fails the import instead.
+    raise RuntimeError(
+        "portal routing and role presentation disagree about the stored roles: "
+        f"{sorted(_PORTAL_FOR_ROLE)} vs {sorted(KNOWN_ROLES)}"
+    )
 
 
 def _descriptor_for(
@@ -210,7 +239,16 @@ def _descriptor_for(
         # result nothing can read.
         return None
 
-    portal, display_name, home_path = mapped
+    portal, home_path = mapped
+    # Never ``None`` here: the import-time check above pins the two tables to
+    # the same stored roles, and this line is only reached for a mapped one.
+    display_name = portal_display_name_for_role(membership.role)
+    if display_name is None:  # pragma: no cover - excluded by the import-time check
+        # Unreachable while the two tables agree, and raised rather than
+        # softened to a placeholder if they somehow do not: a portal listed
+        # under an invented name is the one failure mode this route refuses to
+        # produce.
+        raise RuntimeError(f"no portal display name for stored role {membership.role!r}")
     granted_path = str(membership.granted_path)
     units = [
         PortalUnit(

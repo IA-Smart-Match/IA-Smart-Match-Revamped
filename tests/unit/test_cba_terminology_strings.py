@@ -44,6 +44,8 @@ import re
 import sys
 from pathlib import Path
 
+from smartmatch_domain.role_presentation import portal_display_name_for_role
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
@@ -170,15 +172,25 @@ def test_the_admin_shell_names_cba() -> None:
     assert "CBA" in _read("app/components/Layout.tsx")
 
 
+# A portal's name is no longer a literal in its shell. `CBA-ROLE-PRESENTATION`
+# made the server the single naming authority: each shell renders the
+# `display_name` on the `GET /v1/me/portals` descriptor it was granted, and that
+# string comes from `smartmatch_domain.role_presentation` (mirrored in
+# `lib/roleLabels.ts`). So these two check the name where it is *decided*, and
+# that the shell still renders the granted one — a literal back in the shell
+# would be a second naming authority, and the one that goes stale.
+
+
 def test_the_student_portal_keeps_its_customer_approved_name() -> None:
-    assert "Student Portal" in _read("app/components/StudentLayout.tsx")
+    assert portal_display_name_for_role("student") == "Student Portal"
+    assert "{grant.display_name}" in _read("app/components/StudentLayout.tsx")
 
 
 def test_the_connector_dashboard_is_named() -> None:
-    source = _read("app/components/CoordinatorPortalLayout.tsx")
-    assert "Connector Dashboard" in source, (
+    assert portal_display_name_for_role("coordinator") == "Connector Dashboard", (
         "customer §4: Chapter Admin Dashboard is renamed Connector Dashboard"
     )
+    assert "{grant.display_name}" in _read("app/components/CoordinatorPortalLayout.tsx")
 
 
 def test_speaker_requests_replace_volunteer_opportunities_in_visible_copy() -> None:

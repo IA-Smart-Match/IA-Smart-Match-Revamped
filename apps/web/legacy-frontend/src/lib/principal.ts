@@ -13,6 +13,10 @@ import type {
   MyPortalsResponse,
   PortalDescriptor,
 } from "@/lib/api";
+// Relative, with the extension, like `calendarCoverage.ts`'s import of
+// `./api.ts`: this is a *value* import, so it survives type stripping and has
+// to resolve under `node --test` too, where the `@/` alias does not exist.
+import { visibleRoleLabel } from "./roleLabels.ts";
 
 /** The memberships the server currently counts as in force. */
 export function activeMemberships(me: MeResponse): MembershipResponse[] {
@@ -55,10 +59,25 @@ export function principalOrgUnitLabel(me: MeResponse): string {
   return `${active[0].org_unit_path} +${active.length - 1}`;
 }
 
-/** The server-assigned role(s) in force, or a truthful blank. */
+/**
+ * The server-assigned role(s) in force, named as CBA personas.
+ *
+ * The roles themselves still come from `GET /v1/me` and nowhere else — this
+ * only translates the stored string into what customer §2 calls that person.
+ * The translation is `lib/roleLabels.ts`, the frontend mirror of the single
+ * role-presentation map, so this file holds no role table of its own and no
+ * second copy can drift from it.
+ *
+ * A role the map does not name is shown **as the server spelled it**, not
+ * dropped and not rounded to the nearest persona: the honest answer to "what
+ * did the server assign you" is the string it assigned, and hiding an
+ * unrecognised role would leave a reader unable to see why a portal is closed
+ * to them.
+ */
 export function principalRoleLabel(me: MeResponse): string {
   const roles = Array.from(new Set(activeMemberships(me).map((m) => m.role)));
-  return roles.length > 0 ? roles.join(", ") : "No active role";
+  const labels = Array.from(new Set(roles.map((role) => visibleRoleLabel(role) ?? role)));
+  return labels.length > 0 ? labels.join(", ") : "No active role";
 }
 
 export type PortalKind = "student" | "coordinator" | "volunteer" | "admin";
