@@ -52,15 +52,15 @@ const templates: Template[] = [
     id: 2,
     name: "University Partnership Proposal",
     category: "university",
-    subject: "Partnership Opportunity: Insights Association West Chapter",
+    subject: "Partnership Opportunity: CBA Speaker Network",
     body: "Use this when reaching out to a university point of contact.",
   },
   {
     id: 3,
-    name: "Student Member Welcome",
+    name: "Student Welcome",
     category: "student",
-    subject: "Welcome to Insights Association",
-    body: "Use this for post-event membership follow-up.",
+    subject: "Welcome to CBA",
+    body: "Use this for post-event student follow-up.",
   },
 ];
 
@@ -196,7 +196,7 @@ export function Outreach() {
         selectedEventRow?.["Host / Unit"],
         lastGenerated?.email_data.body,
       );
-      downloadTextFile("ia-west-event.ics", payload.ics_content, "text/calendar");
+      downloadTextFile("cba-event.ics", payload.ics_content, "text/calendar");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to generate ICS file.");
     } finally {
@@ -334,7 +334,7 @@ export function Outreach() {
                   onChange={(event) => setSelectedSpeaker(event.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <optgroup label="IA West Volunteers">
+                  <optgroup label="CBA Speakers">
                     {specialists.map((speaker) => (
                       <option key={speaker.name} value={speaker.name}>
                         {speaker.name}

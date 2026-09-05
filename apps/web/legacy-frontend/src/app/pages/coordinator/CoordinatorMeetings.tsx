@@ -39,7 +39,7 @@ export function CoordinatorMeetings() {
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-foreground">Meetings</h1>
-        <p className="text-sm text-muted-foreground">Meetings booked with the IA West team.</p>
+        <p className="text-sm text-muted-foreground">Meetings booked with the CBA team.</p>
         <p className="text-xs text-muted-foreground">
           Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
         </p>
