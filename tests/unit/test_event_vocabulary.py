@@ -153,3 +153,117 @@ def test_guest_lecture_and_guest_lecturer_are_both_present_and_distinct():
     assert {"guest lecture", "guest lecturer"} <= G3_VOCABULARY.terms
     assert TERM_CONCEPTS["guest lecture"] == "type"
     assert TERM_CONCEPTS["guest lecturer"] == "role"
+
+
+# ---------------------------------------------------------------------------
+# Separation from the CBA career taxonomies (CBA-TAXONOMY)
+# ---------------------------------------------------------------------------
+#
+# `TERM_CONCEPTS` files five terms under the concept `"role"`, and customer §8
+# calls its ten career disciplines "role categories". The two senses of the
+# word are unrelated: a `"role"` term here is the *function a person performs
+# at an event* (`panelist`, `judge`), while a CBA role category is the *career
+# discipline a speaker works in* (`Finance`, `Human Resources`). ADR-0012
+# governs the first, `smartmatch_domain.cba_role_categories` the second, and
+# `docs/plans/2026-09-05-cba-pivot-waves.md` states the rule these tests
+# enforce: "ADR-0012's event type/speaker-function tag vocabulary is not the
+# CBA career-role taxonomy. They remain separate versioned vocabularies."
+#
+# The failure mode this guards is cheap to commit and expensive to undo:
+# storing `Finance` as an event tag, or adding `panelist` to the career
+# taxonomy, would make one column mean two things and quietly widen a closed
+# vocabulary that §6.3's named owner controls.
+
+
+def test_no_career_role_category_is_an_approved_event_tag_term():
+    from smartmatch_domain.cba_role_categories import (
+        ROLE_CATEGORY_CODES,
+        ROLE_CATEGORY_NAMES,
+    )
+
+    folded_names = {normalize_tag_value(name) for name in ROLE_CATEGORY_NAMES}
+    folded_codes = {normalize_tag_value(code) for code in ROLE_CATEGORY_CODES}
+
+    assert folded_names.isdisjoint(G3_VOCABULARY.terms)
+    assert folded_codes.isdisjoint(G3_VOCABULARY.terms)
+
+
+def test_no_naics_sector_is_an_approved_event_tag_term():
+    from smartmatch_domain.naics_sectors import SECTOR_CODES, SECTOR_NAMES
+
+    folded = {normalize_tag_value(value) for value in SECTOR_NAMES + SECTOR_CODES}
+
+    assert folded.isdisjoint(G3_VOCABULARY.terms)
+
+
+def test_a_career_role_category_quarantines_when_offered_as_an_event_tag():
+    from smartmatch_domain.cba_role_categories import ROLE_CATEGORY_NAMES
+
+    for name in ROLE_CATEGORY_NAMES:
+        resolution = resolve_tag(name, G3_VOCABULARY)
+        assert isinstance(resolution, QuarantinedTag), name
+
+
+def test_an_event_tag_term_quarantines_when_offered_as_a_career_role_category():
+    from smartmatch_domain.cba_role_categories import (
+        QuarantinedRoleCategory,
+        resolve_role_category,
+    )
+
+    for term in APPROVED_TERMS:
+        resolution = resolve_role_category(term)
+        assert isinstance(resolution, QuarantinedRoleCategory), term
+
+
+def test_an_event_tag_term_quarantines_when_offered_as_an_industry_sector():
+    from smartmatch_domain.naics_sectors import QuarantinedSector, resolve_sector
+
+    for term in APPROVED_TERMS:
+        resolution = resolve_sector(term)
+        assert isinstance(resolution, QuarantinedSector), term
+
+
+def test_the_three_vocabularies_carry_three_distinct_versions():
+    """Each stamps its own token, so a stored value names the decision it was
+    evaluated against and no consumer can read one version as another."""
+    from smartmatch_domain.cba_role_categories import CBA_ROLE_TAXONOMY_VERSION
+    from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION
+
+    versions = {VOCABULARY_VERSION, CBA_ROLE_TAXONOMY_VERSION, NAICS_TAXONOMY_VERSION}
+    assert len(versions) == 3
+
+
+def test_a_classified_career_role_is_not_a_mapped_event_tag():
+    """Separation held by type, not by discipline: neither resolution type is
+    substitutable for the other, so a career classification cannot reach
+    `matchable_tags` and an event tag cannot reach a career-role column."""
+    from smartmatch_domain.cba_role_categories import (
+        ClassifiedRoleCategory,
+        resolve_role_category,
+    )
+
+    career = resolve_role_category("finance")
+    tag = resolve_tag("panelist", G3_VOCABULARY)
+
+    assert not isinstance(career, MappedTag)
+    assert not isinstance(tag, ClassifiedRoleCategory)
+    assert matchable_tags([career]) == ()  # type: ignore[list-item]
+
+
+def test_the_event_role_concept_and_the_career_role_taxonomy_share_only_a_word():
+    """`TERM_CONCEPTS`'s `"role"` label means speaker *function at an event*.
+    Pinned so a later reader does not repurpose the label as a join key to the
+    career taxonomy."""
+    from smartmatch_domain.cba_role_categories import ROLE_CATEGORY_NAMES
+
+    event_function_terms = {term for term, concept in TERM_CONCEPTS.items() if concept == "role"}
+    career_names = {normalize_tag_value(name) for name in ROLE_CATEGORY_NAMES}
+
+    assert event_function_terms == {
+        "keynote",
+        "panelist",
+        "judge",
+        "mentor",
+        "guest lecturer",
+    }
+    assert event_function_terms.isdisjoint(career_names)
