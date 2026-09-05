@@ -79,6 +79,7 @@ import {
 } from "@/app/components/DiscoveryFeed";
 import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { isCapabilityEnabled } from "@/lib/productScope";
 import {
   AccountableValue,
   MetricDrilldownSheet,
@@ -92,6 +93,20 @@ import { Button } from "@/app/components/ui/button";
 import { useSignOut } from "../hooks/useSession";
 
 const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
+
+/**
+ * Whether this product presents `member_inquiry` as an outcome at all.
+ *
+ * Read from the shared capability policy (`src/lib/productScope.ts`), the same
+ * decision `PipelineFunnelTiles` consults — the headline card and the funnel
+ * tile are one claim wearing two layouts, and gating only the tile would leave
+ * the larger version of the claim on the same screen.
+ *
+ * The metric itself stays registered, read, and stored; what is withheld is the
+ * presentation. Customer §4 and §20 remove chapter membership, so a CBA user has
+ * no outcome this number could describe.
+ */
+const OFFERS_MEMBER_INQUIRY = isCapabilityEnabled("member_inquiry_narrative");
 
 /**
  * Why a per-region member-inquiry count is not shown.
@@ -696,13 +711,17 @@ export function Dashboard() {
       thresholds: null,
       detail: caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME),
     },
-    {
-      icon: Activity,
-      title: "Member inquiry",
-      metric: memberInquiry.metric,
-      thresholds: null,
-      detail: caption(memberInquirySummary, MEMBER_INQUIRY_METRIC_NAME),
-    },
+    ...(OFFERS_MEMBER_INQUIRY
+      ? [
+          {
+            icon: Activity,
+            title: "Member inquiry",
+            metric: memberInquiry.metric,
+            thresholds: null,
+            detail: caption(memberInquirySummary, MEMBER_INQUIRY_METRIC_NAME),
+          },
+        ]
+      : []),
     {
       icon: Sparkles,
       title: "Matching recommendations",
@@ -815,19 +834,21 @@ export function Dashboard() {
           icon={Briefcase}
           iconColor="bg-[#e6effb] text-[#005394]"
         />
-        <MetricCard
-          title="Member Inquiry"
-          value={
-            <AccountableValue
-              metric={memberInquiry.metric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
-          changeType="neutral"
-          icon={TrendingUp}
-          iconColor="bg-[#e6effb] text-[#005394]"
-        />
+        {OFFERS_MEMBER_INQUIRY ? (
+          <MetricCard
+            title="Member Inquiry"
+            value={
+              <AccountableValue
+                metric={memberInquiry.metric}
+                formatNumber={(value) => value.toLocaleString("en-US")}
+              />
+            }
+            change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
+            changeType="neutral"
+            icon={TrendingUp}
+            iconColor="bg-[#e6effb] text-[#005394]"
+          />
+        ) : null}
         <MetricCard
           title="Upcoming Events"
           value={

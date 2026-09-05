@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, type RouteObject } from "react-router";
+import { isCapabilityEnabled, type Capability } from "@/lib/productScope";
 import { Layout } from "./components/Layout";
 import { StudentLayout } from "./components/StudentLayout";
 import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
@@ -87,6 +88,52 @@ function withSuspense(node: ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{node}</Suspense>;
 }
 
+/**
+ * Routes that exist only when this product offers every capability they need.
+ *
+ * Composition asks the shared policy (`src/lib/productScope.ts`, mirroring
+ * `smartmatch_domain.product_scope`) rather than restating a product decision
+ * here. A route the policy has disabled is never handed to the router at all,
+ * so there is no path, no chunk fetch, and nothing for a link to point at.
+ *
+ * Two things this is not:
+ *
+ * - **Not authorization.** An absent route removes a *claim*; anyone can still
+ *   call the API directly, and `/v1` stays deny-by-default and tenant-scoped
+ *   (`smartmatch_authz`). See the policy module's own header.
+ * - **Not deletion.** The page still exists and still compiles; the customer
+ *   put the capability out of scope for this phase (§20), which is a different
+ *   statement from "this code is wrong".
+ *
+ * Every capability must be enabled, not any: a surface that composes two gated
+ * capabilities must not become reachable because a later phase re-opened one.
+ */
+function whenCapable(
+  capabilities: readonly Capability[],
+  ...routes: readonly RouteObject[]
+): RouteObject[] {
+  return capabilities.every(isCapabilityEnabled) ? [...routes] : [];
+}
+
+/**
+ * What the legacy admin `/outreach` page would need in order to be an honest
+ * offer, and why it is two capabilities rather than one.
+ *
+ * The page reaches unknown university contacts through the legacy
+ * `/api/data/*` reads — cold contact of someone who never consented — *and* it
+ * embeds `CrawlerFeed`, the retired external-discovery surface. Customer §20
+ * puts both out of scope for this phase. Naming both here means a later phase
+ * that re-opened only one of them does not silently restore the whole page.
+ *
+ * The preserved outreach path is the coordinator portal's, below: consented
+ * `/v1` sends whose consent is re-checked at delivery. It shares a word with
+ * this page and nothing else, and it is deliberately not gated.
+ */
+const LEGACY_COLD_OUTREACH_CAPABILITIES: readonly Capability[] = [
+  "cold_unknown_contact_outreach",
+  "external_speaker_acquisition",
+];
+
 export const router = createBrowserRouter([
   // Public routes (no sidebar) — kept static: this is the first code an
   // unauthenticated visitor needs, and lazy-loading it would add a fetch
@@ -140,7 +187,10 @@ export const router = createBrowserRouter([
       { path: "ai-matching", element: withSuspense(<AIMatching />) },
       { path: "pipeline", element: withSuspense(<Pipeline />) },
       { path: "calendar", element: withSuspense(<Calendar />) },
-      { path: "outreach", element: withSuspense(<Outreach />) },
+      ...whenCapable(LEGACY_COLD_OUTREACH_CAPABILITIES, {
+        path: "outreach",
+        element: withSuspense(<Outreach />),
+      }),
     ],
   },
 ]);
