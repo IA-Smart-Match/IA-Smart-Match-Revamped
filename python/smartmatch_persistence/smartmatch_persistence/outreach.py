@@ -64,7 +64,9 @@ from smartmatch_persistence import schema
 
 __all__ = [
     "DEFAULT_DRAFT_PAGE_SIZE",
+    "DEFAULT_SEND_PAGE_SIZE",
     "MAX_DRAFT_PAGE_SIZE",
+    "MAX_SEND_PAGE_SIZE",
     "DraftRow",
     "OutreachRepository",
     "RecipientFacts",
@@ -82,6 +84,13 @@ DEFAULT_DRAFT_PAGE_SIZE: Final[int] = 25
 #: route that says how many it returned — never a silently truncated one, which
 #: is the shape ``units_in_subtree`` refuses for the same reason.
 MAX_DRAFT_PAGE_SIZE: Final[int] = 200
+
+#: The send listing's bounds. Deliberately the same two numbers as the draft
+#: listing's rather than a second pair chosen independently: both are a
+#: coordinator's screen over the same unit's outreach, and a reviewer reading
+#: one page size should not have to wonder why the other differs.
+DEFAULT_SEND_PAGE_SIZE: Final[int] = DEFAULT_DRAFT_PAGE_SIZE
+MAX_SEND_PAGE_SIZE: Final[int] = MAX_DRAFT_PAGE_SIZE
 
 
 @dataclass(frozen=True, slots=True)
@@ -519,6 +528,47 @@ class OutreachRepository:
             )
         ).one_or_none()
         return None if row is None else _to_send(row)
+
+    def list_sends(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        limit: int = DEFAULT_SEND_PAGE_SIZE,
+        offset: int = 0,
+    ) -> list[SendRow]:
+        """One unit's send attempts, newest first.
+
+        The listing a coordinator reads after submitting: what was attempted,
+        to whom, and how each attempt ended. ``disposition`` is ``None`` for an
+        attempt still in flight, and a client must render that as in-progress
+        rather than as a failure — the same third state :class:`SendRow`
+        records and :func:`read_send` returns for a single send.
+
+        Delivery events are deliberately **not** joined in. A page of sends
+        would then carry a page of streams, and the projection question ("was
+        it delivered, did they complain") would be answered per row by whatever
+        the list renderer chose — which is exactly the collapse ``read_send``
+        refuses to make for one send. A reader who wants the stream reads the
+        send.
+
+        ``limit`` is clamped here as well as at the route, for
+        :meth:`list_drafts`'s reason: a bound that lives only in a route stops
+        applying the moment a second caller appears.
+        """
+        bounded = max(1, min(limit, MAX_SEND_PAGE_SIZE))
+        rows = session.execute(
+            sa.select(schema.outreach_send)
+            .where(
+                schema.outreach_send.c.tenant_id == tenant_id,
+                schema.outreach_send.c.owning_unit_id == owning_unit_id,
+            )
+            .order_by(schema.outreach_send.c.created_at.desc(), schema.outreach_send.c.id)
+            .limit(bounded)
+            .offset(max(0, offset))
+        ).all()
+        return [_to_send(row) for row in rows]
 
     def resolve_unsubscribe_token(self, session: Session, *, token_hash: str) -> sa.Row[Any] | None:
         """Find the send a token belongs to, across every tenant.

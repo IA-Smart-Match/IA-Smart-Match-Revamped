@@ -117,7 +117,13 @@ class TestContract:
         """The successor to "the only outreach operation is the unsubscribe page".
 
         Pinned as an exact set so that "the contract mentions outreach" cannot
-        quietly come to mean something more than these five.
+        quietly come to mean something more than these eleven.
+
+        Six of them arrived with the contact-channel surface (OQ-004's
+        operational half): the five ``.../outreach/contacts`` operations and the
+        sends listing. They are listed here rather than allowed in by a prefix
+        match, because the value of this assertion is that adding an outreach
+        operation is a deliberate edit to a set somebody reviews.
         """
         tagged = {
             f"{method.upper()} {path}"
@@ -131,7 +137,13 @@ class TestContract:
             "POST /v1/units/{unit_id}/outreach/drafts",
             "GET /v1/units/{unit_id}/outreach/drafts",
             "POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send",
+            "GET /v1/units/{unit_id}/outreach/sends",
             "GET /v1/units/{unit_id}/outreach/sends/{send_id}",
+            "GET /v1/units/{unit_id}/outreach/contacts",
+            "POST /v1/units/{unit_id}/outreach/contacts",
+            "GET /v1/units/{unit_id}/outreach/contacts/{contact_channel_id}",
+            "PATCH /v1/units/{unit_id}/outreach/contacts/{contact_channel_id}",
+            "POST /v1/units/{unit_id}/outreach/contacts/{contact_channel_id}/transitions",
             "POST /v1/unsubscribe",
         }
 

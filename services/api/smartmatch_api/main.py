@@ -55,6 +55,7 @@ from smartmatch_api.routers import (
     me,
     metrics,
     outreach,
+    outreach_contacts,
     pipeline,
     portals,
     redrive,
@@ -302,6 +303,14 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # not implement.
     (outreach.router, Capability.CONSENTED_OUTREACH),
     (outreach.public_router, Capability.CONSENTED_OUTREACH),
+    # The contact-channel surface lives in its own module but authorizes
+    # through `outreach._authorize_outreach` — one question about a unit's
+    # outreach with one answer. See `routers/outreach_contacts.py`. It is
+    # classified with the two above because it is the same trust model: these
+    # routes record and move *consent*, which is exactly what CONSENTED_OUTREACH
+    # names. A product without consented outreach has no contact channels to
+    # administer.
+    (outreach_contacts.router, Capability.CONSENTED_OUTREACH),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:

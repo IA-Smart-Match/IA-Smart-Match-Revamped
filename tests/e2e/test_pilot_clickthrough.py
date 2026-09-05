@@ -49,10 +49,13 @@ It is designed to go red on dishonesty, not only on breakage:
    :func:`test_18_a_contact_without_approved_consent_cannot_be_composed_for`
    proves the compose gate refuses a ``discovered`` address, and
    :func:`test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to`
-   proves the *worker* re-checks at delivery: a recipient who unsubscribes
-   after a coordinator approved the draft ends the job ``failed_policy`` with a
-   ``blocked`` delivery event and no provider message id. A job that ended
-   ``succeeded`` there would be the fake success this module exists to catch.
+   proves the *submission* gate re-checks: a recipient who unsubscribes after a
+   coordinator approved the draft gets the send refused ``403`` at submission,
+   with nothing queued and no send row written. A ``202`` there would be the
+   fake success this module exists to catch — an acknowledgement for a message
+   that was never going to go out. The worker's delivery-time re-check, which
+   covers the window after a ``202`` that no request-path check can see, is
+   exercised in ``tests/integration/test_outreach_handler.py``.
 
 ## Known gaps, asserted rather than worked around
 
@@ -136,21 +139,6 @@ RUN_TAG = uuid.uuid4().hex[:8]
 #: `metro_region` both required).
 ACCEPT_ROW_NAME = f"E2E Accept {RUN_TAG}"
 REJECT_ROW_NAME = f"E2E Reject {RUN_TAG}"
-
-#: Every terminal job state, transcribed from
-#: ``smartmatch_domain.jobs.TERMINAL_STATES`` rather than imported: the
-#: appliance under test is a built image, not this checkout, and a drift
-#: between the two should fail here rather than be absorbed.
-TERMINAL_JOB_STATES = frozenset(
-    {
-        "succeeded",
-        "partial",
-        "cancelled",
-        "failed_budget",
-        "failed_policy",
-        "abandoned",
-    }
-)
 
 #: RFC 2606 reserves ``.invalid``: it cannot resolve, and no mailbox can exist
 #: behind it. Per-session, so this module's contact is never a previous run's.
@@ -1083,43 +1071,6 @@ def _compose_draft(api: httpx.Client, unit_id: str, contact_id: str) -> httpx.Re
     )
 
 
-def _await_terminal_job_state(api: httpx.Client, job_id: str) -> str:
-    """Poll one job until it reaches *any* terminal state, and report which.
-
-    Distinct from :func:`_await_job`, which asserts ``succeeded`` and reads the
-    completion summary. A refused send is a job that legitimately ends
-    ``failed_policy``, and a helper treating every non-success as a bug could
-    not describe it. Bounded like every other wait here.
-    """
-    seen: dict[str, str] = {}
-
-    def settled() -> bool:
-        status = json_body(api.get(f"/v1/jobs/{job_id}"))["status"]
-        seen["status"] = status
-        return status in TERMINAL_JOB_STATES
-
-    assert poll_until(
-        f"job {job_id} reaches a terminal state",
-        settled,
-        attempts=POLL_ATTEMPTS,
-        interval=1.0,
-    ), f"job {job_id} never left status {seen.get('status')!r}"
-    return seen["status"]
-
-
-def _send_id_for_job(job_id: str) -> str:
-    """The send row a command produced, read from the database.
-
-    A recorded gap of the same shape as the review-item lookup: the ``202``
-    hands back a job id, ``GET /v1/units/{id}/outreach/sends/{send_id}`` reads
-    one send, and no route maps the first to the second. A *succeeded* job
-    carries the send id in its completion summary and needs none of this; a
-    refused one fails before it can report anything, and this is the only way
-    to reach the refusal record it wrote.
-    """
-    return psql_scalar(f"select id from outreach_send where job_id = '{job_id}'")
-
-
 def test_17_a_coordinator_composes_a_draft_for_a_consented_contact(
     api: httpx.Client, flow: ClickThrough
 ) -> None:
@@ -1297,13 +1248,24 @@ def test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to(
 
     The draft is composed while the recipient is eligible, and approved by a
     coordinator who could see that. *Then* the person unsubscribes. *Then* the
-    command is submitted. The suppression is recorded before the ``202``, so
-    there is no race here to lose: whenever the worker gets to it, the refusal
-    is already true.
+    command is submitted — and the submission itself is refused.
 
-    The job ends ``failed_policy`` — terminal, never retried into succeeding —
-    and that is the honest outcome. A send that ended green while the recipient
-    was never written to would be exactly the fake success this suite exists to
+    Three gates close three different windows, and this is the middle one:
+    composition proves what was true while the coordinator was looking at the
+    screen; **submission** re-reads the recipient and catches a withdrawal in
+    the hours between composing and sending; the worker's re-check catches the
+    window after a ``202``, which no request-path check can see. The third is
+    the one that actually protects the recipient and it is unchanged — it is
+    exercised in ``tests/integration/test_outreach_handler.py``'s
+    ``TestDeliveryTimeRefusal``, because once submission refuses first there is
+    no way to queue a command for a suppressed recipient through the HTTP
+    boundary at all.
+
+    The refusal reaches the person acting, at the moment they act, rather than
+    arriving as a job failure nobody is watching. Nothing is queued and no send
+    row is written, which is what the assertions below check: a ``202`` here
+    would hand a coordinator an acknowledgement for a message that was never
+    going to go out, which is exactly the fake success this suite exists to
     catch.
     """
     if flow.unit_id is None or flow.contact_channel_id is None:
@@ -1341,38 +1303,29 @@ def test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to(
         f"/v1/units/{flow.unit_id}/outreach/drafts/{draft_id}/send",
         headers={"Idempotency-Key": f"e2e-blocked-{RUN_TAG}-{uuid.uuid4().hex}"},
     )
-    assert response.status_code == 202, (
+    assert response.status_code == 403, (
         f"submitting the second send returned {response.status_code}, expected "
-        "202 — the route checks approval, and the worker is what re-checks "
-        f"consent: {response.text[:400]}"
+        "403 — the route re-reads the recipient and refuses a consent that was "
+        f"withdrawn after the approval: {response.text[:400]}"
     )
-    job_id = json_body(response)["job_id"]
-
-    state = _await_terminal_job_state(api, job_id)
-    assert state == "failed_policy", (
-        f"the send to a suppressed recipient ended {state!r}. 'succeeded' would "
-        "mean the gate did not run, or that the job reported a success it did "
-        "not have; 'failed_provider' would mean this is retried into sending"
+    error = json_body(response)["error"]
+    assert error["code"] == "outreach_recipient_not_eligible", (
+        f"the refusal is coded {error['code']!r}; without that code a client "
+        "cannot tell a withdrawn consent from an unapproved draft"
     )
-
-    send = json_body(api.get(f"/v1/units/{flow.unit_id}/outreach/sends/{_send_id_for_job(job_id)}"))
-    assert send["disposition"] == "blocked", (
-        f"the refused send reads back {send['disposition']!r}, not 'blocked'"
-    )
-    assert send["provider_message_id"] is None, (
-        "the refused send carries a provider_message_id, so something was handed "
-        "to the provider after the recipient unsubscribed"
-    )
-    assert "suppress" in (send["failure_reason"] or ""), (
-        f"the refusal reason is {send['failure_reason']!r} and does not name the "
+    assert "suppress" in error["message"], (
+        f"the refusal message is {error['message']!r} and does not name the "
         "suppression; a consent system must be able to answer why a person was "
         "not written to"
     )
-    event_types = [event["event_type"] for event in send["delivery_events"]]
-    assert "blocked" in event_types, f"the delivery events are {event_types} and record no refusal"
-    assert "accepted" not in event_types, (
-        f"the delivery events are {event_types}: a suppressed recipient's send "
-        "recorded an acceptance"
+
+    # Nothing queued means nothing recorded. The sends listing is the unit's own
+    # record of what it has attempted, so a send row for this draft would mean
+    # the refusal landed after something had already been committed.
+    listed = json_body(api.get(f"/v1/units/{flow.unit_id}/outreach/sends"))
+    assert not [send for send in listed["sends"] if send["draft_id"] == draft_id], (
+        "a send row exists for the refused draft, so the submission was not "
+        "refused before anything was written"
     )
 
-    print(f"  send to a suppressed recipient ended {state} / blocked")
+    print("  send to a suppressed recipient was refused at submission / 403")
