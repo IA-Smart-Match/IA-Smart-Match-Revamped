@@ -104,6 +104,37 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
         "'consented'::text, 'active_candidate'::text, 'stale'::text])))"
     ),
+    # --- The consent audit trail (migration 0022) ----------------------
+    ("contact_channel_transition", "ck_contact_channel_transition_consent_source"): (
+        "CHECK (((consent_source IS NULL) OR (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text, "
+        "'scraped'::text, 'purchased'::text, 'inferred'::text]))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_consented_source"): (
+        "CHECK (((to_state <> ALL (ARRAY['consented'::text, 'active_candidate'::text])) "
+        "OR ((consent_source IS NOT NULL) AND (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text])))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_from_state"): (
+        "CHECK (((from_state IS NULL) OR (from_state = ANY "
+        "(ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text]))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_moves"): (
+        "CHECK (((from_state IS NULL) OR (from_state <> to_state)))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_text_present"): (
+        "CHECK ((((reason IS NULL) OR (length(btrim(reason)) > 0)) AND "
+        "((consent_evidence IS NULL) OR (length(btrim(consent_evidence)) > 0))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_to_state"): (
+        "CHECK ((to_state = ANY (ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text])))"
+    ),
     ("delivery_event", "ck_delivery_event_detail_object"): (
         "CHECK (((detail IS NULL) OR (jsonb_typeof(detail) = 'object'::text)))"
     ),
@@ -414,6 +445,27 @@ BEHAVIOURAL_COVERAGE = {
     ),
     ("contact_channel", "ck_contact_channel_state"): (
         "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    # --- The consent audit trail (migration 0022) ----------------------
+    ("contact_channel_transition", "ck_contact_channel_transition_consent_source"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_consented_source"): (
+        "test_contact_channel_lifecycle.py::TestTheDatabaseRefusesWhatTheDomainRefuses — a "
+        "scraped source and an absent one, the second being the three-valued-logic case"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_from_state"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_moves"): (
+        "test_contact_channel_lifecycle.py::TestTheDatabaseRefusesWhatTheDomainRefuses"
+        "::test_a_transition_to_the_state_it_came_from_is_not_a_transition"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_text_present"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_to_state"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
     ),
     ("delivery_event", "ck_delivery_event_detail_object"): (
         "test_outreach_persistence.py::TestVocabularyConstraints::test_a_delivery_event_refuses "
