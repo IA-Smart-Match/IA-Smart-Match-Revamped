@@ -47,6 +47,7 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_respo
 from smartmatch_api.routers import (
     auth,
     calendar,
+    cba_contacts,
     engagement,
     events,
     imports,
@@ -62,6 +63,7 @@ from smartmatch_api.routers import (
     review,
     rewards,
     speaker_requests,
+    student_events,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -283,6 +285,21 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # makes no network call, holds no credential, and writes into nobody's
     # calendar. See `docs/plans/open-questions/calendar-deferred.md`.
     (calendar.router, Capability.EVENT_READS),
+    # The student's two reads of the same catalog (customer §15, card
+    # `CBA-STUDENT-EVENTS`). `EVENT_READS` again, and for the reason `calendar`
+    # is: this is the same event in a third presentation, behind a different
+    # role, and a product that offers no event reads has nothing for a student
+    # to browse. Its own capability would have implied a deployment could offer
+    # the coordinator catalog and withhold the student one, which is not a
+    # decision any committed artifact makes — customer §22 keeps event reads and
+    # §15 says students are among the readers.
+    #
+    # It is emphatically not a *registration* capability. This card ships no
+    # registration route: `attendance_record` is attendance and ADR-0013 makes
+    # it the only input to points, so a row written at registration time would
+    # credit a student for an event they had not attended. See
+    # `routers/student_events.py` and OQ-CBA-018.
+    (student_events.router, Capability.EVENT_READS),
     # The Speaker Request intake and its queue (customer §§12-13). Its own
     # capability rather than a share of `events`, and the distinction is the
     # direction of the arrow: `events` and `calendar` hand a coordinator what
@@ -295,6 +312,27 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # A host filing a request is a person stating a new intention, and it has no
     # review queue in front of it — see `routers/speaker_requests.py`.
     (speaker_requests.router, Capability.SPEAKER_REQUEST_INTAKE),
+    # The other side of the same match: a Speaker Connector's roster of
+    # professional contacts (customer §13, and §§7-8 for the correction). Its
+    # own capability rather than a share of the line above it, because the two
+    # are opposite ends of one arrow and a product could offer either alone —
+    # requests with no roster is a Connector answering from outside the system,
+    # and a roster with no requests is a directory. The authorization rows
+    # already say they are two decisions: §12 admits the Event Host to filing a
+    # request, §13 admits only the Connector to the roster.
+    #
+    # Not `CONSENTED_OUTREACH`, and the distinction is the one this card turns
+    # on: a contact *record* is not a contact *channel*. These routes write no
+    # `contact_channel` row, create no consent, and make nobody writable-to —
+    # an address typed on the create form is discarded and reported as withheld
+    # (OQ-CBA-011). A deployment could enable this with outreach off and the
+    # roster would work exactly as well.
+    #
+    # Not `EXTERNAL_SPEAKER_ACQUISITION` either: every record is typed by a
+    # person about somebody the institution already knows, which is the manual,
+    # inside-the-system growth customer §20 permits. No network call, no scrape,
+    # no external lookup.
+    (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
     (match_runs.router, Capability.MATCH_RUNS),
     (rewards.router, Capability.REWARDS_LEDGER),
     # The S12 funnel's coordinator-driven write path. Classified with `metrics`,

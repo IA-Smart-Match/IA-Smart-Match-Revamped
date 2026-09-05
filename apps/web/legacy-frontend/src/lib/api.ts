@@ -2487,3 +2487,266 @@ export async function submitSpeakerRequest(
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
+//
+// The other end of the arrow from Speaker Requests above. Those are an Event
+// Host asking for a speaker; these are a Speaker Connector recording who their
+// unit already knows.
+//
+// Two shapes worth reading before using any of it.
+//
+// **`contact_email` is sent and is not stored.** The field exists on the
+// payload because §13's form collects one; the server discards it and names it
+// in `withheld_fields` (OQ-CBA-011, ratified). A caller **must** render that
+// array rather than assume a `201` means everything was saved — see
+// `SpeakerContact.withheld_fields`. Nothing in this file, and nothing
+// server-side, turns that address into something sendable.
+//
+// **A duplicate name is a `409`, not an update.** Unlike `submitSpeakerRequest`
+// directly above — where ADR-0012's identity key makes a resubmission the same
+// request — a repeat create here is refused, because the identity derives from
+// the name and two different people can share one. `createSpeakerContact`
+// rejects with `ApiRequestError` carrying `speaker_contact_name_already_used`,
+// and a caller renders the server's own message, which names who is already
+// there (OQ-CBA-017).
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector is recording about one professional. */
+export interface SpeakerContactPayload {
+  full_name: string;
+  company?: string;
+  title?: string;
+  /** §18's topic/interests/expertise text. */
+  topic_text?: string;
+  /** §18's optional prior talk information. */
+  prior_talk?: string;
+  /** §10: city or ZIP is sufficient, and neither is derived from the other. */
+  location_city?: string;
+  location_postal_code?: string;
+  /** One NAICS sector code (customer §7). Singular — a speaker has one primary. */
+  primary_industry_code?: string;
+  /** One CBA role-category code (customer §8). Singular, for the same reason. */
+  primary_role_code?: string;
+  /**
+   * Accepted by the server and then discarded. Never stored, never a contact
+   * channel, never sendable. Present here because §13's form collects it; the
+   * response reports it in `withheld_fields`.
+   */
+  contact_email?: string;
+}
+
+/** One stored contact, exactly as the server read it back. */
+export interface SpeakerContact {
+  professional_id: string;
+  owning_unit_id: string;
+  full_name: string;
+  company: string | null;
+  title: string | null;
+  topic_text: string | null;
+  prior_talk: string | null;
+  location_city: string | null;
+  location_postal_code: string | null;
+  primary_industry_code: string | null;
+  industry_taxonomy_version: string | null;
+  primary_role_code: string | null;
+  role_taxonomy_version: string | null;
+  created_at: string;
+  updated_at: string;
+  /**
+   * Fields this request supplied that were deliberately not stored. Empty on
+   * reads. **Render it.** An unrendered discard is indistinguishable from a
+   * save, which is the belief OQ-CBA-011 exists to prevent.
+   */
+  withheld_fields: string[];
+}
+
+/** A page of one unit's roster. */
+export interface SpeakerContactList {
+  contacts: SpeakerContact[];
+  /** True when more contacts exist than this response carries. */
+  truncated: boolean;
+}
+
+/** Which classification axes a correction replaces. Omitted means "leave alone". */
+export interface ClassificationCorrectionPayload {
+  primary_industry_code?: string;
+  primary_role_code?: string;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-contacts` — record one professional.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed. The
+ * body carries no tenant, owning unit or actor and must never gain one, and it
+ * carries no professional id either: the server derives that from the name, so a
+ * caller cannot choose somebody else's identity (MM-A01).
+ *
+ * Rejects with `ApiRequestError` on a 4xx. A `409` carrying
+ * `speaker_contact_name_already_used` means this unit already holds a contact
+ * under the identity this name derives — render the server's message, which
+ * names them.
+ */
+export async function createSpeakerContact(
+  unitId: string,
+  payload: SpeakerContactPayload,
+): Promise<SpeakerContact> {
+  return requestJson<SpeakerContact>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/units/{unit_id}/speaker-contacts` — this unit's roster, by name. */
+export async function fetchSpeakerContacts(unitId: string): Promise<SpeakerContactList> {
+  return requestJson<SpeakerContactList>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/classification`
+ * — correct what the pipeline assigned (customer §§7-8, §19).
+ *
+ * An axis this payload omits is left alone, never cleared. The server stores the
+ * current value only: no history, no record of who corrected it, and no
+ * inferred-versus-human flag (OQ-CBA-008). A caller must not render a claim
+ * about provenance, because there is none to render.
+ */
+export async function correctSpeakerContactClassification(
+  unitId: string,
+  professionalId: string,
+  payload: ClassificationCorrectionPayload,
+): Promise<SpeakerContact> {
+  return requestJson<SpeakerContact>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/classification`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Student events (customer §15, card `CBA-STUDENT-EVENTS`)
+// ---------------------------------------------------------------------------
+//
+// Two reads, no write. §15 also asks that a student be able to *register* for
+// an event, and there is no `registerForEvent` here because there is no route
+// to call: `attendance_record` is attendance, ADR-0013 makes it the only input
+// to points, and a row written at registration time would credit somebody for
+// an event they had not attended. See
+// `tests/integration/test_event_registration.py` and OQ-CBA-018. Do not add a
+// client function that posts to a path the server does not serve.
+
+/** An event's time at whichever precision is actually known (ADR-0010). */
+export interface StudentEventTime {
+  /** `exact` or `date_only`. Never `unresolved` on either student surface. */
+  precision: string;
+  /** The instant, present only at `exact` precision. */
+  starts_at: string | null;
+  /**
+   * The instant it finishes, present only when the source stated one. `null` is
+   * not a duration of zero and not a default of an hour — it is the absence
+   * that makes an .ics refusable rather than guessable.
+   */
+  ends_at: string | null;
+  /** The calendar date, present only at `date_only` precision. */
+  on_date: string | null;
+  /** The IANA zone the event happens in — never the viewer's or the browser's. */
+  time_zone: string | null;
+}
+
+/**
+ * Whether this caller can download this event's .ics, and where from.
+ *
+ * Exactly one of `download_path` and `unavailable_reason` is set, which is what
+ * makes this usable as a render condition: show the link when there is a path,
+ * show the reason when there is not, and never decide for yourself. Do not
+ * compose the URL in the browser, and do not render a download control when
+ * `available` is false — the server has already evaluated the three conditions
+ * `GET .../invite.ics` would refuse on.
+ */
+export interface StudentEventCalendar {
+  available: boolean;
+  download_path: string | null;
+  /**
+   * `event_time_unresolved`, `event_end_unknown`, or `event_not_on_your_agenda`.
+   * Null when available.
+   */
+  unavailable_reason: string | null;
+}
+
+/** One event as a student sees it. No review status and no extraction provenance. */
+export interface StudentEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  time: StudentEventTime;
+  is_virtual: boolean;
+  location_city: string | null;
+  location_postal_code: string | null;
+  tags: string[];
+  /**
+   * True when an attendance record ties this caller to this event. Named for
+   * what it is rather than "registered": there is no registration in this
+   * deployment, and a field called `registered` would claim one.
+   */
+  on_my_agenda: boolean;
+  calendar: StudentEventCalendar;
+}
+
+/** The unit's published events, and an honest count of what is not shown. */
+export interface StudentEventList {
+  unit_id: string;
+  events: StudentEvent[];
+  /**
+   * Events the unit holds but has not published. Render it: without the count,
+   * "this unit has nothing for me" and "this unit has nine events it has not
+   * published" are the same empty list (ADR-0011).
+   */
+  withheld_unpublished: number;
+  truncated: boolean;
+}
+
+/** The caller's own events, soonest first. */
+export interface StudentAgenda {
+  unit_id: string;
+  events: StudentEvent[];
+  /** Events you are recorded at whose date could not be resolved (ADR-0010 rule 2). */
+  withheld_unresolved_date: number;
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/student/events` — the unit's published catalog.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed. The
+ * server authorizes it again per request, deny-by-default and tenant-scoped.
+ */
+export async function fetchStudentEvents(unitId: string): Promise<StudentEventList> {
+  return requestJson<StudentEventList>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/student/agenda` — the events you are recorded at.
+ *
+ * Scoped to the caller by the server's own query, not by anything sent from
+ * here: there is no subject parameter and there must never be one (MM-A01).
+ */
+export async function fetchStudentAgenda(unitId: string): Promise<StudentAgenda> {
+  return requestJson<StudentAgenda>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/agenda`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}

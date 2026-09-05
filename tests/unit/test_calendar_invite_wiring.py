@@ -233,6 +233,12 @@ class TestNoGoogleCalendarDependency:
     _SOURCES = (
         Path("python") / "smartmatch_domain" / "smartmatch_domain" / "calendar_invite.py",
         Path("services") / "api" / "smartmatch_api" / "routers" / "calendar.py",
+        # The third module that now knows the .ics route exists (card
+        # `CBA-STUDENT-EVENTS`). It hands a student the *path* and never the
+        # bytes, so it is the likeliest place for somebody to decide the link
+        # would be nicer as a real calendar integration — which is precisely the
+        # acquisition G5 has not granted.
+        Path("services") / "api" / "smartmatch_api" / "routers" / "student_events.py",
     )
 
     @pytest.mark.parametrize("source", _SOURCES, ids=lambda path: path.name)
@@ -260,3 +266,93 @@ class TestNoGoogleCalendarDependency:
         google = {name for name in imported if name.split(".")[0] in {"googleapiclient", "google"}}
 
         assert google == set()
+
+
+class TestTheStudentSurfaceLinksToTheRouteRatherThanReimplementingIt:
+    """One .ics route, and one other module that points at it (card ``CBA-STUDENT-EVENTS``).
+
+    ``routers/student_events.py`` is what finally gave the student portal an
+    ``event_id`` to hand the download — the half
+    ``docs/plans/frontend-broken-buttons.md`` B07 recorded as remaining. It does
+    that by putting the *path* on each listed event, which is a new way for this
+    file's subject to go wrong: a module that composes an invite URL is one
+    refactor away from composing the invite.
+
+    So the property asserted here is that it stays a **pointer**. It formats the
+    same path the route registers, it produces no document, and it does not reach
+    the facade at all.
+    """
+
+    def test_the_template_it_hands_out_is_the_path_the_api_serves(self):
+        """One string, checked against the route set rather than against a copy.
+
+        A drifted template would be worse than a missing one: every item in the
+        listing would carry a link that 404s, and nothing would fail until
+        somebody clicked. Comparing against :data:`INVITE_PATH` — which
+        :class:`TestExactlyOneHttpSurface` has already compared against the live
+        app and the committed contract — makes the listing's link and the served
+        route the same fact.
+        """
+        from smartmatch_api.routers import student_events
+
+        assert student_events.INVITE_PATH_TEMPLATE == INVITE_PATH
+
+    def test_it_formats_that_template_rather_than_assembling_a_url(self):
+        """The ids go into the one template; no second spelling of the path exists.
+
+        ``.format`` on the module constant is the only construction, so a caller
+        cannot get a link the route does not serve, and the test above is
+        sufficient to know every link is right.
+        """
+        import uuid
+
+        from smartmatch_api.routers import student_events
+
+        unit_id = uuid.uuid4()
+        event_id = uuid.uuid4()
+
+        formatted = student_events.INVITE_PATH_TEMPLATE.format(unit_id=unit_id, event_id=event_id)
+
+        assert formatted == f"/v1/units/{unit_id}/events/{event_id}/invite.ics"
+
+    def test_the_student_module_never_reaches_the_facade(self):
+        """It advertises the artifact; it does not make one.
+
+        The mirror of :func:`test_the_api_composition_root_reaches_the_facade`,
+        pointed at the module that must *not*. Two modules producing RFC 5545
+        bytes is the divergence the golden tests exist to prevent, and it would
+        arrive exactly here — as a "small optimisation" that inlines the document
+        into the listing so the client saves a request.
+        """
+        source = (
+            REPO_ROOT / "services" / "api" / "smartmatch_api" / "routers" / "student_events.py"
+        ).read_text(encoding="utf-8")
+
+        assert "build_invite_ics" not in source
+        assert "smartmatch_domain.calendar_invite" not in source.replace(
+            # The module docstring names the facade to say it is *not* imported.
+            "``smartmatch_domain.calendar_invite`` is not imported here",
+            "",
+        )
+
+    def test_the_student_routes_are_not_a_second_calendar_surface(self):
+        """Neither student path trips this file's own calendar markers.
+
+        ``/student/events`` and ``/student/agenda`` are event reads that happen to
+        mention a calendar link in their bodies, which is a different thing from
+        being a calendar surface — and
+        :func:`test_no_second_calendar_route_appeared` is what would have caught
+        it had they been named otherwise. Stated here too, against the paths
+        directly, so the reason they pass that test is recorded rather than
+        incidental.
+        """
+        from smartmatch_api.main import app
+
+        student_paths = [path for path in app.openapi()["paths"] if "/student/" in str(path)]
+
+        assert sorted(student_paths) == [
+            "/v1/units/{unit_id}/student/agenda",
+            "/v1/units/{unit_id}/student/events",
+        ]
+        for path in student_paths:
+            assert not any(marker in str(path).lower() for marker in _CALENDAR_MARKERS)

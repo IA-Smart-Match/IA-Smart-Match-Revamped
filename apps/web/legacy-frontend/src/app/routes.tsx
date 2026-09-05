@@ -65,6 +65,11 @@ const CoordinatorMeetings = lazy(() =>
     default: m.CoordinatorMeetings,
   })),
 );
+const CoordinatorSpeakerContacts = lazy(() =>
+  import("./pages/coordinator/CoordinatorSpeakerContacts").then((m) => ({
+    default: m.CoordinatorSpeakerContacts,
+  })),
+);
 
 const VolunteerHome = lazy(() =>
   import("./pages/volunteer/VolunteerHome").then((m) => ({ default: m.VolunteerHome })),
@@ -167,6 +172,14 @@ export const router = createBrowserRouter([
       { index: true, element: withSuspense(<CoordinatorHome />) },
       { path: "events", element: withSuspense(<CoordinatorEvents />) },
       { path: "outreach", element: withSuspense(<CoordinatorOutreach />) },
+      // Customer §13's speaker-contact roster. Mounted unconditionally like
+      // every other route in this shell: the capability that gates the *API* is
+      // `speaker_contact_management`, and it is on under both product scopes,
+      // so there is nothing here for `whenCapable` to remove. A UI gate is not
+      // authorization in any case — the server decides, per request, and this
+      // page is behind `admin`/`coordinator` there regardless of what the
+      // browser renders.
+      { path: "speaker-contacts", element: withSuspense(<CoordinatorSpeakerContacts />) },
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },

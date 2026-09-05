@@ -1922,6 +1922,21 @@ speaker_profile = sa.Table(
     # A5-shaped, as contact_channel.owning_unit_id and match_run.owning_unit_id
     # are: the unit whose Speaker Connector is accountable for this record.
     sa.Column("owning_unit_id", _UUID, nullable=False),
+    # Customer §13's three identity fields, added by migration 0025. Before it
+    # nothing in the schema held a person's name: the only `title` was
+    # `event.title`, and `user_account.external_subject` is an identity key
+    # whose `.invalid` placeholder must not be overloaded as a display field.
+    #
+    # NOT NULL, because a contact with no name is a row a Speaker Connector
+    # cannot act on and §13's list surface would render blank. No server
+    # default: a placeholder name outlives the uncertainty that produced it.
+    sa.Column("full_name", sa.Text, nullable=False),
+    # Optional, and genuinely so — a retired professional, an independent
+    # consultant, or a contact met before the Connector learned where they
+    # work. NULL says "nobody told us"; see the blank-text CHECK below for why
+    # that is different from ''.
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("title", sa.Text, nullable=True),
     # Customer §7. Nullable because §19 imports a contact first and classifies
     # it after — an unclassified speaker is a storable state, the same argument
     # ADR-0010 makes for an unresolved event date.
@@ -1993,11 +2008,20 @@ speaker_profile = sa.Table(
     # ADR-0011: absent is a value, blank is a writer that forgot. §9 scores a
     # speaker with no topic information neutrally rather than at zero, which is
     # a decision about NULL — an empty string would reach it as text.
+    #
+    # Widened by migration 0025 to cover §13's two new nullable identity
+    # columns, and to refuse a whitespace-only `full_name` — NOT NULL rejects
+    # the absence and says nothing about '   ', which is a name-shaped value
+    # that renders as nothing. One constraint rather than two, so there is a
+    # single answer to "which text columns refuse blanks".
     sa.CheckConstraint(
-        "(topic_text IS NULL OR length(btrim(topic_text)) > 0) "
+        "length(btrim(full_name)) > 0 "
+        "AND (topic_text IS NULL OR length(btrim(topic_text)) > 0) "
         "AND (prior_talk IS NULL OR length(btrim(prior_talk)) > 0) "
         "AND (location_city IS NULL OR length(btrim(location_city)) > 0) "
-        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0)",
+        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0) "
+        "AND (company IS NULL OR length(btrim(company)) > 0) "
+        "AND (title IS NULL OR length(btrim(title)) > 0)",
         name="ck_speaker_profile_text_present",
     ),
 )

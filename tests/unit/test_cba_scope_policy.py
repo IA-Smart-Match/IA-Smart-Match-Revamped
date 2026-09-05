@@ -56,6 +56,17 @@ PRESERVED_UNDER_CBA = frozenset(
         # the CBA workflow's entry point, and under the legacy scope because the
         # volunteer-opportunity surface it renames was already there.
         Capability.SPEAKER_REQUEST_INTAKE,
+        # Customer §13 (a Speaker Connector keeps the unit's roster of
+        # professional contacts) and §§7-8 (the Connector corrects a
+        # classification). Enabled under CBA because §13 is a CBA requirement in
+        # as many words, and under the legacy scope because keeping a roster of
+        # people the institution already knows is not among the four things CBA
+        # removes.
+        #
+        # Listed here as *preserved* rather than argued separately: the
+        # distinction this set draws is on-or-off under CBA, and a roster is the
+        # thing §9's matching matches against.
+        Capability.SPEAKER_CONTACT_MANAGEMENT,
         Capability.MATCH_RUNS,
         Capability.DISCOVERY_METRICS,
         Capability.CONSENTED_OUTREACH,

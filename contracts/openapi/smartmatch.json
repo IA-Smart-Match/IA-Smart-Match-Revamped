@@ -157,6 +157,37 @@
         "title": "CandidateExplanationView",
         "type": "object"
       },
+      "ClassificationCorrectionRequest": {
+        "description": "Correct one or both of a contact's \u00a7\u00a77-8 classification axes.\n\nAn omitted axis is left alone, never cleared. Nothing in \u00a713 or \u00a7\u00a77-8\ndescribes un-classifying a speaker, and giving null two meanings \u2014 \"not part\nof this correction\" and \"delete the stored value\" \u2014 would make the commoner\ncase the dangerous one.\n\nNote what is not here: no field saying who is correcting, and none saying\nwhat the value was before. OQ-CBA-008's interim ruling is current value only,\nand a request field for provenance would be this route inventing the audit\nvocabulary that ruling declines to invent.",
+        "properties": {
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a77's sector code, or null to leave the stored industry untouched.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a78's role category code, or null to leave the stored role untouched.",
+            "title": "Primary Role Code"
+          }
+        },
+        "title": "ClassificationCorrectionRequest",
+        "type": "object"
+      },
       "ClassificationView": {
         "description": "One target of a request, with the name a person reads beside the stored code.\n\n``code`` is what a row holds and what a matcher compares; ``display_name`` is\n\u00a77's or \u00a78's own wording, read from the released taxonomy module rather than\nrestated here, so a display rename cannot drift from the storage key.\n``taxonomy_version`` says which released table evaluated the code, which is\nwhat keeps it interpretable after the next revision.",
         "properties": {
@@ -2662,6 +2693,469 @@
         "title": "SendSummaryView",
         "type": "object"
       },
+      "SpeakerContactCreate": {
+        "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis derived from the name rather than supplied, so a caller cannot choose\nsomebody else's identity (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where they work, or null. Null is a real answer \u2014 a retired professional or an independent consultant has none \u2014 and an empty string is refused rather than stored as one (ADR-0011).",
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted and then discarded. This address is never stored, never becomes a contact channel, and never makes this person writable-to (OQ-CBA-011, ratified). The response reports it in `withheld_fields` so the refusal is visible rather than silent \u2014 see OQ-CBA-015.",
+            "title": "Contact Email"
+          },
+          "full_name": {
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a710: city or ZIP is sufficient. Neither is derived from the other.",
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other half of \u00a710's 'or'.",
+            "title": "Location Postal Code"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a77's single primary sector code, or null. Null is a real state: \u00a719 records a contact first and classifies them after.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a78's single primary role category code, or null.",
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's optional prior talk information.",
+            "title": "Prior Talk"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their job title, or null.",
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's topic/interests/expertise text. Compared semantically by \u00a79; nothing here parses it.",
+            "title": "Topic Text"
+          }
+        },
+        "required": [
+          "full_name"
+        ],
+        "title": "SpeakerContactCreate",
+        "type": "object"
+      },
+      "SpeakerContactListResponse": {
+        "description": "A page of a unit's contacts.",
+        "properties": {
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerContactResponse"
+            },
+            "title": "Contacts",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more contacts exist than this response carries. Answered by reading one row past the cap, so a full page never reads as a complete roster.",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contacts",
+          "truncated"
+        ],
+        "title": "SpeakerContactListResponse",
+        "type": "object"
+      },
+      "SpeakerContactResponse": {
+        "description": "One stored contact, as \u00a713's screens render it.\n\nCarries **no email of any kind** \u2014 neither the address the create discarded\nnor the ``.invalid`` placeholder ``user_account`` holds. A response field\nholding an address is the first thing a later card would try to send to, and\nthere is nothing here to send to.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "industry_taxonomy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry Taxonomy Version"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Postal Code"
+          },
+          "owning_unit_id": {
+            "format": "uuid",
+            "title": "Owning Unit Id",
+            "type": "string"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Talk"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "role_taxonomy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Taxonomy Version"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Text"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "withheld_fields": {
+            "description": "Fields this request supplied that were deliberately not stored. Empty on reads. Present so a discard is something the caller is told about rather than something they infer from an absence.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Withheld Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "professional_id",
+          "owning_unit_id",
+          "full_name",
+          "company",
+          "title",
+          "topic_text",
+          "prior_talk",
+          "location_city",
+          "location_postal_code",
+          "primary_industry_code",
+          "industry_taxonomy_version",
+          "primary_role_code",
+          "role_taxonomy_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerContactResponse",
+        "type": "object"
+      },
+      "SpeakerContactUpdate": {
+        "description": "Edit one contact. The body states the record in full, absences included.\n\nInherits every field from the create, including ``contact_email``, which is\nwithheld here on the same terms \u2014 a field a client may send on the create and\nnot on the edit is a field they will assume the edit preserved.\n\nA ``PATCH`` that states the whole record rather than a delta is deliberate:\n\u00a713's edit form posts every box, and a Connector who empties the company box\nmeans the company is gone. A merge-shaped edit would make removing a value\nthe one change they could never make.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where they work, or null. Null is a real answer \u2014 a retired professional or an independent consultant has none \u2014 and an empty string is refused rather than stored as one (ADR-0011).",
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted and then discarded. This address is never stored, never becomes a contact channel, and never makes this person writable-to (OQ-CBA-011, ratified). The response reports it in `withheld_fields` so the refusal is visible rather than silent \u2014 see OQ-CBA-015.",
+            "title": "Contact Email"
+          },
+          "full_name": {
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a710: city or ZIP is sufficient. Neither is derived from the other.",
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other half of \u00a710's 'or'.",
+            "title": "Location Postal Code"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a77's single primary sector code, or null. Null is a real state: \u00a719 records a contact first and classifies them after.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a78's single primary role category code, or null.",
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's optional prior talk information.",
+            "title": "Prior Talk"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their job title, or null.",
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's topic/interests/expertise text. Compared semantically by \u00a79; nothing here parses it.",
+            "title": "Topic Text"
+          }
+        },
+        "required": [
+          "full_name"
+        ],
+        "title": "SpeakerContactUpdate",
+        "type": "object"
+      },
       "SpeakerRequestCreate": {
         "description": "One Speaker Request, as an Event Host fills it in (customer \u00a712).\n\nNote what is **not** here: no tenant, no host org unit, no actor, no source\nURL, no publication status. The first three come from the verified principal\nand the path; the fourth does not exist for a request a person typed; the\nfifth is not a host's to set.\n\nThe temporal fields are ADR-0010's, not a single nullable timestamp. A host\nwho knows the date but not yet the hour sends ``on_date`` and gets a\n``date_only`` request, which is the honest description of what they said \u2014\nrather than midnight in some zone, which is the fabrication ADR-0010 exists\nto stop. ``time_zone`` is required at both precisions and is the event's own\nzone, never the browser's.",
         "properties": {
@@ -3050,6 +3544,262 @@
           "record"
         ],
         "title": "StageAdvanceResponse",
+        "type": "object"
+      },
+      "StudentAgendaResponse": {
+        "description": "The caller's own events, soonest first.\n\nSelf-scoped in the query, not in the response: every row is selected by\n``attendance_record.subject_id = principal.user_id``, so there is no filter a\nlater edit could drop and no id a caller could substitute.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/StudentEventSummary"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more of your events exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "withheld_unresolved_date": {
+            "description": "Events you are recorded at whose date could not be resolved (ADR-0010 rule 2). They have no place on a time-ordered agenda and are counted rather than silently dropped.",
+            "title": "Withheld Unresolved Date",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit_id",
+          "events",
+          "withheld_unresolved_date",
+          "truncated"
+        ],
+        "title": "StudentAgendaResponse",
+        "type": "object"
+      },
+      "StudentCalendarView": {
+        "description": "Whether this student can download this event's .ics, and where from.\n\nExactly one of ``download_path`` and ``unavailable_reason`` is set. That\ninvariant is what makes the field usable as a render condition: a client\nshows the link when there is a path and shows the reason when there is not,\nand there is no third state in which it has to decide for itself.",
+        "properties": {
+          "available": {
+            "description": "True when the download below will succeed for this caller, right now.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "download_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact path to request, or null. Served by the one .ics route this deployment has; this response neither produces nor duplicates it.",
+            "title": "Download Path"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why there is no download: 'event_time_unresolved' (no start instant), 'event_end_unknown' (the source stated no end, and a duration is never guessed), or 'event_not_on_your_agenda' (the .ics route admits a student only for an event they are recorded at). Null when available.",
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "StudentCalendarView",
+        "type": "object"
+      },
+      "StudentEventListResponse": {
+        "description": "The unit's published events, and an honest count of what is not shown.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/StudentEventSummary"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more published events exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "withheld_unpublished": {
+            "description": "Events this unit holds that are not published, and so are not a student's to see. Reported rather than dropped so an empty catalog and an unpublished one are distinguishable (ADR-0011).",
+            "title": "Withheld Unpublished",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit_id",
+          "events",
+          "withheld_unpublished",
+          "truncated"
+        ],
+        "title": "StudentEventListResponse",
+        "type": "object"
+      },
+      "StudentEventSummary": {
+        "description": "One event as a student sees it.\n\nNote what is absent beside ``routers/events.py::EventSummary``:\n``review_status``, and the whole ``provenance`` object. Those describe how\nthe pipeline came by the row, which is a coordinator's question. A student\ngets what the event *is* and whether they can put it in their calendar.",
+        "properties": {
+          "calendar": {
+            "$ref": "#/components/schemas/StudentCalendarView"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_virtual": {
+            "title": "Is Virtual",
+            "type": "boolean"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Postal Code"
+          },
+          "on_my_agenda": {
+            "description": "True when an attendance record ties this caller to this event. Named for what it is rather than 'registered': this deployment has no registration (OQ-CBA-018), and a field called 'registered' would claim one.",
+            "title": "On My Agenda",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Mapped vocabulary terms. Never a quarantined value.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "time": {
+            "$ref": "#/components/schemas/StudentEventTimeView"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "time",
+          "is_virtual",
+          "tags",
+          "on_my_agenda",
+          "calendar"
+        ],
+        "title": "StudentEventSummary",
+        "type": "object"
+      },
+      "StudentEventTimeView": {
+        "description": "An event's time at whichever precision is actually known (ADR-0010).\n\nThe same three-fields-plus-a-discriminator shape\n``routers/events.py::EventTimeView`` and\n``routers/speaker_requests.py::SpeakerRequestTimeView`` use \u2014 one event\nmodel, one temporal contract \u2014 written out here rather than imported for the\nsame reason the role set is: a narrowing or widening of a student's view\nshould be a diff on this file.\n\n``precision`` is never ``unresolved`` on either surface: browse lists\npublished rows and ``ck_event_publishable`` makes every published one\nresolved, and the agenda excludes and counts them. It *can* be ``date_only``,\nwhich is precisely when there is no instant and therefore no invite.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant it finishes, present only when the source actually stated one. Null is not a duration of zero and not a default of an hour.",
+            "title": "Ends At"
+          },
+          "on_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The calendar date, present only at date_only precision.",
+            "title": "On Date"
+          },
+          "precision": {
+            "description": "exact or date_only.",
+            "title": "Precision",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant, present only at exact precision.",
+            "title": "Starts At"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IANA zone the event happens in \u2014 never the viewer's or the server's.",
+            "title": "Time Zone"
+          }
+        },
+        "required": [
+          "precision"
+        ],
+        "title": "StudentEventTimeView",
         "type": "object"
       },
       "TransitionRequest": {
@@ -8122,6 +8872,712 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/speaker-contacts": {
+      "get": {
+        "description": "This unit's roster, by name.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nread itself rather than by a second count \u2014 the shape\n``routers/speaker_requests.py`` uses for the same reason.",
+        "operationId": "list_speaker_contacts_v1_units__unit_id__speaker_contacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's speaker contacts",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "post": {
+        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is outside\n        its closed taxonomy; 409 when this unit already holds a contact under\n        the identity this name derives.",
+        "operationId": "create_speaker_contact_v1_units__unit_id__speaker_contacts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerContactCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Add a speaker contact to a unit",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}": {
+      "get": {
+        "description": "One contact from this unit's roster.\n\nRaises:\n    ApiError: 404 when the contact is not in this unit.",
+        "operationId": "read_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "patch": {
+        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity:\n``professional_id`` was derived at create time and is now a stored key other\nrows reference. ``smartmatch_persistence.cba_contacts`` states the\nconsequence in full.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit.",
+        "operationId": "update_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerContactUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Edit one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/classification": {
+      "post": {
+        "description": "Replace one or both classification axes (customer \u00a7\u00a77-8, \u00a719).\n\nIts own route rather than a corner of the edit, because it is its own act: a\nConnector correcting an inferred classification is doing something they can\ndescribe, and folding it into the general edit would make \"I fixed the\nindustry\" and \"I retyped the whole record\" the same event in every log.\n\nA ``POST`` rather than a ``PATCH`` on a sub-resource, for the reason\n``outreach_contacts``' transitions are a POST: this is an act performed on the\ncontact, not a field being set on it.\n\nThe write is a current-value ``UPDATE`` that bumps ``updated_at``. Nothing\nrecords who corrected what or what the value was before \u2014 OQ-CBA-008's\ninterim ruling, stated in the persistence module and in migration ``0024``.\n\nRaises:\n    ApiError: 400 when the correction names neither axis, or names a code\n        outside its closed taxonomy; 404 when the contact is not in this\n        unit.",
+        "operationId": "correct_speaker_contact_classification_v1_units__unit_id__speaker_contacts__professional_id__classification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificationCorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Correct a speaker contact's classification",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/speaker-requests": {
       "get": {
         "description": "Return the requests filed under this unit, soonest event first (\u00a713).\n\nOnly requests: the query is restricted to ``origin = 'coordinator_entry'`` in\nthe repository, so an extracted event never appears here. That is not a\ntidiness rule \u2014 an extracted row carries source provenance, and a queue that\npromises \"what hosts asked for\" must not answer with something a crawler\nproduced.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nsame query rather than by a second count whose filters could drift from this\none's.\n\nOnly ``admin`` and ``coordinator`` may read this\n(:func:`_authorize_speaker_request_read`), and authorization runs before any\nrequest row is read.",
@@ -8390,6 +9846,266 @@
         "summary": "File a Speaker Request",
         "tags": [
           "speaker-requests"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/agenda": {
+      "get": {
+        "description": "Return the caller's own events in this unit (customer \u00a715, fix #10).\n\n\"Own\" means ``attendance_record`` names them and the event, because that is\nthe only link between a student and an event this schema has. It is\ndeliberately not called *registered*: there is no registration table, and\nwriting an attendance row when somebody registers would credit them under\nADR-0013 for an event they have not been to. The gap is **OQ-CBA-018**, and\n:class:`StudentEventSummary`'s ``on_my_agenda`` is named for what the data\nsupports rather than for the button a page would like to draw.\n\nSelf-scoping is in the query. ``subject_id`` comes from the verified\nprincipal and appears in the ``WHERE`` clause, so there is no request field\nnaming a subject and no post-filter a later edit could drop \u2014 the\ncaller-selected identity shape (MM-A01) has nowhere to enter.\n\nUnlike the browse route this does **not** filter on ``publication_status``:\nan event a student actually attended is theirs to see on their own agenda\nwhether or not the unit still publishes it, and withholding it would make\ntheir own history disagree with itself. Unresolved-date rows are still\nexcluded \u2014 they have no position on a time-ordered list \u2014 and counted.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any row is read.",
+        "operationId": "list_student_agenda_v1_units__unit_id__student_agenda_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAgendaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the events this student is recorded at, soonest first",
+        "tags": [
+          "student-events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events": {
+      "get": {
+        "description": "Return the unit's published events, soonest first (customer \u00a715).\n\nPublished only. Everything else the unit holds \u2014 an event still in review, a\ndate the pipeline could not resolve, a tag value awaiting a human \u2014 is not a\nstudent's to see, and is counted rather than dropped so an empty catalog\nstays meaningful (:class:`StudentEventListResponse`).\n\nEach item says whether this caller can download its .ics and, when they\ncannot, which fact is missing \u2014 see :func:`_calendar_view`. Nothing here\nproduces a calendar document; the one route that does is\n``routers/calendar.py``.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any event row is read.",
+        "operationId": "browse_student_events_v1_units__unit_id__student_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentEventListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Browse a unit's published events as a student",
+        "tags": [
+          "student-events"
         ]
       }
     },
