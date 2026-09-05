@@ -78,6 +78,46 @@ nothing. Synthetic contacts use `.invalid` addresses. `consent_source` is `NOT
 NULL` with no default and the approved-source vocabulary is a CHECK constraint,
 so there is no way to store a contact whose permission nobody can name.
 
+### Update — the operational half is now implemented (branch `feat/outreach-contact-admin-api`)
+
+The question above is unchanged and still open: *which real contacts get
+loaded* is a decision for whoever holds the consent, and nothing here answers
+it. What has changed is that there is now a way for that person to say so.
+
+`routers/outreach_contacts.py` lets a coordinator register a contact channel,
+correct the evidence behind it, suppress it, and drive it through the
+`consent.py` lifecycle — and migration `0022` records every one of those moves
+in `contact_channel_transition`, an append-only trail carrying the actor, the
+source, the evidence and the reason. Before this, `contact_channel` was a table
+only a migration or a psql session could write, which is why OQ-004's safe
+default read as "seeds nothing" and stopped there.
+
+Three properties are worth naming, because each is a place the easy
+implementation would have been the wrong one:
+
+* **Registration cannot produce a send-eligible contact.** A contact may be
+  created `discovered` or `consented` only. Reaching `active_candidate` is a
+  separate transition by a named actor, so the trail always contains the moment
+  somebody activated it. The database would have accepted the one-step row.
+* **The trail includes the registration.** `from_state IS NULL` for the first
+  entry, rather than a history that begins at the first edit and cannot say
+  where the contact started.
+* **No backfill.** Contacts registered before `0022` have no trail. A
+  synthesised "arrived at its current state at some point, by nobody" row would
+  be a fabricated audit entry, which is worse than an honestly empty history.
+
+**Still deferred, and deliberately.**
+
+| Deferred | Why it is not in this slice |
+| --- | --- |
+| Bulk CSV import of production contacts | An import asserts consent for hundreds of people in one action, by a person who is not looking at any of them. It needs a ratified column contract for consent evidence, a review step, and a decision about what a partially-valid file does — none of which exists. The per-contact route is the honest unit until it does. |
+| Self-service opt-in forms | A public form is an unauthenticated write that creates the strongest kind of consent record (`self_service`). It needs anti-abuse, a verified round trip to prove the address holder submitted it, and retention rules for submissions that never confirm. |
+| Reinstating a suppressed address | See OQ-009. |
+
+Both deferrals fail toward *not sending*: without them a coordinator records
+fewer contacts by hand, rather than the platform recording more contacts than
+anyone agreed to.
+
 ## OQ-005 — the unsubscribe token secret and its rotation
 
 **Question.** Where does `SMARTMATCH_UNSUBSCRIBE_SECRET` live, and what is the
@@ -150,7 +190,38 @@ stored one.
 **Why engineering cannot answer it.** Inbound mail handling is a separate
 capability with its own consent and retention questions.
 
-**Safe default, implemented.** This slice stores sends, not threads. The list
-endpoint returns drafts and their sends. No table claims to hold a reply, and
-the UI does not draw one — a thread list rendered from send records alone would
-be the legacy's fiction with a database behind it.
+**Safe default, implemented.** This slice stores sends, not threads. There are
+two listings — `GET .../outreach/drafts` and `GET .../outreach/sends` — and
+each returns exactly what is stored. No table claims to hold a reply, and the
+UI does not draw one: a thread list rendered from send records alone would be
+the legacy's fiction with a database behind it.
+
+The sends listing was added on `feat/outreach-contact-admin-api`; before it, a
+single send could be read by id and a unit's sends could not be listed at all,
+which made "what have we attempted" a question the surface could not answer.
+
+## OQ-009 — who may reinstate a suppressed address
+
+**Question.** A suppression says a person asked us to stop. Who may lift one,
+on what evidence, and is it ever correct to lift one at all?
+
+**Why engineering cannot answer it.** It is a consent decision about a named
+person, and the failure mode is that somebody who asked to be left alone starts
+receiving mail again. A coordinator correcting an accidental suppression and a
+coordinator overriding a real unsubscribe are the same API call; only the
+evidence distinguishes them, and no artifact says what that evidence is.
+
+**Safe default, implemented.** `PATCH .../contacts/{id}` accepts
+`suppressed: true` and **refuses** `suppressed: false` with a `400` naming this
+question. It is a refusal rather than a silent no-op deliberately: accepting the
+field and doing nothing would be a fake success on the one field where a fake
+success reaches a person who asked us to stop.
+
+**Carried with it: the actor behind a coordinator suppression.**
+`suppression_record` carries `source` (which can be `coordinator`) and
+`suppressed_at`, but no actor column — so "a coordinator suppressed this" is
+recorded and "which coordinator" is not. That is a gap rather than a decision:
+adding the column is a migration, and it should land with the answer to the
+reinstatement question rather than ahead of it, since the two are the same
+audit story. Nothing today depends on the missing attribution, and the
+suppression itself is authoritative either way.

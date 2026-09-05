@@ -43,6 +43,7 @@ __all__ = [
     "attendance_record",
     "concurrency_lease",
     "contact_channel",
+    "contact_channel_transition",
     "delivery_event",
     "discovery_review_item",
     "event",
@@ -1516,6 +1517,85 @@ contact_channel = sa.Table(
     ),
 )
 
+
+# ---------------------------------------------------------------------------
+# The consent audit trail (migration 0022)
+#
+# `contact_channel.contact_state` says where a contact is now; this table says
+# how it got there, who moved it, and on what evidence. Append-only, enforced
+# by a trigger the same way `delivery_event` is — an audit trail whose rows can
+# be edited is a second mutable copy of the current state, not a trail.
+#
+# The legal edges are *not* mirrored here. They live in
+# `smartmatch_domain.consent.STATE_TRANSITIONS` and nowhere else; this table
+# records the moves that were made, and the domain decides which moves are
+# legal. See migration 0022's docstring for why that separation is deliberate.
+# ---------------------------------------------------------------------------
+
+
+contact_channel_transition = sa.Table(
+    "contact_channel_transition",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    # NULL only for the registration row: a contact's first appearance is a
+    # move from nothing to its initial state, recorded rather than implied.
+    sa.Column("from_state", sa.Text, nullable=True),
+    sa.Column("to_state", sa.Text, nullable=False),
+    # Snapshotted, not referenced: a later correction to the contact must not
+    # rewrite what an earlier transition was made on.
+    sa.Column("consent_source", sa.Text, nullable=True),
+    sa.Column("consent_evidence", sa.Text, nullable=True),
+    sa.Column("reason", sa.Text, nullable=True),
+    # NOT NULL: there is no lifecycle move nobody made.
+    sa.Column("actor_user_id", _UUID, nullable=False),
+    sa.Column("occurred_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="contact_channel_transition_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "from_state IS NULL OR from_state IN ('discovered', 'corroborated', 'reviewed', "
+        "'relationship_recorded', 'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_transition_from_state",
+    ),
+    sa.CheckConstraint(
+        "to_state IN ('discovered', 'corroborated', 'reviewed', 'relationship_recorded', "
+        "'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_transition_to_state",
+    ),
+    sa.CheckConstraint(
+        "from_state IS NULL OR from_state <> to_state",
+        name="ck_contact_channel_transition_moves",
+    ),
+    sa.CheckConstraint(
+        "consent_source IS NULL OR consent_source IN ('self_service', 'authenticated', "
+        "'in_person', 'institutional_relationship', 'scraped', 'purchased', 'inferred')",
+        name="ck_contact_channel_transition_consent_source",
+    ),
+    # The same rule as ck_contact_channel_sendable_consent, stated about the
+    # move rather than about the resulting row.
+    sa.CheckConstraint(
+        "to_state NOT IN ('consented', 'active_candidate') OR (consent_source IS NOT NULL "
+        "AND consent_source IN ('self_service', 'authenticated', 'in_person', "
+        "'institutional_relationship'))",
+        name="ck_contact_channel_transition_consented_source",
+    ),
+    sa.CheckConstraint(
+        "(reason IS NULL OR length(btrim(reason)) > 0) "
+        "AND (consent_evidence IS NULL OR length(btrim(consent_evidence)) > 0)",
+        name="ck_contact_channel_transition_text_present",
+    ),
+)
 
 outreach_draft = sa.Table(
     "outreach_draft",

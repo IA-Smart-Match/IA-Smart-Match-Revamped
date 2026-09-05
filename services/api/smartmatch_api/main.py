@@ -53,6 +53,7 @@ from smartmatch_api.routers import (
     me,
     metrics,
     outreach,
+    outreach_contacts,
     portals,
     redrive,
     review,
@@ -243,6 +244,10 @@ app.include_router(portals.router)
 # reading a handler.
 app.include_router(outreach.router)
 app.include_router(outreach.public_router)
+# The contact-channel surface, in its own module and mounted separately, but
+# authorized by `outreach._authorize_outreach` — one question about a unit's
+# outreach with one answer. See `routers/outreach_contacts.py`.
+app.include_router(outreach_contacts.router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")
