@@ -419,6 +419,68 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ),
     ("pilot_session", "ck_pilot_session_token_hash"): "CHECK ((octet_length(token_hash) = 32))",
     ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "CHECK ((count >= 0))",
+    # --- CBA classification storage (migration 0024) --------------------
+    #
+    # The two vocabulary constraints below are the only place in the running
+    # database where customer §§7-8's closed taxonomies appear, and pinning
+    # their rendered text is what this file's "quietly widened vocabulary" case
+    # is *for*: a twenty-first sector code added to a CHECK and to nothing else
+    # passes every behavioural test, because no attempted write knows to try
+    # it. The complementary direction — a code released in
+    # `smartmatch_domain` that never reached a migration — is caught in
+    # test_cba_classification_schema.py, which parametrizes over the domain's
+    # own tuples. Neither test catches what the other does.
+    ("event", "ck_event_location_present"): (
+        "CHECK ((((location_city IS NULL) OR (length(btrim(location_city)) > 0)) "
+        "AND ((location_postal_code IS NULL) "
+        "OR (length(btrim(location_postal_code)) > 0))))"
+    ),
+    ("event", "ck_event_virtual_has_no_location"): (
+        "CHECK (((NOT is_virtual) OR ((location_city IS NULL) AND (location_postal_code IS NULL))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_code"): (
+        "CHECK (((primary_industry_code IS NULL) OR (primary_industry_code = ANY "
+        "(ARRAY['11'::text, '21'::text, '22'::text, '23'::text, '31-33'::text, '42'::text, "
+        "'44-45'::text, '48-49'::text, '51'::text, '52'::text, '53'::text, '54'::text, "
+        "'55'::text, '56'::text, '61'::text, '62'::text, '71'::text, '72'::text, "
+        "'81'::text, '92'::text]))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_versioned"): (
+        "CHECK (((primary_industry_code IS NULL) = (industry_taxonomy_version IS NULL)))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_code"): (
+        "CHECK (((primary_role_code IS NULL) OR (primary_role_code = ANY "
+        "(ARRAY['accounting'::text, 'finance'::text, 'marketing'::text, "
+        "'management_strategy'::text, 'human_resources'::text, "
+        "'operations_supply_chain'::text, 'information_systems_analytics'::text, "
+        "'international_business'::text, 'entrepreneurship_founder'::text, "
+        "'sales_business_development'::text]))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_versioned"): (
+        "CHECK (((primary_role_code IS NULL) = (role_taxonomy_version IS NULL)))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_text_present"): (
+        "CHECK ((((topic_text IS NULL) OR (length(btrim(topic_text)) > 0)) "
+        "AND ((prior_talk IS NULL) OR (length(btrim(prior_talk)) > 0)) "
+        "AND ((location_city IS NULL) OR (length(btrim(location_city)) > 0)) "
+        "AND ((location_postal_code IS NULL) "
+        "OR (length(btrim(location_postal_code)) > 0))))"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_code"): (
+        "CHECK ((((kind = 'industry'::text) AND (code = ANY "
+        "(ARRAY['11'::text, '21'::text, '22'::text, '23'::text, '31-33'::text, '42'::text, "
+        "'44-45'::text, '48-49'::text, '51'::text, '52'::text, '53'::text, '54'::text, "
+        "'55'::text, '56'::text, '61'::text, '62'::text, '71'::text, '72'::text, "
+        "'81'::text, '92'::text]))) OR ((kind = 'role'::text) AND (code = ANY "
+        "(ARRAY['accounting'::text, 'finance'::text, 'marketing'::text, "
+        "'management_strategy'::text, 'human_resources'::text, "
+        "'operations_supply_chain'::text, 'information_systems_analytics'::text, "
+        "'international_business'::text, 'entrepreneurship_founder'::text, "
+        "'sales_business_development'::text])))))"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_kind"): (
+        "CHECK ((kind = ANY (ARRAY['industry'::text, 'role'::text])))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -633,6 +695,59 @@ BEHAVIOURAL_COVERAGE = {
     ("pilot_session", "ck_pilot_session_window"): "this file",
     ("pilot_session", "ck_pilot_session_token_hash"): "this file",
     ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "this file",
+    # Migration 0024. Every one of these is exercised in both directions —
+    # forbidden write and permitted write — by the module written alongside the
+    # migration, which is where the taxonomy fixtures and row builders already
+    # live. Recorded here rather than duplicated, exactly as the outreach
+    # entries above are.
+    ("event", "ck_event_location_present"): (
+        "test_event_schema_constraints.py"
+        "::test_a_blank_location_value_is_refused_rather_than_stored, with the permitted "
+        "half in ::test_a_physical_event_stores_its_city_and_zip"
+    ),
+    ("event", "ck_event_virtual_has_no_location"): (
+        "test_event_schema_constraints.py::test_a_virtual_event_cannot_carry_a_location "
+        "and ::test_an_event_cannot_be_made_virtual_while_it_still_holds_a_location, with "
+        "the permitted half in ::test_a_virtual_event_stores"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_code"): (
+        "test_cba_classification_schema.py"
+        "::test_an_industry_value_outside_the_taxonomy_is_refused, with the permitted half "
+        "in ::test_every_released_sector_code_is_storable — parametrized over the domain's "
+        "own SECTOR_CODES rather than a list repeated here"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_versioned"): (
+        "test_cba_classification_schema.py"
+        "::test_a_stored_classification_must_name_the_taxonomy_it_was_resolved_against — "
+        "both directions, a code with no version and a version with no code"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_code"): (
+        "test_cba_classification_schema.py::test_a_role_value_outside_the_taxonomy_is_refused "
+        "and ::test_an_adr_0012_event_tag_cannot_be_stored_as_a_cba_role, with the permitted "
+        "half in ::test_every_released_role_category_code_is_storable"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_versioned"): (
+        "test_cba_classification_schema.py"
+        "::test_a_stored_classification_must_name_the_taxonomy_it_was_resolved_against"
+    ),
+    ("speaker_profile", "ck_speaker_profile_text_present"): (
+        "test_cba_classification_schema.py"
+        "::test_a_blank_speaker_field_is_refused_rather_than_stored — every one of the four "
+        "columns — with the permitted half in ::test_a_speaker_stores_topic_prior_talk_and_location"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_code"): (
+        "test_cba_classification_schema.py"
+        "::test_the_two_vocabularies_cannot_be_stored_under_each_others_kind and "
+        "::test_an_adr_0012_event_tag_is_not_a_speaker_request_classification, with the "
+        "permitted half in ::test_every_released_sector_code_is_targetable and "
+        "::test_every_released_role_category_code_is_targetable"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_kind"): (
+        "test_cba_classification_schema.py::test_the_classification_kind_vocabulary_is_closed, "
+        "with the permitted half in "
+        "::test_a_speaker_request_targets_many_industries_and_many_roles, which writes both "
+        "kinds"
+    ),
 }
 
 
