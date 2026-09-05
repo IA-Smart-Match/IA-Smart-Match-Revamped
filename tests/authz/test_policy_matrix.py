@@ -762,6 +762,43 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The .ics download is the one operation in this file whose role set is
+    # deliberately *wider* than the read it hangs off. ``events.read`` refuses a
+    # student because the catalog carries extraction provenance and source
+    # references; an invite carries a title, a description and two instants for
+    # one event, which is the thing a student is meant to have.
+    #
+    # So ``_INVITE_ROLES`` is ``admin``/``coordinator``/``student``, and this row
+    # records the permit for ``student_at_owning_unit`` that ``events.read``
+    # denies. That is not the whole rule the route enforces, and it matters that
+    # it is not: a student who clears this check still has to produce an
+    # ``attendance_record`` for the specific event before any bytes are written,
+    # and an event they have no row for is a 404. That second gate is not policy
+    # — it is a fact about one row, which ``evaluate`` has no way to see and this
+    # matrix has no way to state — so it is asserted over HTTP in
+    # ``tests/contract/test_calendar_ics.py`` instead. What this row is
+    # responsible for is the half that *is* policy: nobody outside these three
+    # roles reaches the handler at all, and the unit scoping is ordinary
+    # containment.
+    #
+    # No ``require_membership`` — ``_INVITE_ROLES`` is non-empty, so ``evaluate``
+    # refuses a bare ``resource_grant`` on the required-roles check before the
+    # membership question is reached (S-007). No ``tenant_wide_roles`` — the
+    # metrics decision's §4 is the only artifact in this repository that makes
+    # anything tenant-wide, it says so of aggregate reads specifically, and an
+    # .ics for one event is the narrowest read in the file.
+    Operation(
+        key="calendar.invite.download",
+        method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}/invite.ics",
+        module="smartmatch_api.routers.calendar",
+        authorizer="_authorize_invite_read",
+        roles_constant="_INVITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator", "student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two match-run operations share one authorizer,
     # ``_authorize_match_run`` in ``routers/match_runs.py``, for the reason the
     # two event reads share theirs: both ask the identical question — may this
@@ -1120,6 +1157,19 @@ SHAPES: tuple[Shape, ...] = (
         memberships=(_member(OWNING_UNIT, "student"),),
     ),
     Shape(
+        name="volunteer_at_owning_unit",
+        description=(
+            "an active membership at the right unit carrying the `volunteer` "
+            "role — the wrong role for every operation in this file, which is "
+            "exactly why it exists. `calendar.invite.download` admits "
+            "`admin`, `coordinator` *and* `student`, so before this shape there "
+            "was no covering membership left that its row could refuse for a "
+            "role reason, and `_wrong_role_shape_for` said so rather than "
+            "quietly skipping the assertion"
+        ),
+        memberships=(_member(OWNING_UNIT, "volunteer"),),
+    ),
+    Shape(
         name="member_with_no_memberships",
         description="authenticated, in the right tenant, holding nothing at all",
     ),
@@ -1259,6 +1309,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "no_grant",
             why="importing records into a unit is role-gated, not membership-gated",
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -1315,6 +1373,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "student_at_owning_unit": deny(
             "no_grant",
             why="a job's command type and event payloads carry operational detail",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
@@ -1380,6 +1446,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="same as job.read — one authorizer, one answer",
         ),
         "student_at_owning_unit": deny("no_grant"),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny("resource_grant_lacks_required_role"),
         "admin_with_explicit_deny": deny("explicit_resource_deny"),
@@ -1412,6 +1486,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why=(
                 "re-running failed work can repeat effects that already reached "
                 "people outside the system"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -1454,6 +1536,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "student_at_owning_unit": deny(
             "no_grant",
             why="closing work permanently removes it from everyone else's view",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny("resource_grant_lacks_required_role"),
@@ -1503,6 +1593,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "student_at_owning_unit": deny(
             "no_grant",
             why="deciding a submitted record is role-gated, not membership-gated",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
@@ -1594,6 +1692,15 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "membership with a role'."
             ),
         ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the same reason `student_at_owning_unit` is permitted "
+                "here and denied everywhere else: `required_roles` is "
+                "empty, so `evaluate`'s role filter never triggers and an "
+                "active membership at the right unit is enough on its own, "
+                "whichever role it carries"
+            ),
+        ),
         "member_with_no_memberships": deny(
             "no_grant",
             why=(
@@ -1683,6 +1790,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is refused for holding the wrong role"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -1707,6 +1822,89 @@ MATRIX: dict[str, dict[str, Cell]] = {
     # rectangle is the artifact a reviewer reads, and two operations that
     # happen to agree today must each state their own answer so that the day
     # one of them diverges the diff shows which one.
+    "calendar.invite.download": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive, so a path covers itself",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "an event names the unit that hosts it "
+                "(`event.host_org_unit_id`), and a sibling department's "
+                "coordinator does not cover it — the same scoping "
+                "`events.read` applies to the catalog these ids come from"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "admin is a required role here and the membership is active, "
+                "so the only thing refusing this principal is the path. No "
+                "committed artifact makes a calendar artifact tenant-wide, so "
+                "`_authorize_invite_read` passes no `tenant_wide_roles`"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "the one cell where this operation is deliberately wider than "
+                "`events.read` below. The catalog is refused to a student "
+                "because it carries extraction provenance and source "
+                "references; an invite carries a title, a description and two "
+                "instants for a single event, which is the artifact the "
+                "student portal exists to hand over. The permit is not the "
+                "whole rule: the handler then requires an `attendance_record` "
+                "naming this student and this event, and answers 404 without "
+                "one. That gate is a fact about a row rather than about a "
+                "principal, so `evaluate` cannot express it and "
+                "`tests/contract/test_calendar_ics.py` asserts it instead"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "downloading an invite has no actor path — the shape "
+                "degenerates to a role-less member, which is correct: this "
+                "operation is not reachable through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason "
+                "above; what is left is a deny on the unit, which beats "
+                "inheritance"
+            ),
+        ),
+    },
     "events.read": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -1742,6 +1940,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "membership-gated. The catalog carries extraction provenance "
                 "and source references, which is coordinator-and-above "
                 "material rather than something every active membership sees"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -1809,6 +2015,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "reviewing quarantined tag values is role-gated: the queue "
                 "exists so a coordinator decides what a term means, and an "
                 "active membership carrying another role is not that person"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -1887,6 +2101,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "professional's expertise evidence"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -1960,6 +2182,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "person outside the institution"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2031,6 +2261,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "it says, and a student membership is not one of them — this is "
                 "the one operation family where the wrong answer reaches a real "
                 "person outside the institution"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -2107,6 +2345,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "person outside the institution"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2180,6 +2426,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "person outside the institution"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2242,6 +2496,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "reading a run is role-gated: it returns per-factor "
                 "explanations naming which candidates had no evidence on file, "
                 "which is a statement about individual professionals' records"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -2337,6 +2599,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the required role"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2404,6 +2674,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "student_at_owning_unit": permit(
             why="the shape this operation exists for; containment is inclusive",
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2453,6 +2731,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "student_at_owning_unit": permit(
             why="the shape this operation exists for; containment is inclusive",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
@@ -2517,6 +2803,14 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "let them hand themselves the reward and take the debit"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2579,6 +2873,15 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "other students' journeys"
             ),
         ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "refusal is the role alone. A volunteer neither reads nor moves "
+                "another student's funnel record"
+            ),
+        ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
@@ -2637,6 +2940,15 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "recording their own Attended would mint the attendance claim the "
                 "rewards ledger reads, and asserting their own Member Inquiry would "
                 "write the program's headline conversion number"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "refusal is the role alone. A volunteer neither reads nor moves "
+                "another student's funnel record"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -2767,6 +3079,19 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # `org_unit` resource, so a widening applies to all four or to none. The
     # fifth outreach route, `POST /v1/unsubscribe`, does not appear here at all:
     # it has no principal, and its entry is in `UNAUTHENTICATED_ROUTES`.
+    #
+    # `_authorize_invite_read` (`routers/calendar.py`) is the ninth name, and
+    # the only one that does something after the call this stub reproduces: it
+    # goes on to `evaluate` the same resource against `_COORDINATOR_ROLES` to
+    # learn whether the caller reads the whole unit or is a student who must
+    # still produce an `attendance_record`. That second call decides nothing —
+    # `assert_allowed` has already raised for anyone outside `_INVITE_ROLES`,
+    # and a `False` from it leads to a stricter path rather than a laxer one —
+    # so reproducing only the first call here is not a simplification of the
+    # authorizer, it is all of the authorizer that is a policy decision. The
+    # row-level half is asserted over HTTP in
+    # `tests/contract/test_calendar_ics.py`, which is where a fact about one
+    # `attendance_record` can actually be stated.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
@@ -2777,6 +3102,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_redemption_decision",
         "_authorize_outreach",
         "_authorize_pipeline",
+        "_authorize_invite_read",
     ):
         assert_allowed(
             resolved.principal,
@@ -3372,6 +3698,11 @@ def test_the_matrix_describes_what_the_code_does(operation_key: str, shape_name:
 _ACTIVE_OWNING_UNIT_SHAPES: tuple[str, ...] = (
     "student_at_owning_unit",
     "coordinator_at_owning_unit",
+    # Last, so the nineteen operations that already had a wrong-role shape keep
+    # the one they were written against and this addition changes what nothing
+    # else asserts. It is reached only by an operation that admits both of the
+    # shapes above — today that is `calendar.invite.download` alone.
+    "volunteer_at_owning_unit",
 )
 
 

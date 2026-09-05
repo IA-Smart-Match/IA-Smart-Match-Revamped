@@ -95,7 +95,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smartmatch_api.routers import engagement, events, match_runs, rewards
+from smartmatch_api.routers import calendar, engagement, events, match_runs, rewards
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
     assert_registry_approved,
@@ -137,6 +137,31 @@ _G3_FORBIDDEN_SEGMENTS = frozenset(
     }
 )
 
+# G5 — forbidden path segments until the Calendar API decision lands.
+# ``invite.ics`` is listed even though the ICS slice landed exactly that
+# segment, and that is the point, the same point ``match-runs`` makes in the G1
+# set above: ``G5_AUTHORIZED_CALENDAR_PATHS`` is what admits it, so the
+# allowlist is load-bearing rather than decorative.
+#
+# Segments are matched exactly, never as substrings, which is what makes a bare
+# ``ics`` entry safe here — ``metrics`` is a different segment string and an
+# unrelated, authorized route. That distinction is why
+# ``tests/unit/test_calendar_invite_wiring.py`` cannot use a bare "ics" marker
+# and this set can.
+_G5_FORBIDDEN_SEGMENTS = frozenset(
+    {
+        "calendar",
+        "calendars",
+        "calendar.ics",
+        "ics",
+        "invite",
+        "invites",
+        "invite.ics",
+        "invites.ics",
+        "webcal",
+    }
+)
+
 # D6 — forbidden path segments until D6/D7 budget owners ratify catalog + S6/S7 exist.
 _D6_FORBIDDEN_SEGMENTS = frozenset(
     {
@@ -162,6 +187,31 @@ G3_AUTHORIZED_EVENT_PATHS = frozenset(
     {
         "/v1/units/{unit_id}/events",
         "/v1/units/{unit_id}/tag-quarantine",
+    }
+)
+
+
+# G5 — the exact calendar-artifact path the ICS slice authorizes, and no others.
+# A literal set for the same reason G3's is one: the rule at the end of
+# `_forbidden_gate_for_path` refuses every unit-scoped path whose segment after
+# `units/{id}` is `events`, and this route is one of those. Admitting it is
+# therefore a visible edit to a named list rather than a loosened pattern — and
+# a pattern would be actively wrong here, because the paths this gate must keep
+# refusing are the ones that look most like this one. A per-unit subscription
+# feed (`/v1/units/{unit_id}/calendar.ics`) is a URL carrying its own long-lived
+# credential; an upload is a write; a bulk export hands over the whole catalog in
+# one request. None of the three is admitted by this entry, and each would fail
+# here.
+#
+# The synthetic pilot development authorization (2026-09-03, §3) permits "ICS
+# artifacts" while G5 (Calendar API) stays deferred, which is exactly one route
+# wide. `tests/unit/test_calendar_invite_wiring.py` states the other half — that
+# no Google Calendar client, scope, or credential appears in either module — and
+# `docs/plans/open-questions/calendar-deferred.md` OQ-001 is the decision both
+# enforce.
+G5_AUTHORIZED_CALENDAR_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events/{event_id}/invite.ics",
     }
 )
 
@@ -219,11 +269,20 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     if path in D6_AUTHORIZED_REWARD_PATHS:
         return None
 
+    # G5's exception, in the same position and for the same reason:
+    # `_G5_FORBIDDEN_SEGMENTS` contains `invite.ics`, so the loop below refuses
+    # this path and only this list admits it. A subscription feed, an upload, or
+    # a bulk export is refused by that same loop and appears in no list.
+    if path in G5_AUTHORIZED_CALENDAR_PATHS:
+        return None
+
     for segment in segments:
         if segment in _G1_FORBIDDEN_SEGMENTS:
             return "G1"
         if segment in _G3_FORBIDDEN_SEGMENTS:
             return "G3"
+        if segment in _G5_FORBIDDEN_SEGMENTS:
+            return "G5"
         if segment in _D6_FORBIDDEN_SEGMENTS:
             return "D6"
 
@@ -295,6 +354,72 @@ def test_the_authorized_event_routes_are_read_only():
     )
 
     assert offenders == [], f"G3: the events router is read-only; found {offenders}"
+
+
+def test_the_calendar_router_declares_exactly_the_authorized_routes():
+    """G5's flip is bounded by a list, not by the router's own contents.
+
+    The same shape as :func:`test_the_events_router_declares_exactly_the_authorized_routes`,
+    and for the same reason: "a calendar router may now declare things" would be
+    a gate replaced by nothing. A second route added to this module fails here
+    whether or not anyone regenerated the contract.
+    """
+    declared = {str(route.path) for route in calendar.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == G5_AUTHORIZED_CALENDAR_PATHS, (
+        "G5: the calendar router declares routes outside the ICS allowlist: "
+        f"{sorted(declared - G5_AUTHORIZED_CALENDAR_PATHS)}"
+    )
+
+
+def test_the_authorized_calendar_route_is_read_only():
+    """An artifact download was authorized. A write was not.
+
+    G3 §9 leaves API handlers "commands and review decisions only", and a
+    ``POST`` or ``PUT`` under this path would be an .ics *upload* — a write into
+    the event catalog through the one surface that exists to read out of it. The
+    methods are pinned rather than the path alone, exactly as they are for the
+    two event reads.
+    """
+    offenders = sorted(
+        f"{method} {route.path}"  # type: ignore[attr-defined]
+        for route in calendar.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"GET", "HEAD"}
+    )
+
+    assert offenders == [], f"G5: the calendar router is read-only; found {offenders}"
+
+
+def test_the_calendar_allowlist_admits_no_feed_upload_or_bulk_export():
+    """The near misses this gate exists to refuse, named so they stay refused.
+
+    Each of these differs from the authorized path by little more than a
+    segment, and each is a materially different authorization question — a
+    subscription URL carrying its own long-lived credential, a write, and a
+    whole-catalog read. Without this, `G5_AUTHORIZED_CALENDAR_PATHS` would be a
+    list nothing proved was narrow.
+    """
+    near_misses = (
+        # A subscription feed: one URL, returning the unit's whole calendar,
+        # carrying its own long-lived credential.
+        "/v1/units/{unit_id}/calendar.ics",
+        "/v1/units/{unit_id}/calendar",
+        "/v1/units/{unit_id}/events/calendar.ics",
+        # A bulk export of every invite in one request.
+        "/v1/units/{unit_id}/events/invites.ics",
+        "/v1/units/{unit_id}/events/{event_id}/invites",
+        # The same artifact one segment away from the authorized spelling.
+        "/v1/units/{unit_id}/events/{event_id}/invite",
+        "/v1/units/{unit_id}/events/{event_id}/ics",
+        # And the capability the gate is actually about.
+        "/v1/units/{unit_id}/events/{event_id}/webcal",
+    )
+
+    for path in near_misses:
+        assert _forbidden_gate_for_path(path) == "G5", (
+            f"{path} is not the authorized calendar artifact and must stay refused"
+        )
 
 
 def test_the_match_run_router_declares_exactly_the_authorized_routes():
