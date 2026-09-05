@@ -1,7 +1,7 @@
 """``contact_channel_transition`` — the audit trail behind every consent move (OQ-004).
 
-Revision ID: 0022_contact_transition
-Revises: 0021_outreach_schema
+Revision ID: 0023_contact_transition
+Revises: 0022_event_end_instant
 Create Date: 2026-09-04
 
 Migration ``0021`` gave ``contact_channel`` a ``contact_state`` column and the
@@ -72,8 +72,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0022_contact_transition"
-down_revision = "0021_outreach_schema"
+revision = "0023_contact_transition"
+down_revision = "0022_event_end_instant"
 branch_labels = None
 depends_on = None
 
