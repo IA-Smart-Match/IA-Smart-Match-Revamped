@@ -459,12 +459,17 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("speaker_profile", "ck_speaker_profile_role_versioned"): (
         "CHECK (((primary_role_code IS NULL) = (role_taxonomy_version IS NULL)))"
     ),
+    # Widened by migration 0025: `full_name` leads (NOT NULL, so no NULL arm —
+    # the clause exists to refuse '   ') and `company`/`title` join the tail.
     ("speaker_profile", "ck_speaker_profile_text_present"): (
-        "CHECK ((((topic_text IS NULL) OR (length(btrim(topic_text)) > 0)) "
+        "CHECK (((length(btrim(full_name)) > 0) "
+        "AND ((topic_text IS NULL) OR (length(btrim(topic_text)) > 0)) "
         "AND ((prior_talk IS NULL) OR (length(btrim(prior_talk)) > 0)) "
         "AND ((location_city IS NULL) OR (length(btrim(location_city)) > 0)) "
         "AND ((location_postal_code IS NULL) "
-        "OR (length(btrim(location_postal_code)) > 0))))"
+        "OR (length(btrim(location_postal_code)) > 0)) "
+        "AND ((company IS NULL) OR (length(btrim(company)) > 0)) "
+        "AND ((title IS NULL) OR (length(btrim(title)) > 0))))"
     ),
     ("speaker_request_classification", "ck_speaker_request_classification_code"): (
         "CHECK ((((kind = 'industry'::text) AND (code = ANY "
@@ -733,7 +738,12 @@ BEHAVIOURAL_COVERAGE = {
     ("speaker_profile", "ck_speaker_profile_text_present"): (
         "test_cba_classification_schema.py"
         "::test_a_blank_speaker_field_is_refused_rather_than_stored — every one of the four "
-        "columns — with the permitted half in ::test_a_speaker_stores_topic_prior_talk_and_location"
+        "columns 0024 added — with the permitted half in "
+        "::test_a_speaker_stores_topic_prior_talk_and_location; and, for the three columns "
+        "0025 added, test_cba_contact_schema.py::test_a_blank_name_is_refused and "
+        "::test_a_blank_company_or_title_is_refused, with the permitted half in "
+        "::test_a_contact_stores_name_company_and_title and "
+        "::test_an_absent_company_or_title_is_a_real_state"
     ),
     ("speaker_request_classification", "ck_speaker_request_classification_code"): (
         "test_cba_classification_schema.py"
