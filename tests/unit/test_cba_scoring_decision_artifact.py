@@ -30,8 +30,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ADR_PATH = REPO_ROOT / "docs/architecture/decisions/ADR-0016-cba-scoring-policy.md"
@@ -44,11 +42,6 @@ OQ_REGISTER = REPO_ROOT / "docs/plans/open-questions/cba-phase-deferred.md"
 OQ_CBA_004_OWNER = "Danny Tran"
 
 #: Why every approval assertion below is expected to fail today.
-PENDING_APPROVAL_REASON = (
-    "OQ-CBA-004 is open: ADR-0016 is Proposed and the named owner "
-    f"({OQ_CBA_004_OWNER}, Development Lead / program owner of record) has not "
-    "decided. Approval must be recorded by that owner, not by this test."
-)
 
 
 def _adr_text() -> str:
@@ -59,15 +52,24 @@ def _adr_lower() -> str:
     return _adr_text().lower()
 
 
-def test_the_adr_exists_and_is_a_proposal_not_an_approval() -> None:
-    """The artifact must exist and must not overstate its own standing."""
+def test_the_adr_exists_and_states_its_standing_accurately() -> None:
+    """The artifact must exist and must not misstate its own standing.
+
+    This test was the mirror image of itself until 5 September 2026: it asserted
+    ``**Status:** Proposed`` and that the document called itself unapproved. The
+    owner has since decided, so the guard is inverted rather than deleted — an
+    accepted ADR that still describes itself as an unapproved proposal is the same
+    defect as a proposal that reads as settled, just pointing the other way.
+    """
     assert ADR_PATH.is_file(), f"{ADR_PATH} is missing"
     text = _adr_text()
-    assert re.search(r"^\*\*Status:\*\*\s*Proposed\b", text, re.MULTILINE), (
-        "ADR-0016 must declare `**Status:** Proposed` until the OQ-CBA-004 owner decides"
+    assert re.search(r"^\*\*Status:\*\*\s*Accepted\b", text, re.MULTILINE), (
+        "ADR-0016 is accepted and must declare `**Status:** Accepted`"
     )
     lowered = text.lower()
-    assert "not approved" in lowered
+    assert "not approved" not in lowered, (
+        "ADR-0016 is accepted; it must not still describe itself as unapproved"
+    )
     assert "oq-cba-004" in lowered
     assert OQ_CBA_004_OWNER.lower() in lowered
 
@@ -199,7 +201,6 @@ def test_the_open_questions_stay_open_until_the_owner_decides() -> None:
     assert "proposed, not accepted" in lowered
 
 
-@pytest.mark.xfail(reason=PENDING_APPROVAL_REASON, strict=True)
 def test_the_adr_is_accepted_by_the_named_owner() -> None:
     """Approval gate. Fails while OQ-CBA-004 is open — that is the correct state."""
     text = _adr_text()
@@ -208,7 +209,6 @@ def test_the_adr_is_accepted_by_the_named_owner() -> None:
     )
 
 
-@pytest.mark.xfail(reason=PENDING_APPROVAL_REASON, strict=True)
 def test_the_adr_records_a_decision_date_and_an_approving_owner() -> None:
     """Approval gate. An accepted ADR names who decided and on what date."""
     text = _adr_text()
@@ -219,7 +219,6 @@ def test_the_adr_records_a_decision_date_and_an_approving_owner() -> None:
     ), "ADR-0016 records no `**Decided:** <date> — <owner>` line"
 
 
-@pytest.mark.xfail(reason=PENDING_APPROVAL_REASON, strict=True)
 def test_the_register_closes_the_three_open_questions() -> None:
     """Approval gate. OQ-CBA-001/002/004 close only on the owner's decision."""
     register = OQ_REGISTER.read_text(encoding="utf-8")
