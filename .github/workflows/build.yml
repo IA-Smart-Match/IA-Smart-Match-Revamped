@@ -355,7 +355,7 @@ jobs:
         run: docker compose down -v
 
   pilot-e2e:
-    name: pilot e2e — auth, columns contract, accept AND reject, metrics, match, events, rewards
+    name: pilot e2e — auth, columns contract, accept AND reject, metrics, match, events, rewards, outreach
     runs-on: ubuntu-24.04
     # Same 30 as compose-smoke and for the same reason: `web`'s first start
     # runs `npm ci` into an empty volume, which is minutes on a cold runner.
@@ -373,6 +373,8 @@ jobs:
     #     -> a match run: score, shortlist, per-factor explanation
     #     -> events + tag quarantine
     #     -> rewards
+    #     -> outreach: a consent-gated draft, the send COMMAND, the job's
+    #        terminal state, and the delivery events recorded against the send
     #
     # and it is written to go red on DISHONESTY, not only on breakage. It fails
     # if a rank or score is mocked rather than computed (two runs differing in
@@ -384,6 +386,16 @@ jobs:
     # percentage (the ratified G1 rules forbid it: the label is
     # "heuristic score", the shortlist is 2-3 speakers, and every score carries
     # its registry version).
+    #
+    # The outreach steps hold the same line for the send path. The 202 must
+    # carry no field a client could render as "sent" (B17); the outcome is read
+    # back from the job's summary and the send's own delivery events, never
+    # inferred from the acknowledgement; `live_mode` is asserted false, so a
+    # green run is one through the FIXTURE provider and never one bought by
+    # mailing a stranger; and a recipient who unsubscribes after a coordinator
+    # approved the draft must end the job `failed_policy` with a `blocked`
+    # delivery event and no provider message id. Every address composed is
+    # under RFC 2606's reserved `.invalid` TLD, which cannot resolve.
     #
     # Some steps CANNOT run on this appliance and are skipped by name rather
     # than faked — rewards is gated on the `student` role alone pending the D6
