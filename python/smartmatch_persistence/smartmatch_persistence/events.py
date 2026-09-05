@@ -147,16 +147,24 @@ class EventNotPublishableError(ValueError):
 
 
 def _temporal_columns(event_time: EventTime) -> dict[str, object]:
-    """The four ADR-0010 columns an ``EventTime`` writes, and no others.
+    """The five temporal columns an ``EventTime`` writes, and no others.
 
-    Every branch names all four keys, including the ones it sets to ``None``.
+    Every branch names all five keys, including the ones it sets to ``None``.
     An ``UPDATE`` that omitted a column would leave the previous extraction's
     ``starts_at`` on a row that has since become ``date_only`` — a fabricated
     instant surviving a correction, which is exactly the class ADR-0010 closes.
+
+    ``ends_at`` (migration ``0022``) joins the same discipline for the same
+    reason, and is the one column here that ADR-0010 does not name: an event
+    re-extracted from a source that dropped its end time must lose the end it
+    had, or a stale duration outlives the fact that supported it. ``None`` on
+    the two imprecise branches is not merely tidy — ``ck_event_end_after_start``
+    would reject any other value there.
     """
     if isinstance(event_time, ExactTime):
         return {
             "starts_at": event_time.starts_at,
+            "ends_at": event_time.ends_at,
             "on_date": None,
             "time_zone": event_time.time_zone,
             "time_precision": str(precision_of(event_time)),
@@ -164,12 +172,14 @@ def _temporal_columns(event_time: EventTime) -> dict[str, object]:
     if isinstance(event_time, DateOnlyTime):
         return {
             "starts_at": None,
+            "ends_at": None,
             "on_date": event_time.on_date,
             "time_zone": event_time.time_zone,
             "time_precision": str(precision_of(event_time)),
         }
     return {
         "starts_at": None,
+        "ends_at": None,
         "on_date": None,
         "time_zone": None,
         "time_precision": str(precision_of(event_time)),

@@ -148,6 +148,15 @@ class EventTimeView(BaseModel):
     starts_at: datetime | None = Field(
         default=None, description="The instant, present only at exact precision."
     )
+    ends_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The instant the event finishes, present only when the source actually "
+            "stated one. Null is not a duration of zero and not a default of an hour: "
+            "it is the absence that makes an .ics download refusable rather than "
+            "guessable, and it is what a client checks before offering the link."
+        ),
+    )
     on_date: date | None = Field(
         default=None, description="The calendar date, present only at date_only precision."
     )
@@ -404,6 +413,7 @@ def list_events(
             schema.event.c.title,
             schema.event.c.description,
             schema.event.c.starts_at,
+            schema.event.c.ends_at,
             schema.event.c.on_date,
             schema.event.c.time_zone,
             schema.event.c.time_precision,
@@ -441,6 +451,7 @@ def list_events(
                 time=EventTimeView(
                     precision=row.time_precision,
                     starts_at=row.starts_at,
+                    ends_at=row.ends_at,
                     on_date=row.on_date,
                     time_zone=row.time_zone,
                 ),

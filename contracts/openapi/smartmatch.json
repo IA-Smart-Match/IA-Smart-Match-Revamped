@@ -542,6 +542,19 @@
       "EventTimeView": {
         "description": "An event's time at whichever precision is actually known (ADR-0010).\n\nThree fields plus a discriminator, never a single nullable timestamp. A\n``date_only`` event has no instant, and reporting one \u2014 midnight in some\nzone \u2014 is the fabrication ADR-0010 exists to stop; a client reading\n``precision`` knows which of ``starts_at`` and ``on_date`` is real without\ninferring it from a null.",
         "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant the event finishes, present only when the source actually stated one. Null is not a duration of zero and not a default of an hour: it is the absence that makes an .ics download refusable rather than guessable, and it is what a client checks before offering the link.",
+            "title": "Ends At"
+          },
           "on_date": {
             "anyOf": [
               {
@@ -4061,6 +4074,140 @@
         "summary": "List a unit's presentable events",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/events/{event_id}/invite.ics": {
+      "get": {
+        "description": "Return one event's .ics bytes, or refuse and name the fact that is missing.\n\nAuthorization runs before any event row is read, and the student branch\nruns before any of the event's content reaches a response \u2014 so a caller\nwith no claim on the event learns nothing from it, including whether it\nwould have been downloadable.\n\nThe bytes come from\n:func:`smartmatch_domain.calendar_invite.build_invite_ics` and are not\nassembled here. Every RFC 5545 rule \u2014 escaping, 75-octet folding, UTC\nconversion, the deliberate absence of ``METHOD`` \u2014 lives in\n``smartmatch_domain.ics``, and this route's whole contribution is deciding\nwhether the row may be handed to it.",
+        "operationId": "download_event_invite_v1_units__unit_id__events__event_id__invite_ics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/calendar": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The RFC 5545 calendar document, as UTF-8 octets."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "The event states no usable time slot: an unresolved or date-only start, an unstated end, or a tag value still awaiting review. No invite is issued and nothing is inferred (finding F-003)."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Download one event's calendar invite (.ics)",
+        "tags": [
+          "calendar"
         ]
       }
     },

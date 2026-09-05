@@ -45,6 +45,7 @@ from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     auth,
+    calendar,
     engagement,
     events,
     imports,
@@ -232,6 +233,10 @@ app.include_router(redrive.router)
 app.include_router(me.router)
 app.include_router(metrics.router)
 app.include_router(events.router)
+# The .ics download. Registered after `events` because both mount under
+# `/v1/units`, and reading them next to each other is how a later change to one
+# is noticed as a change to the pair.
+app.include_router(calendar.router)
 app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
