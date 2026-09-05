@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation } from "react-router";
+import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
   Briefcase,
@@ -15,13 +16,49 @@ import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
 import { useSession } from "../hooks/useSession";
 import { SyntheticDataBanner } from "./provenance";
+import { isCapabilityEnabled, type Capability } from "@/lib/productScope";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "./ui/tooltip";
 
-const navigationSections = [
+/**
+ * A navigation entry, and the capabilities the product must offer before it is
+ * honest to show one.
+ *
+ * `requires` is read against the shared policy (`src/lib/productScope.ts`,
+ * mirroring `smartmatch_domain.product_scope`) — the same named decisions the
+ * router and the API composition read, so "which product is this" is answered
+ * once and consulted rather than restated in each place.
+ *
+ * Hiding a link removes a *claim*, not an access path: `/v1` stays
+ * deny-by-default and tenant-scoped whatever this sidebar shows. What it buys
+ * is that the product stops advertising a page the customer put out of scope
+ * (customer §20).
+ */
+interface NavItem {
+  readonly name: string;
+  readonly href: string;
+  readonly icon: LucideIcon;
+  readonly tooltip: string;
+  /** Every capability must be enabled. Omitted means "always offered". */
+  readonly requires?: readonly Capability[];
+}
+
+/**
+ * The legacy admin Outreach page needs both: it reaches unknown university
+ * contacts through the legacy `/api/data/*` reads, and it embeds the retired
+ * external-discovery `CrawlerFeed`. Kept in step with `routes.tsx`, which
+ * gates the route itself on the same pair — a nav entry pointing at a route
+ * the router does not have would be a dead link rather than a gate.
+ */
+const LEGACY_COLD_OUTREACH_CAPABILITIES: readonly Capability[] = [
+  "cold_unknown_contact_outreach",
+  "external_speaker_acquisition",
+];
+
+const navigationSections: readonly { label: string; items: readonly NavItem[] }[] = [
   {
     label: "MANAGE",
     items: [
@@ -36,12 +73,37 @@ const navigationSections = [
     items: [
       { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
       { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank specialists against open opportunities" },
-      { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
+      {
+        name: "Outreach",
+        href: "/outreach",
+        icon: Mail,
+        tooltip: "Generate outreach emails and QR assets",
+        requires: LEGACY_COLD_OUTREACH_CAPABILITIES,
+      },
     ],
   },
 ];
 
-const allNavItems = navigationSections.flatMap((s) => s.items);
+/**
+ * The sections this product actually offers.
+ *
+ * Computed once at module load, from the settings the build was composed with,
+ * for the same reason `main.py` mounts routers once at import: a menu that
+ * changed shape per render would be a different product on every paint, and
+ * the page title lookup below would disagree with the sidebar beside it.
+ *
+ * A section whose every item is gated is dropped entirely rather than rendered
+ * as an empty heading — a lone "DISCOVER" label above nothing still advertises
+ * a capability, just less legibly.
+ */
+const offeredSections = navigationSections
+  .map((section) => ({
+    ...section,
+    items: section.items.filter((item) => (item.requires ?? []).every(isCapabilityEnabled)),
+  }))
+  .filter((section) => section.items.length > 0);
+
+const allNavItems = offeredSections.flatMap((s) => s.items);
 
 export function Layout() {
   const location = useLocation();
@@ -101,7 +163,7 @@ export function Layout() {
 
           {/* Navigation */}
           <nav className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
-            {navigationSections.map((section, sectionIndex) => (
+            {offeredSections.map((section, sectionIndex) => (
               <div key={section.label}>
                 {sectionIndex > 0 && (
                   <div className="mb-3 mt-1 border-t border-sidebar-border" />

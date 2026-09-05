@@ -1,5 +1,27 @@
+/**
+ * The public landing page.
+ *
+ * ## What this page may claim
+ *
+ * A landing page is the product's first factual statement about itself, and it
+ * is read by people who cannot check it. Customer §20 puts finding speakers on
+ * the internet, scraping LinkedIn or other external sources, automatic external
+ * event discovery, and a contact-acquisition CRM out of scope for this phase;
+ * the lists of events and speakers grow **manually inside the system**, and
+ * matching occurs only between records already in it.
+ *
+ * So the copy below describes exactly that. It previously advertised a
+ * "proprietary web scraping pipeline" monitoring named universities in real
+ * time, a terminal widget issuing a GET to a real third-party host, "+42
+ * Platforms Monitored", and three headline figures (2,481 / 842 / 94%) that no
+ * measurement produced. Every one of them is a claim a visitor would act on.
+ *
+ * The rule for editing this file: a number here must come from a registered
+ * metric or not appear (ADR-0011 rule 1), and a capability described here must
+ * be one `src/lib/productScope.ts` says this product offers.
+ */
 import { Link } from "react-router";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { AppIcon } from "../../components/AppIcon";
 
 const introReveal = {
@@ -12,27 +34,58 @@ const introReveal = {
 const pipelineFeatures = [
   {
     icon: "discover" as const,
-    title: "Discover Opportunities",
+    title: "Records You Already Have",
     description:
-      "Automated scraping of university career centers across the West Coast to find the perfect speaking slots.",
+      "Coordinators enter events and speaker records inside the system, and review every import before it becomes matchable. Nothing is collected from outside it.",
   },
   {
     icon: "matching" as const,
     title: "Intelligent Matching",
     description:
-      "Advanced algorithms analyze volunteer bios and event descriptions to ensure high-impact connections.",
+      "Each match run scores the speakers already on file against an event, and records the factors and version it used so a ranking can be re-read later.",
   },
   {
     icon: "pipeline" as const,
     title: "Pipeline Tracking",
     description:
-      "Manage the flow from initial lead to confirmed engagement with detailed CRM-style reporting.",
+      "Follow an invitation from matched through contacted, confirmed, and attended. Every figure shown is a registered metric, or says why it is unknown.",
+  },
+];
+
+/**
+ * The in-scope workflow, in the order it actually happens.
+ *
+ * Each step names something the system does today: an operator import through
+ * the quarantine/review path, an immutable versioned match run over records
+ * already stored, an approved draft sent to a contact whose consent is on
+ * record and re-checked at delivery, and the funnel stages a coordinator moves
+ * a record through. Nothing here describes a capability
+ * `src/lib/productScope.ts` gates.
+ */
+const matchSteps = [
+  {
+    title: "A coordinator adds the records",
+    description:
+      "Events and speaker details are entered or imported by staff, then reviewed and corrected before anything becomes matchable.",
+  },
+  {
+    title: "A match run ranks the candidates",
+    description:
+      "The run scores stored speakers against a stored event and is kept immutable, so the same ranking can be re-read with the factors it used.",
+  },
+  {
+    title: "An approved draft goes out",
+    description:
+      "Outreach is sent only to a contact whose consent is already on record, and consent is checked again at the moment of delivery.",
+  },
+  {
+    title: "The pipeline records what happened",
+    description:
+      "Matched, contacted, confirmed, attended — each stage is a stored record, and the dashboard reports the registered metric behind it.",
   },
 ];
 
 export function LandingPage() {
-  const reduceMotion = useReducedMotion();
-
   return (
     <div className="public-shell">
       {/* ── Header ──────────────────────────────────────────── */}
@@ -80,20 +133,14 @@ export function LandingPage() {
               </a>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">2,481</p>
-                <p className="mt-1 text-sm text-muted-foreground">opportunities surfaced</p>
-              </div>
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">842</p>
-                <p className="mt-1 text-sm text-muted-foreground">high-fit matches</p>
-              </div>
-              <div className="public-panel p-5">
-                <p className="text-3xl font-semibold text-primary">94%</p>
-                <p className="mt-1 text-sm text-muted-foreground">signal confidence</p>
-              </div>
-            </div>
+            {/* No headline figures. The three that used to sit here were
+                decoration: no registered metric produced them, and this page
+                cannot read a unit's metrics anyway — it is unauthenticated, and
+                every real number in this product is unit-scoped and behind
+                `GET /v1/units/{unit_id}/metrics`. A visitor's first impression
+                is exactly the wrong place to start inventing measurements
+                (ADR-0011 rule 1). The signed-in dashboard shows the real ones,
+                with their provenance and their drill-downs. */}
           </motion.div>
         </section>
 
@@ -140,77 +187,54 @@ export function LandingPage() {
           </div>
         </motion.section>
 
-        {/* ── PROOF ────────────────────────────────────────────
-            Reference: "Discovery Automation" terminal widget
+        {/* ── HOW IT WORKS ─────────────────────────────────────
+            Replaces the "Discovery Automation" terminal widget, which showed
+            a GET to a live third-party host, a parsing animation, a
+            fabricated "Match Found", and "+42 Platforms Monitored". None of
+            it happened, and all of it depicted work customer §20 puts out of
+            scope for this phase.
         ──────────────────────────────────────────────────────── */}
         <motion.section
           id="proof"
           {...introReveal}
           className="mx-auto max-w-7xl px-6 py-8 lg:px-8 lg:py-16"
         >
-          {/* Discovery Automation row */}
           <div className="public-panel overflow-hidden">
             <div className="grid md:grid-cols-2">
-              {/* Terminal widget */}
-              <div className="border-b border-border/60 bg-slate-950 p-6 md:border-b-0 md:border-r md:p-8">
-                {/* GET request line */}
-                <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <span className="shrink-0 rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-                    GET
-                  </span>
-                  <code className="truncate text-xs text-slate-300">
-                    https://career.ucla.edu/api/events
-                  </code>
-                </div>
-
-                {/* Parsing line */}
-                <div className="mt-4 flex items-center gap-3 px-1">
-                  <motion.span
-                    className="h-2 w-2 shrink-0 rounded-full bg-emerald-400"
-                    animate={reduceMotion ? undefined : { opacity: [1, 0.3, 1] }}
-                    transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                  <span className="text-xs font-mono font-medium text-slate-400">
-                    PARSING UCLA DATA...
-                  </span>
-                </div>
-
-                {/* Match found */}
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold text-white">
-                      ✓
-                    </span>
-                    <span className="text-xs font-semibold text-white">
-                      Match Found: UCLA Career Fair 2026
-                    </span>
-                  </div>
-                  <span className="text-white/60">›</span>
-                </div>
-
-                {/* Platform badges */}
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  {["UCLA", "USC", "SDSU"].map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-bold text-slate-300"
-                    >
-                      {tag}
-                    </span>
+              <div className="border-b border-border/60 p-6 md:border-b-0 md:border-r md:p-10">
+                <h3 className="font-[Inter_Tight] text-2xl font-bold text-foreground md:text-3xl">
+                  How a match happens
+                </h3>
+                <ol className="mt-6 space-y-5">
+                  {matchSteps.map((step, index) => (
+                    <li key={step.title} className="flex gap-4">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-semibold text-foreground">{step.title}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          {step.description}
+                        </p>
+                      </div>
+                    </li>
                   ))}
-                  <span className="text-[11px] text-slate-500">+42 Platforms Monitored</span>
-                </div>
+                </ol>
               </div>
 
-              {/* Copy */}
               <div className="flex flex-col justify-center gap-4 p-6 md:p-10">
                 <h3 className="font-[Inter_Tight] text-2xl font-bold text-foreground md:text-3xl">
-                  Discovery Automation
+                  What it will not do
                 </h3>
                 <p className="leading-relaxed text-muted-foreground">
-                  Our proprietary web scraping pipeline monitors UCLA, USC, and dozens of other
-                  university sites in real-time. No more manual searching; opportunities are
-                  delivered directly to your dashboard.
+                  This phase does not search the internet for speakers, read
+                  outside profile sources, pull events in from external systems,
+                  or contact anyone who has not agreed to be contacted. Records
+                  enter through a person, and a person reviews them.
+                </p>
+                <p className="leading-relaxed text-muted-foreground">
+                  Where a number cannot be measured, the application says so
+                  rather than showing a zero.
                 </p>
                 <Link to="/login" className="public-button-primary self-start">
                   Sign in
@@ -218,7 +242,6 @@ export function LandingPage() {
               </div>
             </div>
           </div>
-
         </motion.section>
 
         {/* ── LOGIN CTA ────────────────────────────────────────── */}

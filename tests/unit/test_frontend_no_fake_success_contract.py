@@ -23,6 +23,24 @@ AGENTIC_OUTREACH_PANEL = FRONTEND_SRC / "components" / "AgenticOutreachPanel.tsx
 OUTREACH_PAGE = FRONTEND_SRC / "app" / "pages" / "Outreach.tsx"
 COORDINATOR_OUTREACH = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorOutreach.tsx"
 OUTREACH_HOOK = FRONTEND_SRC / "app" / "hooks" / "useOutreach.ts"
+LANDING_PAGE = FRONTEND_SRC / "app" / "pages" / "LandingPage.tsx"
+
+# CBA-SCOPE-COMPOSITION -- the landing page faked success at *nobody in
+# particular*, which is why it went unnoticed longest. It depicted a live
+# request to `career.ucla.edu`, an animated parse, a "Match Found" that matched
+# nothing, "+42 Platforms Monitored", and three headline figures no measurement
+# produced. Same defect class N2 as the controls above -- a success story with
+# no committed operation behind it -- with the aggravation that a visitor
+# cannot sign in and check.
+LANDING_PAGE_FORBIDDEN = (
+    "Match Found",
+    "PARSING",
+    "Platforms Monitored",
+    "career.ucla.edu",
+    "Discovery Automation",
+    "2,481",
+    "94%",
+)
 
 # B12 / B13 -- in-app chat is archived (MM-F04, Fix #11). The sheet rendered
 # fabricated message history and "Send" only cleared the input.
@@ -167,3 +185,33 @@ def test_the_outreach_hook_has_no_state_that_means_delivered() -> None:
         assert forbidden not in source, (
             f"useOutreach gained a state that claims delivery: {forbidden!r}"
         )
+
+
+def test_landing_page_stages_no_fabricated_discovery_run() -> None:
+    """The public page may not dramatise an operation that never runs.
+
+    A terminal widget is a claim in the present tense: it says *this is
+    happening*. Nothing behind it fetched anything, and after the CBA pivot
+    nothing is permitted to (customer §20, `docs/plans/open-questions/
+    cba-phase-deferred.md`). Removing the widget is not a cosmetic edit — it is
+    the same rule as "no button reports a send it did not make", applied to the
+    one surface whose audience cannot verify anything.
+    """
+    source = _code_only(LANDING_PAGE.read_text(encoding="utf-8"))
+
+    for pattern in LANDING_PAGE_FORBIDDEN:
+        assert pattern not in source, (
+            f"LandingPage reintroduced a fabricated discovery narrative: {pattern!r}"
+        )
+
+
+def test_landing_page_still_offers_the_real_entry_point() -> None:
+    """The positive half: truthfulness is not an empty page.
+
+    A visitor still needs somewhere to go, and the honest destination is the
+    login the server actually backs. If this ever fails, the page was gutted
+    rather than corrected.
+    """
+    source = LANDING_PAGE.read_text(encoding="utf-8")
+
+    assert 'to="/login"' in source, "LandingPage no longer offers the real sign-in route"

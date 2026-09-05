@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -298,3 +299,96 @@ class TestNoPersistence:
         )
 
         assert offenders == [], f"{QUALIFIED_NAME} reaches persistence via: {offenders}"
+
+
+#: The legacy frontend, which is the other place a crawl surface could appear
+#: without any backend module importing the reader at all.
+FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
+
+#: The `/api/crawler/*` client helpers that survive in `src/lib/api.ts`. They
+#: are kept, not deleted -- the same disposition `cba-phase-deferred.md` gives
+#: every gated capability -- and they call routes the API does not serve, which
+#: `TestTheContractAndTheAppAgree` already proves. What must stay true is that
+#: no component calls them, so the dead helper cannot quietly become a control.
+CRAWL_API_HELPERS = (
+    "startCrawl",
+    "fetchCrawlerResults",
+    "clearCrawlerResults",
+    "fetchCrawlerStatus",
+)
+
+
+def _frontend_sources() -> list[Path]:
+    return sorted(
+        path
+        for suffix in ("*.ts", "*.tsx")
+        for path in FRONTEND_SRC.rglob(suffix)
+        if "node_modules" not in path.parts
+    )
+
+
+def _tsx_code_only(source: str) -> str:
+    """Strip `/* */` and `//` prose so a file may explain why it passes."""
+    without_blocks = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", without_blocks, flags=re.MULTILINE)
+
+
+class TestNoCbaFrontendSurfaceOffersIt:
+    """The frontend half of "fixture ingest is a test/operator seam".
+
+    Everything above asks where the *reader* can be reached from. That is the
+    right question for the backend, where reachability is an import graph. It is
+    the wrong question for the browser: a page needs no import of a Python
+    module to offer a crawl button — it only needs a `fetch` and a label, and
+    the promise is made to the user whether or not any route answers.
+
+    So this asks the browser's version of the same question. Customer §20 puts
+    external discovery out of scope for this phase and
+    `docs/plans/open-questions/cba-phase-deferred.md` requires crawl controls
+    hidden while fixture ingest stays usable for tests; CBA-SCOPE-COMPOSITION is
+    where that became composition rather than intention.
+    """
+
+    def test_no_component_calls_a_crawl_client_helper(self):
+        """The dead `/api/crawler/*` helpers keep having no caller.
+
+        Deleting them is not the deliverable and never was — the gated code
+        stays. Being *called* is the deliverable, and it is the part a later
+        edit could change in one line.
+        """
+        offenders: dict[str, list[str]] = {}
+        for path in _frontend_sources():
+            if path.name == "api.ts":
+                continue
+            code = _tsx_code_only(path.read_text(encoding="utf-8"))
+            called = sorted(helper for helper in CRAWL_API_HELPERS if f"{helper}(" in code)
+            if called:
+                offenders[path.relative_to(FRONTEND_SRC).as_posix()] = called
+
+        assert offenders == {}, f"a component reached for a crawl client helper: {offenders}"
+
+    def test_the_crawl_client_helpers_are_still_present(self):
+        """No deletion cleanup. The counterpart to the test above.
+
+        If these vanished, the previous test would pass for the wrong reason and
+        the repository would have lost the history the threat model's re-entry
+        conditions are written against.
+        """
+        source = (FRONTEND_SRC / "lib" / "api.ts").read_text(encoding="utf-8")
+        missing = [helper for helper in CRAWL_API_HELPERS if f"function {helper}" not in source]
+        assert missing == [], (
+            f"gated crawl helpers were deleted rather than left unreachable: {missing}"
+        )
+
+    def test_no_crawl_token_reaches_the_unauthenticated_landing_page(self):
+        """The public page is the one surface with no gate in front of it.
+
+        A signed-in page behind a capability-gated route can hold a retired
+        placeholder; the landing page is read by anyone, cannot be gated by a
+        session, and is therefore held to the stricter rule.
+        """
+        code = _tsx_code_only(
+            (FRONTEND_SRC / "app" / "pages" / "LandingPage.tsx").read_text(encoding="utf-8")
+        ).lower()
+        found = sorted(token for token in _CRAWL_TOKENS if token in code)
+        assert found == [], f"the public landing page advertises external discovery: {found}"
