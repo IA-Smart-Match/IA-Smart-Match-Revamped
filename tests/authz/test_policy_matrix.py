@@ -876,6 +876,36 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two S12 funnel operations share one authorizer, ``_authorize_pipeline``,
+    # for the reason ``_authorize_outreach`` is shared across its four: they ask
+    # the identical question against the identical resource, so a widening
+    # applies to both or to neither. The read is not given a looser role set than
+    # the write — a journey is a named student's engagement record, and reading
+    # one is not less consequential than advancing it.
+    Operation(
+        key="pipeline.record.read",
+        method="GET",
+        path="/v1/units/{unit_id}/pipeline-records/{record_id}",
+        module="smartmatch_api.routers.pipeline",
+        authorizer="_authorize_pipeline",
+        roles_constant="_PIPELINE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="pipeline.stage.advance",
+        method="POST",
+        path="/v1/units/{unit_id}/pipeline-records/{record_id}/stages",
+        module="smartmatch_api.routers.pipeline",
+        authorizer="_authorize_pipeline",
+        roles_constant="_PIPELINE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The three student rewards operations share one authorizer,
     # ``_authorize_student_rewards`` in ``routers/rewards.py``, for the reason
     # the two event reads and the two match-run operations share theirs: all
@@ -2514,6 +2544,128 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; what is left is a deny on the unit",
         ),
     },
+    # Both S12 funnel operations run the same authorizer over the same resource,
+    # so their rectangles are identical by construction rather than by
+    # coincidence. They are still written out twice: `_missing_rows` keys on the
+    # operation, and a shared dict object would make widening one of them widen
+    # the other silently — which is the failure mode this whole file exists to
+    # make impossible.
+    "pipeline.record.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive; this is the coordinator whose unit owns the journey",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a pipeline record is one named student's engagement record. A "
+                "sibling department's coordinator has no business reading it, and "
+                "the route turns this refusal into a 404 rather than a 403 so the "
+                "id is not confirmed to name anything"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell. There is no self-read shape here: unlike "
+                "`redemption.list.own`, this route takes a record id rather than "
+                "scoping to the caller, so admitting students would admit reading "
+                "other students' journeys"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "pipeline.stage.advance": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the shape this operation exists for: the coordinator who runs the "
+                "program records that a journey reached Confirmed, Attended, or "
+                "Member Inquiry. Nothing else in this repository can move those "
+                "three stages, so this cell is the one the funnel depends on"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "an advance writes a number a stakeholder reads. Scoped like every "
+                "other consequential write: a sibling department does not contain "
+                "this unit, so its coordinator cannot move this unit's funnel"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell, and the one that matters most here: a student "
+                "recording their own Attended would mint the attendance claim the "
+                "rewards ledger reads, and asserting their own Member Inquiry would "
+                "write the program's headline conversion number"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -2624,6 +2776,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_student_rewards",
         "_authorize_redemption_decision",
         "_authorize_outreach",
+        "_authorize_pipeline",
     ):
         assert_allowed(
             resolved.principal,

@@ -53,6 +53,7 @@ from smartmatch_api.routers import (
     me,
     metrics,
     outreach,
+    pipeline,
     portals,
     redrive,
     review,
@@ -235,6 +236,11 @@ app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
 app.include_router(rewards.router)
+# The S12 funnel's coordinator-driven write path. Registered beside `metrics`,
+# which reads the same table: `routers/pipeline.py` is what makes the last three
+# funnel metrics reachable at all, and a reader wondering where a non-zero
+# `pipeline_confirmed` could come from should find the two next to each other.
+app.include_router(pipeline.router)
 app.include_router(auth.router)
 app.include_router(portals.router)
 # Two routers from one module: the unit-scoped operations, and the one

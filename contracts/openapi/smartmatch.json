@@ -1412,6 +1412,122 @@
         "title": "MyPortalsResponse",
         "type": "object"
       },
+      "PipelineRecordResponse": {
+        "description": "One journey, with every stage timestamp it actually has.\n\nThe four optional ``*_at`` fields are ``null`` when the stage has not been\nreached \u2014 never ``0``, never an epoch, and never the row's ``created_at``\nstanding in for a moment nobody recorded. ``current_stage`` is derived from\nthose same timestamps rather than stored, so it cannot drift from them.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record the Attended stage cites, when it has been reached.",
+            "title": "Attendance Id"
+          },
+          "attended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attended At"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "contacted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacted At"
+          },
+          "current_stage": {
+            "description": "The furthest stage reached, derived from the timestamps below.",
+            "title": "Current Stage",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_at": {
+            "format": "date-time",
+            "title": "Matched At",
+            "type": "string"
+          },
+          "matched_provenance": {
+            "title": "Matched Provenance",
+            "type": "string"
+          },
+          "member_inquiry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Inquiry At"
+          },
+          "opportunity_event_id": {
+            "format": "uuid",
+            "title": "Opportunity Event Id",
+            "type": "string"
+          },
+          "owning_unit_id": {
+            "format": "uuid",
+            "title": "Owning Unit Id",
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owning_unit_id",
+          "subject_id",
+          "opportunity_event_id",
+          "matched_provenance",
+          "current_stage",
+          "matched_at",
+          "contacted_at",
+          "confirmed_at",
+          "attended_at",
+          "member_inquiry_at",
+          "attendance_id"
+        ],
+        "title": "PipelineRecordResponse",
+        "type": "object"
+      },
       "PortalDescriptor": {
         "description": "One portal the caller's server-assigned roles actually open.",
         "properties": {
@@ -2076,6 +2192,71 @@
           "delivery_events"
         ],
         "title": "SendResponse",
+        "type": "object"
+      },
+      "StageAdvanceRequest": {
+        "description": "One coordinator's claim that a journey reached a stage, and when.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record this claim cites. Required for 'attended' and rejected for every other stage (ck_pipeline_record_attendance_evidence).",
+            "title": "Attendance Id"
+          },
+          "reached_at": {
+            "description": "When the stage was reached. Required and timezone-aware \u2014 this records when something happened, which a server clock reading is not, and a naive value can silently violate ck_pipeline_record_stage_order against a timestamptz column. Must not precede the previous stage's own timestamp.",
+            "format": "date-time",
+            "title": "Reached At",
+            "type": "string"
+          },
+          "stage": {
+            "description": "The stage reached. 'matched' is opened when the journey is created and 'contacted' is written by the outreach send, so neither is accepted here.",
+            "enum": [
+              "confirmed",
+              "attended",
+              "member_inquiry"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "reached_at"
+        ],
+        "title": "StageAdvanceRequest",
+        "type": "object"
+      },
+      "StageAdvanceResponse": {
+        "description": "What the advance did, and the row it left behind.\n\n``transitioned`` and ``already_reached`` are two fields rather than one\nnegated boolean for the reason\n:class:`~smartmatch_persistence.pipeline.PipelineStageOutcome` keeps them\napart: \"this request's own statement wrote the stage\" and \"the stage was\nalready recorded before this request\" are different facts, and a client\nshowing a coordinator \"recorded\" versus \"already recorded\" needs both.",
+        "properties": {
+          "already_reached": {
+            "description": "True when the stage was already recorded before this request arrived.",
+            "title": "Already Reached",
+            "type": "boolean"
+          },
+          "record": {
+            "$ref": "#/components/schemas/PipelineRecordResponse"
+          },
+          "transitioned": {
+            "description": "True only when this request's own UPDATE is the one that wrote the stage.",
+            "title": "Transitioned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transitioned",
+          "already_reached",
+          "record"
+        ],
+        "title": "StageAdvanceResponse",
         "type": "object"
       },
       "UnsubscribeRequest": {
@@ -5002,6 +5183,296 @@
         "summary": "Read one outreach send and its delivery events",
         "tags": [
           "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/pipeline-records/{record_id}": {
+      "get": {
+        "description": "Read one journey by id, scoped to this tenant and this unit.\n\nA read, and only a read: no stage is inferred, defaulted, or filled in. An\nunreached stage comes back ``null``, which is what the column holds.\n\nRaises:\n    ApiError: 404 when this tenant has no such record, or it is not under\n        the unit the request was authorized for.",
+        "operationId": "read_pipeline_record_v1_units__unit_id__pipeline_records__record_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one pipeline journey and the stages it has reached",
+        "tags": [
+          "pipeline"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/pipeline-records/{record_id}/stages": {
+      "post": {
+        "description": "Advance one journey to Confirmed, Attended, or Member Inquiry.\n\nThe legality of the move is decided by\n:meth:`~smartmatch_persistence.pipeline.PipelineRepository.advance_stage`,\nand this handler restates none of it: Attended is reachable only from\nConfirmed because ``assert_stage_reachable`` says so and because\n``ck_pipeline_record_stage_prefix`` refuses the row otherwise, not because of\na check written here. The one rule this module adds is *which* stages a human\nmay claim at all, which is a question about evidence rather than about\nordering \u2014 see the module docstring.\n\nRepeating a request that already landed is a ``200`` with ``transitioned:\nfalse`` and ``already_reached: true``, not a ``409``: a coordinator asserting\na fact that is already recorded has not asked for anything illegal, and the\nrow they get back is the one that was already there.\n\nRaises:\n    ApiError: 404 when this tenant has no such record or it is not in this\n        unit; 409 when the previous stage has not been reached, when\n        ``reached_at`` precedes that stage's own timestamp, or when\n        ``attendance_id`` names no attendance record in this tenant.",
+        "operationId": "advance_pipeline_stage_v1_units__unit_id__pipeline_records__record_id__stages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StageAdvanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageAdvanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record that a pipeline journey reached a stage",
+        "tags": [
+          "pipeline"
         ]
       }
     },
