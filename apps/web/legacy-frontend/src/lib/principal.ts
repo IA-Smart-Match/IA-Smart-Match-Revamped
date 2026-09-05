@@ -13,7 +13,10 @@ import type {
   MyPortalsResponse,
   PortalDescriptor,
 } from "@/lib/api";
-import { visibleRoleLabel } from "@/lib/roleLabels";
+// Relative, with the extension, like `calendarCoverage.ts`'s import of
+// `./api.ts`: this is a *value* import, so it survives type stripping and has
+// to resolve under `node --test` too, where the `@/` alias does not exist.
+import { visibleRoleLabel } from "./roleLabels.ts";
 
 /** The memberships the server currently counts as in force. */
 export function activeMemberships(me: MeResponse): MembershipResponse[] {
