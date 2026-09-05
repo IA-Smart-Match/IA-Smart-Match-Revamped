@@ -445,7 +445,7 @@ def test_a_virtual_request_carrying_a_location_is_refused(request_context) -> No
 
 
 def test_a_physical_request_with_no_place_is_refused(request_context) -> None:
-    """OQ-CBA-011(a), fail-closed rather than stored as an unscoreable request."""
+    """OQ-CBA-013, fail-closed rather than stored as an unscoreable request."""
     client, unit_id, token, _ = request_context
 
     response = _post(
@@ -609,7 +609,7 @@ def test_a_coordinator_reads_the_queue(engine: Engine, request_context) -> None:
 
 
 def test_the_event_host_who_filed_may_not_read_the_queue(request_context) -> None:
-    """The one cell where the read is narrower than the write (OQ-CBA-011(b)).
+    """The one cell where the read is narrower than the write (OQ-CBA-014).
 
     §13 names only the Speaker Connector, and the queue holds every host's
     request text for the unit. The host is not left blind: the filing response

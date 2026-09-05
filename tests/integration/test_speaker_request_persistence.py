@@ -162,7 +162,7 @@ def test_a_virtual_request_may_not_carry_a_location() -> None:
 
 
 def test_a_physical_request_must_name_a_place() -> None:
-    """OQ-CBA-011(a), fail-closed: Proximity is 30% and cannot score a placeless event."""
+    """OQ-CBA-013, fail-closed: Proximity is 30% and cannot score a placeless event."""
     with pytest.raises(LocationRequiredError):
         _draft(location_city=None, location_postal_code=None)
 

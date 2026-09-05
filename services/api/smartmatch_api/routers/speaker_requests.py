@@ -122,7 +122,7 @@ _SPEAKER_REQUEST_CREATE_ROLES: Final[frozenset[str]] = frozenset(
 #: a permit is a denial rather than an invitation to guess. A host does not need
 #: it to see their own work — :func:`create_speaker_request` returns the filed
 #: request, and a resubmission returns it again. Whether a host should be able
-#: to list back their own requests is **OQ-CBA-011**, recorded rather than
+#: to list back their own requests is **OQ-CBA-014**, recorded rather than
 #: answered by a role set.
 _SPEAKER_REQUEST_READ_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 

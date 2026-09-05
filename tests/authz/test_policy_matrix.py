@@ -1158,7 +1158,7 @@ OPERATIONS: tuple[Operation, ...] = (
     # though it is in the write set: no committed artifact says an Event Host
     # may read the other hosts' requests filed under the same unit, and the
     # create response hands a host back its own request without needing the
-    # queue (OQ-CBA-011). That asymmetry is exactly why the two operations do
+    # queue (OQ-CBA-014). That asymmetry is exactly why the two operations do
     # not share an authorizer — one helper taking the role set as an argument
     # would make one call site the place both are widened from, which is the
     # rule ``tests/authz/test_route_roles.py`` states in its own words.
@@ -3846,7 +3846,7 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "request; §13 names only the Speaker Connector as the reader "
                 "of the queue, and reading it would hand one host every other "
                 "host's request under the same unit. Under deny-by-default the "
-                "narrower reading is the only one available — OQ-CBA-011 is "
+                "narrower reading is the only one available — OQ-CBA-014 is "
                 "where the question of a host reading back their own requests "
                 "is recorded rather than answered here"
             ),

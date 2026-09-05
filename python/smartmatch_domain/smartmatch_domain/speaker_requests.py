@@ -54,7 +54,7 @@ fail-closed reading of §10 ("distance ... in miles from the CPP campus. City or
 ZIP code is sufficient for this phase") against §5's 30% Proximity weight: a
 physical request with no place is a request the largest single factor cannot
 score, and the deferral policy for this phase is that an unresolved field fails
-closed rather than becoming a silent default. It is recorded as **OQ-CBA-011**
+closed rather than becoming a silent default. It is recorded as **OQ-CBA-013**
 rather than treated as settled, because the customer stated a capability
 ("specify event location") and not an obligation.
 
@@ -144,7 +144,7 @@ class VirtualRequestLocationError(SpeakerRequestError):
 
 
 class LocationRequiredError(SpeakerRequestError):
-    """A physical request named neither a city nor a postal code (OQ-CBA-011)."""
+    """A physical request named neither a city nor a postal code (OQ-CBA-013)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,7 +283,7 @@ class SpeakerRequestDraft:
                 "§10 measures Proximity — 30% of the default score — in miles from the "
                 "CPP campus and says city or ZIP is sufficient; a physical request with "
                 "no place is one the largest single factor cannot score. Recorded as "
-                "OQ-CBA-011: the customer stated the capability, not the obligation."
+                "OQ-CBA-013: the customer stated the capability, not the obligation."
             )
 
 
