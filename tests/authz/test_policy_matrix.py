@@ -1194,6 +1194,67 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
+    # ``{student}`` and nothing else, which makes them the only rows in this file
+    # whose role set contains ``student`` — everywhere else in this matrix
+    # ``student`` is the shape used to *demonstrate* a denial.
+    #
+    # That is the decision, not an oversight. §15 gives browsing events and
+    # adding them to a calendar to the Student and names nobody else, and under
+    # deny-by-default the absence of a permit is a denial rather than an
+    # invitation to guess. ``admin`` and ``coordinator`` are deliberately absent:
+    # they read the same table through ``events.list``, whose response carries
+    # the review status and extraction provenance this narrowed surface drops,
+    # so admitting them here would add a second answer to a question already
+    # answered rather than widen anything real. Compare ``invite.download``,
+    # which admits all three — it hands out one representation of one event, so
+    # there is only one route to admit anybody to.
+    #
+    # Both rows name **one** authorizer, and the contrast with the two
+    # ``speaker_request.*`` rows above is the thing to read: those are split
+    # because §12 admits the Event Host to the create and §13 admits only the
+    # Speaker Connector to the queue, so the ``volunteer`` cell differs between
+    # them. These two are one persona asking one question — may this student see
+    # this unit's student surface — and every cell agrees. They therefore follow
+    # the arrangement the five ``speaker_contact.*`` operations already use.
+    #
+    # What the matrix cannot see, and what is therefore not encoded here: the
+    # agenda route additionally narrows its rows to the caller's own
+    # ``attendance_record`` by a ``subject_id`` predicate in the query. That is a
+    # self-scope the policy engine has no concept of; it is asserted over HTTP in
+    # ``tests/contract/test_student_events_api.py`` instead, which is the same
+    # division of labour ``invite.download``'s student branch already uses.
+    #
+    # No ``require_membership`` on either — the role set is non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles check
+    # before the membership question is reached (S-007). No ``tenant_wide_roles``
+    # — the metrics decision's §4 is the only artifact that makes anything
+    # tenant-wide, it says so of aggregate reads, and a student reading a sibling
+    # department's catalog is not that.
+    Operation(
+        key="student_event.browse",
+        method="GET",
+        path="/v1/units/{unit_id}/student/events",
+        module="smartmatch_api.routers.student_events",
+        authorizer="_authorize_student_event_read",
+        roles_constant="_STUDENT_EVENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="student_agenda.list",
+        method="GET",
+        path="/v1/units/{unit_id}/student/agenda",
+        module="smartmatch_api.routers.student_events",
+        authorizer="_authorize_student_event_read",
+        roles_constant="_STUDENT_EVENT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The five contact-management operations (card ``CBA-CONTACT-MANAGEMENT``,
     # customer §13). They share **one** authorizer, and the contrast with the
     # two Speaker Request rows directly above is the thing to read, because a
@@ -2335,6 +2396,192 @@ MATRIX: dict[str, dict[str, Cell]] = {
     # `match_run.create` and `match_run.read` share one authorizer, so — like
     # the two event rows above — they agree cell for cell today and each still
     # states its own answer, so the day one diverges the diff shows which.
+    # The two student surfaces, and the two columns worth reading first are
+    # `admin_at_org_root` and `coordinator_at_owning_unit`: both **deny**. These
+    # are the only operations in this file an admin at the tenant root cannot
+    # perform, and that is the role set doing exactly what it says rather than an
+    # omission — see the `Operation` rows for why `{student}` is the whole of it.
+    # An admin who wants these events reads `events.read`, which shows them more.
+    "student_event.browse": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set. The root grant "
+                "covers the unit, so path containment is satisfied and the role "
+                "is the only thing refusing — which is the shape a widening of "
+                "`_STUDENT_EVENT_ROLES` would flip, and is therefore worth "
+                "having a cell for. An admin is not shut out of the data: "
+                "`events.read` serves the same rows with the review status and "
+                "provenance this surface drops."
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "same reason as the admin above, at the unit that owns the "
+                "resource: containment is inclusive and satisfied, and "
+                "`coordinator` is simply not the role §15 names"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "refused twice over — wrong role and, independently, a sibling "
+                "department does not contain the owning unit. The role check is "
+                "what `evaluate` reaches first, so `no_grant` is the code either "
+                "way"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the column this file keeps to make `tenant_wide_roles` visible. "
+                "`_authorize_student_event_read` passes none — the metrics "
+                "decision's §4 is the only artifact making anything tenant-wide "
+                "and it says so of aggregate reads — and the role is wrong here "
+                "besides"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "customer §15: the Student browses the events their unit has "
+                "published. Containment is inclusive, so a membership at exactly "
+                "the owning unit covers it. This is the permit the whole card "
+                "rests on, and it is narrower than it looks — the response "
+                "carries published events only, and the .ics link on each item "
+                "appears only where the student is recorded at the event, which "
+                "is a fact about a row that `evaluate` cannot express (see "
+                "`tests/contract/test_student_events_api.py`)"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host (customer §4), who files Speaker "
+                "Requests. §15 is about the Student, and an active membership at "
+                "exactly the owning unit leaves the role as the only thing that "
+                "can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance. "
+                "Note this principal would have been denied anyway for the role — "
+                "the cell asserts the *code*, and the deny is what wins, which is "
+                "how a precedence regression stays visible even on a row whose "
+                "role set would refuse the principal regardless"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "browsing events has no actor path — the shape degenerates to a "
+                "role-less member, which is correct: this operation is not "
+                "reachable through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here for the reason above; "
+                "what is left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    # Identical to the row above, cell for cell, and deliberately written out
+    # rather than aliased: the two routes share one authorizer *today* because
+    # they ask one question, and a copy is what makes the day they stop agreeing
+    # a visible diff on this file rather than a silent consequence of an alias.
+    #
+    # The agenda's extra narrowing — to the caller's own `attendance_record` — is
+    # not in this rectangle at all. It is a `subject_id` predicate in the query,
+    # which is a self-scope the policy engine has no concept of, and it is
+    # asserted over HTTP in `tests/contract/test_student_events_api.py`.
+    "student_agenda.list": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why="`admin` is not in this operation's role set; see `student_event.browse`",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`coordinator` is not the role §15 names, and an agenda is one "
+                "student's own list — a coordinator who needs to know who "
+                "attended reads `engagement.attendance_summary.read`, which is "
+                "an aggregate carrying no subject ids at all"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, and a sibling department does not contain the owning unit",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "no `tenant_wide_roles` is passed, and the role is wrong besides "
+                "— see `student_event.browse`"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "customer §15. The permit is to the *route*; which rows come "
+                "back is decided by `attendance_record.subject_id = "
+                "principal.user_id` in the query, so a student admitted here "
+                "still sees only their own events and there is no request field "
+                "that could name somebody else's (MM-A01)"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is the Event Host; the role is the only thing left to refuse it",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "reading an agenda has no actor path — the shape degenerates to a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here; what is left is a "
+                "deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
     "match_run.create": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -4538,6 +4785,17 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # five contact-management operations are customer §13's single Speaker
         # Connector persona, so there is one decision and it is made here.
         "_authorize_speaker_contacts",
+        # The fourteenth (`routers/student_events.py`), on the same terms: load
+        # the unit, then make exactly this call against that row's path with
+        # `_STUDENT_EVENT_ROLES`. One name for two operations, the
+        # `_authorize_event_read` arrangement — customer §15 names one persona
+        # and both routes ask it the identical question. The agenda route then
+        # narrows its *rows* by `attendance_record.subject_id`, which is not a
+        # second policy decision and could not be one: `evaluate` has no concept
+        # of a self-scope. That half is asserted over HTTP in
+        # `tests/contract/test_student_events_api.py`, the same division of
+        # labour `_authorize_invite_read` already uses.
+        "_authorize_student_event_read",
     ):
         assert_allowed(
             resolved.principal,
