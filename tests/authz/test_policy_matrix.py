@@ -1194,6 +1194,107 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The five contact-management operations (card ``CBA-CONTACT-MANAGEMENT``,
+    # customer §13). They share **one** authorizer, and the contrast with the
+    # two Speaker Request rows directly above is the thing to read, because a
+    # reviewer arriving here will ask why this card did not split its
+    # authorizers the way that one just did.
+    #
+    # Those two are split because they are two personas: §12 admits the Event
+    # Host to the create and §13 admits only the Speaker Connector to the
+    # queue, so the ``volunteer`` cell differs between them, and a shared
+    # helper taking the role set as an argument would make one call site the
+    # place both are widened from.
+    #
+    # These five are one persona. Every one of them is the Speaker Connector
+    # managing the contacts their own unit owns — adding one, listing them,
+    # reading one, editing one, correcting the classification on one. No
+    # committed artifact distinguishes among them and §13 names one role for
+    # the whole surface, so the ``volunteer`` cell is a deny on all five and
+    # every other cell agrees too. They therefore follow the arrangement the
+    # five ``outreach.contact.*`` operations already use for
+    # ``_authorize_outreach``: one helper, one role set, one place a widening
+    # can happen and one place a reviewer has to look for it. Five identical
+    # helpers would be five answers to a question asked once, and the day §13
+    # does split, the split should have to be argued in a diff rather than
+    # already sitting there unused.
+    #
+    # ``authorizer_module`` is ``None`` on all five because the helper lives in
+    # the same module as the routes — unlike the ``outreach.contact.*`` rows,
+    # whose helper lives over in ``routers/outreach.py``.
+    #
+    # The role set is ``{admin, coordinator}`` and **not**
+    # ``speaker_request.create``'s ``{admin, coordinator, volunteer}``. That one
+    # cell is the whole difference between the two cards: an Event Host asks
+    # for a speaker, and managing the roster of professionals a unit may draw
+    # on is not part of asking.
+    #
+    # No ``require_membership`` on any of them — the role set is non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles
+    # check before the membership question is reached (S-007). No
+    # ``tenant_wide_roles`` — a contact is a row in one unit's own roster, and
+    # the metrics decision's §4 is the only artifact in this repository that
+    # makes anything tenant-wide.
+    Operation(
+        key="speaker_contact.create",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-contacts",
+        module="smartmatch_api.routers.cba_contacts",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.list",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts",
+        module="smartmatch_api.routers.cba_contacts",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}",
+        module="smartmatch_api.routers.cba_contacts",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}",
+        module="smartmatch_api.routers.cba_contacts",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.correct_classification",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/classification",
+        module="smartmatch_api.routers.cba_contacts",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -3878,6 +3979,418 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # The five contact-management rows (customer §13). They are identical to
+    # each other, cell for cell, and that is the finding rather than a
+    # shortcut: all five are the Speaker Connector acting on their own unit's
+    # roster, so there is no principal any one of them admits that another
+    # refuses.
+    #
+    # Written out five times anyway, rather than generated from a template.
+    # The rectangle is the artifact a reviewer reads, and a generated one
+    # cannot be read: it says "these are the same" without ever saying what
+    # they are, and it makes the day one of them legitimately diverges — a
+    # correction restricted more tightly than a read, say — a change to a
+    # generator rather than a diff that shows which cell moved and why. The
+    # two ``events`` rows and the two ``speaker_request`` rows above are spelled
+    # out on the same principle and for the same reason.
+    #
+    # The cell to compare against ``speaker_request.create`` is
+    # ``volunteer_at_owning_unit``, and it is the only one that differs from
+    # that operation's rectangle.
+    "speaker_contact.create": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "customer §13's own sentence: a Speaker Connector adds a "
+                "professional contact to the unit they are accountable for. "
+                "Containment is inclusive, so a grant at the owning unit "
+                "covers it"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a contact is filed under the unit whose Connector vouches for "
+                "it (`speaker_profile.owning_unit_id`), and a sibling "
+                "department's coordinator does not cover that path — the same "
+                "scoping every other `owning_unit_id` in this schema carries"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`admin` is a required role here and the membership is active, "
+                "so the only thing refusing this principal is the path. No "
+                "committed artifact makes a unit's contact roster tenant-wide, "
+                "so `_authorize_speaker_contacts` passes no `tenant_wide_roles`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, calendar "
+                "and feedback. A contact record names a real person outside "
+                "the institution and asserts a unit stands behind that record; "
+                "the membership here is active at exactly the owning unit, so "
+                "the role is the only thing left that can refuse it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "**the cell that distinguishes this card from CBA-EVENT-REQUEST.** "
+                "`speaker_request.create` permits this exact shape, because "
+                "customer §4 maps the stored `volunteer` role onto the Event "
+                "Host persona and §12 makes the Event Host the person who files "
+                "a Speaker Request. §13 gives the contact roster to the Speaker "
+                "Connector and names nobody else, and asking for a speaker is "
+                "not the same authority as deciding who is on the list of "
+                "people who may be asked. Under deny-by-default the absence of "
+                "a permit is a denial rather than an invitation to guess. The "
+                "membership is active at exactly the owning unit, so the role "
+                "is the only thing refusing this"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "there is no job on this path — a create writes `user_account`, "
+                "`professional_unit_relationship` and `speaker_profile` in the "
+                "request's own transaction and queues nothing — so the actor "
+                "half of the shape is inert and what remains is a role-less "
+                "member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "speaker_contact.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "a Speaker Connector reading the roster their own unit owns, "
+                "which is the §13 surface the other four operations act on"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the listing is scoped by the loaded unit's own path, never by "
+                "anything in the request, so a sibling department's "
+                "coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path — and no "
+                "`tenant_wide_roles`, for the reason the create row gives"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the roster carries named professionals, their employers and "
+                "their titles; §13 puts it in front of a Speaker Connector and "
+                "nobody else, and the membership here is active at the owning "
+                "unit, so the role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host persona, which §12 admits to "
+                "filing a Speaker Request and §13 does not admit to the roster. "
+                "Reading it would hand a host the unit's whole list of "
+                "professionals — a wider read than the queue of requests "
+                "`speaker_request.list` already refuses them"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    "speaker_contact.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "one contact out of the same roster the listing returns. Read "
+                "and list are not given different role sets: a record readable "
+                "one at a time by somebody who cannot read the list is a "
+                "distinction with no artifact behind it"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the contact is loaded by `(tenant_id, professional_id)` within "
+                "the unit named in the path, so a sibling department's "
+                "coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path — and no "
+                "`tenant_wide_roles`, for the reason the create row gives"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "a single contact is the same named professional the listing "
+                "holds; §13 gives neither to a Student, and the membership is "
+                "active at the owning unit, so the role is what refuses it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, for the "
+                "reason the create row states at length: §12's Event Host asks "
+                "for a speaker and §13's Speaker Connector keeps the roster"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    "speaker_contact.update": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "customer §13 requires a Speaker Connector to be able to edit a "
+                "contact they added. The edit is a current-value UPDATE that "
+                "bumps `updated_at` — OQ-CBA-008's interim ruling — so what this "
+                "cell permits is the replacement of a stored value, not the "
+                "appending of one"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "editing another department's contact is the widening this "
+                "`owning_unit_id` scoping exists to refuse"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path — and no "
+                "`tenant_wide_roles`, for the reason the create row gives"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "§15 gives a Student no write anywhere near a professional's "
+                "record; the membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "an Event Host may state what they want in a Speaker Request "
+                "(§12) and may not restate who a professional is (§13). The "
+                "membership is active at exactly the owning unit, so the role "
+                "is the only thing left that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "an edit writes the row in the request's own transaction and "
+                "queues nothing, so the actor half of the shape is inert and "
+                "what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "speaker_contact.correct_classification": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "customer §§7-8 both require a Speaker Connector to be able to "
+                "correct a classification the pipeline assigned, and §19's flow "
+                "is exactly that: infer, then let a Connector fix it. The "
+                "correction is a current-value UPDATE and stores no history — "
+                "OQ-CBA-008's interim ruling — so this cell is not also a "
+                "permit to read who classified the speaker before"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a correction is a judgment the owning unit's Connector is "
+                "accountable for, which is why `speaker_profile.owning_unit_id` "
+                "is on the row at all; a sibling department does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path — and no "
+                "`tenant_wide_roles`, for the reason the create row gives"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "§§7-8 name the Speaker Connector as the corrector and nobody "
+                "else; a stored classification feeds §9's matching, so writing "
+                "one is a decision about who gets recommended to whom"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the sharpest reading of the difference between the two cards. "
+                "§12's Event Host names the industries and roles their own "
+                "Speaker Request targets — that is `speaker_request.create`, "
+                "which this shape is permitted — and §§7-8 give the correction "
+                "of a *speaker's* classification to the Speaker Connector. "
+                "Letting a host restate what a professional is would let one "
+                "side of the match edit the other side's record"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a correction updates the profile row directly and queues no "
+                "rescore, so the actor half of the shape is inert and what "
+                "remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -4019,6 +4532,12 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # call site the place both are widened from.
         "_authorize_speaker_request_create",
         "_authorize_speaker_request_read",
+        # The thirteenth (`routers/cba_contacts.py`), on the same terms. One
+        # name for five operations, which is the `_authorize_outreach`
+        # arrangement rather than the two-name split directly above it: all
+        # five contact-management operations are customer §13's single Speaker
+        # Connector persona, so there is one decision and it is made here.
+        "_authorize_speaker_contacts",
     ):
         assert_allowed(
             resolved.principal,
