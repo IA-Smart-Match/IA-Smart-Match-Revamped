@@ -2630,3 +2630,123 @@ export async function correctSpeakerContactClassification(
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Student events (customer §15, card `CBA-STUDENT-EVENTS`)
+// ---------------------------------------------------------------------------
+//
+// Two reads, no write. §15 also asks that a student be able to *register* for
+// an event, and there is no `registerForEvent` here because there is no route
+// to call: `attendance_record` is attendance, ADR-0013 makes it the only input
+// to points, and a row written at registration time would credit somebody for
+// an event they had not attended. See
+// `tests/integration/test_event_registration.py` and OQ-CBA-018. Do not add a
+// client function that posts to a path the server does not serve.
+
+/** An event's time at whichever precision is actually known (ADR-0010). */
+export interface StudentEventTime {
+  /** `exact` or `date_only`. Never `unresolved` on either student surface. */
+  precision: string;
+  /** The instant, present only at `exact` precision. */
+  starts_at: string | null;
+  /**
+   * The instant it finishes, present only when the source stated one. `null` is
+   * not a duration of zero and not a default of an hour — it is the absence
+   * that makes an .ics refusable rather than guessable.
+   */
+  ends_at: string | null;
+  /** The calendar date, present only at `date_only` precision. */
+  on_date: string | null;
+  /** The IANA zone the event happens in — never the viewer's or the browser's. */
+  time_zone: string | null;
+}
+
+/**
+ * Whether this caller can download this event's .ics, and where from.
+ *
+ * Exactly one of `download_path` and `unavailable_reason` is set, which is what
+ * makes this usable as a render condition: show the link when there is a path,
+ * show the reason when there is not, and never decide for yourself. Do not
+ * compose the URL in the browser, and do not render a download control when
+ * `available` is false — the server has already evaluated the three conditions
+ * `GET .../invite.ics` would refuse on.
+ */
+export interface StudentEventCalendar {
+  available: boolean;
+  download_path: string | null;
+  /**
+   * `event_time_unresolved`, `event_end_unknown`, or `event_not_on_your_agenda`.
+   * Null when available.
+   */
+  unavailable_reason: string | null;
+}
+
+/** One event as a student sees it. No review status and no extraction provenance. */
+export interface StudentEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  time: StudentEventTime;
+  is_virtual: boolean;
+  location_city: string | null;
+  location_postal_code: string | null;
+  tags: string[];
+  /**
+   * True when an attendance record ties this caller to this event. Named for
+   * what it is rather than "registered": there is no registration in this
+   * deployment, and a field called `registered` would claim one.
+   */
+  on_my_agenda: boolean;
+  calendar: StudentEventCalendar;
+}
+
+/** The unit's published events, and an honest count of what is not shown. */
+export interface StudentEventList {
+  unit_id: string;
+  events: StudentEvent[];
+  /**
+   * Events the unit holds but has not published. Render it: without the count,
+   * "this unit has nothing for me" and "this unit has nine events it has not
+   * published" are the same empty list (ADR-0011).
+   */
+  withheld_unpublished: number;
+  truncated: boolean;
+}
+
+/** The caller's own events, soonest first. */
+export interface StudentAgenda {
+  unit_id: string;
+  events: StudentEvent[];
+  /** Events you are recorded at whose date could not be resolved (ADR-0010 rule 2). */
+  withheld_unresolved_date: number;
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/student/events` — the unit's published catalog.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed. The
+ * server authorizes it again per request, deny-by-default and tenant-scoped.
+ */
+export async function fetchStudentEvents(unitId: string): Promise<StudentEventList> {
+  return requestJson<StudentEventList>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/student/agenda` — the events you are recorded at.
+ *
+ * Scoped to the caller by the server's own query, not by anything sent from
+ * here: there is no subject parameter and there must never be one (MM-A01).
+ */
+export async function fetchStudentAgenda(unitId: string): Promise<StudentAgenda> {
+  return requestJson<StudentAgenda>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/agenda`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
