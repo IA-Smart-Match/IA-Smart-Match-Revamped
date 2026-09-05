@@ -125,6 +125,9 @@ class _Context:
     def list_drafts(self):
         return self.client.get(f"/v1/units/{self.unit_id}/outreach/drafts", headers=self._headers())
 
+    def list_sends(self):
+        return self.client.get(f"/v1/units/{self.unit_id}/outreach/sends", headers=self._headers())
+
     # -- worker ------------------------------------------------------------
 
     def run_worker(self, job_id: str):
@@ -279,6 +282,7 @@ def ctx(engine: Engine) -> Iterator[_Context]:
             "delivery_event",
             "outreach_send",
             "outreach_draft",
+            "contact_channel_transition",
             "contact_channel",
             "suppression_record",
             "match_run",
@@ -606,3 +610,119 @@ class TestUnsubscribe:
 
         assert ctx.client.post("/v1/unsubscribe", json={"token": token}).status_code == 200
         assert ctx.client.post("/v1/unsubscribe", json={"token": token}).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The sends listing, and the gate that runs when a send is submitted
+# ---------------------------------------------------------------------------
+
+
+class TestListSends:
+    """What a unit has attempted, which nothing could read before this slice.
+
+    Drafts could be listed and one send could be read by id, so the only way to
+    see a unit's sends was to have kept the ids. OQ-008 records that this slice
+    stores sends rather than threads; this is that list, and it draws no
+    conversation because none is stored.
+    """
+
+    def test_a_unit_with_no_sends_gets_an_empty_page_not_an_error(self, ctx: _Context):
+        """Empty is an answer. A 404 here would be "no sends" reported as "no unit"."""
+        response = ctx.list_sends()
+
+        assert response.status_code == 200, response.text
+        assert response.json()["sends"] == []
+
+    def test_a_submitted_send_is_not_in_the_list_until_the_worker_runs(self, ctx: _Context):
+        """Still empty after the 202, and that is the honest answer.
+
+        The ``outreach_send`` row is written by the handler, not by the route —
+        the request path records intent and nothing else (v1.1 §1.6). A listing
+        that showed a row here would be showing a send attempt that has not been
+        attempted, which is B17 wearing a list instead of a button. The job is
+        what exists at this point, and ``events_url`` is where it is followed.
+        """
+        draft_id = ctx.compose().json()["draft_id"]
+        ctx.send(draft_id)
+
+        assert ctx.list_sends().json()["sends"] == []
+
+    def test_the_listing_reports_the_outcome_once_the_worker_has_run(self, ctx: _Context):
+        draft_id = ctx.compose().json()["draft_id"]
+        job_id = ctx.send(draft_id).json()["job_id"]
+        ctx.run_worker(job_id)
+
+        rows = ctx.list_sends().json()["sends"]
+
+        assert len(rows) == 1
+        assert rows[0]["disposition"] == "accepted"
+        assert rows[0]["concluded_at"] is not None
+        assert rows[0]["recipient_address"] == ADDRESS
+
+    def test_the_listing_carries_no_delivery_stream(self, ctx: _Context):
+        """Deliberate. Folding a stream into one word per row would bury the
+        choice of which fact to forget where nobody reviews it — a provider can
+        report `delivered` and then `complained`. The stream is on the send."""
+        draft_id = ctx.compose().json()["draft_id"]
+        job_id = ctx.send(draft_id).json()["job_id"]
+        ctx.run_worker(job_id)
+
+        row = ctx.list_sends().json()["sends"][0]
+
+        assert "delivery_events" not in row
+        # The id is there, so the stream is one request away rather than absent.
+        assert row["send_id"] == ctx.send_id_for_job(job_id)
+
+    def test_another_unit_sees_none_of_it(self, ctx: _Context):
+        """Unit scoping, on the listing as on everything else in this surface."""
+        draft_id = ctx.compose().json()["draft_id"]
+        job_id = ctx.send(draft_id).json()["job_id"]
+        ctx.run_worker(job_id)
+
+        response = ctx.client.get(
+            f"/v1/units/{ctx.sibling_unit_id}/outreach/sends",
+            headers={"Authorization": f"Bearer {ctx.token}"},
+        )
+
+        # The coordinator's membership does not cover the sibling department at
+        # all, so this is a 403 rather than an empty page — and an empty page
+        # would have been the worse answer, because it says "nothing here" to
+        # somebody who is not entitled to know.
+        assert response.status_code == 403, response.text
+
+
+class TestSendChecksConsentAtSubmission:
+    """The middle of the three gates: composition, submission, delivery."""
+
+    def test_a_recipient_who_unsubscribes_before_the_send_is_refused_at_submission(
+        self, ctx: _Context
+    ):
+        """403 at the moment the coordinator acts, not a job failure later.
+
+        The draft was composed while the recipient was eligible, which is what
+        the composition-time check proved. Consent was then withdrawn. Accepting
+        the command anyway would be honest about the queue and useless to the
+        person looking at the screen — and would spend a job to discover what
+        this route already knows.
+        """
+        draft_id = ctx.compose().json()["draft_id"]
+        ctx.unsubscribe_recipient()
+
+        response = ctx.send(draft_id)
+
+        assert response.status_code == 403, response.text
+        assert response.json()["error"]["code"] == "outreach_recipient_not_eligible"
+        assert ctx.send_row_count() == 0, "a refused submission still reserved a send"
+
+    def test_nothing_is_queued_when_the_submission_is_refused(self, ctx: _Context):
+        """The refusal is before `submit_command`, so no job exists to fail."""
+        draft_id = ctx.compose().json()["draft_id"]
+        ctx.unsubscribe_recipient()
+
+        ctx.send(draft_id)
+
+        with ctx.engine.connect() as conn:
+            queued = conn.execute(
+                text("SELECT count(*) FROM job WHERE tenant_id = :t"), {"t": ctx.tenant_id}
+            ).scalar_one()
+        assert queued == 0

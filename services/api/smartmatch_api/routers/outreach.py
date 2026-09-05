@@ -1,6 +1,6 @@
 """The outreach surface: compose a draft, submit a send, read what happened (card L6).
 
-Five operations, and the shape of the whole module follows from one rule: **the
+Six operations, and the shape of the whole module follows from one rule: **the
 request path records intent and nothing else** (v1.1 §1.6). Composing a draft
 writes a row. Sending submits a command and answers ``202``. Nothing here calls a
 provider, and nothing here can — ``tests/unit/test_no_external_calls_on_request_path.py``
@@ -13,10 +13,17 @@ a synchronous send is not merely absent, it is unreachable.
 * ``POST   /v1/units/{unit_id}/outreach/drafts/{draft_id}/send`` — submit
   ``outreach.send``. Returns ``202`` with a job id.
 * ``GET    /v1/units/{unit_id}/outreach/drafts`` — a coordinator's list.
+* ``GET    /v1/units/{unit_id}/outreach/sends`` — a unit's sends, newest first.
 * ``GET    /v1/units/{unit_id}/outreach/sends/{send_id}`` — one send and its
   delivery projection.
 * ``POST   /v1/unsubscribe`` — the mutating unsubscribe, unauthenticated by
   design. Lives in this module beside the surface it protects.
+
+The contact channels these operations address — registering one, correcting its
+evidence, moving it through the consent lifecycle — are
+``routers/outreach_contacts.py``'s, which shares this module's
+:func:`_authorize_outreach` rather than declaring a second answer to the same
+question.
 
 ## The response to a send has no field that could be read as delivery
 
@@ -41,9 +48,19 @@ what gives them a 403 at the moment they are looking at the screen rather than a
 job failure minutes later. The gate that actually protects the recipient is the
 worker's, against state read at delivery time.
 
-Both matter and neither is redundant. Removing this one would let ineligible
-drafts accumulate and fail one by one; removing the worker's would let an
-unsubscribe between approval and delivery be ignored.
+:func:`send_draft` runs the same gate a third time, against the contact as it
+stands when the send is submitted. All three matter and none is redundant, and
+what distinguishes them is *which window they close*. Composition proves what
+was true while a coordinator was looking at the screen. Submission catches a
+withdrawal in the hours between composing and sending, and reports it to the
+person who is acting rather than as a job failure nobody is watching. The
+worker's catches the window after the ``202``, which no request-path check can
+see, and it is the one that actually protects the recipient.
+
+Removing the first would let ineligible drafts accumulate. Removing the second
+would turn every withdrawn consent into a failed job. Removing the third would
+let an unsubscribe between approval and delivery be ignored — the only one of
+the three whose absence reaches a real person.
 
 ## Why approval is not its own route
 
@@ -72,7 +89,12 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Header, Path, Query, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
-from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
+from smartmatch_domain.consent import (
+    ConsentSource,
+    ConsentViolationError,
+    ContactState,
+    assert_send_eligible,
+)
 from smartmatch_domain.outreach import (
     OUTREACH_SEND_COMMAND_TYPE,
     TEMPLATES,
@@ -83,7 +105,9 @@ from smartmatch_domain.outreach import (
 )
 from smartmatch_persistence.outreach import (
     DEFAULT_DRAFT_PAGE_SIZE,
+    DEFAULT_SEND_PAGE_SIZE,
     MAX_DRAFT_PAGE_SIZE,
+    MAX_SEND_PAGE_SIZE,
     OutreachRepository,
 )
 from smartmatch_persistence.rate_limit import RateLimit
@@ -249,6 +273,44 @@ class SendResponse(BaseModel):
     provider_message_id: str | None
     failure_reason: str | None
     delivery_events: list[DeliveryEventView]
+
+
+class SendSummaryView(BaseModel):
+    """One send in a listing, without its delivery stream.
+
+    The stream is deliberately absent rather than summarised. Folding a send's
+    events into one word is a choice about which fact to forget — a provider can
+    report ``delivered`` and then ``complained`` — and making that choice once
+    per row in a list would bury it where nobody reviews it. A reader who needs
+    to explain what happened to one message reads that send.
+    """
+
+    send_id: uuid.UUID
+    draft_id: uuid.UUID
+    job_id: uuid.UUID
+    recipient_address: str
+    disposition: str | None = Field(
+        description=(
+            "'accepted', 'blocked', 'failed', or null while the attempt is still "
+            "in flight. Null is a third state: render it as in-progress, never as "
+            "a failure."
+        )
+    )
+    provider: str | None
+    provider_message_id: str | None
+    failure_reason: str | None
+    created_at: str
+    concluded_at: str | None = Field(
+        description="When the attempt reached an outcome, or null while it has not."
+    )
+
+
+class SendListResponse(BaseModel):
+    """A page of sends, and how many were asked for."""
+
+    sends: list[SendSummaryView]
+    limit: int
+    offset: int
 
 
 class UnsubscribeRequest(BaseModel):
@@ -533,14 +595,20 @@ def send_draft(
     ``202``, and the response body carries no status: the command is recorded and
     the dispatcher has not moved it. Follow ``events_url``, then read the send.
 
-    The draft's approval is checked here so a coordinator is told immediately
-    rather than by a job failure — but this is not the gate that protects the
-    recipient. That one is the worker's, run against state read at delivery time,
-    because consent can be withdrawn in the window this route cannot see.
+    The draft's approval and the recipient's current eligibility are both
+    checked here so a coordinator is told immediately rather than by a job
+    failure — but neither is the gate that protects the recipient. That one is
+    the worker's, run against state read at delivery time, because consent can
+    be withdrawn in the window this route cannot see. The eligibility check runs
+    before the approval check on purpose: "this person may not be written to" is
+    the more consequential fact of the two, and it is the one worth reporting
+    first when both are true.
 
     Raises:
-        ApiError: 404 when the draft is not in this unit; 409 when the draft is
-            not approved; 400 when the idempotency key is missing.
+        ApiError: 404 when the draft is not in this unit; 403 when the recipient
+            may no longer be contacted; 409 when the draft is not approved or
+            its contact has been removed; 400 when the idempotency key is
+            missing.
     """
     charge = charge_quota(session, principal, SEND_RATE_LIMIT)
 
@@ -553,6 +621,46 @@ def send_draft(
             code="outreach_draft_not_found",
             message="No such outreach draft in this unit.",
         )
+
+    facts = _repo.load_recipient(
+        session, tenant_id=principal.tenant_id, contact_channel_id=draft.contact_channel_id
+    )
+    if facts is None:
+        # The draft outlived its contact. `_address_for` renders that as
+        # "(contact removed)" in a listing, which is fine for a screen and is
+        # not fine here: submitting a send whose recipient nothing can be
+        # checked against is the one thing this route must never do.
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="outreach_recipient_missing",
+            message=(
+                "The contact this draft addresses no longer exists, so its consent "
+                "cannot be checked. Nothing was submitted."
+            ),
+        )
+
+    try:
+        assert_send_eligible(
+            ContactState(facts.contact_state),
+            consent_source=(
+                ConsentSource(facts.consent_source) if facts.consent_source is not None else None
+            ),
+            suppressed=facts.suppressed,
+        )
+    except ConsentViolationError as exc:
+        # Not redundant with the composition-time check and not redundant with
+        # the worker's. Composition proves what was true when a coordinator was
+        # looking at the screen; consent can be withdrawn, or a contact moved
+        # back down the lifecycle, in the hours between composing and sending.
+        # Refusing here means the coordinator is told at the moment they act,
+        # rather than by a job that fails minutes later — and the worker still
+        # rechecks against state read at delivery time, because this route
+        # cannot see the window after it returns.
+        raise ApiError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="outreach_recipient_not_eligible",
+            message=(f"This recipient may not be contacted: {exc} No send was submitted."),
+        ) from exc
 
     if draft.status != DraftStatus.APPROVED.value:
         # 409 rather than 403: the caller is permitted to send from this unit,
@@ -584,6 +692,68 @@ def send_draft(
         job_id=accepted.job_id,
         events_url=f"/v1/jobs/{accepted.job_id}/events",
         replayed=accepted.is_replay,
+    )
+
+
+@router.get(
+    "/{unit_id}/outreach/sends",
+    response_model=SendListResponse,
+    summary="List a unit's outreach sends",
+)
+def list_sends(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    limit: Annotated[int, Query(ge=1, le=MAX_SEND_PAGE_SIZE)] = DEFAULT_SEND_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SendListResponse:
+    """One unit's send attempts, newest first.
+
+    The listing the coordinator surface was missing: drafts could be listed and
+    a single send could be read by id, so the only way to see what a unit had
+    actually attempted was to have kept the ids. OQ-008 records that this slice
+    stores sends rather than threads, and this is that list — send records, not
+    a conversation. Nothing here implies a reply exists.
+
+    A send whose ``disposition`` is null is in flight. That is a third state and
+    a client must render it as in-progress; treating null as a failure is the
+    same defect as treating a submitted command as a delivered message.
+
+    Delivery events are not included per row — see :class:`SendSummaryView`. A
+    reader who needs the stream reads the send.
+    """
+    charge_quota(session, principal, READ_RATE_LIMIT)
+
+    owning_unit_id = _authorize_outreach(session, principal, unit_id)
+
+    sends = _repo.list_sends(
+        session,
+        tenant_id=principal.tenant_id,
+        owning_unit_id=owning_unit_id,
+        limit=limit,
+        offset=offset,
+    )
+
+    return SendListResponse(
+        sends=[
+            SendSummaryView(
+                send_id=send.id,
+                draft_id=send.draft_id,
+                job_id=send.job_id,
+                recipient_address=send.recipient_address,
+                disposition=send.disposition,
+                provider=send.provider,
+                provider_message_id=send.provider_message_id,
+                failure_reason=send.failure_reason,
+                created_at=send.created_at.isoformat(),
+                concluded_at=(
+                    send.concluded_at.isoformat() if send.concluded_at is not None else None
+                ),
+            )
+            for send in sends
+        ],
+        limit=limit,
+        offset=offset,
     )
 
 

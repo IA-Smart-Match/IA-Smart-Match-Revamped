@@ -187,6 +187,176 @@
         "title": "CommandAcceptedResponse",
         "type": "object"
       },
+      "ConsentSource": {
+        "description": "Where a consent record originated.",
+        "enum": [
+          "self_service",
+          "authenticated",
+          "in_person",
+          "institutional_relationship",
+          "scraped",
+          "purchased",
+          "inferred"
+        ],
+        "title": "ConsentSource",
+        "type": "string"
+      },
+      "ContactListResponse": {
+        "description": "A page of contacts, and how many were asked for.",
+        "properties": {
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ContactResponse"
+            },
+            "title": "Contacts",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contacts",
+          "limit",
+          "offset"
+        ],
+        "title": "ContactListResponse",
+        "type": "object"
+      },
+      "ContactResponse": {
+        "description": "One contact channel, with the two facts a coordinator actually needs.\n\n``suppressed`` and ``send_eligible`` are both **computed at read time**,\nnever stored. ``suppressed`` comes from a join against ``suppression_record``\n(migration ``0021`` explains why there is no column), and ``send_eligible``\nis :func:`smartmatch_domain.consent.is_send_eligible` over this row \u2014 the\nsame function the send path uses, called here rather than re-expressed, so\nthe answer a coordinator reads is the answer the send path will give.\n\nIt is still not a promise. The worker rechecks at delivery time against state\nread then, and this field describes the contact at the instant it was read.",
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "channel_kind": {
+            "title": "Channel Kind",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Evidence"
+          },
+          "consent_recorded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Recorded At"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Source"
+          },
+          "contact_channel_id": {
+            "format": "uuid",
+            "title": "Contact Channel Id",
+            "type": "string"
+          },
+          "contact_state": {
+            "title": "Contact State",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "send_eligible": {
+            "description": "Whether this contact could be written to right now: active_candidate, an approved consent source, and no suppression. Computed at read time and rechecked by the worker at delivery time.",
+            "title": "Send Eligible",
+            "type": "boolean"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contact_channel_id",
+          "professional_id",
+          "channel_kind",
+          "address",
+          "contact_state",
+          "consent_source",
+          "consent_recorded_at",
+          "consent_evidence",
+          "suppressed",
+          "send_eligible",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ContactResponse",
+        "type": "object"
+      },
+      "ContactState": {
+        "description": "States in the contact-confidence lifecycle (v1.1 \u00a72.3).",
+        "enum": [
+          "discovered",
+          "corroborated",
+          "reviewed",
+          "relationship_recorded",
+          "rejected",
+          "consented",
+          "active_candidate",
+          "stale"
+        ],
+        "title": "ContactState",
+        "type": "string"
+      },
+      "ContactWithHistoryResponse": {
+        "description": "A contact and the trail of every move made to it.",
+        "properties": {
+          "contact": {
+            "$ref": "#/components/schemas/ContactResponse"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionView"
+            },
+            "title": "Transitions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contact",
+          "transitions"
+        ],
+        "title": "ContactWithHistoryResponse",
+        "type": "object"
+      },
       "DeliveryEventView": {
         "description": "One entry of the append-only delivery stream.",
         "properties": {
@@ -1953,6 +2123,72 @@
         "title": "RedriveRequest",
         "type": "object"
       },
+      "RegisterContactRequest": {
+        "description": "Register one contact channel.\n\n``professional_id`` is supplied rather than looked up: no professional table\nexists in this schema yet (migration ``0012`` records the same situation for\n``professional_unit_relationship``), so the column is an identifier this\nplatform stores and does not resolve. Inventing a lookup that cannot fail\nwould be worse than storing what the caller names.",
+        "properties": {
+          "address": {
+            "description": "The address itself. Pilot data uses RFC 2606 reserved domains (.invalid), which cannot resolve and therefore cannot be written to by accident.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Address",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the consent was captured \u2014 a form submission id, a coordinator's note, an institutional agreement's reference. Required with a consent source: an auditor asking to see the evidence needs somewhere for the answer to live.",
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required when registering as 'consented', and then it must be an approved source. Scraped, purchased, and inferred are storable as provenance on a 'discovered' contact and can never authorize a send."
+          },
+          "contact_state": {
+            "$ref": "#/components/schemas/ContactState",
+            "default": "discovered",
+            "description": "'discovered' (we hold this address, and assert nothing more) or 'consented' (a named person agreed, and this request names the source and the evidence). Registering directly as 'active_candidate' is refused: activation is an act with an actor, not an initial state."
+          },
+          "professional_id": {
+            "description": "The person this address belongs to.",
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this contact is being registered, recorded on its first trail entry.",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "professional_id",
+          "address"
+        ],
+        "title": "RegisterContactRequest",
+        "type": "object"
+      },
       "ReviewDecisionRequest": {
         "description": "A coordinator's decision on one pending review item.",
         "properties": {
@@ -2187,6 +2423,33 @@
         "title": "SendAcceptedResponse",
         "type": "object"
       },
+      "SendListResponse": {
+        "description": "A page of sends, and how many were asked for.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sends": {
+            "items": {
+              "$ref": "#/components/schemas/SendSummaryView"
+            },
+            "title": "Sends",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sends",
+          "limit",
+          "offset"
+        ],
+        "title": "SendListResponse",
+        "type": "object"
+      },
       "SendResponse": {
         "description": "One send attempt and the events recorded against it.",
         "properties": {
@@ -2276,6 +2539,105 @@
         "title": "SendResponse",
         "type": "object"
       },
+      "SendSummaryView": {
+        "description": "One send in a listing, without its delivery stream.\n\nThe stream is deliberately absent rather than summarised. Folding a send's\nevents into one word is a choice about which fact to forget \u2014 a provider can\nreport ``delivered`` and then ``complained`` \u2014 and making that choice once\nper row in a list would bury it where nobody reviews it. A reader who needs\nto explain what happened to one message reads that send.",
+        "properties": {
+          "concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the attempt reached an outcome, or null while it has not.",
+            "title": "Concluded At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'accepted', 'blocked', 'failed', or null while the attempt is still in flight. Null is a third state: render it as in-progress, never as a failure.",
+            "title": "Disposition"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Message Id"
+          },
+          "recipient_address": {
+            "title": "Recipient Address",
+            "type": "string"
+          },
+          "send_id": {
+            "format": "uuid",
+            "title": "Send Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "send_id",
+          "draft_id",
+          "job_id",
+          "recipient_address",
+          "disposition",
+          "provider",
+          "provider_message_id",
+          "failure_reason",
+          "created_at",
+          "concluded_at"
+        ],
+        "title": "SendSummaryView",
+        "type": "object"
+      },
       "StageAdvanceRequest": {
         "description": "One coordinator's claim that a journey reached a stage, and when.",
         "properties": {
@@ -2341,6 +2703,132 @@
         "title": "StageAdvanceResponse",
         "type": "object"
       },
+      "TransitionRequest": {
+        "description": "Move a contact to the next state in the consent lifecycle.",
+        "properties": {
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required with a consent source, for the reason registration requires it.",
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required to reach 'consented', and then it must be approved. Ignored for every other move: the source that authorized a contact was recorded when it reached 'consented', and rewriting it later would redate a permission granted earlier."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this move was made, in the actor's own words. Recorded on the trail.",
+            "title": "Reason"
+          },
+          "to_state": {
+            "$ref": "#/components/schemas/ContactState",
+            "description": "The state to move to."
+          }
+        },
+        "required": [
+          "to_state"
+        ],
+        "title": "TransitionRequest",
+        "type": "object"
+      },
+      "TransitionView": {
+        "description": "One entry of a contact's consent history.\n\n``from_state`` is ``null`` for the registration entry, which is a real move\n\u2014 from not existing to an initial state \u2014 rather than a missing value.",
+        "properties": {
+          "actor_user_id": {
+            "format": "uuid",
+            "title": "Actor User Id",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Source"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From State"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "to_state": {
+            "title": "To State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_state",
+          "to_state",
+          "consent_source",
+          "consent_evidence",
+          "reason",
+          "actor_user_id",
+          "occurred_at"
+        ],
+        "title": "TransitionView",
+        "type": "object"
+      },
       "UnsubscribeRequest": {
         "description": "The signed token from a message's unsubscribe link.",
         "properties": {
@@ -2370,6 +2858,39 @@
           "unsubscribed"
         ],
         "title": "UnsubscribeResponse",
+        "type": "object"
+      },
+      "UpdateContactRequest": {
+        "description": "Correct a contact's evidence, or suppress its address.\n\nNote what cannot be supplied: **the lifecycle state and the address**. Moving\na contact is :func:`transition_contact`'s, which writes the audit trail with\nthe move; a PATCH that changed state would be a state change with no record\nof who made it. Changing the address would move a recorded consent onto a\ndifferent person, which is the one edit that can never be a correction.",
+        "properties": {
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces the stored evidence. Omit to leave it alone.",
+            "title": "Consent Evidence"
+          },
+          "suppressed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass true to record that this address must not be written to again. False is refused rather than honoured \u2014 see the handler: reinstating a suppressed address is a decision nobody has ratified (OQ-009).",
+            "title": "Suppressed"
+          }
+        },
+        "title": "UpdateContactRequest",
         "type": "object"
       }
     }
@@ -4943,6 +5464,735 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/outreach/contacts": {
+      "get": {
+        "description": "One unit's contacts, ordered by address.\n\n``send_eligible`` is on every row, so the answer to \"why can I not write to\nthis person\" is visible in the list rather than only discoverable by trying.",
+        "operationId": "list_contacts_v1_units__unit_id__outreach_contacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's contact channels",
+        "tags": [
+          "outreach"
+        ]
+      },
+      "post": {
+        "description": "Store one contact channel and open its audit trail.\n\n``201``: this has completed when it returns. A row exists, and so does the\nfirst entry of its history \u2014 the registration itself, recorded with the\nauthenticated caller as the actor, because \"who says this person consented\"\nis the question the whole feature rests on.\n\nThe actor is never a body field. Letting a request name who recorded a\nconsent would be the caller-selected-identity pattern (MM-A01) in the one\nplace it would matter most.\n\nRaises:\n    ApiError: 403 when a consent claim names no approved source; 400 when it\n        names one without evidence, or when the initial state is not one a\n        contact may be registered in; 409 when this tenant already holds this\n        address.",
+        "operationId": "register_contact_v1_units__unit_id__outreach_contacts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterContactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Register a contact channel",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/outreach/contacts/{contact_channel_id}": {
+      "get": {
+        "description": "One contact and every move ever made to it, oldest first.\n\nThe history is returned in full rather than paged. It is bounded by the\nlifecycle itself \u2014 a contact that has moved many times has been re-reviewed\nmany times \u2014 and an audit trail delivered in pieces is one a reader can\naccidentally read half of.\n\nRaises:\n    ApiError: 404 when the contact is not in this unit.",
+        "operationId": "read_contact_v1_units__unit_id__outreach_contacts__contact_channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "contact_channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactWithHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one contact channel and its consent history",
+        "tags": [
+          "outreach"
+        ]
+      },
+      "patch": {
+        "description": "Update the two things about a contact that are not lifecycle moves.\n\n**Suppression is not a column.** ``suppressed: true`` writes a\n``suppression_record`` with source ``coordinator``, which is the single\nauthoritative list every send path joins against; migration ``0021`` records\nwhy a flag on the contact would be worse. A repeat is a no-op and still\nsucceeds \u2014 someone recording the same instruction twice has not made an\nerror.\n\n**``suppressed: false`` is refused, not ignored.** Reinstating an address\nsomebody asked us to stop writing to is a decision with a real person on the\nother end of it, and no artifact in this repository ratifies who may make it\nor on what evidence (OQ-009). Silently accepting the field and doing nothing\nwould be a fake success; accepting it and un-suppressing would be the worst\nwrite on this surface.\n\nRaises:\n    ApiError: 404 when the contact is not in this unit; 400 when the request\n        changes nothing, or asks to un-suppress.",
+        "operationId": "update_contact_v1_units__unit_id__outreach_contacts__contact_channel_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "contact_channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Correct a contact's consent evidence, or suppress it",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/outreach/contacts/{contact_channel_id}/transitions": {
+      "post": {
+        "description": "Move the contact, and record who moved it and why.\n\nA ``POST`` to a *transitions* collection rather than a ``PATCH`` of the state\nfield, because that is what happens: a row is appended to a history and the\ncontact's state follows from it. ``201`` for the same reason \u2014 the thing\ncreated is the transition \u2014 and the response returns the contact beside the\nwhole trail, so the caller can see what it now says about itself.\n\nThe legality of the move is ``smartmatch_domain.consent``'s decision, asked\ntwice for two different questions: :func:`can_transition` for the edge, and\n:func:`assert_transition` for whether a move to ``consented`` is properly\nsourced. Both refusals name the state the contact was actually in, which is\nthe fact a caller working from a stale screen needs.\n\nRaises:\n    ApiError: 404 when the contact is not in this unit; 409 when the move is\n        not a legal edge from the contact's present state, or when the\n        contact moved underneath this request; 403 when a consent claim names\n        no approved source; 400 when it names one without evidence.",
+        "operationId": "transition_contact_v1_units__unit_id__outreach_contacts__contact_channel_id__transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "contact_channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactWithHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Move a contact through the consent lifecycle",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/outreach/drafts": {
       "get": {
         "description": "One unit's drafts, newest first.\n\n``limit`` is bounded by the query validator *and* clamped again in the\nrepository. Not redundant: the repository is also reachable from the worker,\nand a bound that only exists in a route is a bound that stops applying the\nmoment a second caller appears.\n\nThe recipient address is resolved per draft rather than joined, which is a\npage-sized number of small lookups. Left simple deliberately \u2014 a coordinator\nlist is a screen, not an export, and MAX_DRAFT_PAGE_SIZE is what keeps that\ntrue.",
@@ -5236,7 +6486,7 @@
     },
     "/v1/units/{unit_id}/outreach/drafts/{draft_id}/send": {
       "post": {
-        "description": "Enqueue ``outreach.send``. **Nothing is sent when this returns.**\n\n``202``, and the response body carries no status: the command is recorded and\nthe dispatcher has not moved it. Follow ``events_url``, then read the send.\n\nThe draft's approval is checked here so a coordinator is told immediately\nrather than by a job failure \u2014 but this is not the gate that protects the\nrecipient. That one is the worker's, run against state read at delivery time,\nbecause consent can be withdrawn in the window this route cannot see.\n\nRaises:\n    ApiError: 404 when the draft is not in this unit; 409 when the draft is\n        not approved; 400 when the idempotency key is missing.",
+        "description": "Enqueue ``outreach.send``. **Nothing is sent when this returns.**\n\n``202``, and the response body carries no status: the command is recorded and\nthe dispatcher has not moved it. Follow ``events_url``, then read the send.\n\nThe draft's approval and the recipient's current eligibility are both\nchecked here so a coordinator is told immediately rather than by a job\nfailure \u2014 but neither is the gate that protects the recipient. That one is\nthe worker's, run against state read at delivery time, because consent can\nbe withdrawn in the window this route cannot see. The eligibility check runs\nbefore the approval check on purpose: \"this person may not be written to\" is\nthe more consequential fact of the two, and it is the one worth reporting\nfirst when both are true.\n\nRaises:\n    ApiError: 404 when the draft is not in this unit; 403 when the recipient\n        may no longer be contacted; 409 when the draft is not approved or\n        its contact has been removed; 400 when the idempotency key is\n        missing.",
         "operationId": "send_draft_v1_units__unit_id__outreach_drafts__draft_id__send_post",
         "parameters": [
           {
@@ -5387,6 +6637,159 @@
           }
         },
         "summary": "Submit an outreach send command",
+        "tags": [
+          "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/outreach/sends": {
+      "get": {
+        "description": "One unit's send attempts, newest first.\n\nThe listing the coordinator surface was missing: drafts could be listed and\na single send could be read by id, so the only way to see what a unit had\nactually attempted was to have kept the ids. OQ-008 records that this slice\nstores sends rather than threads, and this is that list \u2014 send records, not\na conversation. Nothing here implies a reply exists.\n\nA send whose ``disposition`` is null is in flight. That is a third state and\na client must render it as in-progress; treating null as a failure is the\nsame defect as treating a submitted command as a delivered message.\n\nDelivery events are not included per row \u2014 see :class:`SendSummaryView`. A\nreader who needs the stream reads the send.",
+        "operationId": "list_sends_v1_units__unit_id__outreach_sends_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's outreach sends",
         "tags": [
           "outreach"
         ]
