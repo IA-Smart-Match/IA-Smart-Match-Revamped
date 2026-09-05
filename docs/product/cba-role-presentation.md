@@ -19,7 +19,7 @@ construction.
 |---|---|---|---|
 | `student` | `student` | Student | Student Portal |
 | `volunteer` | `event_host` | Event Host | Event Host Portal |
-| `coordinator` | `speaker_connector` | Speaker Connector | Speaker Connector Portal |
+| `coordinator` | `speaker_connector` | Speaker Connector | Connector Dashboard |
 | `admin` | `speaker_connector` | Speaker Connector (administrator) | CBA Administration |
 | *(none)* | `speaker` | — | — |
 

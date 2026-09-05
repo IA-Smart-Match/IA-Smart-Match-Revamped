@@ -144,6 +144,11 @@ def _frontend_map() -> dict[str, tuple[str, str, str]]:
     source = FRONTEND_LABELS_PATH.read_text(encoding="utf-8")
     body = source.split("export const ROLE_PRESENTATION", 1)[1]
     body = body.split("} as const;", 1)[0]
+    # Comments are prose about the rows, not rows. Stripped so an entry may be
+    # explained without the explanation splitting the pair this test reads —
+    # the same trade `test_frontend_auth_contract.py` makes.
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+    body = re.sub(r"//[^\n]*", "", body)
     return {
         match["role"]: (match["persona"], match["role_label"], match["portal"])
         for match in _TS_ENTRY.finditer(body)

@@ -104,8 +104,9 @@ e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
 	$(PYTEST) tests/e2e -m e2e -ra
 
 .PHONY: scan
-scan: ## Scan for forbidden legacy behavior
+scan: ## Scan for forbidden legacy behavior and retired CBA terminology
 	$(PY) tools/scan_forbidden.py
+	$(PY) tools/scan_cba_terminology.py
 
 .PHONY: memory
 memory: ## Validate the approved agent-memory ledger

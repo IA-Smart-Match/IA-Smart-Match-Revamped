@@ -320,3 +320,30 @@ def test_drilldown_sheet_enforces_the_aggregate_row_invariant() -> None:
     # Rule 4's unknown case: an unknown aggregate is not a measured zero.
     assert "aggregateIsUnknown" in sheet
     assert "An unknown aggregate is not a measured zero." in sheet
+
+
+def test_the_page_is_labelled_speaker_requests_without_renaming_the_metric() -> None:
+    """CBA-TERMINOLOGY: customer §4 maps *volunteer opportunity* to *Speaker
+    Request*, and §25 lists that rename as P0.
+
+    The label and the identifier are deliberately allowed to disagree. What the
+    user reads is the customer's word; what the page cites as its source is the
+    registered ``opportunities`` metric, spelled exactly as the register spells
+    it. Renaming ``canonical_name`` to match the label would break the binding
+    this whole module exists to protect — the number would stop being traceable
+    to the query that owns it, which is the defect O4 closed.
+    """
+    source = _read(OPPORTUNITIES_PAGE)
+
+    assert 'className="text-3xl font-semibold text-gray-900">Speaker Requests</h1>' in source, (
+        "the visible heading no longer uses the customer-approved term"
+    )
+    # The identifier survives the rename, in the import and on screen.
+    assert "OPPORTUNITIES_METRIC_NAME" in source
+    assert "Registered metric · {OPPORTUNITIES_METRIC_NAME}" in source
+    assert "<code>opportunities</code>" in source
+
+    # And the retired term is gone from what the user reads. The word still
+    # appears in the accountability line above, so this is asserted on the
+    # heading rather than the file.
+    assert ">Opportunities</h1>" not in source

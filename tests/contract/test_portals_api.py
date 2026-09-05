@@ -162,7 +162,7 @@ def _portals(
     [
         ("student", "student", "Student Portal"),
         ("volunteer", "volunteer", "Event Host Portal"),
-        ("coordinator", "coordinator", "Speaker Connector Portal"),
+        ("coordinator", "coordinator", "Connector Dashboard"),
         ("admin", "admin", "CBA Administration"),
     ],
 )

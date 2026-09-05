@@ -34,8 +34,8 @@ const navigationSections = [
   {
     label: "DISCOVER",
     items: [
-      { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
-      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank specialists against open opportunities" },
+      { name: "Speaker Requests", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
+      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank speakers against open speaker requests" },
       { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
     ],
   },
@@ -87,7 +87,7 @@ export function Layout() {
               </div>
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs text-[#5a6472]">IA West Chapter</p>
+                <p className="text-xs text-[#5a6472]">CBA</p>
               </div>
             </div>
             <button

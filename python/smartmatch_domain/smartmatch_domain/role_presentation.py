@@ -152,7 +152,11 @@ _PRESENTATION: Final[Mapping[str, RolePresentation]] = MappingProxyType(
         "coordinator": RolePresentation(
             persona=Persona.SPEAKER_CONNECTOR,
             role_label="Speaker Connector",
-            portal_display_name="Speaker Connector Portal",
+            # "Connector Dashboard" is the customer's own §4 rename of the
+            # Chapter Admin Dashboard, and `CBA-TERMINOLOGY` shipped that name
+            # in the shell's chrome. Using it here keeps the server the single
+            # naming authority instead of a second one that happens to agree.
+            portal_display_name="Connector Dashboard",
         ),
         # Same persona, distinguishable label. The qualifier is presentation,
         # not a power: ``admin``'s reach is decided by ``smartmatch_authz``
