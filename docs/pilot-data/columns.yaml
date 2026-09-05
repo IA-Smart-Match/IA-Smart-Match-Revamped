@@ -15,10 +15,12 @@
 # Enforcement is SECTION-LEVEL, per card W1's partial-ratification rule --
 # a column still behind an open question would be declared under its
 # dataset's `gate_pending` map and neither enforced nor treated as ratified.
-# No column is gate-pending today: Gate A's board_role and Gate B's three
-# contact fields were the only entries, and both gates have since closed. The
-# mechanism is unchanged and stays in place for the next column a gate has
-# not yet answered. See "GATE-PENDING COLUMNS" below.
+# EXTENDED 5 Sep 2026 (CBA-IMPORT-CONTRACT) with customer §18's CPP CBA
+# contact fields. Exactly one column is gate-pending today:
+# `professionals.contact_email`, withheld behind CBA Gate C. Gate A's
+# board_role and Gate B's three published contact fields were the earlier
+# entries and both of those gates have since closed. See "GATE-PENDING
+# COLUMNS" below.
 # See docs/pilot-data/README.md for the finding this fills (F-28 / migration
 # manifest: architecture v1.1 Section 1.5 is not in this repository, so the
 # "real" column contract it might define has never been read). Ratifying
@@ -88,18 +90,67 @@
 #      `blank_sentinels_by_column`, so a column is checked only where it is
 #      declared to hold a URL.
 #
+#   6. Customer §18's CBA contact fields are all OPTIONAL, and `required`
+#      stays exactly ("name", "metro_region"). §18's own first sentence is the
+#      reason: the source data "is scattered across multiple people and
+#      systems" and "there is currently no single authoritative export". A
+#      contract that made Graduation Year or Contact Email mandatory would
+#      refuse most real submissions for the reason the customer supplied in
+#      advance, and refusing is not the fail-closed behaviour this file cares
+#      about -- what fails closed here is a contract that cannot be READ (see
+#      column_contract.ColumnContractError), not a coordinator whose
+#      spreadsheet is incomplete. An incomplete record is exactly what the
+#      quarantine-and-review path (v1.1 §1.5) exists to carry.
+#
+#      Whether `metro_region` should stay REQUIRED for a CBA export is a
+#      separate question this card does not answer: it was ratified for the
+#      IA West pilot, and §10 now measures proximity in miles from CPP using
+#      city and/or ZIP. De-ratifying a required column is a decision, not a
+#      refactor. Tracked as OQ-CBA-012; the safe default is to leave it.
+#
+#   7. `professionals.contact_email` is declared `withhold` under CBA Gate C.
+#      §18 asks for it, so the column is recognized and an export carrying it
+#      is neither refused nor reported as unexpected -- but no approved
+#      decision covers STORING a speaker's personal address, so the value is
+#      dropped before anything is written and the drop is reported. P9 Gate B
+#      is not that decision: it answered the *published* event contact fields,
+#      which is different data and an easier question, and it still required a
+#      named privacy owner and the full ADR-0014 field set to answer. Guessing
+#      the harder one because §18 mentions the column would be inventing an
+#      authorization. See the gate_pending entry below for the full reasoning
+#      and OQ-CBA-011 for the decision record this waits on.
+#
+#      Nothing in this file is a consent decision. Collecting an address is
+#      not permission to use it: `smartmatch_domain.consent` admits four
+#      approved consent sources (self-service, authenticated, in-person,
+#      institutional relationship) and an import is none of them, so no
+#      import path can reach `consented` or make anyone send-eligible. §18's
+#      "Willingness to Partner with CPP (Y/N)" is likewise a stated
+#      preference recorded on a contact record and NOT a ConsentSource --
+#      reading it as permission to email would be exactly the inference
+#      v1.1 §2.3 exists to forbid.
+#
+#   8. The CBA classification columns carry values, not decisions. This
+#      contract declares `primary_industry_code` and `primary_role_code` and
+#      says nothing about what belongs in them: it does not check a value
+#      against the released NAICS sector or CBA role taxonomies, resolve a
+#      display name to a code, or infer either from company or title. §19
+#      puts inference and a Speaker Connector's correction downstream of the
+#      import, and an unrecognized value there is a review item rather than
+#      an import failure. CBA-IMPORT-CLASSIFY owns that step.
+#
 # GATE-PENDING COLUMNS
 #
-#   A column still behind an open question would be declared twice: in prose
+#   A column still behind an open question is declared twice: in prose
 #   under open_questions (unchanged, for a human), and machine-readably under
 #   its dataset's `gate_pending` map (for the worker) -- card W1 is explicit
 #   that W1 "must not treat a still-open open_questions entry as ratified
-#   contract". No dataset below declares one today: Gate A's board_role and
-#   Gate B's three contact fields were the only entries this file ever
-#   carried, and both gates have since closed (see decision 4 above and
-#   OPEN QUESTIONS below). The mechanism remains for the next column a gate
-#   has not yet answered. Each entry, when one exists, names the gate that
-#   owns the column and one of two postures:
+#   contract". One column is declared that way below:
+#   `professionals.contact_email`, `withhold`, CBA Gate C (see decision 7).
+#   Gate A's board_role and Gate B's three published contact fields were the
+#   earlier entries and both gates have closed (see decision 4 above and OPEN
+#   QUESTIONS below). Each entry names the gate that owns the column and one
+#   of two postures:
 #
 #     accept   -- recognized, persisted normally, and reported in a
 #                 `columns_pending_gate` WARNING so a coordinator sees the
@@ -142,6 +193,16 @@ datasets:
            required column and "pronouns" as an optional one. That file also
            spells the name column `full_name`; ratification chose `name`
            instead, for the reason in the header.
+        3. Added 5 Sep 2026: customer §18 (CPP CBA speaker / contact data
+           schema) supplies the remaining optional columns -- its "Expected
+           source columns" table and its "Additional fields required by
+           matching" list. §18 is the first source here that is an actual
+           customer statement about their own export rather than a shape
+           borrowed from repository code, so where it names a field this
+           file already declared under another spelling (Company Name,
+           Current Position, Topic/interests/expertise text) the ratified
+           spelling is kept and the field is NOT declared twice; see
+           docs/pilot-data/cba-field-mapping.md.
     required:
       - name
       - metro_region
@@ -159,6 +220,57 @@ datasets:
       # question this posture was flagging is answered.
       - initials
       - pronouns
+      # --- CBA contact fields, added 5 Sep 2026 (CBA-IMPORT-CONTRACT) ---
+      #
+      # Customer §18's "Expected source columns" table and its "Additional
+      # fields required by matching" list, declared so a CPP CBA coordinator's
+      # contact export is representable in full. Every one of them is
+      # OPTIONAL, and that is the customer's own framing rather than a
+      # convenience: §18 opens by saying the data "is scattered across
+      # multiple people and systems" with "no single authoritative export".
+      # Requiring Graduation Year would refuse most real submissions for the
+      # exact reason the customer told us to expect. `name` and
+      # `metro_region` stay the only required columns; see decision 6 in WHAT
+      # WAS DECIDED HERE and OQ-CBA-012.
+      #
+      # Three §18 fields are NOT re-declared here, because this contract
+      # already declares them under a spelling ratified 28 Aug 2026, and the
+      # same field declared twice is the failure mode this file exists to
+      # prevent (validate_columns compares after normalize_header, so
+      # `company_name` would be a SECOND column beside `company`, not the
+      # same one):
+      #
+      #   §18 "Company Name"                      -> `company` (above)
+      #   §18 "Current Position"                  -> `title` (above)
+      #   §18 "Topic/interests/expertise text"    -> `expertise_tags` (above)
+      #
+      # See docs/pilot-data/cba-field-mapping.md for the full field-to-schema
+      # table and OQ-CBA-012 for the header-spelling question this defers.
+      #
+      # §18 source columns:
+      - contact_email
+      - alumni
+      - graduation_year
+      - major
+      - willingness_to_partner_with_cpp
+      - past_engagement
+      # §18 "Additional fields required by matching". These five take
+      # `speaker_profile`'s spellings (migration 0024, CBA-DATA-SCHEMA)
+      # rather than the customer's prose, because §18 gives prose there
+      # ("city and/or ZIP code") and no header text: an import column and the
+      # column a reviewed record eventually lands in should not need a
+      # translation table to line up. `primary_industry_code` and
+      # `primary_role_code` carry the customer's own vocabulary values (the
+      # 20 NAICS sector groups and 10 CBA role categories released by
+      # CBA-TAXONOMY); this contract does NOT validate them against those
+      # taxonomies, resolve a display name to a code, or infer either one
+      # from company or title. That is CBA-IMPORT-CLASSIFY's work, and an
+      # unrecognized value is a review item, not an import failure.
+      - primary_industry_code
+      - primary_role_code
+      - location_city
+      - location_postal_code
+      - prior_talk
     # Empty on purpose -- this is the fallback for any column not named
     # below, and nothing should fall back into a sentinel it was never given.
     blank_sentinels: []
@@ -171,6 +283,38 @@ datasets:
       # that anyone who later adds a dataset-wide sentinel cannot silently
       # start blanking people's names.
       name: []
+    # The mechanism the two closed gates left behind, used for the first time
+    # since. See GATE-PENDING COLUMNS above for the two postures.
+    gate_pending:
+      contact_email:
+        gate: CBA Gate C (speaker contact email)
+        posture: withhold
+        reason: >-
+          Customer §18 expects a "Contact Email" on every speaker record, and
+          this contract therefore RECOGNIZES the column -- an export carrying
+          it is never reported as `unexpected_columns` and is never refused.
+          What no approved decision covers is STORING it. P9 Gate B is not
+          that decision: it closed 2 Sep 2026 over the three *published*
+          contact fields on the `events` dataset -- an organizer's contact
+          details already published on a public event page -- and its own
+          §§B2/B3 turn on that published-ness. A speaker's personal address on
+          a coordinator's spreadsheet is different data answering a different
+          question, and Gate B needed a named privacy owner and the full
+          ADR-0014 field set to answer the easier one. Posture `withhold`
+          rather than `accept` because the open question is PRIVACY, and the
+          contract's own rule for that case is that quarantine is collection
+          and a review_item row is persistence (ADR-0014): the value is
+          dropped before anything is written and the drop is reported in a
+          `columns_withheld_pending_gate` WARNING, so a coordinator sees
+          exactly what was not stored. Withholding is also the posture that
+          keeps `smartmatch_domain.consent` honest while the gate is open --
+          an address this system never stored cannot become a recipient by
+          accident. Nothing here is a consent decision in either direction:
+          collecting an email is not permission to send to it, no import path
+          reaches `consented`, and `willingness_to_partner_with_cpp` (§18) is
+          a stated preference on a contact record, not a `ConsentSource`.
+          Tracked as OQ-CBA-011; when the gate closes, delete this entry and
+          its open_questions paragraph together.
 
   events:
     description: >-
@@ -231,3 +375,38 @@ open_questions:
     docs/decisions/p9-gate-b-contact-fields-worksheet.md §8. Human/import
     origin only for contact fields; crawler raw URL persistence still requires
     an approved host/path projection.
+  - >-
+    OPEN -- CBA Gate C (speaker contact email), tracked as OQ-CBA-011. May
+    SmartMatch STORE a speaker's personal "Contact Email" (customer §18) that
+    a CPP CBA coordinator supplies on a contact import, and if so under what
+    retention, access, and deletion rules? P9 Gate B does not answer this: it
+    decided the three *published* contact fields on the `events` dataset --
+    details an organizer has already published on a public event page -- and
+    §§B2/B3 of its worksheet turn on exactly that published-ness. A speaker's
+    personal address on a coordinator's spreadsheet is different data. Until a
+    program owner and a named privacy owner record a decision with ADR-0014's
+    fields, `professionals.contact_email` stays declared under `gate_pending`
+    with posture `withhold`: recognized (so an export carrying it is never
+    refused and never reported as unexpected), never stored, and reported in a
+    `columns_withheld_pending_gate` WARNING naming the column. Note what this
+    gate is NOT about -- it is not a consent question. No answer to it can
+    make an imported address send-eligible: `smartmatch_domain.consent` admits
+    four approved consent sources and an import is none of them.
+  - >-
+    OPEN -- OQ-CBA-012, two questions this card deliberately did not settle
+    about a CBA-era `professionals` export. (a) Should `metro_region` remain
+    REQUIRED? It was ratified for the IA West pilot; customer §10 now measures
+    proximity in miles from CPP using city and/or ZIP, and `location_city` /
+    `location_postal_code` are declared optional above. A CBA export carrying
+    a ZIP but no metro region currently fails `missing_required_columns`.
+    (b) Should the contract adopt the customer's own header text for the three
+    §18 fields already declared under an earlier spelling -- "Company Name"
+    for `company`, "Current Position" for `title`, "Topic/interests/expertise
+    text" for `expertise_tags`? These do not fold together under
+    `normalize_header` (that function is case-, whitespace- and
+    punctuation-insensitive, not a synonym table), so an export spelling them
+    the customer's way today reports `unexpected_columns` -- a WARNING, and
+    `_normalize_row` does not drop the values, so the data still reaches
+    review. Both answers are a re-ratification, and declaring both spellings
+    would be the same field twice, which is the one thing this file exists to
+    prevent.
