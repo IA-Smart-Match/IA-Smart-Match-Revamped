@@ -157,6 +157,37 @@
         "title": "CandidateExplanationView",
         "type": "object"
       },
+      "ClassificationCorrectionRequest": {
+        "description": "Correct one or both of a contact's \u00a7\u00a77-8 classification axes.\n\nAn omitted axis is left alone, never cleared. Nothing in \u00a713 or \u00a7\u00a77-8\ndescribes un-classifying a speaker, and giving null two meanings \u2014 \"not part\nof this correction\" and \"delete the stored value\" \u2014 would make the commoner\ncase the dangerous one.\n\nNote what is not here: no field saying who is correcting, and none saying\nwhat the value was before. OQ-CBA-008's interim ruling is current value only,\nand a request field for provenance would be this route inventing the audit\nvocabulary that ruling declines to invent.",
+        "properties": {
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a77's sector code, or null to leave the stored industry untouched.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a78's role category code, or null to leave the stored role untouched.",
+            "title": "Primary Role Code"
+          }
+        },
+        "title": "ClassificationCorrectionRequest",
+        "type": "object"
+      },
       "ClassificationView": {
         "description": "One target of a request, with the name a person reads beside the stored code.\n\n``code`` is what a row holds and what a matcher compares; ``display_name`` is\n\u00a77's or \u00a78's own wording, read from the released taxonomy module rather than\nrestated here, so a display rename cannot drift from the storage key.\n``taxonomy_version`` says which released table evaluated the code, which is\nwhat keeps it interpretable after the next revision.",
         "properties": {
@@ -2660,6 +2691,469 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "SpeakerContactCreate": {
+        "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis derived from the name rather than supplied, so a caller cannot choose\nsomebody else's identity (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where they work, or null. Null is a real answer \u2014 a retired professional or an independent consultant has none \u2014 and an empty string is refused rather than stored as one (ADR-0011).",
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted and then discarded. This address is never stored, never becomes a contact channel, and never makes this person writable-to (OQ-CBA-011, ratified). The response reports it in `withheld_fields` so the refusal is visible rather than silent \u2014 see OQ-CBA-015.",
+            "title": "Contact Email"
+          },
+          "full_name": {
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a710: city or ZIP is sufficient. Neither is derived from the other.",
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other half of \u00a710's 'or'.",
+            "title": "Location Postal Code"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a77's single primary sector code, or null. Null is a real state: \u00a719 records a contact first and classifies them after.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a78's single primary role category code, or null.",
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's optional prior talk information.",
+            "title": "Prior Talk"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their job title, or null.",
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's topic/interests/expertise text. Compared semantically by \u00a79; nothing here parses it.",
+            "title": "Topic Text"
+          }
+        },
+        "required": [
+          "full_name"
+        ],
+        "title": "SpeakerContactCreate",
+        "type": "object"
+      },
+      "SpeakerContactListResponse": {
+        "description": "A page of a unit's contacts.",
+        "properties": {
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerContactResponse"
+            },
+            "title": "Contacts",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more contacts exist than this response carries. Answered by reading one row past the cap, so a full page never reads as a complete roster.",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contacts",
+          "truncated"
+        ],
+        "title": "SpeakerContactListResponse",
+        "type": "object"
+      },
+      "SpeakerContactResponse": {
+        "description": "One stored contact, as \u00a713's screens render it.\n\nCarries **no email of any kind** \u2014 neither the address the create discarded\nnor the ``.invalid`` placeholder ``user_account`` holds. A response field\nholding an address is the first thing a later card would try to send to, and\nthere is nothing here to send to.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "industry_taxonomy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry Taxonomy Version"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Postal Code"
+          },
+          "owning_unit_id": {
+            "format": "uuid",
+            "title": "Owning Unit Id",
+            "type": "string"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Talk"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "role_taxonomy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Taxonomy Version"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Text"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "withheld_fields": {
+            "description": "Fields this request supplied that were deliberately not stored. Empty on reads. Present so a discard is something the caller is told about rather than something they infer from an absence.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Withheld Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "professional_id",
+          "owning_unit_id",
+          "full_name",
+          "company",
+          "title",
+          "topic_text",
+          "prior_talk",
+          "location_city",
+          "location_postal_code",
+          "primary_industry_code",
+          "industry_taxonomy_version",
+          "primary_role_code",
+          "role_taxonomy_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerContactResponse",
+        "type": "object"
+      },
+      "SpeakerContactUpdate": {
+        "description": "Edit one contact. The body states the record in full, absences included.\n\nInherits every field from the create, including ``contact_email``, which is\nwithheld here on the same terms \u2014 a field a client may send on the create and\nnot on the edit is a field they will assume the edit preserved.\n\nA ``PATCH`` that states the whole record rather than a delta is deliberate:\n\u00a713's edit form posts every box, and a Connector who empties the company box\nmeans the company is gone. A merge-shaped edit would make removing a value\nthe one change they could never make.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where they work, or null. Null is a real answer \u2014 a retired professional or an independent consultant has none \u2014 and an empty string is refused rather than stored as one (ADR-0011).",
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepted and then discarded. This address is never stored, never becomes a contact channel, and never makes this person writable-to (OQ-CBA-011, ratified). The response reports it in `withheld_fields` so the refusal is visible rather than silent \u2014 see OQ-CBA-015.",
+            "title": "Contact Email"
+          },
+          "full_name": {
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Full Name",
+            "type": "string"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a710: city or ZIP is sufficient. Neither is derived from the other.",
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other half of \u00a710's 'or'.",
+            "title": "Location Postal Code"
+          },
+          "primary_industry_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a77's single primary sector code, or null. Null is a real state: \u00a719 records a contact first and classifies them after.",
+            "title": "Primary Industry Code"
+          },
+          "primary_role_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a78's single primary role category code, or null.",
+            "title": "Primary Role Code"
+          },
+          "prior_talk": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's optional prior talk information.",
+            "title": "Prior Talk"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their job title, or null.",
+            "title": "Title"
+          },
+          "topic_text": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u00a718's topic/interests/expertise text. Compared semantically by \u00a79; nothing here parses it.",
+            "title": "Topic Text"
+          }
+        },
+        "required": [
+          "full_name"
+        ],
+        "title": "SpeakerContactUpdate",
         "type": "object"
       },
       "SpeakerRequestCreate": {
@@ -8119,6 +8613,712 @@
         "summary": "List the funded rewards catalog and the caller's own balance",
         "tags": [
           "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts": {
+      "get": {
+        "description": "This unit's roster, by name.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nread itself rather than by a second count \u2014 the shape\n``routers/speaker_requests.py`` uses for the same reason.",
+        "operationId": "list_speaker_contacts_v1_units__unit_id__speaker_contacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's speaker contacts",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "post": {
+        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is outside\n        its closed taxonomy; 409 when this unit already holds a contact under\n        the identity this name derives.",
+        "operationId": "create_speaker_contact_v1_units__unit_id__speaker_contacts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerContactCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Add a speaker contact to a unit",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}": {
+      "get": {
+        "description": "One contact from this unit's roster.\n\nRaises:\n    ApiError: 404 when the contact is not in this unit.",
+        "operationId": "read_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "patch": {
+        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity:\n``professional_id`` was derived at create time and is now a stored key other\nrows reference. ``smartmatch_persistence.cba_contacts`` states the\nconsequence in full.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit.",
+        "operationId": "update_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerContactUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Edit one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/classification": {
+      "post": {
+        "description": "Replace one or both classification axes (customer \u00a7\u00a77-8, \u00a719).\n\nIts own route rather than a corner of the edit, because it is its own act: a\nConnector correcting an inferred classification is doing something they can\ndescribe, and folding it into the general edit would make \"I fixed the\nindustry\" and \"I retyped the whole record\" the same event in every log.\n\nA ``POST`` rather than a ``PATCH`` on a sub-resource, for the reason\n``outreach_contacts``' transitions are a POST: this is an act performed on the\ncontact, not a field being set on it.\n\nThe write is a current-value ``UPDATE`` that bumps ``updated_at``. Nothing\nrecords who corrected what or what the value was before \u2014 OQ-CBA-008's\ninterim ruling, stated in the persistence module and in migration ``0024``.\n\nRaises:\n    ApiError: 400 when the correction names neither axis, or names a code\n        outside its closed taxonomy; 404 when the contact is not in this\n        unit.",
+        "operationId": "correct_speaker_contact_classification_v1_units__unit_id__speaker_contacts__professional_id__classification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificationCorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerContactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Correct a speaker contact's classification",
+        "tags": [
+          "speaker-contacts"
         ]
       }
     },

@@ -52,6 +52,21 @@ export const CBA_CAPABILITY_POLICY = {
   event_reads: true,
   /** An Event Host files a Speaker Request; a Connector reads them (§12, §13). */
   speaker_request_intake: true,
+  /**
+   * A Speaker Connector keeps the unit's roster of professional contacts:
+   * adding one, listing them, editing one, correcting a classification
+   * (§13, and §§7-8 for the correction).
+   *
+   * The other end of the same arrow as `speaker_request_intake`, and a separate
+   * decision from it: requests without a roster is a Connector answering from
+   * outside the system, and a roster without requests is a directory.
+   *
+   * Not `consented_outreach`. A contact *record* is not a contact *channel* —
+   * nothing behind this capability creates consent or makes anybody
+   * writable-to, and an address typed on the create form is discarded and
+   * reported back as withheld (OQ-CBA-011).
+   */
+  speaker_contact_management: true,
   /** Match runs over records already entered in the system (customer §1). */
   match_runs: true,
   /** The red/yellow/green discovery feed and its funnel metrics (customer §17). */
