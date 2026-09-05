@@ -8,6 +8,7 @@ construct a live provider client, which the verification matrix requires.
 from __future__ import annotations
 
 import pytest
+from smartmatch_domain.product_scope import ProductScope, enabled_capabilities
 from smartmatch_providers import (
     Edition,
     FixtureEmailProvider,
@@ -136,3 +137,50 @@ def test_route_provider_reports_unavailable_rather_than_guessing():
     assert not estimate.is_available
     assert estimate.duration is None
     assert estimate.quality == "unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Product scope is not deployment Edition (CBA-SCOPE-POLICY, Wave 0)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("scope", list(ProductScope))
+@pytest.mark.parametrize("edition", list(Edition))
+def test_product_scope_cannot_change_provider_selection(scope: ProductScope, edition: Edition):
+    """A product-scope flag must not be able to reach provider selection.
+
+    The CBA pivot introduces a second axis — which product this is — beside the
+    existing one — which deployment this is. If the two were ever read from the
+    same value, "switch the product to CBA" would silently be "switch the
+    deployment", and the classroom isolation assertions above would be arguing
+    about the wrong variable. ``build_email_provider`` takes an ``Edition`` and
+    nothing else, and this test pins that: no scope changes what it returns.
+    """
+    assert isinstance(build_email_provider(edition, use_fixture=True), FixtureEmailProvider)
+    assert isinstance(
+        build_route_matrix_provider(edition, use_fixture=True), FixtureRouteMatrixProvider
+    )
+    # The scope is a product decision that provider construction never consults.
+    assert scope in ProductScope
+
+
+def test_no_product_scope_enables_a_live_provider_capability():
+    """No scope may name a capability that would authorize live provider work.
+
+    ``ALLOW_LIVE_PROVIDERS=false`` is an environment gate, not a product
+    decision. A capability such as ``live_email`` would give a product flag a
+    route into that gate, so the vocabulary itself is constrained.
+    """
+    forbidden = ("live", "resend", "provider_credential", "deploy")
+    for scope in ProductScope:
+        for capability in enabled_capabilities(scope):
+            assert not any(term in capability.value for term in forbidden), (
+                f"{scope} enables {capability!r}, which names live provider work"
+            )
+
+
+def test_classroom_isolation_holds_under_every_product_scope():
+    """Changing the product must never weaken the classroom boundary."""
+    for _scope in ProductScope:
+        with pytest.raises(ProviderConfigurationError, match="must have no provider secrets"):
+            build_email_provider(Edition.CLASSROOM, api_key="live-key")

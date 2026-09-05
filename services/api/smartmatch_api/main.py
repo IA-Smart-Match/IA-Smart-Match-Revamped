@@ -34,8 +34,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Final
 
-from fastapi import FastAPI, status
+from fastapi import APIRouter, FastAPI, status
 from fastapi.responses import HTMLResponse
+from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
@@ -179,6 +180,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     app.state.settings = settings
+    # The product-scope decisions this process booted with, resolved once so a
+    # handler or a diagnostic reads the same answers composition used above
+    # rather than re-deriving them from `product_scope` and drifting.
+    app.state.product_scope = settings.product_scope
+    app.state.enabled_capabilities = settings.enabled_capabilities()
     app.state.session_factory = create_session_factory(settings.database_url)
     app.state.token_verifier = build_token_verifier(
         settings.edition,
@@ -226,29 +232,66 @@ for exception_type, handler in EXCEPTION_HANDLERS.items():
 # for an oversized body. See MaxBodySizeMiddleware's docstring.
 app.add_middleware(MaxBodySizeMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
 
+# Infrastructure routers: the durable command/job substrate every capability
+# rides on, and the operator paths that keep it honest. They are not a product
+# capability of their own — there is no version of this product that offers
+# match runs but not the job lifecycle that carries them — so they are mounted
+# unconditionally rather than classified below.
 app.include_router(jobs.router)
-app.include_router(imports.router)
 app.include_router(redrive.router)
-app.include_router(me.router)
-app.include_router(metrics.router)
-app.include_router(events.router)
-app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
-app.include_router(rewards.router)
-# The S12 funnel's coordinator-driven write path. Registered beside `metrics`,
-# which reads the same table: `routers/pipeline.py` is what makes the last three
-# funnel metrics reachable at all, and a reader wondering where a non-zero
-# `pipeline_confirmed` could come from should find the two next to each other.
-app.include_router(pipeline.router)
-app.include_router(auth.router)
-app.include_router(portals.router)
-# Two routers from one module: the unit-scoped operations, and the one
-# unauthenticated operation. See `routers/outreach.py` — "this route takes no
-# principal" is worth being visible in a declaration rather than discoverable by
-# reading a handler.
-app.include_router(outreach.router)
-app.include_router(outreach.public_router)
+
+#: Every router that answers to a named product capability, paired with the
+#: capability it serves.
+#:
+#: This is the API half of the single CBA scope policy in
+#: ``smartmatch_domain.product_scope``; the frontend half is
+#: ``apps/web/legacy-frontend/src/lib/productScope.ts``. Composition asks the
+#: policy rather than restating it, so "which product is this" is answered in
+#: one place and read in two.
+#:
+#: Under the default CBA scope every capability listed here is enabled, so the
+#: mounted route set — and therefore the committed OpenAPI contract — is exactly
+#: what it was before this table existed. The capabilities CBA *does* gate
+#: (external acquisition, cold unknown-contact outreach, chapter dues, the
+#: ``member_inquiry`` narrative) own no router at all: they were never mounted,
+#: and this is the declaration that says so on purpose rather than by accident.
+#:
+#: Mounting is decided once, at import, from the settings the process booted
+#: with. A route set that changed per request would be a different application
+#: on every call, and the generated contract could not describe either one.
+CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
+    (imports.router, Capability.OPERATOR_RECORD_IMPORT),
+    (me.router, Capability.AUTHENTICATED_LOGIN),
+    (metrics.router, Capability.DISCOVERY_METRICS),
+    (events.router, Capability.EVENT_READS),
+    (match_runs.router, Capability.MATCH_RUNS),
+    (rewards.router, Capability.REWARDS_LEDGER),
+    # The S12 funnel's coordinator-driven write path. Classified with `metrics`,
+    # which reads the same table: `routers/pipeline.py` is what makes the last
+    # three funnel metrics reachable at all, and a reader wondering where a
+    # non-zero `pipeline_confirmed` could come from should find the two next to
+    # each other.
+    (pipeline.router, Capability.DISCOVERY_METRICS),
+    (auth.router, Capability.AUTHENTICATED_LOGIN),
+    (portals.router, Capability.AUTHENTICATED_LOGIN),
+    # Two routers from one module: the unit-scoped operations, and the one
+    # unauthenticated operation. See `routers/outreach.py` — "this route takes
+    # no principal" is worth being visible in a declaration rather than
+    # discoverable by reading a handler.
+    #
+    # Both are CONSENTED outreach, which the CBA scope preserves. The gated
+    # capability is cold contact of someone who never agreed to be contacted —
+    # a different trust model that shares only a word, and that these routes do
+    # not implement.
+    (outreach.router, Capability.CONSENTED_OUTREACH),
+    (outreach.public_router, Capability.CONSENTED_OUTREACH),
+)
+
+for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
+    if get_settings().capability_enabled(_required_capability):
+        app.include_router(_capability_router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")
