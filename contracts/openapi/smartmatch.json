@@ -21,6 +21,75 @@
         "title": "AbandonedResponse",
         "type": "object"
       },
+      "AttendanceSummaryResponse": {
+        "description": "One unit's attendance evidence, counted. Never a roster.",
+        "properties": {
+          "by_method": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Row count for every mechanism `ck_attendance_record_method` allows: `qr_scan`, `coordinator_entry`, `import`. All three keys are always present; a mechanism with no rows is a measured 0, not an absent key.",
+            "title": "By Method",
+            "type": "object"
+          },
+          "distinct_events": {
+            "description": "How many different events those rows attest to.",
+            "title": "Distinct Events",
+            "type": "integer"
+          },
+          "distinct_subjects": {
+            "description": "How many different accounts those rows belong to. A count only \u2014 this API returns no list of them while D8 is open.",
+            "title": "Distinct Subjects",
+            "type": "integer"
+          },
+          "first_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the earliest of those rows was recorded, or null when there are none. Timezone-aware (ADR-0010).",
+            "title": "First Recorded At"
+          },
+          "last_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the latest was recorded, or null when there are none.",
+            "title": "Last Recorded At"
+          },
+          "total": {
+            "description": "Attendance rows recorded for this unit. The sum of `by_method`, folded server-side from the same counts this response carries \u2014 never a stored counter and never arithmetic left to a client.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "unit_id": {
+            "description": "The unit this summary counts, which is also the unit the request was authorized against. Rows are selected on `attendance_record.owning_unit_id`, so the two cannot differ.",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "total",
+          "by_method",
+          "distinct_subjects",
+          "distinct_events"
+        ],
+        "title": "AttendanceSummaryResponse",
+        "type": "object"
+      },
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
@@ -3732,6 +3801,136 @@
         "summary": "Accept or reject a pending review item",
         "tags": [
           "review"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/engagement/attendance-summary": {
+      "get": {
+        "description": "Return how much attendance evidence this unit holds, by mechanism.\n\nAuthorization runs before any attendance row is read\n(:func:`_authorize_engagement_read`), and the unit it authorizes against is\nthe unit the counts are scoped to.\n\nA unit with nothing recorded answers ``total: 0``, all three methods at\n``0``, and two null instants \u2014 a measured zero, because the query ran and\nfound none, which is a different claim from \"we did not look\" (ADR-0011).\nThe route cannot be reached for a unit that does not exist: that is a 404\nfrom ``load_unit_or_404``, decided before any counting.\n\nQuota is not charged. ADR-0015 governs command routes, where a refusal still\ncost something to attempt; this route reads rows the caller is already\nauthorized for, exactly as the two event reads and the rewards catalog do.",
+        "operationId": "read_attendance_summary_v1_units__unit_id__engagement_attendance_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Count one unit's recorded attendance evidence",
+        "tags": [
+          "engagement"
         ]
       }
     },

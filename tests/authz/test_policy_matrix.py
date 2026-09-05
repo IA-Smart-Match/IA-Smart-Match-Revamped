@@ -985,6 +985,29 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The R2 engagement read. `{admin, coordinator}` and its own authorizer,
+    # `_authorize_engagement_read`, rather than a share of `events.py`'s: the
+    # two role sets agree today and a widening of one is not a reason to widen
+    # the other.
+    #
+    # No `tenant_wide_roles`, which is the cell `admin_at_sibling_unit` below
+    # measures. This *is* an aggregate, and the ratified metrics decision's §4
+    # makes aggregate reads tenant-wide for an admin — but it makes them
+    # tenant-wide for the metrics surface it names, and stretching a decision
+    # over a route it does not mention is how scope widens without anybody
+    # deciding to widen it.
+    Operation(
+        key="engagement.attendance_summary.read",
+        method="GET",
+        path="/v1/units/{unit_id}/engagement/attendance-summary",
+        module="smartmatch_api.routers.engagement",
+        authorizer="_authorize_engagement_read",
+        roles_constant="_ENGAGEMENT_READ_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -2666,6 +2689,87 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; what is left is a deny on the unit",
         ),
     },
+    # The R2 engagement read. Shaped like `events.read` rather than like the
+    # rewards rows: the surface is a coordinator's account of their own unit's
+    # record-keeping, so the roles are `{admin, coordinator}` and the student
+    # cell denies.
+    "engagement.attendance_summary.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the shape this operation exists for: the coordinator "
+                "accountable for whether check-in is actually being used in this "
+                "unit. Containment is inclusive, so the membership's own path "
+                "covers the unit"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the cross-unit denial this card is measured on. An "
+                "`attendance_record` carries its own `owning_unit_id` (A5, "
+                "migration `0009`), so a summary is a statement about one "
+                "department's evidence and a sibling department's coordinator "
+                "does not cover it — exactly as `events.read` refuses the same "
+                "shape"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "admin is a required role here and the membership is active, so "
+                "only the path refuses this principal. This response *is* an "
+                "aggregate, which makes the contrast with `metrics.read` the "
+                "cell worth reading: that operation permits this shape on the "
+                "ratified metrics decision's §4 and nothing else, and §4 names "
+                "the metrics surface rather than every aggregate anyone later "
+                "builds. `_authorize_engagement_read` therefore passes no "
+                "`tenant_wide_roles` and ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell. A student reading this would learn how "
+                "much attendance *other people* in their unit have on file — a "
+                "cohort fact, not their own standing, which "
+                "`rewards.catalog.read` already gives them. D8 (disclosure "
+                "consent) is the decision that would have to authorize a "
+                "student view of anyone else's engagement, and it is open"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "an attendance summary has no job on its path, so the actor half "
+                "of the shape is inert and what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -2767,11 +2871,18 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # `org_unit` resource, so a widening applies to all four or to none. The
     # fifth outreach route, `POST /v1/unsubscribe`, does not appear here at all:
     # it has no principal, and its entry is in `UNAUTHENTICATED_ROUTES`.
+    # `_authorize_engagement_read` (`routers/engagement.py`) is the ninth name,
+    # on the same terms as every one before it: load the unit, then make exactly
+    # this call against that row's path with `_ENGAGEMENT_READ_ROLES`. Its own
+    # name rather than a share of `_authorize_event_read`'s even though the two
+    # role sets agree today — `tests/authz/test_route_roles.py`'s rule, that two
+    # sets agreeing is not a reason a widening of one should widen the other.
     if operation.authorizer in (
         "assert_allowed",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
         "_authorize_event_read",
+        "_authorize_engagement_read",
         "_authorize_match_run",
         "_authorize_student_rewards",
         "_authorize_redemption_decision",
