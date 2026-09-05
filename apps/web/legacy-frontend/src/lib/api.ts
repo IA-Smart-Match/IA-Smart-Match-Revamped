@@ -2487,3 +2487,146 @@ export async function submitSpeakerRequest(
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
+//
+// The other end of the arrow from Speaker Requests above. Those are an Event
+// Host asking for a speaker; these are a Speaker Connector recording who their
+// unit already knows.
+//
+// Two shapes worth reading before using any of it.
+//
+// **`contact_email` is sent and is not stored.** The field exists on the
+// payload because §13's form collects one; the server discards it and names it
+// in `withheld_fields` (OQ-CBA-011, ratified). A caller **must** render that
+// array rather than assume a `201` means everything was saved — see
+// `SpeakerContact.withheld_fields`. Nothing in this file, and nothing
+// server-side, turns that address into something sendable.
+//
+// **A duplicate name is a `409`, not an update.** Unlike `submitSpeakerRequest`
+// directly above — where ADR-0012's identity key makes a resubmission the same
+// request — a repeat create here is refused, because the identity derives from
+// the name and two different people can share one. `createSpeakerContact`
+// rejects with `ApiRequestError` carrying `speaker_contact_name_already_used`,
+// and a caller renders the server's own message, which names who is already
+// there (OQ-CBA-017).
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector is recording about one professional. */
+export interface SpeakerContactPayload {
+  full_name: string;
+  company?: string;
+  title?: string;
+  /** §18's topic/interests/expertise text. */
+  topic_text?: string;
+  /** §18's optional prior talk information. */
+  prior_talk?: string;
+  /** §10: city or ZIP is sufficient, and neither is derived from the other. */
+  location_city?: string;
+  location_postal_code?: string;
+  /** One NAICS sector code (customer §7). Singular — a speaker has one primary. */
+  primary_industry_code?: string;
+  /** One CBA role-category code (customer §8). Singular, for the same reason. */
+  primary_role_code?: string;
+  /**
+   * Accepted by the server and then discarded. Never stored, never a contact
+   * channel, never sendable. Present here because §13's form collects it; the
+   * response reports it in `withheld_fields`.
+   */
+  contact_email?: string;
+}
+
+/** One stored contact, exactly as the server read it back. */
+export interface SpeakerContact {
+  professional_id: string;
+  owning_unit_id: string;
+  full_name: string;
+  company: string | null;
+  title: string | null;
+  topic_text: string | null;
+  prior_talk: string | null;
+  location_city: string | null;
+  location_postal_code: string | null;
+  primary_industry_code: string | null;
+  industry_taxonomy_version: string | null;
+  primary_role_code: string | null;
+  role_taxonomy_version: string | null;
+  created_at: string;
+  updated_at: string;
+  /**
+   * Fields this request supplied that were deliberately not stored. Empty on
+   * reads. **Render it.** An unrendered discard is indistinguishable from a
+   * save, which is the belief OQ-CBA-011 exists to prevent.
+   */
+  withheld_fields: string[];
+}
+
+/** A page of one unit's roster. */
+export interface SpeakerContactList {
+  contacts: SpeakerContact[];
+  /** True when more contacts exist than this response carries. */
+  truncated: boolean;
+}
+
+/** Which classification axes a correction replaces. Omitted means "leave alone". */
+export interface ClassificationCorrectionPayload {
+  primary_industry_code?: string;
+  primary_role_code?: string;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-contacts` — record one professional.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed. The
+ * body carries no tenant, owning unit or actor and must never gain one, and it
+ * carries no professional id either: the server derives that from the name, so a
+ * caller cannot choose somebody else's identity (MM-A01).
+ *
+ * Rejects with `ApiRequestError` on a 4xx. A `409` carrying
+ * `speaker_contact_name_already_used` means this unit already holds a contact
+ * under the identity this name derives — render the server's message, which
+ * names them.
+ */
+export async function createSpeakerContact(
+  unitId: string,
+  payload: SpeakerContactPayload,
+): Promise<SpeakerContact> {
+  return requestJson<SpeakerContact>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/units/{unit_id}/speaker-contacts` — this unit's roster, by name. */
+export async function fetchSpeakerContacts(unitId: string): Promise<SpeakerContactList> {
+  return requestJson<SpeakerContactList>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/classification`
+ * — correct what the pipeline assigned (customer §§7-8, §19).
+ *
+ * An axis this payload omits is left alone, never cleared. The server stores the
+ * current value only: no history, no record of who corrected it, and no
+ * inferred-versus-human flag (OQ-CBA-008). A caller must not render a claim
+ * about provenance, because there is none to render.
+ */
+export async function correctSpeakerContactClassification(
+  unitId: string,
+  professionalId: string,
+  payload: ClassificationCorrectionPayload,
+): Promise<SpeakerContact> {
+  return requestJson<SpeakerContact>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/classification`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
