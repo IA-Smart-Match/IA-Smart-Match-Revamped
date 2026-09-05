@@ -8,6 +8,13 @@ from pathlib import Path
 import pytest
 from smartmatch_domain.factor_registry import factor_keys
 from smartmatch_domain.factors import FACTOR_SCORE_PRECISION, ZeroClassification
+from smartmatch_domain.factors.proximity import (
+    CBA_PROXIMITY_FACTOR_KEY,
+    CBA_PROXIMITY_FORMULA_VERSION,
+    ProximityInputs,
+    SpeakerLocation,
+    score_proximity,
+)
 from smartmatch_domain.factors.travel_burden import (
     FREE_RADIUS_KM,
     MAX_BURDEN_KM,
@@ -186,3 +193,137 @@ def test_near_antipodal_points_saturate_rather_than_raise():
     assert distance > MAX_BURDEN_KM
     result = score_travel_burden(TravelInputs(origin=origin, destination=destination))
     assert result.value == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------
+# Coexistence with the CBA proximity factor (ADR-0016)
+#
+# `travel_burden` is the pre-CBA proximity notion: a continuous haversine
+# penalty in kilometers under REGISTRY_VERSION 1.1.1-approved-g1-m6j.
+# `factors.proximity` is the CBA notion: a mile step function from the CPP
+# campus under the version ADR-0016 Proposal 9 bumps to. Both exist, and the
+# tests below exist so a later reader cannot mistake one for a refactor of the
+# other, and so a change to one arithmetic cannot silently move the other.
+#
+# Retiring `travel_burden` is a separate decision about stored runs and the
+# registry -- recorded as OQ-CBA-025, not taken here.
+# --------------------------------------------------------------------------
+
+
+def test_the_two_factors_are_versioned_apart():
+    """A shared version would make one bump look like the other's."""
+    assert TRAVEL_BURDEN_FORMULA_VERSION != CBA_PROXIMITY_FORMULA_VERSION
+    assert TRAVEL_BURDEN_FORMULA_VERSION == "1.0.0-straight-line"
+    assert CBA_PROXIMITY_FORMULA_VERSION == "1.0.0-cba-bands"
+
+
+def test_the_two_factors_carry_different_factor_keys():
+    unknown = score_travel_burden(TravelInputs(origin=None, destination=LOS_ANGELES))
+    assert unknown.factor_key == "travel_burden"
+    assert CBA_PROXIMITY_FACTOR_KEY == "proximity"
+    assert unknown.factor_key != CBA_PROXIMITY_FACTOR_KEY
+
+
+def test_travel_burden_is_a_penalty_and_cba_proximity_is_a_suitability():
+    """Opposite polarity: the old value rises with distance, the new one falls.
+
+    Reading a `travel_burden` number as a proximity sub-score (or the reverse)
+    would invert a candidate's ranking, which is why they are not
+    interchangeable even where their scales overlap.
+    """
+    near = GeoPoint(LOS_ANGELES.latitude + 0.05, LOS_ANGELES.longitude)
+    far = GeoPoint(LOS_ANGELES.latitude + 3.0, LOS_ANGELES.longitude)
+    assert score_travel_burden(TravelInputs(LOS_ANGELES, near)).value == pytest.approx(0.0)
+    assert score_travel_burden(TravelInputs(LOS_ANGELES, far)).value == pytest.approx(1.0)
+
+    near_proximity = score_proximity(
+        ProximityInputs(location=SpeakerLocation("Pomona", "91768"), distance_miles=3.0)
+    )
+    far_proximity = score_proximity(
+        ProximityInputs(location=SpeakerLocation("Pomona", "91768"), distance_miles=300.0)
+    )
+    assert near_proximity.score.value > far_proximity.score.value
+
+
+def test_travel_burden_interpolates_where_cba_proximity_steps():
+    """The load-bearing difference: continuous versus banded.
+
+    Two distances inside one CBA band score identically under the new factor
+    and differently under the old one. If a later refactor made `proximity`
+    interpolate, or made `travel_burden` band, this test fails.
+    """
+    thirty_miles_km = 30.0 * 1.609344
+    sixty_miles_km = 60.0 * 1.609344
+    # Both are inside the CBA Mid band (25 <= d < 75).
+    location = SpeakerLocation("Pomona", "91768")
+    assert (
+        score_proximity(ProximityInputs(location=location, distance_miles=30.0)).score.value
+        == score_proximity(ProximityInputs(location=location, distance_miles=60.0)).score.value
+    )
+
+    # The old factor separates the same two distances continuously.
+    def _burden_at_km(km: float) -> float:
+        degrees = km / 111.19
+        result = score_travel_burden(
+            TravelInputs(origin=LOS_ANGELES, destination=_north_of(LOS_ANGELES, degrees))
+        )
+        assert result.value is not None
+        return result.value
+
+    assert _burden_at_km(thirty_miles_km) < _burden_at_km(sixty_miles_km)
+
+
+def test_travel_burden_reports_kilometers_and_cba_proximity_reports_miles():
+    """§10 says miles; the pre-CBA factor was never asked to."""
+    old = score_travel_burden(
+        TravelInputs(origin=LOS_ANGELES, destination=_north_of(LOS_ANGELES, 1.0))
+    )
+    assert "km" in old.basis
+
+    new = score_proximity(
+        ProximityInputs(location=SpeakerLocation("Pomona", "91768"), distance_miles=40.0)
+    )
+    assert "miles" in new.score.basis
+    assert "km" not in new.score.basis.lower()
+
+
+def test_the_two_factors_disagree_about_a_far_speaker_on_purpose():
+    """`travel_burden` saturates at 1.0 (max penalty); CBA Far is 0.20, not 0.00.
+
+    Converted to the same scale the disagreement is real: the old factor says
+    a 200-mile speaker is maximally burdened, the new one deliberately keeps
+    them rankable. This is why a stored 1.x run must not be re-read under the
+    2.x rulebook (ADR-0016 Proposal 9).
+    """
+    far_km_degrees = 320.0 / 111.19  # ~200 miles north
+    old = score_travel_burden(
+        TravelInputs(origin=LOS_ANGELES, destination=_north_of(LOS_ANGELES, far_km_degrees))
+    )
+    new = score_proximity(
+        ProximityInputs(location=SpeakerLocation("Pomona", "91768"), distance_miles=200.0)
+    )
+    assert old.value == pytest.approx(1.0)  # old: maximum burden
+    assert new.travel_burden_value == pytest.approx(0.80)  # new: Far, still rankable
+    assert old.value != new.travel_burden_value
+
+
+def test_both_factors_agree_that_a_missing_location_is_unknown_and_not_zero():
+    """The one thing that must never diverge: ADR-0011 rule 1."""
+    old = score_travel_burden(TravelInputs(origin=None, destination=LOS_ANGELES))
+    new = score_proximity(
+        ProximityInputs(location=SpeakerLocation(None, None), distance_miles=None)
+    )
+    assert old.value is None
+    assert new.score.value is None
+    assert old.zero_classification is ZeroClassification.UNKNOWN
+    assert new.score.zero_classification is ZeroClassification.UNKNOWN
+
+
+def test_the_cba_factor_is_not_registered_and_travel_burden_still_is():
+    """Registry wiring is the registry track's deliverable, not this one.
+
+    When that track lands, this test is the one that should be updated
+    deliberately rather than the one that quietly starts passing differently.
+    """
+    assert "travel_burden" in factor_keys()
+    assert CBA_PROXIMITY_FACTOR_KEY not in factor_keys()
