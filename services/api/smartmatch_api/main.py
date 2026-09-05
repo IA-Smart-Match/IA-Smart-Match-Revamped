@@ -46,6 +46,7 @@ from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     auth,
+    calendar,
     engagement,
     events,
     imports,
@@ -266,6 +267,20 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (me.router, Capability.AUTHENTICATED_LOGIN),
     (metrics.router, Capability.DISCOVERY_METRICS),
     (events.router, Capability.EVENT_READS),
+    # The .ics download, classified with `events` because that is what it is:
+    # the same event, in a second representation, behind the same roles
+    # (`routers/calendar.py` restates `routers/events.py::_EVENT_ROLES`) and
+    # under the same `/v1/units` prefix. It is not infrastructure — it is a
+    # user-facing read, and a product that did not offer event reads has no
+    # coherent reason to hand out an .ics of an event it does not show.
+    #
+    # Reading it next to `events` here is also how a later change to one is
+    # noticed as a change to the pair.
+    #
+    # G5 (Calendar API) stays deferred and this does not reopen it: the route
+    # makes no network call, holds no credential, and writes into nobody's
+    # calendar. See `docs/plans/open-questions/calendar-deferred.md`.
+    (calendar.router, Capability.EVENT_READS),
     (match_runs.router, Capability.MATCH_RUNS),
     (rewards.router, Capability.REWARDS_LEDGER),
     # The S12 funnel's coordinator-driven write path. Classified with `metrics`,

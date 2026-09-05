@@ -50,6 +50,73 @@ def test_date_only_time_rejects_blank_zone():
         DateOnlyTime(on_date=date(2026, 9, 14), time_zone="")
 
 
+def test_exact_time_states_no_end_by_default():
+    """An unstated end is `None`, never a duration derived from the start.
+
+    The default is what every existing caller gets — both Stage 0 parsers still
+    construct `ExactTime` without an end (`calendar-deferred.md` OQ-003) — so
+    this pins that the field arrived additively and that "no end" is a value the
+    model can hold rather than a gap something downstream fills in.
+    """
+    assert ExactTime(starts_at=AWARE_NOON, time_zone="UTC").ends_at is None
+
+
+def test_exact_time_keeps_an_end_the_source_actually_stated():
+    ends_at = datetime(2026, 9, 14, 13, 30, tzinfo=UTC)
+
+    assert ExactTime(starts_at=AWARE_NOON, time_zone="UTC", ends_at=ends_at).ends_at == ends_at
+
+
+def test_exact_time_requires_an_aware_end():
+    """The same rule as the start, for the same reason: a naive value emitted as
+    UTC silently shifts the event by the local offset."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        ExactTime(
+            starts_at=AWARE_NOON,
+            time_zone="UTC",
+            ends_at=datetime(2026, 9, 14, 13, 30),
+        )
+
+
+@pytest.mark.parametrize(
+    "ends_at",
+    [
+        pytest.param(AWARE_NOON, id="equal_to_start"),
+        pytest.param(datetime(2026, 9, 14, 11, 0, tzinfo=UTC), id="before_start"),
+    ],
+)
+def test_exact_time_rejects_an_end_that_does_not_follow_the_start(ends_at: datetime):
+    """Strictly after, so a zero-length event is refused along with a reversed one.
+
+    A zero-length event is not something a source states; it is what an adapter
+    writes when it copies `starts_at` across for want of a better value, and a
+    calendar would render it as a real entry. `ck_event_end_after_start`
+    (migration 0022) is the same rule stated at the database end.
+    """
+    with pytest.raises(ValueError, match="strictly after"):
+        ExactTime(starts_at=AWARE_NOON, time_zone="UTC", ends_at=ends_at)
+
+
+def test_an_end_time_changes_nothing_about_precision_or_identity():
+    """`ends_at` sits outside ADR-0010's axis, which is what makes it safe to add.
+
+    `TimePrecision` answers how much of the *start* is known. If an end could
+    move `precision_of`, `is_resolved` or `resolved_date`, then adding the field
+    would have changed which events are matchable and what ADR-0012 keys their
+    identity on — and this is the assertion that would have caught it.
+    """
+    without = ExactTime(starts_at=AWARE_NOON, time_zone="UTC")
+    with_end = ExactTime(
+        starts_at=AWARE_NOON,
+        time_zone="UTC",
+        ends_at=datetime(2026, 9, 14, 13, 30, tzinfo=UTC),
+    )
+
+    assert precision_of(with_end) == precision_of(without) == TimePrecision.EXACT
+    assert is_resolved(with_end) == is_resolved(without) is True
+    assert resolved_date(with_end) == resolved_date(without)
+
+
 def test_exact_time_rejects_a_zone_the_tz_database_does_not_contain():
     """A misspelled zone stopped being cosmetic once `resolved_date` converts
     into it: the identity key ADR-0012 computes from the result would be wrong
