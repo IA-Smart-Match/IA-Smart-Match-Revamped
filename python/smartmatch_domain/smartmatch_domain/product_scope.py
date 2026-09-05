@@ -127,6 +127,38 @@ class Capability(StrEnum):
     #: inside-the-system growth customer §20 permits.
     SPEAKER_REQUEST_INTAKE = "speaker_request_intake"
 
+    #: A Speaker Connector maintaining their unit's roster of professional
+    #: contacts by hand: adding one, listing them, editing one, and correcting
+    #: the classification on one. Customer §13, and §§7-8 for the correction.
+    #:
+    #: Its own capability rather than a share of
+    #: :attr:`SPEAKER_REQUEST_INTAKE`, because the two are opposite ends of the
+    #: same match and a product could coherently offer either alone. Intake is
+    #: an Event Host saying "we need a speaker"; this is a Connector saying
+    #: "here is who we know". A product with requests and no roster still
+    #: works — the Connector reads requests and answers them from outside the
+    #: system — and a product with a roster and no requests is a directory,
+    #: which is also a thing. Gating them together would make one decision look
+    #: like two, and the authorization rows already say they are two: §12 admits
+    #: the Event Host to filing a request, and §13 admits only the Connector to
+    #: the roster.
+    #:
+    #: It is emphatically **not** :attr:`EXTERNAL_SPEAKER_ACQUISITION`. Every
+    #: record here is typed in by a person about somebody their institution
+    #: already knows, which is exactly the manual, inside-the-system growth
+    #: customer §20 permits; the routes make no network call, run no scrape, and
+    #: resolve nothing from the internet.
+    #:
+    #: It is not :attr:`CONSENTED_OUTREACH` either, and the distinction matters
+    #: more here than anywhere else on this list: a contact *record* is not a
+    #: contact *channel*. Nothing this capability enables writes
+    #: ``contact_channel``, creates consent, or makes anybody writable-to — an
+    #: address a Connector types on the create form is discarded and reported
+    #: back as withheld (OQ-CBA-011). A deployment could enable this and leave
+    #: outreach off, and the roster would be exactly as useful and exactly as
+    #: unable to send anything.
+    SPEAKER_CONTACT_MANAGEMENT = "speaker_contact_management"
+
     #: Immutable, versioned match runs over records already in the system.
     #: Customer §1: matching occurs only between records already entered.
     MATCH_RUNS = "match_runs"
@@ -191,6 +223,9 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.AUTHENTICATED_LOGIN: True,
                 Capability.EVENT_READS: True,
                 Capability.SPEAKER_REQUEST_INTAKE: True,
+                # Customer §13 is a CBA requirement in as many words, and the
+                # roster is what §9's matching has to match *against*.
+                Capability.SPEAKER_CONTACT_MANAGEMENT: True,
                 Capability.MATCH_RUNS: True,
                 Capability.DISCOVERY_METRICS: True,
                 Capability.CONSENTED_OUTREACH: True,
@@ -207,6 +242,11 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.AUTHENTICATED_LOGIN: True,
                 Capability.EVENT_READS: True,
                 Capability.SPEAKER_REQUEST_INTAKE: True,
+                # True here for the reason every capability the CBA column
+                # enables is true here: this scope is the wider one, and the
+                # four it differs on are the four CBA *removes*. Keeping a unit's
+                # roster of professional contacts is not among them.
+                Capability.SPEAKER_CONTACT_MANAGEMENT: True,
                 Capability.MATCH_RUNS: True,
                 Capability.DISCOVERY_METRICS: True,
                 Capability.CONSENTED_OUTREACH: True,

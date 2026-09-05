@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   Mail,
+  Users,
   Video,
   Building,
   Menu,
@@ -20,6 +21,10 @@ const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
   { name: "CBA Contact", href: "/coordinator-portal/outreach", icon: Mail },
+  // Customer §13's roster of professionals this unit knows. Distinct from "CBA
+  // Contact" above, which is outreach over `contact_channel`: this one records
+  // *who a speaker is* and sends nothing to anybody.
+  { name: "Speaker contacts", href: "/coordinator-portal/speaker-contacts", icon: Users },
   { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 

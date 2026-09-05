@@ -113,6 +113,11 @@ def _insert_profile(
     prior_talk: str | None = None,
     location_city: str | None = None,
     location_postal_code: str | None = None,
+    # Migration 0025 made this NOT NULL. Defaulted rather than threaded through
+    # every caller, because no test in this module is about identity: this file
+    # is entirely about what 0024's classification columns refuse, and a name is
+    # here only so the insert is legal.
+    full_name: str = "Speaker Under Test",
 ) -> uuid.UUID:
     if professional_id is None:
         professional_id = _make_professional(conn, tenant_id)
@@ -121,16 +126,17 @@ def _insert_profile(
     conn.execute(
         text(
             "INSERT INTO speaker_profile (tenant_id, professional_id, owning_unit_id, "
-            "primary_industry_code, industry_taxonomy_version, primary_role_code, "
+            "full_name, primary_industry_code, industry_taxonomy_version, primary_role_code, "
             "role_taxonomy_version, topic_text, prior_talk, location_city, "
             "location_postal_code) "
-            "VALUES (:tid, :pid, :unit, :industry, :industry_version, :role, "
+            "VALUES (:tid, :pid, :unit, :full_name, :industry, :industry_version, :role, "
             ":role_version, :topic, :prior_talk, :city, :postal)"
         ),
         {
             "tid": tenant_id,
             "pid": professional_id,
             "unit": owning_unit_id,
+            "full_name": full_name,
             "industry": primary_industry_code,
             "industry_version": industry_taxonomy_version,
             "role": primary_role_code,
