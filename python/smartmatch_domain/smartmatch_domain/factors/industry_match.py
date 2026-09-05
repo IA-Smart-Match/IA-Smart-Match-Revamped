@@ -165,10 +165,14 @@ def _validate(label: str, resolution: SectorResolution) -> None:
             "version must be resolved again before it is scored, never "
             "compared across versions"
         )
-    if isinstance(resolution, ClassifiedSector) and (
-        resolution.sector.code,
-        resolution.sector.name,
-    ) not in _KNOWN_SECTORS:
+    if (
+        isinstance(resolution, ClassifiedSector)
+        and (
+            resolution.sector.code,
+            resolution.sector.name,
+        )
+        not in _KNOWN_SECTORS
+    ):
         raise ValueError(
             f"{label}: {resolution.sector!r} is not a row of the NAICS "
             f"taxonomy customer §7 supplies ({NAICS_TAXONOMY_VERSION}); a "
@@ -220,8 +224,7 @@ def score_industry_match(inputs: IndustryMatchInputs) -> FactorScore:
             INDUSTRY_MATCH_FACTOR_KEY,
             None,
             basis=(
-                "no industry classification on file for this speaker "
-                f"({NAICS_TAXONOMY_VERSION})"
+                f"no industry classification on file for this speaker ({NAICS_TAXONOMY_VERSION})"
             ),
         )
 
