@@ -237,3 +237,54 @@ def test_no_request_path_module_imports_an_http_client() -> None:
     assert violations == [], "R3 violation(s) — HTTP client import(s) in services/api/:\n" + (
         "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# Guard 3 — the CBA product scope names external acquisition as out of scope.
+# ---------------------------------------------------------------------------
+#
+# Guards 1 and 2 are structural: no such route is declared, and no request-path
+# module can reach the network. This third guard is the *product* statement
+# behind them — customer §20 puts finding speakers on the internet, scraping
+# LinkedIn, scraping other external sources, automatic external event
+# discovery, and cold outreach to unknown contacts out of scope for this phase.
+#
+# It belongs beside guards 1 and 2 rather than only in the scope-policy test
+# file: if a later change ever re-enables the capability, the person reading
+# *this* file needs to see it, because these guards are what would otherwise
+# have to be narrowed to let such a route exist.
+
+
+def test_cba_scope_disables_external_acquisition_capabilities() -> None:
+    """Customer §20: external acquisition and cold outreach are out of scope."""
+    from smartmatch_domain.product_scope import (
+        DEFAULT_PRODUCT_SCOPE,
+        Capability,
+        is_capability_enabled,
+    )
+
+    for capability in (
+        Capability.EXTERNAL_SPEAKER_ACQUISITION,
+        Capability.COLD_UNKNOWN_CONTACT_OUTREACH,
+    ):
+        assert not is_capability_enabled(DEFAULT_PRODUCT_SCOPE, capability), (
+            f"{capability} is out of scope for the CBA phase (customer §20); "
+            "re-enabling it requires an explicit customer authorization, not a code edit"
+        )
+
+
+def test_consented_outreach_is_not_gated_by_the_external_acquisition_gate() -> None:
+    """Gating cold outreach must not take the consented path down with it.
+
+    The two share the word "outreach" and nothing else: one contacts people who
+    never agreed to be contacted, the other sends an approved draft to a
+    consented contact and is explicitly preserved. A blanket gate on the word
+    would remove a working, in-scope capability.
+    """
+    from smartmatch_domain.product_scope import (
+        DEFAULT_PRODUCT_SCOPE,
+        Capability,
+        is_capability_enabled,
+    )
+
+    assert is_capability_enabled(DEFAULT_PRODUCT_SCOPE, Capability.CONSENTED_OUTREACH)

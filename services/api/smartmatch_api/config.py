@@ -15,6 +15,13 @@ from functools import lru_cache
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from smartmatch_domain.product_scope import (
+    DEFAULT_PRODUCT_SCOPE,
+    Capability,
+    ProductScope,
+    enabled_capabilities,
+    is_capability_enabled,
+)
 from smartmatch_providers import Edition
 
 
@@ -32,6 +39,21 @@ class Settings(BaseSettings):
     )
 
     edition: Edition = Edition.DEV
+
+    #: Which *product* this process runs — a different question from ``edition``,
+    #: which is which *deployment* it is.
+    #:
+    #: ``edition`` decides whether a provider credential may exist here.
+    #: ``product_scope`` decides which named capabilities the product offers.
+    #: The two never derive from one another: a classroom deployment can run
+    #: either product, and the CBA product can run in any edition. Folding them
+    #: into one flag would let a deployment knob change a product decision.
+    #:
+    #: Defaults to the narrower product, so a missing environment variable
+    #: cannot widen what the system offers. An unrecognised value fails
+    #: validation and the process does not boot — see
+    #: ``smartmatch_domain.product_scope``.
+    product_scope: ProductScope = DEFAULT_PRODUCT_SCOPE
 
     #: Synchronous PostgreSQL DSN. The local default carries no credentials of
     #: consequence and points at a developer's own machine.
@@ -89,6 +111,24 @@ class Settings(BaseSettings):
             if any(not token or not subject for token, subject in self.dev_principals.items()):
                 raise ValueError("dev_principals keys and values must be non-empty strings.")
         return self
+
+    def capability_enabled(self, capability: Capability) -> bool:
+        """Whether this process's product scope offers ``capability``.
+
+        The one adapter between configuration and the policy. Callers ask this
+        rather than comparing ``product_scope`` to a literal, so that adding a
+        scope never means hunting for equality checks — and so that an unknown
+        capability name raises here too, rather than reading as "disabled".
+
+        This is a *product* question, never an authorization one: a route that
+        stays mounted still enforces its own deny-by-default authorization, and
+        no capability may be derived from a role label.
+        """
+        return is_capability_enabled(self.product_scope, capability)
+
+    def enabled_capabilities(self) -> frozenset[Capability]:
+        """Every capability this process's product scope offers."""
+        return enabled_capabilities(self.product_scope)
 
 
 @lru_cache(maxsize=1)
