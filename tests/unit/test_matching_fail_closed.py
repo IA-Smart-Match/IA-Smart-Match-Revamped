@@ -78,6 +78,22 @@ of other students' redemptions. ``smartmatch_persistence.rewards`` has no
 list. The D6/D7 figures themselves are untouched: nothing here promotes the
 tentative earn rate, the bands, or calibration N.
 
+## The R2 engagement flip (card R2-ENGAGEMENT-API)
+
+One read-only route now exists where this file previously asserted that the
+engagement router declared no handler at all:
+``GET /v1/units/{unit_id}/engagement/attendance-summary``. The old assertion
+carried the label "D6: engagement handlers must not ship before D6/D7 + S6/S7",
+and all three of those have since landed — ``attendance_record`` is migration
+``0009`` and the rewards surface D6/D7 govern is live above. What remains
+genuinely undecided is **D8**, the disclosure-consent policy, and the flip is
+shaped to keep it undecided: the admitted route counts rows and returns no
+``subject_id``, because ``smartmatch_persistence.engagement`` never selects one.
+:data:`R2_AUTHORIZED_ENGAGEMENT_PATHS` bounds the router to that single path and
+:func:`test_the_engagement_router_is_read_only` pins it to ``GET``, so neither a
+roster route nor the B08 check-in *command* — still blocked on S11 and D8 — can
+arrive without a visible edit here.
+
 What the flip does **not** open is the part G3 actually gates. The forbidden
 segment families below are untouched: no ``crawl``, ``crawler``, ``crawlers``
 or ``discovery`` path may exist, ``POST /api/crawler/start`` remains a named
@@ -193,6 +209,20 @@ D6_AUTHORIZED_REWARD_PATHS = frozenset(
 )
 
 
+# R2 — the exact unit-scoped engagement path card R2-ENGAGEMENT-API
+# authorizes, and no others. There is no engagement segment family in any of
+# the three forbidden sets above, so this list does not *admit* the path past a
+# segment rule the way the other three allowlists do — it bounds the router
+# instead, which is the half of those flips that actually keeps a second route
+# from arriving unnamed. Stated as a set of one rather than a bare string so
+# adding a second path is the same visible edit it is everywhere else here.
+R2_AUTHORIZED_ENGAGEMENT_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/engagement/attendance-summary",
+    }
+)
+
+
 def _path_segments(path: str) -> list[str]:
     """Return literal path segments, ignoring ``{param}`` placeholders."""
     return [
@@ -252,11 +282,50 @@ def test_assert_registry_approved_succeeds():
     assert_registry_approved()
 
 
-def test_engagement_router_declares_no_handlers():
-    """D6 is untouched by the G3 flip and still ships no handler at all."""
-    assert engagement.router.routes == [], (
-        "D6: engagement handlers must not ship before D6/D7 + S6/S7"
+def test_the_engagement_router_declares_exactly_the_authorized_routes():
+    """The R2 flip is bounded by a list, not by the router's own contents.
+
+    Before card R2-ENGAGEMENT-API this asserted ``engagement.router.routes ==
+    []`` under the label "D6: engagement handlers must not ship before D6/D7 +
+    S6/S7". S6 shipped — ``attendance_record`` is migration ``0009`` and has
+    held rows since — and D6/D7 shipped as far as they gate anything: the
+    rewards surface they actually govern is live under
+    :data:`D6_AUTHORIZED_REWARD_PATHS`. What the old assertion was protecting is
+    therefore not "no engagement route" but "no engagement route that discloses
+    a student", which is D8's question and is unanswered.
+
+    So the successor is the same one the other three flips took: an exact
+    equality against :data:`R2_AUTHORIZED_ENGAGEMENT_PATHS`. A second engagement
+    path fails here whether or not anyone regenerated the contract, and the one
+    admitted path is held to being a count rather than a roster by
+    ``tests/contract/test_engagement_api.py`` and by
+    ``smartmatch_persistence.engagement`` never selecting ``subject_id`` at all.
+    """
+    declared = {str(route.path) for route in engagement.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == R2_AUTHORIZED_ENGAGEMENT_PATHS, (
+        "R2: the engagement router declares routes outside the "
+        f"R2-ENGAGEMENT-API allowlist: {sorted(declared - R2_AUTHORIZED_ENGAGEMENT_PATHS)}"
     )
+
+
+def test_the_engagement_router_is_read_only():
+    """A read was authorized. A check-in was not.
+
+    B08 (``docs/plans/frontend-broken-buttons.md``) puts the QR check-in *flow*
+    behind S11 and D8, and :mod:`smartmatch_domain.checkin` deliberately lands
+    the token rule unwired rather than a route. A ``POST`` under this router
+    would be that flow arriving without either decision, so the methods are
+    pinned rather than the path alone.
+    """
+    offenders = sorted(
+        f"{method} {route.path}"  # type: ignore[attr-defined]
+        for route in engagement.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"GET", "HEAD"}
+    )
+
+    assert offenders == [], f"R2: the engagement router is read-only; found {offenders}"
 
 
 def test_the_events_router_declares_exactly_the_authorized_routes():
