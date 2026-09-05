@@ -67,7 +67,10 @@ def test_opportunities_is_registered_and_bound_not_unknown() -> None:
     metric = get_metric("opportunities")
 
     assert metric is not None
-    assert metric.display_name == "Opportunities"
+    # Renamed by CBA-TERMINOLOGY (customer §4: Volunteer Opportunity -> Speaker
+    # Request). `canonical_name` is the identifier and is unchanged, which is
+    # why the binding assertions below still read "opportunities".
+    assert metric.display_name == "Speaker Requests"
     assert metric.unknown_reason is None
 
 
@@ -100,7 +103,7 @@ def test_opportunities_definition_carries_the_ratified_counting_rule() -> None:
     metric = get_metric("opportunities")
 
     assert metric is not None
-    assert "IA West Coordinator" in metric.definition
+    assert "CBA coordinator" in metric.definition
     assert "non-exhaustive" in metric.definition
     assert "does not mean invalid" in metric.definition
 

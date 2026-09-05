@@ -449,3 +449,25 @@ def test_the_archived_browser_login_shim_is_absent() -> None:
         if "mockLogin" in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"mockLogin resurfaced in: {offenders}"
+
+
+def test_the_signed_out_surfaces_carry_the_cba_name() -> None:
+    """CBA-TERMINOLOGY: the two pages a visitor sees before authenticating say
+    CBA, not IA West (customer §4, §25 P0).
+
+    These are the first and only institutional claims an unauthenticated
+    visitor reads, which is why the terminology guard for them lives beside the
+    Fix #7A guards rather than only in the scanner: a regression here is a
+    regression in what the product claims to be, on the page where nobody is
+    signed in to know better.
+
+    Role *labels* are deliberately not asserted here. Which persona a stored
+    role presents as is `CBA-ROLE-PRESENTATION`'s decision, and a copy sweep
+    that also renamed roles would be changing authorization presentation under
+    cover of a vocabulary change.
+    """
+    for page in (LOGIN_PAGE, LANDING_PAGE):
+        source = page.read_text(encoding="utf-8")
+        assert "CBA Smart Match" in source, f"{page.name} lost the CBA product name"
+        assert "IA West" not in source, f"{page.name} still shows the retired IA West name"
+        assert "Insights Association" not in source

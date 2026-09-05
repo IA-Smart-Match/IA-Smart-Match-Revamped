@@ -161,7 +161,7 @@ export function QRCodeCard({
             </div>
           </div>
           <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-            IA West QR
+            CBA QR
           </span>
         </div>
       </div>
@@ -228,7 +228,7 @@ export function QRCodeCard({
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Event</p>
                 <p className="mt-1 text-sm font-semibold text-slate-900">{asset.event_name}</p>
-                <p className="text-xs text-slate-600">{asset.speaker_company || "IA West volunteer"}</p>
+                <p className="text-xs text-slate-600">{asset.speaker_company || "CBA speaker"}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Scans</p>

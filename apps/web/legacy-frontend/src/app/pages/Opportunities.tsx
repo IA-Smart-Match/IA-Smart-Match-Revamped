@@ -61,7 +61,7 @@ export function Opportunities() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900">Opportunities</h1>
+        <h1 className="text-3xl font-semibold text-gray-900">Speaker Requests</h1>
         <p className="mt-1 text-gray-600">
           The count and the list both come from the registered <code>opportunities</code> metric and
           its drill-down. Nothing on this page is merged or counted in the browser.
@@ -89,7 +89,7 @@ export function Opportunities() {
                 id="opportunities-metric-heading"
                 className="mt-2 text-2xl font-semibold text-gray-900"
               >
-                {summary?.display_name ?? "Opportunities"}
+                {summary?.display_name ?? "Speaker Requests"}
               </h2>
             </div>
             <p className="text-3xl font-semibold tracking-tight text-gray-900">
