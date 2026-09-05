@@ -5,14 +5,14 @@ One ordered walk, in the order a coordinator would actually take it:
     fixture auth -> columns.yaml contract -> live import -> scheduler dispatch
       -> review ACCEPT and review REJECT -> metrics read (and drill-down)
       -> match run (score, explanation, shortlist) -> events + tag quarantine
-      -> rewards
+      -> rewards -> outreach (draft -> send command -> job -> delivery events)
 
 ``scripts/compose_smoke.sh`` already proves the middle of that path — import,
 dispatch, one accept, the metric moving, the pipeline row, the web proxy — and
 this module does not restate it. What it adds is the half the smoke script does
 not reach (the **reject** decision, the metric drill-down, the match run and its
-explanation, the events and tag-quarantine reads, and rewards), plus the four
-honesty properties this job exists to enforce.
+explanation, the events and tag-quarantine reads, rewards, and the outreach
+draft/send path), plus the honesty properties this job exists to enforce.
 
 ## What this job fails on
 
@@ -37,6 +37,22 @@ It is designed to go red on dishonesty, not only on breakage:
    :func:`test_11_no_score_is_presented_as_a_percentage` asserts the label is
    ``"heuristic score"`` on every score, that no score exceeds 1.0, and that
    nothing in the payload is spelled as a percent.
+5. **An outreach send that reports success without sending.**
+   :func:`test_19_the_send_is_a_command_and_reports_no_status` asserts the
+   ``202`` carries no field a client could render as "sent" — B17's replacement
+   — and :func:`test_20_the_worker_sends_through_the_fixture_provider` reads
+   the outcome back from the job's summary and the send's own delivery events
+   rather than inferring it from the acknowledgement. It also asserts
+   ``live_mode`` is false, so a green run is a run through the fixture provider
+   and never one bought by mailing a stranger.
+6. **A consent gate that is not actually enforced.**
+   :func:`test_18_a_contact_without_approved_consent_cannot_be_composed_for`
+   proves the compose gate refuses a ``discovered`` address, and
+   :func:`test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to`
+   proves the *worker* re-checks at delivery: a recipient who unsubscribes
+   after a coordinator approved the draft ends the job ``failed_policy`` with a
+   ``blocked`` delivery event and no provider message id. A job that ended
+   ``succeeded`` there would be the fake success this module exists to catch.
 
 ## Known gaps, asserted rather than worked around
 
@@ -57,6 +73,21 @@ test pass.
 * **There is no ``GET /v1/units/{unit_id}/match-runs`` listing either.** A run's
   id is recovered from the job's own ``events_url``, which is the documented
   path — ``POST`` returns 202 and tells you where to follow the work.
+* **Nothing creates a contact channel.** The outreach surface composes, lists,
+  sends and reads; a contact arrives from the pipeline, and this appliance's
+  seed creates none. :func:`_seed_contact_channel` therefore writes the row
+  directly — through the shipped schema, so migration 0021's consent CHECKs
+  apply to it exactly as they would to a row the application wrote — and every
+  address it writes is under RFC 2606's reserved ``.invalid`` TLD.
+* **No route maps a send command's job to its send row.** A *succeeded* job
+  reports the send id in its own completion summary and needs none; a *refused*
+  one fails before it can report anything, so the refusal record in step 21 is
+  reached by the same database read the review items use.
+* **The one-click unsubscribe token cannot be read from outside the worker.**
+  It is minted at delivery and handed to the provider, which on this appliance
+  holds it in a container's memory. Step 21 therefore records the suppression
+  directly rather than following a link it cannot see; ``POST /v1/unsubscribe``
+  itself is covered by ``tests/contract/test_outreach.py``.
 * **The portal pages fetch ``/api/portals/*``**, a backend that does not exist
   in this repository. Not exercised, and not faked.
 
@@ -105,6 +136,38 @@ RUN_TAG = uuid.uuid4().hex[:8]
 #: `metro_region` both required).
 ACCEPT_ROW_NAME = f"E2E Accept {RUN_TAG}"
 REJECT_ROW_NAME = f"E2E Reject {RUN_TAG}"
+
+#: Every terminal job state, transcribed from
+#: ``smartmatch_domain.jobs.TERMINAL_STATES`` rather than imported: the
+#: appliance under test is a built image, not this checkout, and a drift
+#: between the two should fail here rather than be absorbed.
+TERMINAL_JOB_STATES = frozenset(
+    {
+        "succeeded",
+        "partial",
+        "cancelled",
+        "failed_budget",
+        "failed_policy",
+        "abandoned",
+    }
+)
+
+#: RFC 2606 reserves ``.invalid``: it cannot resolve, and no mailbox can exist
+#: behind it. Per-session, so this module's contact is never a previous run's.
+OUTREACH_ADDRESS = f"e2e-outreach-{RUN_TAG}@synthetic.invalid"
+
+#: One of the three shipped templates. There is no request field that carries
+#: message text, which is what keeps unreviewed copy out of the send path.
+OUTREACH_TEMPLATE_ID = "pilot.event_invitation.v1"
+
+#: Obviously fictional placeholder values, matching the template's declared set.
+OUTREACH_VALUES = {
+    "professional_name": f"E2E Professional {RUN_TAG}",
+    "unit_name": "Northside Robotics",
+    "event_name": "Spring Showcase",
+    "event_date": "Friday, 12 June",
+    "coordinator_name": "E2E Coordinator",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -940,3 +1003,376 @@ def test_16_the_portal_pages_have_no_backend_in_this_repository() -> None:
         "stands in for it. The web service's real behaviour is covered by "
         "scripts/compose_smoke.sh stage 16"
     )
+
+
+# ---------------------------------------------------------------------------
+# Step 17-21 — consent-gated outreach: draft -> send -> job -> delivery events
+# ---------------------------------------------------------------------------
+
+
+def _seed_contact_channel(
+    unit_id: str,
+    *,
+    address: str,
+    contact_state: str,
+    consent_source: str | None,
+) -> str:
+    """Create one synthetic contact in *unit_id* and return its id.
+
+    Written through the database for the same reason the review item ids are
+    read from it: **there is no route that creates a contact channel.** The
+    ``/v1`` outreach surface composes, lists, sends and reads; a contact arrives
+    from the pipeline, and this appliance's seed creates none. The gap is
+    recorded here rather than papered over, and nothing about it is faked — the
+    row goes in through the shipped schema, so every CHECK migration 0021
+    declares (the state vocabulary, the approved-source pairing, the
+    consent/date pairing) is enforced on it exactly as it would be on a row the
+    application wrote. A row this constraint set rejects fails this step.
+
+    ``professional_id`` is a fresh UUID carrying no foreign key: migration 0021
+    records at length that no professional table exists in this schema yet.
+
+    The address is always under RFC 2606's reserved ``.invalid`` TLD, which
+    cannot resolve. Even if this appliance were somehow pointed at a live
+    provider — it is not, and step 20 asserts that — there is no mailbox at the
+    other end of anything composed here.
+    """
+    source_sql = "null" if consent_source is None else f"'{consent_source}'"
+    recorded_sql = "null" if consent_source is None else "now()"
+    # The insert is wrapped in a CTE so the statement psql runs is a SELECT.
+    # `psql -tAc` prints a command tag ("INSERT 0 1") after the rows of a
+    # non-SELECT, and `psql_scalar` returns stdout — a bare `returning id`
+    # therefore hands back an id with a command tag stuck to it, which the API
+    # rejects as a malformed UUID rather than as anything meaningful.
+    return psql_scalar(
+        f"""
+        with created as (
+            insert into contact_channel (
+                id, tenant_id, owning_unit_id, professional_id, channel_kind,
+                address, contact_state, consent_source, consent_recorded_at,
+                consent_evidence
+            ) values (
+                gen_random_uuid(),
+                (select tenant_id from org_unit where id = '{unit_id}'),
+                '{unit_id}', gen_random_uuid(), 'email',
+                '{address}', '{contact_state}', {source_sql}, {recorded_sql},
+                'synthetic row created by tests/e2e/test_pilot_clickthrough.py'
+            )
+            returning id
+        )
+        select id from created
+        """
+    )
+
+
+def _compose_draft(api: httpx.Client, unit_id: str, contact_id: str) -> httpx.Response:
+    """Compose one draft from a shipped pilot template.
+
+    No request field carries message text — the contract suite pins that
+    against the published schema — so the wording is the template's and the
+    values are obviously synthetic.
+    """
+    return api.post(
+        f"/v1/units/{unit_id}/outreach/drafts",
+        json={
+            "contact_channel_id": contact_id,
+            "template_id": OUTREACH_TEMPLATE_ID,
+            "values": OUTREACH_VALUES,
+            "approve": True,
+        },
+    )
+
+
+def _await_terminal_job_state(api: httpx.Client, job_id: str) -> str:
+    """Poll one job until it reaches *any* terminal state, and report which.
+
+    Distinct from :func:`_await_job`, which asserts ``succeeded`` and reads the
+    completion summary. A refused send is a job that legitimately ends
+    ``failed_policy``, and a helper treating every non-success as a bug could
+    not describe it. Bounded like every other wait here.
+    """
+    seen: dict[str, str] = {}
+
+    def settled() -> bool:
+        status = json_body(api.get(f"/v1/jobs/{job_id}"))["status"]
+        seen["status"] = status
+        return status in TERMINAL_JOB_STATES
+
+    assert poll_until(
+        f"job {job_id} reaches a terminal state",
+        settled,
+        attempts=POLL_ATTEMPTS,
+        interval=1.0,
+    ), f"job {job_id} never left status {seen.get('status')!r}"
+    return seen["status"]
+
+
+def _send_id_for_job(job_id: str) -> str:
+    """The send row a command produced, read from the database.
+
+    A recorded gap of the same shape as the review-item lookup: the ``202``
+    hands back a job id, ``GET /v1/units/{id}/outreach/sends/{send_id}`` reads
+    one send, and no route maps the first to the second. A *succeeded* job
+    carries the send id in its completion summary and needs none of this; a
+    refused one fails before it can report anything, and this is the only way
+    to reach the refusal record it wrote.
+    """
+    return psql_scalar(f"select id from outreach_send where job_id = '{job_id}'")
+
+
+def test_17_a_coordinator_composes_a_draft_for_a_consented_contact(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The draft is composed text, stored, and marked unreviewed.
+
+    Nothing is sent by this call, and the ``201`` says so: a row exists and can
+    be read back, which is exactly what has happened. ``202`` is reserved for
+    the operation that genuinely defers work, and step 19 is that one.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+
+    flow.contact_channel_id = _seed_contact_channel(
+        flow.unit_id,
+        address=OUTREACH_ADDRESS,
+        contact_state="active_candidate",
+        consent_source="self_service",
+    )
+    assert flow.contact_channel_id, "the synthetic contact channel was not created"
+
+    response = _compose_draft(api, flow.unit_id, flow.contact_channel_id)
+    assert response.status_code == 201, (
+        f"composing an outreach draft returned {response.status_code}, expected "
+        f"201: {response.text[:400]}"
+    )
+    body = json_body(response)
+
+    assert body["recipient_address"] == OUTREACH_ADDRESS, (
+        f"the draft names {body['recipient_address']!r}, not the synthetic "
+        f"contact {OUTREACH_ADDRESS!r} it was composed for"
+    )
+    assert body["status"] == "approved", (
+        f"the draft came back {body['status']!r}; step 19 needs an approved one"
+    )
+    # OQ-003 on the wire: a coordinator can see that the wording has not been
+    # through institutional review, which is the fact deciding whether this
+    # message could ever go to a real person.
+    assert body["content_status"] == "synthetic", (
+        f"the draft reports content_status {body['content_status']!r}; a pilot "
+        "appliance composing from the shipped templates must say 'synthetic'"
+    )
+    assert OUTREACH_VALUES["professional_name"] in body["body"], (
+        "the rendered body does not contain the value it was given, so the "
+        "template was not actually rendered"
+    )
+
+    flow.outreach_draft_id = body["draft_id"]
+    print(f"  composed draft {flow.outreach_draft_id} for {OUTREACH_ADDRESS}")
+
+
+def test_18_a_contact_without_approved_consent_cannot_be_composed_for(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The consent gate runs before any message text exists.
+
+    A ``discovered`` address is evidence that someone exists, not permission to
+    write to them, and this appliance must refuse it. The refusal is a ``403``
+    rather than a ``422`` because it is a permission fact: no inputs make it
+    allowed, and reporting it as a validation error would invite the caller to
+    try different ones.
+
+    This is the step that makes step 17 mean something. A route that composed
+    for anybody would pass every other assertion in this section.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+
+    ineligible_id = _seed_contact_channel(
+        flow.unit_id,
+        address=f"e2e-discovered-{RUN_TAG}@synthetic.invalid",
+        contact_state="discovered",
+        consent_source=None,
+    )
+
+    response = _compose_draft(api, flow.unit_id, ineligible_id)
+
+    assert response.status_code == 403, (
+        f"composing for a 'discovered' contact returned {response.status_code}, "
+        f"expected a 403 refusal: {response.text[:400]}"
+    )
+    code = json_body(response)["error"]["code"]
+    assert code == "outreach_recipient_not_eligible", (
+        f"the refusal carried code {code!r}, not 'outreach_recipient_not_eligible'"
+    )
+
+
+def test_19_the_send_is_a_command_and_reports_no_status(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """B17's replacement, asserted as the absence of a field.
+
+    The legacy button logged to the console and said "Message sent!". What
+    replaces it is a ``202`` and a job id: there is nothing in this body a
+    client could render as a success, which is what makes an optimistic toast
+    impossible rather than merely discouraged.
+    """
+    if flow.unit_id is None or flow.outreach_draft_id is None:
+        pytest.skip("step 17 did not compose an approved outreach draft to send")
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/outreach/drafts/{flow.outreach_draft_id}/send",
+        headers={"Idempotency-Key": f"e2e-outreach-{RUN_TAG}-{uuid.uuid4().hex}"},
+    )
+    assert response.status_code == 202, (
+        f"submitting the send returned {response.status_code}, expected 202: {response.text[:400]}"
+    )
+    body = json_body(response)
+    assert set(body) == {"job_id", "events_url", "replayed"}, (
+        f"the send acknowledgement carried {sorted(body)}; any field beyond "
+        "job_id/events_url/replayed is one a client could render as 'sent'"
+    )
+    assert body["events_url"] == f"/v1/jobs/{body['job_id']}/events", (
+        f"events_url is {body['events_url']!r} and does not point at the job"
+    )
+
+    flow.outreach_job_id = body["job_id"]
+    print(f"  send accepted as job {flow.outreach_job_id}")
+
+
+def test_20_the_worker_sends_through_the_fixture_provider(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The job settles, and the send says what actually happened.
+
+    Everything asserted here is read back from the appliance after the fact:
+    the job's own completion summary, then the send row and the delivery events
+    recorded against it. Nothing is inferred from the ``202``.
+
+    ``disposition`` is ``accepted`` — the provider took custody — and never
+    "sent" or "delivered", which are claims about a mailbox nobody here can
+    observe. ``live_mode`` is asserted false, so this step also proves the
+    appliance is on the fixture provider rather than reporting a success it
+    bought by mailing a stranger.
+    """
+    if flow.unit_id is None or flow.outreach_job_id is None:
+        pytest.skip("step 19 did not submit an outreach send command")
+
+    summary = _await_job(api, flow.outreach_job_id)
+
+    assert summary["disposition"] == "accepted", (
+        f"the send job reported disposition {summary['disposition']!r}, expected 'accepted'"
+    )
+    assert summary["live_mode"] is False, (
+        "the appliance reports live_mode=true: this suite composes only "
+        f"{OUTREACH_ADDRESS!r}, but a click-through must never run against a "
+        "provider that can reach a real mailbox"
+    )
+    assert summary["provider"] == "fixture-email", (
+        f"the send went through provider {summary['provider']!r}, not the fixture"
+    )
+
+    send = json_body(api.get(f"/v1/units/{flow.unit_id}/outreach/sends/{summary['send_id']}"))
+    assert send["disposition"] == "accepted", (
+        f"the send reads back {send['disposition']!r} after a job that reported "
+        "'accepted'; the summary and the row disagree"
+    )
+    assert send["provider_message_id"], (
+        "an accepted send carries no provider_message_id, so nothing identifies "
+        "what the provider took custody of"
+    )
+    # The delivery stream, not a folded status: the queue happened, then the
+    # provider accepted, and both are true at once.
+    event_types = [event["event_type"] for event in send["delivery_events"]]
+    assert event_types == ["queued", "accepted"], (
+        f"the delivery events are {event_types}, expected exactly ['queued', 'accepted']"
+    )
+
+    print(f"  send {summary['send_id']} accepted by {summary['provider']}")
+
+
+def test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The whole feature, against the running appliance.
+
+    The draft is composed while the recipient is eligible, and approved by a
+    coordinator who could see that. *Then* the person unsubscribes. *Then* the
+    command is submitted. The suppression is recorded before the ``202``, so
+    there is no race here to lose: whenever the worker gets to it, the refusal
+    is already true.
+
+    The job ends ``failed_policy`` — terminal, never retried into succeeding —
+    and that is the honest outcome. A send that ended green while the recipient
+    was never written to would be exactly the fake success this suite exists to
+    catch.
+    """
+    if flow.unit_id is None or flow.contact_channel_id is None:
+        pytest.skip("step 17 did not create a synthetic contact to compose for")
+
+    composed = _compose_draft(api, flow.unit_id, flow.contact_channel_id)
+    assert composed.status_code == 201, (
+        f"composing the second draft returned {composed.status_code}: {composed.text[:400]}"
+    )
+    draft_id = json_body(composed)["draft_id"]
+
+    # As if the recipient clicked unsubscribe between the approval and the
+    # submission. Written directly because the one-click token is minted inside
+    # the worker and handed to the provider; on this appliance the fixture
+    # provider holds it in a container's memory, so nothing on this side of the
+    # HTTP boundary can read it. The row is the same row POST /v1/unsubscribe
+    # writes, `source` included, and the contract suite covers that route.
+    suppression_id = psql_scalar(
+        f"""
+        with suppressed as (
+            insert into suppression_record (id, tenant_id, address, suppressed_at, source)
+            values (
+                gen_random_uuid(),
+                (select tenant_id from org_unit where id = '{flow.unit_id}'),
+                '{OUTREACH_ADDRESS}', now(), 'unsubscribe_link'
+            )
+            returning id
+        )
+        select id from suppressed
+        """
+    )
+    assert suppression_id, "the suppression record was not written"
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/outreach/drafts/{draft_id}/send",
+        headers={"Idempotency-Key": f"e2e-blocked-{RUN_TAG}-{uuid.uuid4().hex}"},
+    )
+    assert response.status_code == 202, (
+        f"submitting the second send returned {response.status_code}, expected "
+        "202 — the route checks approval, and the worker is what re-checks "
+        f"consent: {response.text[:400]}"
+    )
+    job_id = json_body(response)["job_id"]
+
+    state = _await_terminal_job_state(api, job_id)
+    assert state == "failed_policy", (
+        f"the send to a suppressed recipient ended {state!r}. 'succeeded' would "
+        "mean the gate did not run, or that the job reported a success it did "
+        "not have; 'failed_provider' would mean this is retried into sending"
+    )
+
+    send = json_body(api.get(f"/v1/units/{flow.unit_id}/outreach/sends/{_send_id_for_job(job_id)}"))
+    assert send["disposition"] == "blocked", (
+        f"the refused send reads back {send['disposition']!r}, not 'blocked'"
+    )
+    assert send["provider_message_id"] is None, (
+        "the refused send carries a provider_message_id, so something was handed "
+        "to the provider after the recipient unsubscribed"
+    )
+    assert "suppress" in (send["failure_reason"] or ""), (
+        f"the refusal reason is {send['failure_reason']!r} and does not name the "
+        "suppression; a consent system must be able to answer why a person was "
+        "not written to"
+    )
+    event_types = [event["event_type"] for event in send["delivery_events"]]
+    assert "blocked" in event_types, f"the delivery events are {event_types} and record no refusal"
+    assert "accepted" not in event_types, (
+        f"the delivery events are {event_types}: a suppressed recipient's send "
+        "recorded an acceptance"
+    )
+
+    print(f"  send to a suppressed recipient ended {state} / blocked")
