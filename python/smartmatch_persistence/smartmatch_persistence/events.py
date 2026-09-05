@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Final, cast
 
 import sqlalchemy as sa
@@ -108,9 +109,34 @@ __all__ = [
     "ORIGIN_EXTRACTION",
     "EventNotPublishableError",
     "EventRepository",
+    "EventUpsertOutcome",
     "ProvenanceRequiredError",
     "quarantined_values",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class EventUpsertOutcome:
+    """What one upsert did, and to which row.
+
+    ``created`` exists because ADR-0012's key makes a resubmission
+    *indistinguishable* from a first submission at the level of the returned id
+    — which is the whole point of the key, and is also why a caller answering an
+    HTTP request cannot tell ``201 Created`` from ``200 OK`` without being told.
+
+    Attributes:
+        event_id: The row this call inserted or updated.
+        created: ``True`` when this statement inserted the row, ``False`` when
+            it updated one the identity key already named. Read out of the
+            single ``INSERT ... ON CONFLICT`` that decided (see
+            :meth:`EventRepository.upsert_returning_outcome`), never from a
+            prior existence check, which would be a second question with a
+            window in front of it.
+    """
+
+    event_id: uuid.UUID
+    created: bool
+
 
 #: A coordinator typed this event in. ADR-0012: "Manual event entry uses the
 #: same key and the same vocabulary. A coordinator typing an event is not
@@ -233,7 +259,49 @@ class EventRepository:
         origin: str,
         provenance: EventProvenance | None = None,
         description: str | None = None,
+        is_virtual: bool = False,
+        location_city: str | None = None,
+        location_postal_code: str | None = None,
     ) -> uuid.UUID:
+        """Insert this event, or update the one its identity key already names.
+
+        The id-only form of :meth:`upsert_returning_outcome`, kept because every
+        caller that predates that method wants exactly this and unpacking a
+        result it would then discard tells a reader nothing.
+
+        Returns:
+            ``event.id`` — freshly inserted, or the id of the row this event's
+            identity key already named.
+        """
+        return self.upsert_returning_outcome(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=host_org_unit_id,
+            title=title,
+            event_time=event_time,
+            origin=origin,
+            provenance=provenance,
+            description=description,
+            is_virtual=is_virtual,
+            location_city=location_city,
+            location_postal_code=location_postal_code,
+        ).event_id
+
+    def upsert_returning_outcome(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        host_org_unit_id: uuid.UUID,
+        title: str,
+        event_time: EventTime,
+        origin: str,
+        provenance: EventProvenance | None = None,
+        description: str | None = None,
+        is_virtual: bool = False,
+        location_city: str | None = None,
+        location_postal_code: str | None = None,
+    ) -> EventUpsertOutcome:
         """Insert this event, or update the one its identity key already names.
 
         Computes ADR-0012's key with
@@ -246,9 +314,19 @@ class EventRepository:
         title only and expects the org unit to be "a stable identifier from
         another table rather than free text", which a UUID is.
 
+        ``is_virtual``, ``location_city`` and ``location_postal_code`` (migration
+        ``0024``, customer §§10–12) join ``_temporal_columns``' discipline rather
+        than getting an exemption: they are named on every path, including the
+        one that sets them back to their empty values. An event re-submitted
+        after moving online must **lose** the city it had, or a place nobody
+        claims any more survives a correction and §11's "ignore Proximity
+        entirely" ends up enforced against stale evidence. The defaults are
+        exactly ``0024``'s column defaults, so a caller that says nothing about
+        location writes what it wrote before these parameters existed.
+
         Returns:
-            ``event.id`` — freshly inserted, or the id of the row this event's
-            identity key already named.
+            An :class:`EventUpsertOutcome` naming the row and whether this call
+            inserted it.
 
         Raises:
             ValueError: ``origin`` is outside :data:`EVENT_ORIGINS`, or
@@ -263,6 +341,9 @@ class EventRepository:
             "description": description,
             "resolved_date": resolved_date(event_time),
             "origin": origin,
+            "is_virtual": is_virtual,
+            "location_city": location_city,
+            "location_postal_code": location_postal_code,
             **_temporal_columns(event_time),
             **_provenance_columns(origin, provenance),
         }
@@ -274,9 +355,10 @@ class EventRepository:
 
         if identity is None:
             # No key: ADR-0012 leaves this row unmatchable and distinct. A
-            # plain insert, and nothing to conflict with.
+            # plain insert, and nothing to conflict with — so it inserted, and
+            # there is no conflict arm that could have done anything else.
             unkeyed = session.execute(insert.returning(schema.event.c.id)).scalar_one()
-            return cast(uuid.UUID, unkeyed)
+            return EventUpsertOutcome(event_id=cast(uuid.UUID, unkeyed), created=True)
 
         # Keyed: the second extraction of the same event updates the first.
         # Every non-key column is refreshed, including the ones this call is
@@ -290,12 +372,22 @@ class EventRepository:
             if key not in ("tenant_id", "host_org_unit_id", "normalized_title", "resolved_date")
         }
         updated["updated_at"] = sa.func.now()
-        keyed = session.execute(
+        row = session.execute(
             insert.on_conflict_do_update(constraint="uq_event_identity", set_=updated).returning(
-                schema.event.c.id
+                schema.event.c.id,
+                # `xmax` is the transaction that deleted or superseded the row
+                # version being returned. `ON CONFLICT DO UPDATE` supersedes,
+                # so an updated row comes back with a non-zero `xmax` and a
+                # freshly inserted one with zero. It is read here — out of the
+                # single statement that decided — rather than inferred from a
+                # `SELECT` beforehand, because a `SELECT` that found nothing
+                # and an `INSERT` that then lost the race would report a
+                # creation that did not happen. There is no second question
+                # asked and therefore no window between two answers.
+                sa.literal_column("xmax = 0").label("created"),
             )
-        ).scalar_one()
-        return cast(uuid.UUID, keyed)
+        ).one()
+        return EventUpsertOutcome(event_id=cast(uuid.UUID, row.id), created=bool(row.created))
 
     def record_tags(
         self,

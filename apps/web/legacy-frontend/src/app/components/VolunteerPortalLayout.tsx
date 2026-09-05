@@ -17,6 +17,9 @@ import { principalDisplayName, principalInitials } from "../../lib/principal";
 
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
+  // Customer §12: the Event Host's own capability, and the only page in this
+  // shell backed by a `/v1` route rather than by the absent legacy portal API.
+  { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
   { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
   { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];

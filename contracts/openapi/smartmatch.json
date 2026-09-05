@@ -157,6 +157,30 @@
         "title": "CandidateExplanationView",
         "type": "object"
       },
+      "ClassificationView": {
+        "description": "One target of a request, with the name a person reads beside the stored code.\n\n``code`` is what a row holds and what a matcher compares; ``display_name`` is\n\u00a77's or \u00a78's own wording, read from the released taxonomy module rather than\nrestated here, so a display rename cannot drift from the storage key.\n``taxonomy_version`` says which released table evaluated the code, which is\nwhat keeps it interpretable after the next revision.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "taxonomy_version": {
+            "title": "Taxonomy Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "display_name",
+          "taxonomy_version"
+        ],
+        "title": "ClassificationView",
+        "type": "object"
+      },
       "CommandAcceptedResponse": {
         "description": "Standard acknowledgement for every command resource.",
         "properties": {
@@ -2636,6 +2660,331 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "SpeakerRequestCreate": {
+        "description": "One Speaker Request, as an Event Host fills it in (customer \u00a712).\n\nNote what is **not** here: no tenant, no host org unit, no actor, no source\nURL, no publication status. The first three come from the verified principal\nand the path; the fourth does not exist for a request a person typed; the\nfifth is not a host's to set.\n\nThe temporal fields are ADR-0010's, not a single nullable timestamp. A host\nwho knows the date but not yet the hour sends ``on_date`` and gets a\n``date_only`` request, which is the honest description of what they said \u2014\nrather than midnight in some zone, which is the fabrication ADR-0010 exists\nto stop. ``time_zone`` is required at both precisions and is the event's own\nzone, never the browser's.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a712's event topic/description, and the text \u00a79 compares semantically against a speaker's topic information. Omit it rather than sending an empty string.",
+            "title": "Description"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant it finishes, when the host states one. Never derived from 'starts_at' \u2014 an unstated end stays unstated. Valid only alongside 'starts_at'.",
+            "title": "Ends At"
+          },
+          "industry_codes": {
+            "description": "One or more NAICS sector codes from the released CBA taxonomy (customer \u00a77). Multi-select: a request is not restricted to one.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Industry Codes",
+            "type": "array"
+          },
+          "is_virtual": {
+            "default": false,
+            "description": "Customer \u00a712's physical/virtual switch. A virtual request must carry no location: \u00a711 ignores Proximity entirely for one.",
+            "title": "Is Virtual",
+            "type": "boolean"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a710's city. Physical requests only.",
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Customer \u00a710's ZIP. Physical requests only.",
+            "title": "Location Postal Code"
+          },
+          "on_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The calendar date, when the hour is not yet known.",
+            "title": "On Date"
+          },
+          "role_codes": {
+            "description": "One or more CBA career role-category codes from the released taxonomy (customer \u00a78). Multi-select, for the same reason.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Role Codes",
+            "type": "array"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant the event starts, timezone-aware. Send this or 'on_date', never both and never neither.",
+            "title": "Starts At"
+          },
+          "time_zone": {
+            "description": "The IANA zone the event happens in, e.g. 'America/Los_Angeles'. Resolved against the real tz database; a UTC offset is not accepted in its place (ADR-0010 rule 1).",
+            "minLength": 1,
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "description": "What the event is called.",
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "time_zone",
+          "industry_codes",
+          "role_codes"
+        ],
+        "title": "SpeakerRequestCreate",
+        "type": "object"
+      },
+      "SpeakerRequestListResponse": {
+        "description": "The unit's incoming Speaker Requests (customer \u00a713).",
+        "properties": {
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerRequestResponse"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more requests exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "requests",
+          "truncated"
+        ],
+        "title": "SpeakerRequestListResponse",
+        "type": "object"
+      },
+      "SpeakerRequestResponse": {
+        "description": "One filed Speaker Request, read back from the row that was written.\n\nNever assembled from the request body. What a caller reads here is what the\ndatabase holds \u2014 which is the difference between a create that reports what\nit did and one that repeats what it was told.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "industries": {
+            "description": "Customer \u00a77's targets, in code order.",
+            "items": {
+              "$ref": "#/components/schemas/ClassificationView"
+            },
+            "title": "Industries",
+            "type": "array"
+          },
+          "is_virtual": {
+            "title": "Is Virtual",
+            "type": "boolean"
+          },
+          "location_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location City"
+          },
+          "location_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Postal Code"
+          },
+          "publication_status": {
+            "description": "The event's own status. A filed request is 'unpublished': filing records what a host asked for, it does not publish an event.",
+            "title": "Publication Status",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "The event id holding this request. Stable across resubmissions.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "review_status": {
+            "title": "Review Status",
+            "type": "string"
+          },
+          "roles": {
+            "description": "Customer \u00a78's targets, in code order.",
+            "items": {
+              "$ref": "#/components/schemas/ClassificationView"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "time": {
+            "$ref": "#/components/schemas/SpeakerRequestTimeView"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "request_id",
+          "title",
+          "time",
+          "is_virtual",
+          "industries",
+          "roles",
+          "publication_status",
+          "review_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerRequestResponse",
+        "type": "object"
+      },
+      "SpeakerRequestTimeView": {
+        "description": "The request's time at whichever precision the host actually stated.\n\nThe same shape ``routers/events.py::EventTimeView`` uses, and deliberately so\n\u2014 one event model, one temporal contract. ``precision`` is never\n``unresolved`` on this surface: a request that could not resolve a date is\nrefused at intake rather than filed.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "on_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Date"
+          },
+          "precision": {
+            "description": "exact or date_only.",
+            "title": "Precision",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
+          }
+        },
+        "required": [
+          "precision"
+        ],
+        "title": "SpeakerRequestTimeView",
         "type": "object"
       },
       "StageAdvanceRequest": {
@@ -7770,6 +8119,277 @@
         "summary": "List the funded rewards catalog and the caller's own balance",
         "tags": [
           "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-requests": {
+      "get": {
+        "description": "Return the requests filed under this unit, soonest event first (\u00a713).\n\nOnly requests: the query is restricted to ``origin = 'coordinator_entry'`` in\nthe repository, so an extracted event never appears here. That is not a\ntidiness rule \u2014 an extracted row carries source provenance, and a queue that\npromises \"what hosts asked for\" must not answer with something a crawler\nproduced.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nsame query rather than by a second count whose filters could drift from this\none's.\n\nOnly ``admin`` and ``coordinator`` may read this\n(:func:`_authorize_speaker_request_read`), and authorization runs before any\nrequest row is read.",
+        "operationId": "list_speaker_requests_v1_units__unit_id__speaker_requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRequestListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's incoming Speaker Requests",
+        "tags": [
+          "speaker-requests"
+        ]
+      },
+      "post": {
+        "description": "Record what an Event Host is asking for (customer \u00a712).\n\n``201``: this has completed when it returns. The row exists, its industry and\nrole targets exist, and the response is read back out of them rather than\nechoed from the body.\n\n``200``: ADR-0012's identity key resolved this onto a request already filed,\nso this call updated it. A resubmission is the same request, and the status\ncode is how a caller learns which of the two happened \u2014 see the module\ndocstring on idempotency. A resubmission also *replaces* the targets: an\nindustry the new body does not name is one the host removed.\n\nQuota is charged first, before the unit is loaded and before authorization\nruns (ADR-0015).\n\nRaises:\n    ApiError: 400 when the body describes a request that cannot be filed \u2014 an\n        undated or doubly-dated one, an unreleased taxonomy code, a virtual\n        request carrying a location, a physical one carrying none, or a\n        repeated selection; 403 when the caller may not file into this unit;\n        404 when the unit is not this tenant's; 429 when the minute's quota\n        is spent.",
+        "operationId": "create_speaker_request_v1_units__unit_id__speaker_requests_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerRequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This request already existed under ADR-0012's identity key \u2014 same host unit, same folded title, same date \u2014 and was updated rather than duplicated."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRequestResponse"
+                }
+              }
+            },
+            "description": "A new Speaker Request was filed."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "File a Speaker Request",
+        "tags": [
+          "speaker-requests"
         ]
       }
     },

@@ -61,6 +61,7 @@ from smartmatch_api.routers import (
     redrive,
     review,
     rewards,
+    speaker_requests,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -282,6 +283,18 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # makes no network call, holds no credential, and writes into nobody's
     # calendar. See `docs/plans/open-questions/calendar-deferred.md`.
     (calendar.router, Capability.EVENT_READS),
+    # The Speaker Request intake and its queue (customer §§12-13). Its own
+    # capability rather than a share of `events`, and the distinction is the
+    # direction of the arrow: `events` and `calendar` hand a coordinator what
+    # the system already holds, and this one is how something new gets into it.
+    # A product could offer either without the other, so gating them together
+    # would make one decision look like two.
+    #
+    # It is not `OPERATOR_RECORD_IMPORT` either, which is an operator loading
+    # records the institution already holds through the quarantine/review path.
+    # A host filing a request is a person stating a new intention, and it has no
+    # review queue in front of it — see `routers/speaker_requests.py`.
+    (speaker_requests.router, Capability.SPEAKER_REQUEST_INTAKE),
     (match_runs.router, Capability.MATCH_RUNS),
     (rewards.router, Capability.REWARDS_LEDGER),
     # The S12 funnel's coordinator-driven write path. Classified with `metrics`,

@@ -74,6 +74,11 @@ const VolunteerAssignments = lazy(() =>
     default: m.VolunteerAssignments,
   })),
 );
+const VolunteerSpeakerRequest = lazy(() =>
+  import("./pages/volunteer/VolunteerSpeakerRequest").then((m) => ({
+    default: m.VolunteerSpeakerRequest,
+  })),
+);
 const VolunteerProfile = lazy(() =>
   import("./pages/volunteer/VolunteerProfile").then((m) => ({ default: m.VolunteerProfile })),
 );
@@ -172,6 +177,12 @@ export const router = createBrowserRouter([
     Component: VolunteerPortalLayout,
     children: [
       { index: true, element: withSuspense(<VolunteerHome />) },
+      // Customer §12's Event Host intake. Mounted unconditionally like every
+      // other route in this shell: the capability that gates the *API* is
+      // `speaker_request_intake`, and it is on under both product scopes, so
+      // there is nothing here for `whenCapable` to remove. A UI gate is not
+      // authorization in any case — the server decides, per request.
+      { path: "speaker-request", element: withSuspense(<VolunteerSpeakerRequest />) },
       { path: "assignments", element: withSuspense(<VolunteerAssignments />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],

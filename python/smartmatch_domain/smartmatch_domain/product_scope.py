@@ -117,6 +117,16 @@ class Capability(StrEnum):
     #: Reading the event catalog already in the system. Customer §22.
     EVENT_READS = "event_reads"
 
+    #: An Event Host filing a Speaker Request, and a Speaker Connector reading
+    #: the queue of them. Customer §12 and §13. Its own capability rather than a
+    #: share of :attr:`EVENT_READS` because it is a *write*, and a product that
+    #: showed a catalog without accepting requests — or accepted them without
+    #: showing the catalog — is a coherent product either way. It is emphatically
+    #: not :attr:`EXTERNAL_SPEAKER_ACQUISITION`: the request is typed by a person
+    #: about an event their own institution is holding, which is the manual,
+    #: inside-the-system growth customer §20 permits.
+    SPEAKER_REQUEST_INTAKE = "speaker_request_intake"
+
     #: Immutable, versioned match runs over records already in the system.
     #: Customer §1: matching occurs only between records already entered.
     MATCH_RUNS = "match_runs"
@@ -180,6 +190,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
             {
                 Capability.AUTHENTICATED_LOGIN: True,
                 Capability.EVENT_READS: True,
+                Capability.SPEAKER_REQUEST_INTAKE: True,
                 Capability.MATCH_RUNS: True,
                 Capability.DISCOVERY_METRICS: True,
                 Capability.CONSENTED_OUTREACH: True,
@@ -195,6 +206,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
             {
                 Capability.AUTHENTICATED_LOGIN: True,
                 Capability.EVENT_READS: True,
+                Capability.SPEAKER_REQUEST_INTAKE: True,
                 Capability.MATCH_RUNS: True,
                 Capability.DISCOVERY_METRICS: True,
                 Capability.CONSENTED_OUTREACH: True,
