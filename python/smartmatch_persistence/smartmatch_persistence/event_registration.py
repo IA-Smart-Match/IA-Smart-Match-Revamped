@@ -339,8 +339,15 @@ class EventRegistrationRepository:
                 # an update would move `updated_at` for a transition that
                 # happened once and is being reported twice.
                 .on_conflict_do_nothing(constraint="uq_event_registration_subject_event")
+                # RETURNING rather than `rowcount`, and the difference is not
+                # cosmetic: `ON CONFLICT DO NOTHING` reports a suppressed insert
+                # through the *absence of a returned row*, while `rowcount` on
+                # this statement is not a reliable discriminator across drivers.
+                # A row here means this call inserted; no row means somebody
+                # else's transaction got there first.
+                .returning(schema.event_registration.c.id)
             )
-            inserted = session.execute(statement).rowcount == 1
+            inserted = session.execute(statement).first() is not None
             row = self.get(session, tenant_id=tenant_id, subject_id=subject_id, event_id=event_id)
             return RegistrationWriteResult(
                 row=row,
