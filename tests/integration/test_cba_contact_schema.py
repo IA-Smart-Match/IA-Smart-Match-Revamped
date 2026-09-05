@@ -214,16 +214,54 @@ def test_a_contact_without_a_name_is_refused(engine: Engine, tenant_id):
         _insert_profile(conn, tenant_id, full_name=None)
 
 
-@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+@pytest.mark.parametrize("blank", ["", " ", "   "])
 def test_a_blank_name_is_refused(engine: Engine, tenant_id, blank: str):
     """NOT NULL rejects the absence and says nothing about ``'   '``.
 
-    A whitespace-only name is a name-shaped value that renders as nothing, which
-    is the state ADR-0011 exists to keep out: absent is a value, blank is a
-    writer that forgot.
+    A space-only name is a name-shaped value that renders as nothing, which is
+    the state ADR-0011 exists to keep out: absent is a value, blank is a writer
+    that forgot.
     """
     with pytest.raises(IntegrityError), engine.begin() as conn:
         _insert_profile(conn, tenant_id, full_name=blank)
+
+
+@pytest.mark.parametrize("whitespace", ["\t", "\n", "\t\n"])
+def test_a_tab_or_newline_name_reaches_the_database(engine: Engine, tenant_id, whitespace: str):
+    """The constraint's real reach, recorded rather than assumed.
+
+    PostgreSQL's single-argument ``btrim`` strips **spaces only** — not tabs, not
+    newlines. So ``length(btrim(full_name)) > 0`` refuses ``'   '`` and accepts
+    ``'\\t'``, and this test exists so nobody discovers that by finding a
+    tab-named contact in a roster.
+
+    This is not a property ``0025`` introduced. All four of ``0024``'s arms
+    (``topic_text``, ``prior_talk``, ``location_city``, ``location_postal_code``)
+    have exactly the same reach, and widening it here would leave one column in
+    the constraint stricter than its siblings for no stated reason — a
+    divergence worth more than the gap it closes. Changing all seven is a
+    revision of ``0024``'s decision and belongs to whoever revisits ADR-0011's
+    application, not to this card.
+
+    The gap is closed one layer up, and closed properly:
+    ``smartmatch_domain.cba_contacts`` validates with Python's ``str.strip()``,
+    which *does* strip tabs and newlines, so no such value reaches the database
+    through the API. ``tests/contract/test_cba_contacts_api.py`` holds that end.
+    What this test pins is the honest division of labour between the two — the
+    constraint is a backstop against a hand-written ``INSERT``, and it is a
+    narrower backstop than its name suggests.
+    """
+    with engine.begin() as conn:
+        professional_id = _insert_profile(conn, tenant_id, full_name=whitespace)
+        stored = conn.execute(
+            text(
+                "SELECT full_name FROM speaker_profile "
+                "WHERE tenant_id = :tid AND professional_id = :pid"
+            ),
+            {"tid": tenant_id, "pid": professional_id},
+        ).scalar_one()
+
+    assert stored == whitespace
 
 
 @pytest.mark.parametrize("column", ["company", "title"])

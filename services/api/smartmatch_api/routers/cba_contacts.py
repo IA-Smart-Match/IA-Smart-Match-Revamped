@@ -531,6 +531,12 @@ def create_speaker_contact(
             message=str(exc),
         ) from exc
 
+    # `get_session` rolls back unconditionally on the way out — a route that
+    # changes state commits explicitly, and committing by default would turn a
+    # half-finished request into a persisted one. All three rows land here or
+    # none of them do.
+    session.commit()
+
     return _view(row, withheld=_withheld_fields(body))
 
 
@@ -648,6 +654,11 @@ def update_speaker_contact(
     )
     if row is None:
         raise _not_found()
+
+    # Explicit, for the reason the create states. Placed after the 404 guard so
+    # a miss commits nothing.
+    session.commit()
+
     return _view(row, withheld=_withheld_fields(body))
 
 
@@ -725,4 +736,9 @@ def correct_speaker_contact_classification(
     )
     if row is None:
         raise _not_found()
+
+    # Explicit, for the reason the create states. Placed after the 404 guard so
+    # a correction aimed at a contact this unit does not hold commits nothing.
+    session.commit()
+
     return _view(row)
