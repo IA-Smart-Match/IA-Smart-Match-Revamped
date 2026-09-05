@@ -311,6 +311,18 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "((source_url IS NULL) = (fetched_at IS NULL)) AND ((fetched_at IS NULL) = "
         "(extractor_version IS NULL))))"
     ),
+    # Migration 0022 — the end instant an .ics document needs and cannot invent.
+    # The `time_precision = 'exact'` clause is load-bearing rather than
+    # decorative: without it a row could hold an end and no start, because
+    # `ends_at > NULL` is unknown rather than false and an unknown CHECK passes.
+    # The `>` is pinned for the same reason the numeric thresholds above are —
+    # relaxing it to `>=` admits the zero-length event an adapter writes when it
+    # copies `starts_at` across, which no behavioural test that only tries a
+    # reversed pair would notice.
+    ("event", "ck_event_end_after_start"): (
+        "CHECK (((ends_at IS NULL) OR ((time_precision = 'exact'::text) AND "
+        "(ends_at > starts_at))))"
+    ),
     ("event_tag", "ck_event_tag_resolution"): (
         "CHECK ((resolution = ANY (ARRAY['mapped'::text, 'quarantined'::text])))"
     ),
@@ -563,6 +575,13 @@ BEHAVIOURAL_COVERAGE = {
     ),
     ("event", "ck_event_origin"): "test_event_schema_constraints.py",
     ("event", "ck_event_provenance_evidence"): "test_event_schema_constraints.py",
+    # Migration 0022. Both halves, in the file the other event constraints use:
+    # the forbidden writes are a reversed pair, an equal pair, and an end at a
+    # precision that carries no start; the permitted ones are a ninety-minute
+    # exact event and a NULL end at all three precisions. The permitted half is
+    # what an inverted expression fails, and the NULL half is what a migration
+    # that backfilled nothing depends on. Refused on UPDATE as well as INSERT.
+    ("event", "ck_event_end_after_start"): "test_event_schema_constraints.py",
     ("event_tag", "ck_event_tag_resolution"): "test_event_schema_constraints.py",
     ("event_tag", "ck_event_tag_resolution_shape"): "test_event_schema_constraints.py",
     ("discovery_review_item", "ck_discovery_review_item_kind"): (

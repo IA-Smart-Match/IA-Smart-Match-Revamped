@@ -18,7 +18,7 @@ Requires a live database, and is skipped when none is reachable.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -67,6 +67,7 @@ def _insert_event(
     title: str = "Synthetic Capstone Showcase",
     normalized_title: str | None = None,
     starts_at: datetime | None = None,
+    ends_at: datetime | None = None,
     on_date: date | None = ON_DATE,
     time_zone: str | None = ZONE,
     time_precision: str = "date_only",
@@ -83,11 +84,11 @@ def _insert_event(
     conn.execute(
         text(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
-            "starts_at, on_date, time_zone, time_precision, resolved_date, "
+            "starts_at, ends_at, on_date, time_zone, time_precision, resolved_date, "
             "publication_status, review_status, quarantined_tag_count, origin, "
             "source_url, fetched_at, extractor_version) "
-            "VALUES (:id, :tid, :unit, :title, :normalized, :starts_at, :on_date, :zone, "
-            ":precision, :resolved, :publication, :review, :quarantined, :origin, "
+            "VALUES (:id, :tid, :unit, :title, :normalized, :starts_at, :ends_at, :on_date, "
+            ":zone, :precision, :resolved, :publication, :review, :quarantined, :origin, "
             ":source_url, :fetched_at, :extractor)"
         ),
         {
@@ -97,6 +98,7 @@ def _insert_event(
             "title": title,
             "normalized": normalized_title if normalized_title is not None else title.casefold(),
             "starts_at": starts_at,
+            "ends_at": ends_at,
             "on_date": on_date,
             "zone": time_zone,
             "precision": time_precision,
@@ -340,6 +342,166 @@ def test_an_exact_event_stores_the_instant_and_the_zone(engine: Engine, tenant_i
     assert row.starts_at == STARTS_AT
     assert row.on_date is None
     assert row.time_zone == ZONE
+
+
+# ---------------------------------------------------------------------------
+# `ck_event_end_after_start` (migration 0022) — the end instant an .ics needs.
+#
+# The forbidden writes and the permitted ones, because the permitted half is
+# what catches an inverted expression: a constraint reading `ends_at < starts_at`
+# would still refuse the reversed row below, for the wrong reason, and would
+# then refuse the ordinary ninety-minute event that every download depends on.
+# ---------------------------------------------------------------------------
+
+
+def test_an_event_cannot_end_before_it_starts(engine: Engine, tenant_id) -> None:
+    with pytest.raises(IntegrityError, match="ck_event_end_after_start"), engine.begin() as conn:
+        _insert_event(
+            conn,
+            tenant_id,
+            starts_at=STARTS_AT,
+            ends_at=STARTS_AT - timedelta(minutes=30),
+            on_date=None,
+            time_precision="exact",
+        )
+
+
+def test_an_event_cannot_end_at_the_instant_it_starts(engine: Engine, tenant_id) -> None:
+    """Strictly after, so a zero-length event is refused along with a reversed one.
+
+    A zero-length event is not something a source states; it is what an adapter
+    writes when it copies `starts_at` across for want of a better value, and a
+    calendar client renders the result as a real entry. `ExactTime` refuses the
+    same value in Python — the rule stated at both ends.
+    """
+    with pytest.raises(IntegrityError, match="ck_event_end_after_start"), engine.begin() as conn:
+        _insert_event(
+            conn,
+            tenant_id,
+            starts_at=STARTS_AT,
+            ends_at=STARTS_AT,
+            on_date=None,
+            time_precision="exact",
+        )
+
+
+@pytest.mark.parametrize(
+    "precision, on_date",
+    [
+        pytest.param("date_only", ON_DATE, id="date_only"),
+        pytest.param("unresolved", None, id="unresolved"),
+    ],
+)
+def test_an_event_with_no_instant_cannot_carry_an_end(
+    engine: Engine, tenant_id, precision: str, on_date: date | None
+) -> None:
+    """An end only exists where a start does.
+
+    `ck_event_temporal_shape` keeps `starts_at` NULL at both of these
+    precisions, so without the `time_precision = 'exact'` clause a row could
+    hold an end and no beginning and satisfy every other constraint — the end
+    would compare against NULL and the whole predicate would go unknown rather
+    than false.
+    """
+    with pytest.raises(IntegrityError, match="ck_event_end_after_start"), engine.begin() as conn:
+        _insert_event(
+            conn,
+            tenant_id,
+            starts_at=None,
+            ends_at=STARTS_AT + timedelta(minutes=90),
+            on_date=on_date,
+            time_zone=ZONE if precision == "date_only" else None,
+            time_precision=precision,
+            resolved_date=ON_DATE if precision == "date_only" else None,
+        )
+
+
+def test_an_exact_event_stores_an_end_that_follows_its_start(engine: Engine, tenant_id) -> None:
+    """The permitted write, and the row every .ics download is served from."""
+    ends_at = STARTS_AT + timedelta(minutes=90)
+    with engine.begin() as conn:
+        event_id = _insert_event(
+            conn,
+            tenant_id,
+            starts_at=STARTS_AT,
+            ends_at=ends_at,
+            on_date=None,
+            time_precision="exact",
+        )
+
+        row = conn.execute(
+            text("SELECT starts_at, ends_at FROM event WHERE id = :id"),
+            {"id": event_id},
+        ).one()
+    assert row.starts_at == STARTS_AT
+    assert row.ends_at == ends_at
+
+
+@pytest.mark.parametrize(
+    "precision, starts_at, on_date, time_zone, resolved_date",
+    [
+        pytest.param("exact", STARTS_AT, None, ZONE, ON_DATE, id="exact"),
+        pytest.param("date_only", None, ON_DATE, ZONE, ON_DATE, id="date_only"),
+        pytest.param("unresolved", None, None, None, None, id="unresolved"),
+    ],
+)
+def test_an_event_may_state_no_end_at_any_precision(
+    engine: Engine,
+    tenant_id,
+    precision: str,
+    starts_at: datetime | None,
+    on_date: date | None,
+    time_zone: str | None,
+    resolved_date: date | None,
+) -> None:
+    """NULL is the ordinary case and stays legal everywhere.
+
+    Migration 0022 backfills nothing, so every row written before it has a NULL
+    end and every ingested row still does — neither Stage 0 parser reads
+    `DTEND`. A constraint that refused NULL would have made the migration
+    unappliable; one that refused it only at some precisions would have made an
+    event un-correctable from `exact` back to `date_only`.
+    """
+    with engine.begin() as conn:
+        event_id = _insert_event(
+            conn,
+            tenant_id,
+            starts_at=starts_at,
+            ends_at=None,
+            on_date=on_date,
+            time_zone=time_zone,
+            time_precision=precision,
+            resolved_date=resolved_date,
+        )
+
+        stored = conn.execute(
+            text("SELECT ends_at FROM event WHERE id = :id"), {"id": event_id}
+        ).scalar_one()
+    assert stored is None
+
+
+def test_an_end_cannot_be_moved_before_the_start_by_an_update(engine: Engine, tenant_id) -> None:
+    """Checked on UPDATE too, not only on INSERT.
+
+    A correction is exactly where a bad duration would arrive: the row was
+    written correctly once, and a later edit moves one endpoint. `ck_event_publishable`
+    is covered on both paths above for the same reason.
+    """
+    with engine.begin() as conn:
+        event_id = _insert_event(
+            conn,
+            tenant_id,
+            starts_at=STARTS_AT,
+            ends_at=STARTS_AT + timedelta(minutes=90),
+            on_date=None,
+            time_precision="exact",
+        )
+
+    with pytest.raises(IntegrityError, match="ck_event_end_after_start"), engine.begin() as conn:
+        conn.execute(
+            text("UPDATE event SET ends_at = :ends_at WHERE id = :id"),
+            {"ends_at": STARTS_AT - timedelta(minutes=1), "id": event_id},
+        )
 
 
 def test_a_precision_outside_adr_0010s_three_values_is_refused(engine: Engine, tenant_id) -> None:

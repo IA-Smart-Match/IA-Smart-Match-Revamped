@@ -45,6 +45,7 @@ from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     auth,
+    calendar,
     engagement,
     events,
     imports,
@@ -54,6 +55,7 @@ from smartmatch_api.routers import (
     metrics,
     outreach,
     outreach_contacts,
+    pipeline,
     portals,
     redrive,
     review,
@@ -232,10 +234,19 @@ app.include_router(redrive.router)
 app.include_router(me.router)
 app.include_router(metrics.router)
 app.include_router(events.router)
+# The .ics download. Registered after `events` because both mount under
+# `/v1/units`, and reading them next to each other is how a later change to one
+# is noticed as a change to the pair.
+app.include_router(calendar.router)
 app.include_router(match_runs.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
 app.include_router(rewards.router)
+# The S12 funnel's coordinator-driven write path. Registered beside `metrics`,
+# which reads the same table: `routers/pipeline.py` is what makes the last three
+# funnel metrics reachable at all, and a reader wondering where a non-zero
+# `pipeline_confirmed` could come from should find the two next to each other.
+app.include_router(pipeline.router)
 app.include_router(auth.router)
 app.include_router(portals.router)
 # Two routers from one module: the unit-scoped operations, and the one

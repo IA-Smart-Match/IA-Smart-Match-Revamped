@@ -43,11 +43,44 @@ under whose contract?
 decision, and the acceptable-use terms it comes with are the terms
 `consent.py` was written against.
 
+**Still deferred.** The institutional Resend tenant, the verified sending
+domain, and the data-processing contract they sit under. Nothing below changes
+that; the adapter is written *against* a tenant that does not exist yet.
+
 **Safe default, implemented.** `build_email_provider` returns
 `FixtureEmailProvider` unless a credential is present *and* the edition permits
-a live client. The live adapter is a named refusal, not a silent no-op: asking
-for one without the decision raises `ProviderConfigurationError` naming this
-question. The classroom edition can never construct one at all.
+a live client. The classroom edition can never construct a live one at all —
+not with a credential, and not with a transport handed to it.
+
+**Adapter status: written, unconnected.**
+`smartmatch_providers.resend.ResendEmailProvider` composes the real Resend
+`POST /emails` call (bearer credential, `Idempotency-Key` carrying the worker's
+own key verbatim, `List-Unsubscribe`) and reads the acceptance. It reaches no
+network, because it *has* no network: the module imports no HTTP client at all
+and takes a caller-supplied `ResendTransport`, the same shape that keeps
+`smartmatch_providers.jwks` offline. A test asserts the absent import, and
+another walks every call site under `services/` and `python/` to assert that
+nothing passes `transport=`.
+
+Four independent things stand between that code and a recipient, and no single
+edit opens all four:
+
+| Gate | Where | Default |
+| --- | --- | --- |
+| A credential | `api_key` | absent everywhere in this repository |
+| A permitted edition | not `classroom` | enforced in `build_email_provider` |
+| A transport | `transport=` | `None` — the registry refuses at **boot**, naming this question |
+| Reviewed copy | `content_approved=` | `False` — refused at send, naming OQ-003 |
+
+The refusals are named, not silent: a deployment that acquires a credential
+fails to start with a message pointing here, rather than discovering the
+problem one message at a time. `UnwiredTransport` raises rather than returning
+a plausible accepted response, because a fabricated provider id written into
+`send` would be the fake-success shape architecture v1.1 §5.5 exists to kill.
+
+**No new configuration.** No environment variable, compose entry, or secret was
+added. `transport` and `content_approved` are code-level arguments with no
+settings binding, so answering this question means an edit somebody reviews.
 
 ## OQ-003 — template legal copy
 

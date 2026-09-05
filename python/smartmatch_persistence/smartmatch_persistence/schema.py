@@ -1059,6 +1059,13 @@ event = sa.Table(
     # on_date only at 'date_only', and time_zone at both but never at
     # 'unresolved' -- ck_event_temporal_shape below is the enforcement.
     sa.Column("starts_at", _TS, nullable=True),
+    # Migration 0022. Not part of ADR-0010's triple and deliberately outside
+    # time_precision's remit: precision describes how much of the *start* is
+    # known, and an event whose source stated no end is exactly as resolved as
+    # one that did. NULL means "the source stated no end" -- never a duration
+    # nobody wrote down, which is what an .ics download is refused for rather
+    # than served with. See ck_event_end_after_start below.
+    sa.Column("ends_at", _TS, nullable=True),
     sa.Column("on_date", sa.Date, nullable=True),
     sa.Column("time_zone", sa.Text, nullable=True),
     sa.Column("time_precision", sa.Text, nullable=False),
@@ -1114,6 +1121,17 @@ event = sa.Table(
     sa.CheckConstraint(
         "(time_precision = 'unresolved') = (resolved_date IS NULL)",
         name="ck_event_identity_iff_resolved",
+    ),
+    # Migration 0022. An end may exist only where a start does, and must come
+    # after it. Without the time_precision clause a row could hold an end and
+    # no start -- ck_event_temporal_shape keeps starts_at NULL at the other two
+    # precisions -- and every other constraint would still pass. Strictly `>`
+    # because a zero-length event is what an adapter writes when it copies
+    # starts_at across, not something a source states; ExactTime refuses the
+    # same value in Python.
+    sa.CheckConstraint(
+        "ends_at IS NULL OR (time_precision = 'exact' AND ends_at > starts_at)",
+        name="ck_event_end_after_start",
     ),
     sa.CheckConstraint(
         "publication_status IN ('unpublished','published')",

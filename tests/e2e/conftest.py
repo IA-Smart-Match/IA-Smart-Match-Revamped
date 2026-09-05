@@ -194,6 +194,13 @@ class ClickThrough:
     rejected_item_id: str | None = None
     baseline_pending: int | None = None
     match_run_id: str | None = None
+    #: The synthetic ``.invalid`` contact the outreach steps compose to, the
+    #: draft they compose, and the command they submit. Each is ``None`` until
+    #: the step that produces it has actually produced it, so a later step
+    #: skips naming the one that did not run rather than reading a stale id.
+    contact_channel_id: str | None = None
+    outreach_draft_id: str | None = None
+    outreach_job_id: str | None = None
     notes: list[str] = field(default_factory=list)
 
 

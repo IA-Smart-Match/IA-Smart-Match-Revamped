@@ -21,6 +21,75 @@
         "title": "AbandonedResponse",
         "type": "object"
       },
+      "AttendanceSummaryResponse": {
+        "description": "One unit's attendance evidence, counted. Never a roster.",
+        "properties": {
+          "by_method": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Row count for every mechanism `ck_attendance_record_method` allows: `qr_scan`, `coordinator_entry`, `import`. All three keys are always present; a mechanism with no rows is a measured 0, not an absent key.",
+            "title": "By Method",
+            "type": "object"
+          },
+          "distinct_events": {
+            "description": "How many different events those rows attest to.",
+            "title": "Distinct Events",
+            "type": "integer"
+          },
+          "distinct_subjects": {
+            "description": "How many different accounts those rows belong to. A count only \u2014 this API returns no list of them while D8 is open.",
+            "title": "Distinct Subjects",
+            "type": "integer"
+          },
+          "first_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the earliest of those rows was recorded, or null when there are none. Timezone-aware (ADR-0010).",
+            "title": "First Recorded At"
+          },
+          "last_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the latest was recorded, or null when there are none.",
+            "title": "Last Recorded At"
+          },
+          "total": {
+            "description": "Attendance rows recorded for this unit. The sum of `by_method`, folded server-side from the same counts this response carries \u2014 never a stored counter and never arithmetic left to a client.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "unit_id": {
+            "description": "The unit this summary counts, which is also the unit the request was authorized against. Rows are selected on `attendance_record.owning_unit_id`, so the two cannot differ.",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "total",
+          "by_method",
+          "distinct_subjects",
+          "distinct_events"
+        ],
+        "title": "AttendanceSummaryResponse",
+        "type": "object"
+      },
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
@@ -643,6 +712,19 @@
       "EventTimeView": {
         "description": "An event's time at whichever precision is actually known (ADR-0010).\n\nThree fields plus a discriminator, never a single nullable timestamp. A\n``date_only`` event has no instant, and reporting one \u2014 midnight in some\nzone \u2014 is the fabrication ADR-0010 exists to stop; a client reading\n``precision`` knows which of ``starts_at`` and ``on_date`` is real without\ninferring it from a null.",
         "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instant the event finishes, present only when the source actually stated one. Null is not a duration of zero and not a default of an hour: it is the absence that makes an .ics download refusable rather than guessable, and it is what a client checks before offering the link.",
+            "title": "Ends At"
+          },
           "on_date": {
             "anyOf": [
               {
@@ -1582,6 +1664,122 @@
         "title": "MyPortalsResponse",
         "type": "object"
       },
+      "PipelineRecordResponse": {
+        "description": "One journey, with every stage timestamp it actually has.\n\nThe four optional ``*_at`` fields are ``null`` when the stage has not been\nreached \u2014 never ``0``, never an epoch, and never the row's ``created_at``\nstanding in for a moment nobody recorded. ``current_stage`` is derived from\nthose same timestamps rather than stored, so it cannot drift from them.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record the Attended stage cites, when it has been reached.",
+            "title": "Attendance Id"
+          },
+          "attended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attended At"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "contacted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacted At"
+          },
+          "current_stage": {
+            "description": "The furthest stage reached, derived from the timestamps below.",
+            "title": "Current Stage",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_at": {
+            "format": "date-time",
+            "title": "Matched At",
+            "type": "string"
+          },
+          "matched_provenance": {
+            "title": "Matched Provenance",
+            "type": "string"
+          },
+          "member_inquiry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Inquiry At"
+          },
+          "opportunity_event_id": {
+            "format": "uuid",
+            "title": "Opportunity Event Id",
+            "type": "string"
+          },
+          "owning_unit_id": {
+            "format": "uuid",
+            "title": "Owning Unit Id",
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owning_unit_id",
+          "subject_id",
+          "opportunity_event_id",
+          "matched_provenance",
+          "current_stage",
+          "matched_at",
+          "contacted_at",
+          "confirmed_at",
+          "attended_at",
+          "member_inquiry_at",
+          "attendance_id"
+        ],
+        "title": "PipelineRecordResponse",
+        "type": "object"
+      },
       "PortalDescriptor": {
         "description": "One portal the caller's server-assigned roles actually open.",
         "properties": {
@@ -2438,6 +2636,71 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "StageAdvanceRequest": {
+        "description": "One coordinator's claim that a journey reached a stage, and when.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record this claim cites. Required for 'attended' and rejected for every other stage (ck_pipeline_record_attendance_evidence).",
+            "title": "Attendance Id"
+          },
+          "reached_at": {
+            "description": "When the stage was reached. Required and timezone-aware \u2014 this records when something happened, which a server clock reading is not, and a naive value can silently violate ck_pipeline_record_stage_order against a timestamptz column. Must not precede the previous stage's own timestamp.",
+            "format": "date-time",
+            "title": "Reached At",
+            "type": "string"
+          },
+          "stage": {
+            "description": "The stage reached. 'matched' is opened when the journey is created and 'contacted' is written by the outreach send, so neither is accepted here.",
+            "enum": [
+              "confirmed",
+              "attended",
+              "member_inquiry"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "reached_at"
+        ],
+        "title": "StageAdvanceRequest",
+        "type": "object"
+      },
+      "StageAdvanceResponse": {
+        "description": "What the advance did, and the row it left behind.\n\n``transitioned`` and ``already_reached`` are two fields rather than one\nnegated boolean for the reason\n:class:`~smartmatch_persistence.pipeline.PipelineStageOutcome` keeps them\napart: \"this request's own statement wrote the stage\" and \"the stage was\nalready recorded before this request\" are different facts, and a client\nshowing a coordinator \"recorded\" versus \"already recorded\" needs both.",
+        "properties": {
+          "already_reached": {
+            "description": "True when the stage was already recorded before this request arrived.",
+            "title": "Already Reached",
+            "type": "boolean"
+          },
+          "record": {
+            "$ref": "#/components/schemas/PipelineRecordResponse"
+          },
+          "transitioned": {
+            "description": "True only when this request's own UPDATE is the one that wrote the stage.",
+            "title": "Transitioned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transitioned",
+          "already_reached",
+          "record"
+        ],
+        "title": "StageAdvanceResponse",
         "type": "object"
       },
       "TransitionRequest": {
@@ -4075,6 +4338,136 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/engagement/attendance-summary": {
+      "get": {
+        "description": "Return how much attendance evidence this unit holds, by mechanism.\n\nAuthorization runs before any attendance row is read\n(:func:`_authorize_engagement_read`), and the unit it authorizes against is\nthe unit the counts are scoped to.\n\nA unit with nothing recorded answers ``total: 0``, all three methods at\n``0``, and two null instants \u2014 a measured zero, because the query ran and\nfound none, which is a different claim from \"we did not look\" (ADR-0011).\nThe route cannot be reached for a unit that does not exist: that is a 404\nfrom ``load_unit_or_404``, decided before any counting.\n\nQuota is not charged. ADR-0015 governs command routes, where a refusal still\ncost something to attempt; this route reads rows the caller is already\nauthorized for, exactly as the two event reads and the rewards catalog do.",
+        "operationId": "read_attendance_summary_v1_units__unit_id__engagement_attendance_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Count one unit's recorded attendance evidence",
+        "tags": [
+          "engagement"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/events": {
       "get": {
         "description": "Return the unit's events that are actually presentable, and count the rest.\n\nTwo exclusions, both pinned by an Accepted ADR rather than chosen here:\n\n* **No resolved date.** ADR-0010 rule 2 \u2014 \"an event at ``unresolved``\n  cannot reach a matchable or publishable state\". It also has no identity\n  key (ADR-0012), which is the same fact about it stated twice. Listing one\n  would put a dateless row in a catalog whose whole purpose is telling a\n  coordinator when something happens, which is the legacy defect\n  ``date: \"See link for details\"`` recorded as finding H21.\n* **A quarantined tag.** ADR-0012 \u2014 a value the closed vocabulary did not\n  recognize is \"stored with the event, visible to a human review queue, and\n  never rendered and never matched on\". An event carrying one is not\n  finished being extracted; ``ck_event_publishable`` refuses to publish it\n  for the same reason, and this route refuses to list it.\n\nNeither exclusion is silent. Both are counted from the same rows this\nlisting is partitioned out of and reported on the response \u2014 see\n:class:`EventListResponse`.\n\nOnly ``admin`` and ``coordinator`` may read this\n(:func:`_authorize_event_read`), and authorization runs before any row is\nread.",
@@ -4202,6 +4595,140 @@
         "summary": "List a unit's presentable events",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/events/{event_id}/invite.ics": {
+      "get": {
+        "description": "Return one event's .ics bytes, or refuse and name the fact that is missing.\n\nAuthorization runs before any event row is read, and the student branch\nruns before any of the event's content reaches a response \u2014 so a caller\nwith no claim on the event learns nothing from it, including whether it\nwould have been downloadable.\n\nThe bytes come from\n:func:`smartmatch_domain.calendar_invite.build_invite_ics` and are not\nassembled here. Every RFC 5545 rule \u2014 escaping, 75-octet folding, UTC\nconversion, the deliberate absence of ``METHOD`` \u2014 lives in\n``smartmatch_domain.ics``, and this route's whole contribution is deciding\nwhether the row may be handed to it.",
+        "operationId": "download_event_invite_v1_units__unit_id__events__event_id__invite_ics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/calendar": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The RFC 5545 calendar document, as UTF-8 octets."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "The event states no usable time slot: an unresolved or date-only start, an unstated end, or a tag value still awaiting review. No invite is issued and nothing is inferred (finding F-003)."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Download one event's calendar invite (.ics)",
+        "tags": [
+          "calendar"
         ]
       }
     },
@@ -6405,6 +6932,296 @@
         "summary": "Read one outreach send and its delivery events",
         "tags": [
           "outreach"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/pipeline-records/{record_id}": {
+      "get": {
+        "description": "Read one journey by id, scoped to this tenant and this unit.\n\nA read, and only a read: no stage is inferred, defaulted, or filled in. An\nunreached stage comes back ``null``, which is what the column holds.\n\nRaises:\n    ApiError: 404 when this tenant has no such record, or it is not under\n        the unit the request was authorized for.",
+        "operationId": "read_pipeline_record_v1_units__unit_id__pipeline_records__record_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one pipeline journey and the stages it has reached",
+        "tags": [
+          "pipeline"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/pipeline-records/{record_id}/stages": {
+      "post": {
+        "description": "Advance one journey to Confirmed, Attended, or Member Inquiry.\n\nThe legality of the move is decided by\n:meth:`~smartmatch_persistence.pipeline.PipelineRepository.advance_stage`,\nand this handler restates none of it: Attended is reachable only from\nConfirmed because ``assert_stage_reachable`` says so and because\n``ck_pipeline_record_stage_prefix`` refuses the row otherwise, not because of\na check written here. The one rule this module adds is *which* stages a human\nmay claim at all, which is a question about evidence rather than about\nordering \u2014 see the module docstring.\n\nRepeating a request that already landed is a ``200`` with ``transitioned:\nfalse`` and ``already_reached: true``, not a ``409``: a coordinator asserting\na fact that is already recorded has not asked for anything illegal, and the\nrow they get back is the one that was already there.\n\nRaises:\n    ApiError: 404 when this tenant has no such record or it is not in this\n        unit; 409 when the previous stage has not been reached, when\n        ``reached_at`` precedes that stage's own timestamp, or when\n        ``attendance_id`` names no attendance record in this tenant.",
+        "operationId": "advance_pipeline_stage_v1_units__unit_id__pipeline_records__record_id__stages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StageAdvanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageAdvanceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record that a pipeline journey reached a stage",
+        "tags": [
+          "pipeline"
         ]
       }
     },

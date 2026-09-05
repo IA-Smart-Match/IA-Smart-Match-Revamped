@@ -24,6 +24,7 @@ from smartmatch_providers.base import (
 from smartmatch_providers.fixtures import FixtureEmailProvider, FixtureRouteMatrixProvider
 from smartmatch_providers.identity import FixtureTokenVerifier, TokenVerifier
 from smartmatch_providers.paid import PaidExtractionProvider, SyntheticPaidProvider
+from smartmatch_providers.resend import ResendEmailProvider, ResendTransport
 from smartmatch_providers.tasks import FixtureTaskQueue, TaskQueue
 
 __all__ = [
@@ -54,8 +55,29 @@ def build_email_provider(
     *,
     api_key: str | None = None,
     use_fixture: bool = False,
+    from_address: str | None = None,
+    transport: ResendTransport | None = None,
+    content_approved: bool = False,
+    advertise_one_click: bool = False,
 ) -> EmailProvider:
     """Construct the email provider for this edition.
+
+    The live adapter is :class:`~smartmatch_providers.resend.ResendEmailProvider`,
+    and reaching it takes four independent things, none of which is a default:
+
+    1. a credential (``api_key``),
+    2. an edition that may hold one (not ``classroom``),
+    3. a ``transport`` the caller passes in — nothing in this repository
+       supplies one, because OQ-002 (which Resend tenant, which verified
+       domain, whose contract) is unanswered, and
+    4. ``content_approved``, checked inside the adapter at send time, because
+       every shipped template is ``content_status='synthetic'`` until OQ-003 is
+       answered.
+
+    The first two are conditions on *selecting* the adapter; the last two are
+    what make its transport unreachable. Written as four separate things rather
+    than one "live mode" switch so that no single mistaken edit opens all of
+    them.
 
     Args:
         edition: The running edition.
@@ -63,15 +85,35 @@ def build_email_provider(
             deliberately configured staging or production deployment.
         use_fixture: Force the fixture adapter regardless of edition, for tests
             and local development.
+        from_address: The institutional From address (OQ-001). Required
+            whenever the live adapter is actually constructed.
+        transport: Performs the HTTP call. ``None`` — the only value any code
+            in this repository passes — refuses to build a live adapter at all,
+            so a deployment that acquires a credential still fails at boot
+            rather than at send time.
+        content_approved: Whether the outbound copy has been through
+            institutional review (OQ-003). Defaults to ``False``.
+        advertise_one_click: Whether to advertise RFC 8058 one-click
+            unsubscribe (OQ-006). Defaults to ``False``.
 
     Returns:
         An :class:`~smartmatch_providers.base.EmailProvider`.
 
     Raises:
         ProviderConfigurationError: if a live client is requested under a
-            fixture-only edition, or if credentials are absent outside one.
+            fixture-only edition, if credentials are absent outside one, or if
+            a live client is requested with no approved transport.
     """
     if use_fixture or edition in _FIXTURE_ONLY_EDITIONS:
+        if transport is not None and edition in _FIXTURE_ONLY_EDITIONS:
+            # Checked alongside the credential rather than after it, so that
+            # passing a transport is not a way to reach the live adapter under
+            # an edition that must never have one.
+            raise ProviderConfigurationError(
+                f"a live email transport was supplied under edition {edition.value!r}, "
+                "which may only ever construct fixture adapters (architecture v1.1 "
+                "§3.3). Failing closed."
+            )
         if api_key and edition in _FIXTURE_ONLY_EDITIONS:
             # Credentials must not exist in a classroom project at all. Finding
             # one is a deployment defect worth failing on, not ignoring.
@@ -91,10 +133,30 @@ def build_email_provider(
             "without separately approved configuration."
         )
 
-    raise ProviderConfigurationError(
-        "the live email adapter is not implemented in the Foundation scaffold. "
-        "Outreach ships in R4, behind gate G4 (consent-origin policy, supervised "
-        "recipient policy, and deliverability review approved)."
+    if transport is None:
+        raise ProviderConfigurationError(
+            "the Resend adapter is implemented but no transport is wired, so it "
+            "cannot be constructed. What is missing is OQ-002 — which Resend tenant, "
+            "on which verified sending domain, under whose data-processing contract. "
+            "Outreach also ships behind gate G4 (consent-origin policy, supervised "
+            "recipient policy, and deliverability review approved). Failing at boot "
+            "rather than at send time, so a deployment that acquired a credential "
+            "cannot discover this one message at a time."
+        )
+
+    if not from_address:
+        raise ProviderConfigurationError(
+            f"no From address configured for edition {edition.value!r}. Choosing the "
+            "institutional sender is an identity claim — see OQ-001 — and a live "
+            "adapter must not guess one."
+        )
+
+    return ResendEmailProvider(
+        api_key=api_key,
+        from_address=from_address,
+        transport=transport,
+        content_approved=content_approved,
+        advertise_one_click=advertise_one_click,
     )
 
 
