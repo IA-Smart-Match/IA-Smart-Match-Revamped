@@ -79,6 +79,9 @@ def _insert_event(
     source_url: str | None = None,
     fetched_at: datetime | None = None,
     extractor_version: str | None = None,
+    is_virtual: bool = False,
+    location_city: str | None = None,
+    location_postal_code: str | None = None,
 ) -> uuid.UUID:
     event_id = uuid.uuid4()
     conn.execute(
@@ -86,10 +89,11 @@ def _insert_event(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
             "starts_at, ends_at, on_date, time_zone, time_precision, resolved_date, "
             "publication_status, review_status, quarantined_tag_count, origin, "
-            "source_url, fetched_at, extractor_version) "
+            "source_url, fetched_at, extractor_version, is_virtual, location_city, "
+            "location_postal_code) "
             "VALUES (:id, :tid, :unit, :title, :normalized, :starts_at, :ends_at, :on_date, "
             ":zone, :precision, :resolved, :publication, :review, :quarantined, :origin, "
-            ":source_url, :fetched_at, :extractor)"
+            ":source_url, :fetched_at, :extractor, :is_virtual, :city, :postal)"
         ),
         {
             "id": event_id,
@@ -110,6 +114,9 @@ def _insert_event(
             "source_url": source_url,
             "fetched_at": fetched_at,
             "extractor": extractor_version,
+            "is_virtual": is_virtual,
+            "city": location_city,
+            "postal": location_postal_code,
         },
     )
     return event_id
@@ -734,6 +741,179 @@ def test_an_event_cannot_name_a_unit_in_another_tenant(engine: Engine, tenant_id
                 "on_date": ON_DATE,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# `is_virtual`, `location_city`, `location_postal_code` (migration 0024) — the
+# columns customer §§10-12 need and migration 0017 had no reason to add.
+#
+# §12 requires an Event Host to "specify event location" and "specify physical
+# vs. virtual"; §10 says "city or ZIP code is sufficient for this phase"; §11
+# says a virtual event ignores proximity entirely. The forbidden write and the
+# permitted one are both here, because the permitted half is what catches an
+# inverted expression.
+# ---------------------------------------------------------------------------
+
+
+def test_an_event_is_physical_unless_it_says_otherwise(engine: Engine, tenant_id) -> None:
+    """The server default, asserted rather than assumed.
+
+    `is_virtual` is `NOT NULL DEFAULT false` so migration 0024 needs no
+    backfill decision: every event that existed before it is physical, which is
+    the true statement about a schema whose only events were entered or
+    extracted with a place attached. A nullable column would have made
+    "nobody said" a third state §11's redistribution rule has no branch for.
+    """
+    with engine.begin() as conn:
+        event_id = conn.execute(
+            text(
+                "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+                "on_date, time_zone, time_precision, resolved_date, origin) "
+                "VALUES (:id, :tid, :unit, 'Defaulted', 'defaulted', :on_date, "
+                "'America/Los_Angeles', 'date_only', :on_date, 'coordinator_entry') "
+                "RETURNING id"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "unit": ensure_owning_unit(conn, tenant_id),
+                "on_date": ON_DATE,
+            },
+        ).scalar_one()
+
+        row = conn.execute(
+            text(
+                "SELECT is_virtual, location_city, location_postal_code FROM event WHERE id = :id"
+            ),
+            {"id": event_id},
+        ).one()
+
+    assert row.is_virtual is False
+    assert row.location_city is None
+    assert row.location_postal_code is None
+
+
+def test_a_physical_event_stores_its_city_and_zip(engine: Engine, tenant_id) -> None:
+    """§10: city or ZIP is sufficient, so both are stored and neither is derived."""
+    with engine.begin() as conn:
+        event_id = _insert_event(
+            conn, tenant_id, location_city="Pomona", location_postal_code="91768"
+        )
+        row = conn.execute(
+            text(
+                "SELECT is_virtual, location_city, location_postal_code FROM event WHERE id = :id"
+            ),
+            {"id": event_id},
+        ).one()
+
+    assert row.is_virtual is False
+    assert row.location_city == "Pomona"
+    assert row.location_postal_code == "91768"
+
+
+@pytest.mark.parametrize(
+    "city, postal",
+    [
+        pytest.param("Pomona", None, id="city-only"),
+        pytest.param(None, "91768", id="zip-only"),
+        pytest.param(None, None, id="neither-yet"),
+    ],
+)
+def test_a_physical_event_may_state_either_half_of_its_location_or_neither(
+    engine: Engine, tenant_id, city: str | None, postal: str | None
+) -> None:
+    """§10 says "city or ZIP code is sufficient", which is a disjunction and not a pair.
+
+    Neither is required, either: a request whose host has not yet said where it
+    is, is a storable state, exactly as an unresolved date is. Whether proximity
+    can be scored without one is a matching question and not this column's.
+    """
+    with engine.begin() as conn:
+        _insert_event(conn, tenant_id, location_city=city, location_postal_code=postal)
+
+
+def test_a_virtual_event_cannot_carry_a_location(engine: Engine, tenant_id) -> None:
+    """§11: "for virtual events — ignore Proximity entirely".
+
+    A stored location on a virtual event is a value the scoring rule is
+    required to ignore, which is exactly the shape of a field that gets used by
+    accident later. Refusing it makes §11's "entirely" structural instead of a
+    line in a factor implementation.
+    """
+    with (
+        pytest.raises(IntegrityError, match="ck_event_virtual_has_no_location"),
+        engine.begin() as conn,
+    ):
+        _insert_event(conn, tenant_id, is_virtual=True, location_city="Pomona")
+
+    with (
+        pytest.raises(IntegrityError, match="ck_event_virtual_has_no_location"),
+        engine.begin() as conn,
+    ):
+        _insert_event(conn, tenant_id, is_virtual=True, location_postal_code="91768")
+
+
+def test_a_virtual_event_stores(engine: Engine, tenant_id) -> None:
+    """The permitted half, so the constraint is not merely refusing every virtual row."""
+    with engine.begin() as conn:
+        event_id = _insert_event(conn, tenant_id, is_virtual=True)
+        is_virtual = conn.execute(
+            text("SELECT is_virtual FROM event WHERE id = :id"), {"id": event_id}
+        ).scalar_one()
+
+    assert is_virtual is True
+
+
+def test_an_event_cannot_be_made_virtual_while_it_still_holds_a_location(
+    engine: Engine, tenant_id
+) -> None:
+    """The update path, which an insert-only test would leave open.
+
+    A host switching a request from physical to virtual has to clear the
+    location in the same statement; leaving it behind is the stale-field defect
+    the constraint exists to prevent.
+    """
+    with engine.begin() as conn:
+        event_id = _insert_event(conn, tenant_id, location_city="Pomona")
+
+    with (
+        pytest.raises(IntegrityError, match="ck_event_virtual_has_no_location"),
+        engine.begin() as conn,
+    ):
+        conn.execute(text("UPDATE event SET is_virtual = true WHERE id = :id"), {"id": event_id})
+
+
+@pytest.mark.parametrize("field", ["location_city", "location_postal_code"])
+def test_a_blank_location_value_is_refused_rather_than_stored(
+    engine: Engine, tenant_id, field: str
+) -> None:
+    """ADR-0011 again: absent is a value here, blank is a writer that forgot.
+
+    A `location_city` of `''` would make `ck_event_virtual_has_no_location`'s
+    NULL test pass on a virtual event while the row still claims to have a
+    place, which is the same field-that-lies problem stated twice.
+    """
+    with (
+        pytest.raises(IntegrityError, match="ck_event_location_present"),
+        engine.begin() as conn,
+    ):
+        _insert_event(conn, tenant_id, **{field: "  "})
+
+
+def test_location_is_not_part_of_the_event_identity_key(engine: Engine, tenant_id) -> None:
+    """ADR-0012's key is unchanged by migration 0024, asserted rather than assumed.
+
+    The identity key is (tenant, host unit, normalized title, resolved date).
+    Two rows differing only in city are still the same event, and adding a
+    location column must not have widened the key into one that would accept
+    both — which is what "without weakening event identity" means at the
+    storage layer.
+    """
+    with engine.begin() as conn:
+        _insert_event(conn, tenant_id, title="Career Panel", location_city="Pomona")
+
+    with pytest.raises(IntegrityError, match="uq_event_identity"), engine.begin() as conn:
+        _insert_event(conn, tenant_id, title="Career Panel", location_city="Ontario")
 
 
 # ---------------------------------------------------------------------------

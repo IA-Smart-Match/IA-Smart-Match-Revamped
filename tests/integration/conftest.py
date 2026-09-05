@@ -100,6 +100,10 @@ _TENANT_SCOPED_TABLES = (
     # uses it — rather than only the rows a cascade would have reached.
     "event_tag",
     "discovery_review_item",
+    # Migration 0024. Before `event`, which it cascades from, and listed anyway
+    # for the reason `event_tag` above is: this tuple is read as the full set of
+    # tenant-scoped tables, not as the minimum a cascade would miss.
+    "speaker_request_classification",
     # Before `user_account` and `org_unit`, both of which `event` and
     # `discovery_review_item` hold ON DELETE RESTRICT references to.
     # `attendance_record` is deliberately still not in this tuple: it also
@@ -114,6 +118,10 @@ _TENANT_SCOPED_TABLES = (
     # `user_account` rather than beside it.
     "pilot_session",
     "pilot_credential",
+    # Migration 0024. Holds ON DELETE RESTRICT references to *both*
+    # `user_account` and `org_unit`, so it goes above the pair — getting this
+    # order wrong is the failure PR #26 had to fix for `match_run`/`job`.
+    "speaker_profile",
     "user_account",
     "org_unit",
     "tenant_budget",

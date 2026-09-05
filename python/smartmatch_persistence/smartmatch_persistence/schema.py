@@ -69,6 +69,8 @@ __all__ = [
     "resource_grant",
     "review_item",
     "reward_item",
+    "speaker_profile",
+    "speaker_request_classification",
     "spend_ceiling_bucket",
     "spend_reservation",
     "suppression_record",
@@ -1084,6 +1086,20 @@ event = sa.Table(
     sa.Column("source_url", sa.Text, nullable=True),
     sa.Column("fetched_at", _TS, nullable=True),
     sa.Column("extractor_version", sa.Text, nullable=True),
+    # Migration 0024. Customer §12: an Event Host must be able to "specify
+    # physical vs. virtual" and "specify event location". NOT NULL with a
+    # server default so 0024 needed no backfill: every event that existed
+    # before it was entered or extracted with a place attached, and a nullable
+    # column would have created a third "nobody said" state that §11's
+    # proximity-redistribution rule has no branch for.
+    sa.Column("is_virtual", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    # §10: "City or ZIP code is sufficient for this phase." Two independent
+    # nullable columns, because "or" is what the requirement says. Deliberately
+    # NOT part of uq_event_identity below — two requests differing only in city
+    # are the same event, and widening ADR-0012's key would un-deduplicate the
+    # discovery path it exists to make deterministic.
+    sa.Column("location_city", sa.Text, nullable=True),
+    sa.Column("location_postal_code", sa.Text, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="event_pkey"),
@@ -1160,6 +1176,21 @@ event = sa.Table(
         "AND (source_url IS NULL) = (fetched_at IS NULL) "
         "AND (fetched_at IS NULL) = (extractor_version IS NULL)",
         name="ck_event_provenance_evidence",
+    ),
+    # Migration 0024. Customer §11: "for virtual events — ignore Proximity
+    # entirely". A location stored on a virtual event is a value the scoring
+    # rule is required to ignore, which is the shape of a field that gets read
+    # by accident later; refusing it makes "entirely" structural.
+    sa.CheckConstraint(
+        "NOT is_virtual OR (location_city IS NULL AND location_postal_code IS NULL)",
+        name="ck_event_virtual_has_no_location",
+    ),
+    # ADR-0011, and load-bearing rather than tidy: a location_city of '' passes
+    # the NULL test above while the row still claims a place.
+    sa.CheckConstraint(
+        "(location_city IS NULL OR length(btrim(location_city)) > 0) "
+        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0)",
+        name="ck_event_location_present",
     ),
 )
 
@@ -1849,4 +1880,184 @@ suppression_record = sa.Table(
         name="ck_suppression_record_source",
     ),
     sa.CheckConstraint("length(btrim(address)) > 0", name="ck_suppression_record_address_present"),
+)
+
+
+# ---------------------------------------------------------------------------
+# The CBA classification model (migration 0024): customer §§7-8's two closed
+# taxonomies, stored at two different cardinalities.
+#
+# A speaker has zero or one primary industry and zero or one primary role; a
+# Speaker Request may target many of each. That asymmetry is why one side is
+# columns on a table keyed by (tenant_id, professional_id) and the other is a
+# child table — see the migration's docstring, which is not repeated here.
+#
+# Neither is `event_tag`. ADR-0012's twelve terms describe what kind of event
+# this is and what function a speaker performs at it; these describe the
+# industry a person works in and the career discipline they work within. The
+# word "role" appears in both vocabularies and means unrelated things
+# (`docs/product/cba-taxonomies.md`), which is exactly why the storage is
+# separate and each row names the taxonomy version that evaluated it.
+# ---------------------------------------------------------------------------
+
+
+speaker_profile = sa.Table(
+    "speaker_profile",
+    METADATA,
+    # Composite NATURAL key, no surrogate id — and unlike
+    # professional_unit_relationship, which uses the same shape to *permit*
+    # many rows per professional, this one uses it to forbid them. Customer
+    # §7's "one primary industry sector" per speaker is this key: a second
+    # primary value has no row to live in.
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # This professional_id *does* carry a foreign key, unlike its two older
+    # namesakes on professional_unit_relationship and contact_channel. Both of
+    # those say "whichever migration gives professionals a persisted identity
+    # should add this foreign key alongside it", and one has since: Choice A of
+    # the synthetic pilot authorization makes `user_account` the persisted
+    # professional identity, and pipeline_record.subject_id already references
+    # it. Retrofitting the two older columns is its own migration
+    # (OQ-CBA-009).
+    sa.Column("professional_id", _UUID, nullable=False),
+    # A5-shaped, as contact_channel.owning_unit_id and match_run.owning_unit_id
+    # are: the unit whose Speaker Connector is accountable for this record.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # Customer §7. Nullable because §19 imports a contact first and classifies
+    # it after — an unclassified speaker is a storable state, the same argument
+    # ADR-0010 makes for an unresolved event date.
+    sa.Column("primary_industry_code", sa.Text, nullable=True),
+    # Which released taxonomy the code was resolved against. Both taxonomy
+    # modules stamp one onto every `Classified…` value for the reason it is
+    # stored: a code stays interpretable after a revision only if the row says
+    # which table evaluated it.
+    sa.Column("industry_taxonomy_version", sa.Text, nullable=True),
+    # Customer §8, same shape for the same reason.
+    sa.Column("primary_role_code", sa.Text, nullable=True),
+    sa.Column("role_taxonomy_version", sa.Text, nullable=True),
+    # §18's "Topic/interests/expertise text" and "optional prior talk
+    # information". §9 compares them semantically against an event description;
+    # nothing in persistence parses them.
+    sa.Column("topic_text", sa.Text, nullable=True),
+    sa.Column("prior_talk", sa.Text, nullable=True),
+    # §10: city or ZIP is sufficient, so neither is derived from the other and
+    # neither is required.
+    sa.Column("location_city", sa.Text, nullable=True),
+    sa.Column("location_postal_code", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # §§7-8 require a Speaker Connector to correct an assigned classification,
+    # and a correction updates this row rather than superseding it — P9 Gate A
+    # §2's current-state treatment of board_role. Whether the previous value is
+    # retained anywhere is OQ-CBA-008, open when 0024 landed.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("tenant_id", "professional_id", name="speaker_profile_pkey"),
+    # RESTRICT: a classification that outlived its subject would be an
+    # assertion about nobody, and one that vanished with them would delete a
+    # Speaker Connector's reviewed judgment as a side effect.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # The closed vocabularies, transcribed into the migration and mirrored here
+    # for the same reason every other CHECK in this file is. The behavioural
+    # binding back to smartmatch_domain lives in
+    # tests/integration/test_cba_classification_schema.py, which parametrizes
+    # over SECTOR_CODES and ROLE_CATEGORY_CODES from the domain modules, so a
+    # taxonomy revision that never reached a migration fails there.
+    sa.CheckConstraint(
+        "primary_industry_code IS NULL OR primary_industry_code IN "
+        "('11','21','22','23','31-33','42','44-45','48-49','51','52','53','54','55','56',"
+        "'61','62','71','72','81','92')",
+        name="ck_speaker_profile_industry_code",
+    ),
+    sa.CheckConstraint(
+        "(primary_industry_code IS NULL) = (industry_taxonomy_version IS NULL)",
+        name="ck_speaker_profile_industry_versioned",
+    ),
+    sa.CheckConstraint(
+        "primary_role_code IS NULL OR primary_role_code IN "
+        "('accounting','finance','marketing','management_strategy','human_resources',"
+        "'operations_supply_chain','information_systems_analytics','international_business',"
+        "'entrepreneurship_founder','sales_business_development')",
+        name="ck_speaker_profile_role_code",
+    ),
+    sa.CheckConstraint(
+        "(primary_role_code IS NULL) = (role_taxonomy_version IS NULL)",
+        name="ck_speaker_profile_role_versioned",
+    ),
+    # ADR-0011: absent is a value, blank is a writer that forgot. §9 scores a
+    # speaker with no topic information neutrally rather than at zero, which is
+    # a decision about NULL — an empty string would reach it as text.
+    sa.CheckConstraint(
+        "(topic_text IS NULL OR length(btrim(topic_text)) > 0) "
+        "AND (prior_talk IS NULL OR length(btrim(prior_talk)) > 0) "
+        "AND (location_city IS NULL OR length(btrim(location_city)) > 0) "
+        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0)",
+        name="ck_speaker_profile_text_present",
+    ),
+)
+
+
+speaker_request_classification = sa.Table(
+    "speaker_request_classification",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A Speaker Request is persisted as an `event` row: customer §4 renames
+    # "Volunteer opportunity" to "Speaker Request", and the terminology
+    # document maps that page onto the existing opportunity/event surface.
+    sa.Column("event_id", _UUID, nullable=False),
+    # Which of §§7-8's two axes this row targets, and therefore which closed
+    # vocabulary `code` is held to.
+    sa.Column("kind", sa.Text, nullable=False),
+    # NOT NULL: a target naming nothing is not a target. There is no quarantine
+    # arm here — a host picks from a list rather than resolving a spreadsheet
+    # cell (OQ-CBA-010).
+    sa.Column("code", sa.Text, nullable=False),
+    # Unconditionally NOT NULL, unlike speaker_profile's pair, because `code`
+    # is NOT NULL too: there is no absent case for it to mirror.
+    sa.Column("taxonomy_version", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_request_classification_pkey"),
+    # CASCADE, as event_tag's reference to the same parent is: a target cannot
+    # outlive the request stating it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    # Multi-select is a set, not a bag: a repeated target is a weight counted
+    # twice by a matcher with nothing on screen to explain it. Named here
+    # because it is also pinned absolutely by
+    # tests/integration/test_schema_matches_migration.py.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "event_id",
+        "kind",
+        "code",
+        name="uq_speaker_request_classification",
+    ),
+    sa.CheckConstraint(
+        "kind IN ('industry', 'role')",
+        name="ck_speaker_request_classification_kind",
+    ),
+    # `kind` decides which vocabulary applies. Without this conditional, `kind`
+    # would be a label the row carries rather than a statement the database
+    # holds it to, and an industry target reading 'finance' could sit beside a
+    # role target reading '52'.
+    sa.CheckConstraint(
+        "(kind = 'industry' AND code IN "
+        "('11','21','22','23','31-33','42','44-45','48-49','51','52','53','54','55','56',"
+        "'61','62','71','72','81','92')) "
+        "OR (kind = 'role' AND code IN "
+        "('accounting','finance','marketing','management_strategy','human_resources',"
+        "'operations_supply_chain','information_systems_analytics','international_business',"
+        "'entrepreneurship_founder','sales_business_development'))",
+        name="ck_speaker_request_classification_code",
+    ),
 )
