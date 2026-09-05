@@ -47,6 +47,7 @@ __all__ = [
     "delivery_event",
     "discovery_review_item",
     "event",
+    "event_registration",
     "event_tag",
     "idempotency_record",
     "import_batch",
@@ -2083,5 +2084,74 @@ speaker_request_classification = sa.Table(
         "'operations_supply_chain','information_systems_analytics','international_business',"
         "'entrepreneurship_founder','sales_business_development'))",
         name="ck_speaker_request_classification_code",
+    ),
+)
+
+
+event_registration = sa.Table(
+    "event_registration",
+    METADATA,
+    # Migration 0026, closing OQ-CBA-018. A student's intent to attend, which
+    # is a different fact from having attended -- and the reason it is not a
+    # fourth `attendance_record.method` is that ADR-0013 makes attendance the
+    # only input to points, so a row written at sign-up time would be credited
+    # as a row written at check-in time with nothing able to tell them apart.
+    #
+    # There is deliberately NO relationship from this table to
+    # `point_ledger_entry`, in either direction: no source column, no foreign
+    # key, and no `uq_event_registration_tenant_id` for one to reference. That
+    # absence is the guarantee; adding the constraint "just in case" is how the
+    # separation would erode.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as attendance_record.owning_unit_id: the unit whose
+    # student surface the registration was made through, stored at write time
+    # rather than joined back through event.host_org_unit_id later.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # The student. Every read of this table filters on it from the verified
+    # principal, never from a request field (MM-A01).
+    sa.Column("subject_id", _UUID, nullable=False),
+    # 'registered' or 'cancelled'. `waitlisted` is absent because no capacity
+    # exists anywhere in this schema for it to overflow from (OQ-CBA-021), and
+    # a value no writer could produce is a vocabulary invented by DDL.
+    sa.Column("status", sa.Text, nullable=False),
+    # When the place was taken. Never moves, including across a
+    # cancel-then-re-register, so it stays able to say how late a cancellation
+    # was.
+    sa.Column("registered_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # When `status` last moved. This is what makes cancellation-as-a-transition
+    # legible rather than a row that says only that it is cancelled.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_registration_pkey"),
+    # The natural key, and the whole of this table's idempotency: one row per
+    # student per event whatever its status, so a second sign-up is the same
+    # registration rather than a second one. The same triple
+    # uq_attendance_record_subject_event uses, for a neighbouring reason.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_id", "event_id", name="uq_event_registration_subject_event"
+    ),
+    # RESTRICT: an event must not be deleted out from under a student holding a
+    # place at it. Contrast speaker_request_classification's CASCADE onto the
+    # same parent -- that is part of the event; this is a second party's
+    # statement about it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('registered','cancelled')",
+        name="ck_event_registration_status",
     ),
 )
