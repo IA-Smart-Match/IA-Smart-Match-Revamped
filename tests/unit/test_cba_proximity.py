@@ -349,8 +349,37 @@ def test_the_campus_origin_is_a_versioned_config_value_with_a_stated_source():
     assert "OQ-CBA-023" in CPP_CAMPUS_ORIGIN.source
 
 
-def test_the_origin_version_is_marked_provisional_until_the_owner_confirms_it():
-    assert CPP_CAMPUS_ORIGIN_VERSION == "0.1.0-provisional"
+def test_the_origin_version_records_the_owners_ratification():
+    """OQ-CBA-023, decided 2026-09-05: promoted from provisional to 1.0.0.
+
+    The predecessor of this test held the version at ``0.1.0-provisional`` so
+    that an unapproved coordinate could not quietly become permanent. The owner
+    has now decided, which is the event it was waiting for, so the assertion
+    moves to the decision rather than being deleted.
+    """
+    assert CPP_CAMPUS_ORIGIN_VERSION == "1.0.0"
+    assert "provisional" not in CPP_CAMPUS_ORIGIN_VERSION.casefold()
+
+
+def test_the_origin_says_it_was_ratified_rather_than_surveyed():
+    """A ratified approximation and a measured coordinate are different facts.
+
+    The owner accepted the approximate centroid on the reasoning that a
+    sub-mile origin error almost never flips a 25/75-mile band — they did not
+    commission a survey. Recording only "1.0.0" would lose that, and a later
+    card proposing a surveyed point would not know whether it was refining an
+    accepted value or correcting an unapproved one.
+    """
+    source = CPP_CAMPUS_ORIGIN.source
+    assert "Ratified" in source
+    assert "not surveyed" in source
+    assert "2026-09-05" in source
+    assert "Approximate centroid" in source
+    # The provisional wording is gone, in both of its spellings.
+    assert "PROVISIONAL" not in source
+    assert "not confirmed by the program owner" not in source
+    # And still no geocoding provider, before or after the ratification.
+    assert "No geocoding provider was called" in source
 
 
 def test_the_assessment_records_the_origin_it_measured_from():

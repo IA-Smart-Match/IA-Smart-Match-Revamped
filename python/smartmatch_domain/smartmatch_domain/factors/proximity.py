@@ -309,13 +309,23 @@ class CampusOrigin:
                 raise ValueError(f"CampusOrigin.{name}: must be a non-empty, non-blank string")
 
 
-#: ``0.1.0-provisional``, not ``1.0.0``: the coordinate below is derived from
-#: the campus street address and has **not** been confirmed by the program
-#: owner. Recorded as OQ-CBA-023 rather than adopted as settled, because a
-#: number nobody approved that never gets questioned is exactly how an
-#: unapproved default becomes permanent. The band formula is not provisional;
-#: only the point it measures from is.
-CPP_CAMPUS_ORIGIN_VERSION: Final[str] = "0.1.0-provisional"
+#: ``1.0.0``: **OQ-CBA-023 was ratified on 2026-09-05** by Danny Tran, program
+#: owner of record, and this version records that decision.
+#:
+#: What was ratified is precise, and the distinction matters to anyone reading a
+#: stored score later: the owner **accepted the approximate centroid**, on the
+#: stated reasoning that a sub-mile error in the origin almost never flips a
+#: candidate across the 25- or 75-mile edge. The point was **not surveyed**, and
+#: no geocoding provider was called to obtain it or is called to use it. A
+#: ratified approximation and a measured coordinate are different facts, and the
+#: ``source`` string below says which one this is — so a later card proposing a
+#: surveyed point knows it is refining an accepted value rather than correcting
+#: an unapproved one.
+#:
+#: The version stays separate from :data:`CBA_PROXIMITY_FORMULA_VERSION`: moving
+#: the campus pin is not a change to the band formula, and a stored run must
+#: never be re-read against an origin it was not measured from.
+CPP_CAMPUS_ORIGIN_VERSION: Final[str] = "1.0.0"
 
 #: The CBA proximity origin of record.
 CPP_CAMPUS_ORIGIN: Final[CampusOrigin] = CampusOrigin(
@@ -325,8 +335,9 @@ CPP_CAMPUS_ORIGIN: Final[CampusOrigin] = CampusOrigin(
     longitude=-117.8210,
     source=(
         "Approximate centroid of the campus at 3801 W. Temple Ave, Pomona, CA 91768. "
-        "PROVISIONAL: not confirmed by the program owner -- see OQ-CBA-023. No geocoding "
-        "provider was called to obtain it and none is called to use it."
+        "Ratified -- not surveyed -- by the program owner on 2026-09-05 (OQ-CBA-023), "
+        "on the reasoning that a sub-mile origin error almost never flips a 25/75-mile "
+        "band. No geocoding provider was called to obtain it and none is called to use it."
     ),
     version=CPP_CAMPUS_ORIGIN_VERSION,
 )

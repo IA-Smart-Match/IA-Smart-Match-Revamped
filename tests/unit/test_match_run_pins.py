@@ -313,3 +313,90 @@ def test_the_shipped_registry_can_execute_a_match_run():
     directly, which is what the integration tests do.
     """
     assert MATCH_RUN_COMMAND_TYPE in default_registry().command_types
+
+
+# ---------------------------------------------------------------------------
+# The scoring-mode pin (ADR-0016 Proposal 9)
+# ---------------------------------------------------------------------------
+
+
+def test_a_pin_record_may_carry_a_scoring_mode():
+    """Two independent pins: which rulebook, and which of its models."""
+    pins = _pins(scoring_mode="cba-physical-1", scoring_mode_version="1.0.0")
+    assert pins.scoring_mode == "cba-physical-1"
+    assert pins.scoring_mode_version == "1.0.0"
+    # And the mode is never mistakable for the registry version.
+    assert pins.scoring_mode != pins.registry_version
+
+
+def test_a_pin_record_with_no_scoring_mode_is_a_pre_adr_0016_run():
+    """Absent, not defaulted. ``None`` is a fact about when the run happened.
+
+    Reading a mode-less run as ``cba-physical-1`` would claim a proximity factor
+    was scored under a rulebook that had no modes at all.
+    """
+    pins = _pins()
+    assert pins.scoring_mode is None
+    assert pins.scoring_mode_version is None
+
+
+def test_a_mode_without_its_version_is_refused():
+    """A mode with no version cannot be re-read under the definition it used."""
+    with pytest.raises(ValueError, match="set or unset together"):
+        _pins(scoring_mode="cba-virtual-1")
+    with pytest.raises(ValueError, match="set or unset together"):
+        _pins(scoring_mode_version="1.0.0")
+
+
+def test_a_blank_scoring_mode_is_neither_a_mode_nor_an_honest_absence():
+    """The same rule the other pins follow: a blank is not a recordable value."""
+    with pytest.raises(ValueError, match="scoring_mode"):
+        _pins(scoring_mode="   ", scoring_mode_version="1.0.0")
+
+
+def test_the_command_reader_accepts_an_approved_mode():
+    """The worker takes the mode from the payload; it never chooses one."""
+    command = _read_match_run_command(
+        {
+            "event_need_id": NEED,
+            "portfolio_size": 2,
+            "random_seed": 0,
+            "candidates": [{"subject_id": "prof-synthetic-a", "utility": 0.82}],
+            "scoring_mode": "cba-virtual-1",
+        }
+    )
+    assert command.scoring_mode == "cba-virtual-1"
+
+
+def test_the_command_reader_treats_an_absent_mode_as_pre_adr_0016():
+    """Every payload written before this field existed keeps its old meaning."""
+    command = _read_match_run_command(
+        {
+            "event_need_id": NEED,
+            "portfolio_size": 2,
+            "random_seed": 0,
+            "candidates": [{"subject_id": "prof-synthetic-a", "utility": 0.82}],
+        }
+    )
+    assert command.scoring_mode is None
+
+
+def test_the_command_reader_refuses_an_unrecognised_mode():
+    """Refused, never defaulted.
+
+    A typo that fell through to the physical model would score a virtual event
+    on proximity — a factor customer §11 says to ignore entirely — and the run
+    would look perfectly well-formed in storage.
+    """
+    with pytest.raises(PolicyFailure) as raised:
+        _read_match_run_command(
+            {
+                "event_need_id": NEED,
+                "portfolio_size": 2,
+                "random_seed": 0,
+                "candidates": [{"subject_id": "prof-synthetic-a", "utility": 0.82}],
+                "scoring_mode": "cba-hybrid-1",
+            }
+        )
+    assert raised.value.reason == "invalid_command_payload"
+    assert "cba-hybrid-1" in str(raised.value)
