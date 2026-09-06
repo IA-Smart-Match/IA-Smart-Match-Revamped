@@ -121,7 +121,19 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``0030`` runs against this card's tables therefore update zero rows by
 #: construction, and no weighting, revision entry, or actor attribution this
 #: file asserts is touched. ``0030`` adds no column, no constraint and no CHECK.
-_HEAD_REVISION = "0030_cba_opaque_speaker_identity"
+#:
+#: Moved again by ``CBA-STUDENT-FEEDBACK``: ``0031_student_speaker_feedback``
+#: chains to ``0030_cba_opaque_speaker_identity`` and is now the head. Neither
+#: reads or writes ``match_weight_setting`` or its revision log. ``0030`` re-keys
+#: ``speaker_profile.professional_id`` to an opaque id (OQ-CBA-017), which this
+#: card never referenced; ``0031`` adds one table of student ratings whose only
+#: outward references are ``org_unit``, ``attendance_record`` and
+#: ``speaker_profile``, all ``ON DELETE RESTRICT``. A unit that has configured
+#: weights and a unit that has not are rated identically, because nothing on the
+#: feedback path reads a weight at all — a rating records what students thought
+#: after the fact, and is deliberately not an input to what the optimizer
+#: proposes beforehand.
+_HEAD_REVISION = "0031_student_speaker_feedback"
 
 NEED = "need-weight-settings-1"
 

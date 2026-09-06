@@ -2534,3 +2534,104 @@ cba_invitation = sa.Table(
     ),
     sa.Index("ix_cba_invitation_batch", "tenant_id", "batch_id", "professional_id"),
 )
+
+
+student_speaker_feedback = sa.Table(
+    "student_speaker_feedback",
+    METADATA,
+    # Migration 0031, customer §§15-16 and OQ-CBA-003 (decided 6 September
+    # 2026). One student's overall rating of one speaker at one event they
+    # attended, plus an optional comment.
+    #
+    # `student_id` is stored and never displayed beside a rating. The anonymity
+    # in OQ-CBA-003 is an API display rule, not an absence here, and that is
+    # deliberate: retraction, de-duplication and abuse tracing all need to know
+    # whose row this is. The migration's docstring carries the argument.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as attendance_record.owning_unit_id is: the unit whose student
+    # surface the rating was written through, and the unit a Connector's read
+    # of the aggregate is authorized against.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("student_id", _UUID, nullable=False),
+    # By opaque id. Nothing derives a speaker from a name (OQ-CBA-017).
+    sa.Column("speaker_professional_id", _UUID, nullable=False),
+    # 'submitted' or 'withdrawn'. A withdrawal is a transition and never a
+    # DELETE, for event_registration.status's reason (OQ-CBA-018).
+    sa.Column("status", sa.Text, nullable=False),
+    # The one dimension OQ-CBA-003 approved. Nullable only so a withdrawal can
+    # empty it; ck_student_speaker_feedback_rating_present is what stops that
+    # nullability meaning anything else.
+    sa.Column("rating", sa.Integer, nullable=True),
+    sa.Column("comment", sa.Text, nullable=True),
+    sa.Column("submitted_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="student_speaker_feedback_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_student_speaker_feedback_tenant_id"),
+    # One rating per student per speaker per event, whatever its status. This is
+    # the de-duplication `student_id` exists for.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "student_id",
+        "event_id",
+        "speaker_professional_id",
+        name="uq_student_speaker_feedback_subject",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # Eligibility as a database fact: targets uq_attendance_record_subject_event,
+    # so a student who did not attend the event has nowhere to store a rating of
+    # it. attendance_record rather than event_registration, because registration
+    # is an intent to attend and a student who stayed home heard nobody speak.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "student_id", "event_id"],
+        [
+            "attendance_record.tenant_id",
+            "attendance_record.subject_id",
+            "attendance_record.event_id",
+        ],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "speaker_professional_id"],
+        ["speaker_profile.tenant_id", "speaker_profile.professional_id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('submitted', 'withdrawn')",
+        name="ck_student_speaker_feedback_status",
+    ),
+    sa.CheckConstraint(
+        "rating IS NULL OR (rating >= 1 AND rating <= 5)",
+        name="ck_student_speaker_feedback_rating_range",
+    ),
+    sa.CheckConstraint(
+        "(status = 'submitted') = (rating IS NOT NULL)",
+        name="ck_student_speaker_feedback_rating_present",
+    ),
+    sa.CheckConstraint(
+        "comment IS NULL OR (length(btrim(comment)) > 0 AND length(comment) <= 2000)",
+        name="ck_student_speaker_feedback_comment_shape",
+    ),
+    sa.CheckConstraint(
+        "status <> 'withdrawn' OR comment IS NULL",
+        name="ck_student_speaker_feedback_withdrawn_is_silent",
+    ),
+    sa.Index(
+        "ix_student_speaker_feedback_speaker",
+        "tenant_id",
+        "owning_unit_id",
+        "speaker_professional_id",
+        "status",
+    ),
+    sa.Index(
+        "ix_student_speaker_feedback_student",
+        "tenant_id",
+        "student_id",
+        "event_id",
+    ),
+)
