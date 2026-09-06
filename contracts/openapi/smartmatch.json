@@ -7077,7 +7077,7 @@
     "/v1/units/{unit_id}/cba/confirmed-speakers": {
       "get": {
         "description": "The speakers whose ``confirmed_at`` is set, in this unit.\n\nWith no ``event_id`` this is the *same set* the ``pipeline_confirmed``\naggregate counts -- the same predicate against the same table, scoped by the\nsame tenant and unit. It is not a second count of that metric: it reports no\ntotal, only which speakers and who they are, which the aggregate cannot say\nand the register does not publish.\n\nOrdered by ``confirmed_at`` then ``id``, so the Host reads them in the order\nthey said yes.",
-        "operationId": "list_confirmed_speakers_v1_units__unit_id__cba_confirmed_speakers_get",
+        "operationId": "confirmed_speakers_view_v1_units__unit_id__cba_confirmed_speakers_get",
         "parameters": [
           {
             "in": "path",

@@ -7,7 +7,7 @@ Track CBA-HANDOFF-PIPELINE. Two operations:
   :func:`reconcile_speaker_handoff`.
 * ``GET  /v1/units/{unit_id}/cba/confirmed-speakers`` -- the confirmed speakers
   this unit can hand an Event Host, optionally for one event. See
-  :func:`list_confirmed_speakers`.
+  :func:`confirmed_speakers_view`.
 
 ## Why this is not the stage route with a different name
 
@@ -453,7 +453,7 @@ def reconcile_speaker_handoff(
     response_model=ConfirmedSpeakerListResponse,
     summary="List the confirmed speakers this unit can hand an Event Host",
 )
-def list_confirmed_speakers(
+def confirmed_speakers_view(
     principal: CurrentPrincipal,
     session: DbSession,
     unit_id: Annotated[uuid.UUID, Path()],
