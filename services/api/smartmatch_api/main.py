@@ -68,6 +68,7 @@ from smartmatch_api.routers import (
     rewards,
     speaker_requests,
     student_events,
+    student_speaker_feedback,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -429,6 +430,26 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # coherent, the same argument the Speaker's own accept/decline route above
     # is mounted on.
     (cba_handoff.router, Capability.CONSENTED_OUTREACH),
+    # Student speaker feedback (customer §§15-16, OQ-CBA-003 decided 6 September
+    # 2026). The card's two halves ride two different flags on purpose.
+    #
+    # The student's own routes are `EVENT_READS`, the flag `student_events.router`
+    # already carries: this surface is reached from an event the student attended,
+    # it is scoped to one event throughout, and a deployment with the student
+    # event journey switched off has no page these routes could be opened from.
+    # It is not `REWARDS_LEDGER` or anything else student-shaped -- nothing here
+    # touches points, and ADR-0013 keeps attendance the only input to those.
+    (student_speaker_feedback.router, Capability.EVENT_READS),
+    # The Connector's aggregate is `SPEAKER_CONTACT_MANAGEMENT` instead. It is a
+    # fact about a §13 roster contact, reached from that contact, and it answers
+    # `404` for an id the roster does not hold -- so a deployment that has turned
+    # the roster off must not be answering questions about who is on it. Putting
+    # both halves on one flag would make one of those two statements false, and
+    # the half it would falsify is the privacy-bearing one.
+    #
+    # Deliberately not `CONSENTED_OUTREACH`: this route puts nothing in an inbox
+    # and sends nobody anything. It reads numbers students volunteered.
+    (student_speaker_feedback.connector_router, Capability.SPEAKER_CONTACT_MANAGEMENT),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
