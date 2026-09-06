@@ -18,6 +18,11 @@ from smartmatch_providers import (
     build_email_provider,
     build_route_matrix_provider,
 )
+from smartmatch_providers.topic_semantics import (
+    FixtureSemanticTopicProvider,
+    TopicComparisonUnavailable,
+    build_semantic_topic_provider,
+)
 
 
 def _send_request(**overrides: object) -> SendRequest:
@@ -184,3 +189,93 @@ def test_classroom_isolation_holds_under_every_product_scope():
     for _scope in ProductScope:
         with pytest.raises(ProviderConfigurationError, match="must have no provider secrets"):
             build_email_provider(Edition.CLASSROOM, api_key="live-key")
+
+
+# ---------------------------------------------------------------------------
+# Semantic Topic comparison is a provider, and it is fixture-only
+# (CBA-MATCH-TOPIC, Wave 3; customer §9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_every_edition_gets_the_fixture_topic_semantics_provider(edition: Edition):
+    """Customer §9 asks for an AI comparison; no approved model exists yet.
+
+    ``ALLOW_LIVE_PROVIDERS=false`` is the standing default, and OQ-CBA-026
+    (which model, whose credentials, under whose terms) is unanswered, so the
+    safe outcome is what a caller gets by writing nothing — in every edition,
+    not only the classroom one.
+    """
+    provider = build_semantic_topic_provider(edition)
+
+    assert isinstance(provider, FixtureSemanticTopicProvider)
+    assert provider.name.startswith("fixture-")
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_live_topic_model_is_refused_under_every_edition(edition: Edition):
+    """Asking for a live model is the only way to request one, and it is refused."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(edition, use_fixture=False)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_topic_model_credential_fails_closed_under_every_edition(edition: Edition):
+    """No environment in this repository should hold a model credential at all."""
+    with pytest.raises(ProviderConfigurationError, match="credential"):
+        build_semantic_topic_provider(edition, api_key="live-key")
+
+
+def test_allowing_live_providers_still_does_not_reach_a_live_topic_model():
+    """The env gate is necessary, not sufficient: the adapter does not exist."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(
+            Edition.PRODUCTION, use_fixture=False, allow_live_providers=True
+        )
+
+
+def test_no_classroom_path_can_construct_a_live_topic_model():
+    """The verification-matrix assertion, extended to the new provider kind."""
+    assert type(build_semantic_topic_provider(Edition.CLASSROOM)).__name__.startswith("Fixture")
+    with pytest.raises(ProviderConfigurationError):
+        build_semantic_topic_provider(Edition.CLASSROOM, use_fixture=False)
+
+
+def test_the_fixture_topic_provider_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """No live HTTP in tests — asserted by removing the ability to make one.
+
+    A provider that quietly grew a network call would pass every behavioural
+    test above and fail this one, which is the only reason this test exists.
+    """
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the fixture topic-semantics provider must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+    provider.record(
+        "An event about supply chains.",
+        "supply chain analytics",
+        score=0.7,
+        rationale="Their recorded analytics work addresses the request.",
+    )
+
+    assert provider.compare("An event about supply chains.", "supply chain analytics").score == 0.7
+
+
+def test_the_fixture_topic_provider_never_stores_an_assumption_as_fact():
+    """An unrecorded pair is refused, not filled in with a plausible number."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+
+    with pytest.raises(TopicComparisonUnavailable):
+        provider.compare("An event about supply chains.", "nothing was recorded for this")
+
+
+def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
+    """A playback fixture that claimed to be a model would be a permanent lie."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+
+    assert provider.is_semantic_model is False
