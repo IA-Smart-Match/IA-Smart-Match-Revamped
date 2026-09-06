@@ -513,6 +513,58 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("match_weight_setting_revision", "ck_match_weight_setting_revision_version"): (
         "CHECK ((version >= 1))"
     ),
+    # --- Speaker invitations (migration 0029) --------------------------
+    #
+    # Nine, and the load-bearing one is `ck_cba_invitation_response_status`.
+    # It is the schema-level statement that a Speaker's answer and a mail
+    # provider's disposition are disjoint vocabularies: all three admitted
+    # values name the *invitation*, so none of them can be spelled like
+    # `outreach_send.disposition`'s 'accepted'. A provider taking custody of
+    # some bytes is not a person agreeing to come and talk to students, and an
+    # Event Host handed the first as the second books a room for nobody.
+    # Recording the expression literally means widening that set has to be a
+    # deliberate edit here as well as in the migration.
+    #
+    # Five of the nine are written as equivalences rather than implications —
+    # `(a) = (b)` — so neither half can be relaxed without the other. A skip
+    # says why and only a skip does; an addressed row holds all three of
+    # channel, address and draft while a skipped one holds none; a dispatched
+    # row has both a job and a time; an answered row has both a timestamp and a
+    # channel; and exactly the connector-recorded answers name a coordinator.
+    ("cba_invitation", "ck_cba_invitation_status"): (
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'dispatched'::text, 'skipped'::text])))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skip_reason"): (
+        "CHECK (((status = 'skipped'::text) = (skip_reason IS NOT NULL)))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_addressed"): (
+        "CHECK (((status = 'skipped'::text) = ((contact_channel_id IS NULL) AND "
+        "(recipient_address IS NULL) AND (outreach_draft_id IS NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_dispatched"): (
+        "CHECK (((status = 'dispatched'::text) = ((outreach_send_job_id IS NOT NULL) AND "
+        "(dispatched_at IS NOT NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_status"): (
+        "CHECK ((response_status = ANY (ARRAY['awaiting_response'::text, "
+        "'accepted_invitation'::text, 'declined_invitation'::text])))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_dated"): (
+        "CHECK (((response_status = 'awaiting_response'::text) = "
+        "((response_recorded_at IS NULL) AND (response_channel IS NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_channel"): (
+        "CHECK (((response_channel IS NULL) OR (response_channel = ANY "
+        "(ARRAY['speaker_link'::text, 'connector_recorded'::text]))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_actor"): (
+        "CHECK (((response_channel = 'connector_recorded'::text) = "
+        "(response_recorded_by_user_id IS NOT NULL)))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
+        "CHECK (((status <> 'skipped'::text) OR ((response_status = 'awaiting_response'::text) "
+        "AND (response_token_hash IS NULL))))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -818,6 +870,76 @@ BEHAVIOURAL_COVERAGE = {
         "0027 added, test_cba_weight_settings_persistence.py"
         "::test_the_revision_log_refuses_a_version_below_one, with the permitted half in "
         "::test_each_accepted_change_appends_one_revision, which stores versions 1 and 2"
+    ),
+    # --- Speaker invitations (migration 0029) --------------------------
+    #
+    # All nine are exercised in test_cba_invitation_batch.py, which is the
+    # card's own file, rather than duplicated here — the arrangement the
+    # outreach and weight-settings constraints already use.
+    ("cba_invitation", "ck_cba_invitation_status"): (
+        "0029 added. Covered by construction rather than by a refusal test: every write "
+        "in test_cba_invitation_batch.py goes through InvitationRepository, whose callers "
+        "pass an InvitationStatus value, and ::test_no_delivery_word_at_all_is_storable_as"
+        "_an_answer proves the sibling response column refuses an unlisted word by the "
+        "same mechanism. The permitted half is every helper in that file — `pending` in "
+        "_Rows.invite, `dispatched` in TestDispatch, `skipped` in TestSkipsAreStoredAndInert"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skip_reason"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_must_say_why, which inserts a skipped "
+        "row with no reason. The permitted half is every other write in that class, plus "
+        "every non-skipped row in the file, which carry no reason at all"
+    ),
+    ("cba_invitation", "ck_cba_invitation_addressed"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_cannot_carry_an_address, which is the "
+        "half that matters — nobody was written to, so there is no address the row can "
+        "name. The permitted half is _Rows.invite, which supplies all three of channel, "
+        "address and draft together"
+    ),
+    ("cba_invitation", "ck_cba_invitation_dispatched"): (
+        "0029 added. The forbidden half is unreachable through the repository — "
+        "mark_dispatched sets the job and the time in one statement — so it is covered by "
+        "the permitted half plus its guard: ::TestDispatch::test_marking_dispatched_records"
+        "_the_job_and_the_time stores both, and ::test_a_second_dispatch_of_the_same_"
+        "invitation_writes_nothing proves the pair cannot be half-rewritten afterwards"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_status"): (
+        "0029 added, and the most thoroughly exercised constraint in the file: "
+        "test_cba_invitation_batch.py::TestTheTwoVocabulariesCannotCollide::test_no_"
+        "delivery_word_at_all_is_storable_as_an_answer is parametrized over the *live* "
+        "SendDisposition and DeliveryEventType enums, so every word the delivery side "
+        "uses is proved unstorable here — not a transcribed list that could fall behind. "
+        "::test_the_response_column_refuses_a_provider_disposition names 'accepted' "
+        "specifically. The permitted half is TestResponses, which stores both answers"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_dated"): (
+        "0029 added. Reachable only by a raw insert, which is what _Rows.raw_answered_"
+        "insert exists for: it supplies a well-formed answer so the vocabulary tests above "
+        "isolate their own constraint rather than tripping this one first. The permitted "
+        "half is TestResponses::test_a_speakers_own_answer_names_no_coordinator (answered, "
+        "dated) and every unanswered row in the file (no answer, no date)"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_channel"): (
+        "0029 added. The forbidden half is unreachable through the repository, whose two "
+        "call sites pass literals; the permitted half is TestResponses, which stores "
+        "'speaker_link', and the contract suite's TestConnectorRecordedResponse, which "
+        "stores 'connector_recorded' over HTTP"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_actor"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestResponses::test_a_connector_recorded_answer_must_name_the_coordinator, "
+        "which records a connector answer with no coordinator. The permitted half is "
+        "::test_a_speakers_own_answer_names_no_coordinator — a Speaker's own click has no "
+        "account behind it and the row says so rather than naming a bystander"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_cannot_carry_an_answer, which is the "
+        "constraint that stops a skip becoming a fabricated acceptance: nobody sent this "
+        "person anything, so a row saying they accepted answers a message that does not "
+        "exist. The permitted half is every skipped row in the file, all of which are "
+        "awaiting_response with no token"
     ),
 }
 

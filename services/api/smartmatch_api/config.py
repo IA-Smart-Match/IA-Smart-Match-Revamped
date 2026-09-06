@@ -74,6 +74,28 @@ class Settings(BaseSettings):
     email_api_key: str | None = None
     routes_api_key: str | None = None
 
+    #: Origin the *speaker-response* links in an invitation are built against,
+    #: and the same environment variable the worker reads for its unsubscribe
+    #: links (``SMARTMATCH_OUTREACH_PUBLIC_BASE_URL``). One name deliberately:
+    #: the two links appear in the same message, and a deployment that
+    #: configured one and not the other would send a mail whose links point at
+    #: different hosts.
+    #:
+    #: It is read here rather than taken from a request body because a caller
+    #: supplying it would be a caller putting an arbitrary link into an
+    #: institutional email over an already-consented address — a phishing
+    #: primitive rather than a parameter. The local default matches the compose
+    #: appliance; a deployment that leaves it wrong sends links that 404, which
+    #: is visible, rather than links that silently record nothing.
+    #:
+    #: No credential and no live-service default, so this does not widen what an
+    #: unconfigured deployment can reach: it changes the text of a message the
+    #: fixture provider prints and nothing else.
+    outreach_public_base_url: str = Field(
+        default="http://localhost:8080",
+        description="Public origin for invitation response URLs",
+    )
+
     #: Included in the health response so a deployment can be identified without
     #: exposing topology.
     release: str = Field(default="dev", description="Release identifier")

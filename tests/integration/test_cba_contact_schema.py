@@ -76,12 +76,23 @@ _PARENT_REVISION = "0024_cba_classification"
 #: added together with the two classification codes ``0024`` added. The one
 #: interaction worth naming is that ``0028`` backfills a ``human`` provenance
 #: onto rows that already carry a code, which changes no value this file asserts.
-_HEAD_REVISION = "0028_classification_provenance"
+#: Updated again by ``CBA-INVITATIONS``: ``0029_cba_speaker_invitation`` chains
+#: to ``0028`` and is the head. It composes for ``0026``'s reason — two new
+#: tables, ``cba_invitation_batch`` and ``cba_invitation``, and nothing an
+#: earlier revision wrote is touched. It does *reference* the surface this file's
+#: card shaped, but only outward: ``cba_invitation.professional_id`` deliberately
+#: carries no foreign key to ``speaker_profile`` (``not_on_roster`` is a storable
+#: outcome, so a reference would make the one skip reason about a mistake the one
+#: skip reason that cannot be recorded), and the ``contact_channel`` reference it
+#: does declare is ``ON DELETE RESTRICT``, so no row this file writes can be
+#: removed by anything ``0029`` added.
+_HEAD_REVISION = "0029_cba_speaker_invitation"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0028_classification_provenance",
     "0027_match_weight_setting",
     "0026_event_registration",
 )
