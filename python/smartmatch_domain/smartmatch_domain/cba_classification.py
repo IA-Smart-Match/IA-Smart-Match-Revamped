@@ -104,14 +104,21 @@ __all__ = [
 ]
 
 
+#: The stored source, narrowed so the type checker enforces what the ``CHECK``
+#: enforces. Declared before the two constants rather than after them so they can
+#: be annotated with it: typed as a bare ``str`` they would not satisfy this
+#: alias at a call site, and every caller would need a cast to say what the
+#: values already are.
+ClassificationSource: TypeAlias = Literal["inferred", "human"]
+
 #: A classifier proposed this value from the contact's own company and title
 #: text. §19's steps three and four, and nothing more: it is a reading awaiting
 #: step five, and :func:`is_match_eligible` refuses it.
-CLASSIFICATION_SOURCE_INFERRED: Final[str] = "inferred"
+CLASSIFICATION_SOURCE_INFERRED: Final[ClassificationSource] = "inferred"
 
 #: A person chose this value — §13's create form, or §19's correction. The only
 #: source that satisfies "Human correction is required".
-CLASSIFICATION_SOURCE_HUMAN: Final[str] = "human"
+CLASSIFICATION_SOURCE_HUMAN: Final[ClassificationSource] = "human"
 
 #: The closed vocabulary ``speaker_profile``'s two provenance columns hold.
 #: Migration ``0028`` transcribes these two literals into its ``CHECK`` rather
@@ -124,14 +131,10 @@ CLASSIFICATION_SOURCE_HUMAN: Final[str] = "human"
 #: which is exactly what OQ-CBA-008 declined to store. A corrected value is
 #: ``human``, indistinguishable from one typed at create time, because both are
 #: a person's judgment and that is the only property step five turns on.
-CLASSIFICATION_SOURCES: Final[tuple[str, ...]] = (
+CLASSIFICATION_SOURCES: Final[tuple[ClassificationSource, ...]] = (
     CLASSIFICATION_SOURCE_INFERRED,
     CLASSIFICATION_SOURCE_HUMAN,
 )
-
-#: The stored source, narrowed so the type checker enforces what the ``CHECK``
-#: enforces.
-ClassificationSource: TypeAlias = Literal["inferred", "human"]
 
 
 #: The classifier had nothing to read: the contact states no company (for the
@@ -461,16 +464,30 @@ def match_ineligibility_reason(
         A stable machine-readable reason token, or ``None`` when the contact is
         eligible.
     """
-    if (
-        primary_industry_code is not None
-        and industry_classification_source == CLASSIFICATION_SOURCE_INFERRED
+    for axis, code, source in (
+        ("industry", primary_industry_code, industry_classification_source),
+        ("role", primary_role_code, role_classification_source),
     ):
-        return "industry_classification_awaiting_review"
-    if (
-        primary_role_code is not None
-        and role_classification_source == CLASSIFICATION_SOURCE_INFERRED
-    ):
-        return "role_classification_awaiting_review"
+        if code is None:
+            continue
+        if source == CLASSIFICATION_SOURCE_INFERRED:
+            return f"{axis}_classification_awaiting_review"
+        if source != CLASSIFICATION_SOURCE_HUMAN:
+            # A code with no source, or a source outside the vocabulary. Post-0028
+            # the database cannot hold such a row, so reaching this means the
+            # caller did not select the provenance columns — and the eligibility
+            # question must be answered against what was actually read, not
+            # against what the schema would have guaranteed had it been read.
+            #
+            # Tested by name rather than folded into the branch above: this is a
+            # caller defect and "somebody must review this speaker" would send an
+            # operator to the wrong screen for it. Matching a positive value
+            # (`== human`) rather than excluding a negative one (`!= inferred`)
+            # is what makes this arm exist at all — the exclusion form returns
+            # *eligible* here, which is the one way an unreviewed speaker could
+            # enter matching without anybody writing a line of code saying so.
+            return f"{axis}_classification_provenance_unknown"
+
     if primary_industry_code is None:
         return "industry_classification_missing"
     if primary_role_code is None:

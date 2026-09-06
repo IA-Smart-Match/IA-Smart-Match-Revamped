@@ -18,6 +18,10 @@ from smartmatch_providers import (
     build_email_provider,
     build_route_matrix_provider,
 )
+from smartmatch_providers.cba_classification import (
+    FixtureContactClassifier,
+    build_contact_classifier,
+)
 from smartmatch_providers.topic_semantics import (
     FixtureSemanticTopicProvider,
     TopicComparisonUnavailable,
@@ -279,3 +283,111 @@ def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
     provider = build_semantic_topic_provider(Edition.CLASSROOM)
 
     assert provider.is_semantic_model is False
+
+
+# ---------------------------------------------------------------------------
+# Contact classification is a provider, and it is fixture-only
+# (CBA-IMPORT-CLASSIFY; customer §19)
+# ---------------------------------------------------------------------------
+#
+# The same assertions the topic provider gets, for the same failures, plus one
+# this seam needs and that one does not. §19's classifier reads a named person's
+# employer and job title, so the "may this leave the building" question
+# (OQ-CBA-038) is sharper here than OQ-CBA-026 is there — and customer §20
+# independently puts looking a company up out of scope, which is why the socket
+# test below is a scope assertion and not only a provider one.
+#
+# Restated in this file rather than left to
+# tests/unit/test_cba_contact_classifier.py because this is the file the
+# verification matrix reads: architecture v1.1 §3.3's "a diagram label is not a
+# control" applies to a classifier exactly as it applies to an email adapter, and
+# a provider whose isolation is asserted only in its own card's test file is one
+# nobody checks when the isolation mechanism is audited.
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_every_edition_gets_the_fixture_contact_classifier(edition: Edition):
+    """Customer §19 assigns an initial classification; no approved model exists.
+
+    OQ-CBA-038 — which model, on whose credentials, under whose terms, and
+    whether a named person's employer and job title may be sent to a third party
+    at all — is open, so every edition gets the deterministic fixture.
+    """
+    assert isinstance(build_contact_classifier(edition), FixtureContactClassifier)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_live_contact_classifier_is_refused_under_every_edition(edition: Edition):
+    """Not only the classroom one: the refusal is about approval, not deployment."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+        build_contact_classifier(edition, use_fixture=False)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_contact_classifier_credential_fails_closed_under_every_edition(edition: Edition):
+    """No classification-model secret should exist in any project here.
+
+    Finding one means the deployment or secret binding is wrong, so this fails
+    rather than quietly ignoring the credential — ``build_email_provider``'s rule
+    for classroom secrets, widened to every edition because no edition has an
+    approved model for this seam.
+    """
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+        build_contact_classifier(edition, api_key="live-key")
+
+
+def test_allowing_live_providers_still_does_not_reach_a_live_contact_classifier():
+    """The environment gate is necessary and not sufficient.
+
+    ``ALLOW_LIVE_PROVIDERS=true`` reaches an adapter that does not exist. Worth
+    asserting because it is the flag an operator would reach for first, and the
+    thing it must not do is silently succeed.
+    """
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+        build_contact_classifier(Edition.PRODUCTION, use_fixture=False, allow_live_providers=True)
+
+
+def test_the_fixture_contact_classifier_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """§20's scope boundary, enforced by removing the ability to cross it.
+
+    "Finding new speakers on the internet" and "scraping other external sources"
+    are out of scope for this phase outright, so a classifier that grew a lookup
+    would be a scope violation before it was a provider one. It would pass every
+    behavioural test in ``test_cba_contact_classifier.py`` and fail here.
+    """
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the fixture contact classifier must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    classifier = build_contact_classifier(Edition.CLASSROOM)
+
+    assert classifier.propose(company="Reyes Analytics", title=None).proposes_anything is False
+
+
+def test_the_fixture_contact_classifier_does_not_call_itself_a_model():
+    """A dictionary and two taxonomy lookups are not a model.
+
+    ``is_model`` is what a later reader of the stored data will believe about how
+    a classification was produced, long after anybody remembers what was behind
+    this seam in September 2026.
+    """
+    assert build_contact_classifier(Edition.CLASSROOM).is_model is False
+
+
+@pytest.mark.parametrize("scope", list(ProductScope))
+def test_no_product_scope_reaches_a_live_contact_classifier(scope: ProductScope):
+    """Changing the product must not weaken this boundary either.
+
+    ``scope`` is deliberately not passed to the builder — it is not a parameter,
+    which is the assertion: ``test_product_scope_cannot_change_provider_selection``
+    above makes the same point about email and routing, and a seam that answered
+    differently per scope would be a control somebody could move by editing a
+    product definition.
+    """
+    assert enabled_capabilities(scope) is not None
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+        build_contact_classifier(Edition.PRODUCTION, use_fixture=False)
