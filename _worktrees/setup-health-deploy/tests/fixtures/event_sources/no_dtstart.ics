@@ -1,9 +1,0 @@
-BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
-BEGIN:VEVENT
-UID:synthetic-0003@example.edu
-SUMMARY:Guest Lecture - date to be announced
-DESCRIPTION:Scheduling still under discussion.
-END:VEVENT
-END:VCALENDAR

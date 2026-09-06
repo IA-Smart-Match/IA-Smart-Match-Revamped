@@ -1,9 +1,0 @@
-BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
-BEGIN:VEVENT
-UID:synthetic-0014@example.edu
-DTSTART;TZID=Mars/Olympus:20260415T160000
-SUMMARY:Astronomy Club Observing Night
-END:VEVENT
-END:VCALENDAR
