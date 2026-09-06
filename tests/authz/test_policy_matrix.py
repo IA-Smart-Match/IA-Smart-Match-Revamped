@@ -407,6 +407,16 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "invented token, which is what stops the route being an oracle for "
         "whether an address is on our list."
     ),
+    ("GET", "/i/{token}"): (
+        "The accept-or-decline page an invitation links to, and the exact "
+        "counterpart of ``GET /u/{token}``: reached from an email by somebody "
+        "who by definition has no account, so the token in the path is the "
+        "whole of it. It never changes state — a GET that recorded an answer "
+        "would have link scanners and mail-client prefetchers accepting "
+        "engagements on Speakers' behalf — and it echoes nothing back, so it is "
+        "not an oracle for whether the token is real either. The answer is the "
+        "POST below."
+    ),
     ("POST", "/v1/speaker-invitations/respond"): (
         "The Speaker's own accept or decline, reached from the link in their "
         "invitation. Public for the same structural reason `POST "
@@ -6019,6 +6029,20 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # unit's own id, so what this call permits is exactly what the route
         # reads or writes.
         "_authorize_matching_weights",
+        # The seventeenth (`routers/cba_invitations.py`), on the same terms with
+        # `_SPEAKER_INVITATION_ROLES`. One name for all five invitation
+        # operations, the `_authorize_outreach` arrangement: composing a batch,
+        # listing batches, reading one, dispatching it and recording an answer
+        # are five views of customer §13's single Speaker Connector persona, so
+        # there is one decision and it is made here.
+        #
+        # There is a second, *row-level* precondition on four of them — the
+        # batch must belong to the unit in the path, and a named recipient must
+        # be on that unit's §13 roster — and it is not a policy decision and
+        # could not be one: `evaluate` has no concept of a roster. That half is
+        # asserted over HTTP in `tests/contract/test_cba_invitations_api.py`, the
+        # division of labour `_authorize_invite_read` already uses.
+        "_authorize_speaker_invitations",
     ):
         assert_allowed(
             resolved.principal,
