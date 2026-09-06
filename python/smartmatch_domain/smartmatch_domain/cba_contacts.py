@@ -4,38 +4,72 @@ Customer §13 gives a Speaker Connector a surface for adding a professional
 contact by hand, listing the ones their unit owns, editing one, and correcting
 a classification the pipeline assigned. This module holds the half of that
 surface that is a computation rather than a write: what a valid draft is, what
-a valid correction is, and how a hand-typed name becomes the deterministic
-identity ``speaker_profile.professional_id`` needs.
+a valid correction is, and how a contact's *generated* identity spells the two
+account fields that must agree with it.
 
 It stores nothing, reaches nothing, and opens no connection — every function
 here is pure over its arguments, which the import-linter layering contract
 checks at import time (``smartmatch_domain`` may not import ``sqlalchemy``,
 ``os``, ``pathlib``, or any storage or framework package).
 
-Why this does not reuse ``synthetic_pilot``'s namespace
----------------------------------------------------------
-:mod:`smartmatch_domain.synthetic_pilot` already derives ``user_account``
-identities by ``uuid5`` from ``(tenant, unit, name)``, and reaching for it here
-would have been one import. It is the wrong import, and the reason is not
-tidiness.
+The name is a label, and the identity is opaque
+--------------------------------------------------
+**OQ-CBA-017, decided 2026-09-05.** A contact's ``professional_id`` used to be
+``uuid5(SPEAKER_CONTACT_NAMESPACE, "tenant:unit:folded_name")``, derived here.
+It is not any more, and no function in this module computes an identity at all —
+``smartmatch_persistence.cba_contacts.SpeakerContactRepository`` generates one,
+the way every other id in that package is generated.
 
-That module's identities *assert synthetic-ness*. Its prefix is
-``synthetic-professional:``, its email domain is ``synthetic.invalid``, and its
-own docstring says the accounts it creates "are synthetic … never issued a
-credential, never registered with a token verifier, and are not sign-in
-identities". Every one of those is a true statement about a row the pilot
-appliance fabricated from a spreadsheet, and a false statement about a person a
-Speaker Connector met and typed in on purpose. A real contact recorded under a
+The derivation had to go because it made a person's name load-bearing, and a
+person's name is the field most likely to be wrong. An edit that corrected a
+name did **not** move the derived key, so a row's id stopped corresponding to
+the name it carried; a later create under the corrected name then derived a
+*different* id, succeeded, and produced a second record for one person with
+nothing anywhere reporting it. Migration ``0030`` argues that at length and
+re-keys the rows the old scheme wrote.
+
+What replaced it is not a cleverer derivation. It is an id that is a function of
+nothing, so there is nothing about a person that can change and leave it stale.
+
+Why :func:`folded_contact_name` outlived the derivation that used it
+-----------------------------------------------------------------------
+The fold — ``strip()`` then ``casefold()`` — was the derivation's input, and it
+is the one part worth keeping, now for its own reason rather than the old one.
+``"Dana Reyes"``, ``"  dana reyes  "`` and ``"DANA REYES"`` are how the same
+person gets typed a second time, and the create surface now *says so* instead of
+silently resolving them to one id: it reports the same-name contacts this unit
+already holds, and creates the new one anyway.
+
+That is a hint and never a refusal. Two professionals in one department can
+genuinely share a name, and the ``409`` this replaced made the honest case
+impossible in order to prevent the rarer accident. It is also why no uniqueness
+constraint may ever be put on ``(tenant_id, owning_unit_id, full_name)`` —
+**OQ-CBA-021**, restated in migration ``0030`` and in ``schema.py`` beside the
+non-unique index that backs the hint.
+
+Why this module still does not reuse ``synthetic_pilot``'s namespace
+-----------------------------------------------------------------------
+:mod:`smartmatch_domain.synthetic_pilot` still derives ``user_account``
+identities by ``uuid5`` from ``(tenant, unit, name)``, and this module still
+does not touch it — now for a second reason on top of the original one.
+
+The original stands: that module's identities *assert synthetic-ness*. Its
+prefix is ``synthetic-professional:``, its email domain is
+``synthetic.invalid``, and its own docstring says the accounts it creates "are
+synthetic … never issued a credential, never registered with a token verifier,
+and are not sign-in identities". Every one of those is true about a row the
+pilot appliance fabricated from a spreadsheet and false about a person a Speaker
+Connector met and typed in on purpose, and a real contact recorded under a
 ``synthetic-`` prefix would be filtered out of exactly the reports that exist to
-find fabricated data, which is the worst place for a mislabel to sit: the label
-is load-bearing precisely because tooling trusts it.
+find fabricated data — the worst place for a mislabel to sit, because the label
+is load-bearing precisely when tooling trusts it.
 
-So this module keeps the *shape* — deterministic ``uuid5``, folded name, tenant
-and unit in the hash input, an ``.invalid`` email — and states its own facts.
-:data:`SPEAKER_CONTACT_NAMESPACE` is a distinct namespace, so the same name in
-the same unit derives a *different* id here than it would there: a CBA contact
-and a synthetic pilot professional are not the same person, and two identity
-schemes that collided would silently merge them.
+The second reason is that the two are no longer the same *kind* of identity.
+``synthetic_pilot``'s determinism is its replay guarantee — accepting the same
+import row twice must resolve to the same professional rather than mint a second
+— and it has no edit surface through which a rename could make that derivation
+stale. §13 has one, which is the whole story above. So the two schemes diverge
+on purpose, and migration ``0030`` records the residual as **OQ-CBA-048**.
 
 Why the email is still ``.invalid``
 --------------------------------------
@@ -81,23 +115,13 @@ from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION, sector_for_c
 
 __all__ = [
     "CONTACT_BOARD_ROLE",
-    "SPEAKER_CONTACT_NAMESPACE",
     "WITHHELD_CONTACT_EMAIL_FIELD",
     "ClassificationCorrection",
     "SpeakerContactDraft",
+    "folded_contact_name",
     "speaker_contact_email",
     "speaker_contact_external_subject",
-    "speaker_contact_subject_id",
 ]
-
-#: ``uuid5`` namespace for manually created speaker contacts. A fixed,
-#: arbitrary UUID, and deliberately **not**
-#: :data:`smartmatch_domain.synthetic_pilot.SYNTHETIC_PROFESSIONAL_NAMESPACE` —
-#: see the module docstring. Distinctness is the whole content of this
-#: constant: it is what stops a hand-entered contact and a pilot-fabricated
-#: professional with the same name in the same unit from deriving one id and
-#: silently becoming one person.
-SPEAKER_CONTACT_NAMESPACE: Final[uuid.UUID] = uuid.UUID("b74d3f01-52a8-4c6e-9d13-8e5fa0c27b64")
 
 #: ``professional_unit_relationship.board_role`` for every relationship a §13
 #: manual create writes.
@@ -119,50 +143,38 @@ CONTACT_BOARD_ROLE: Final[str] = "cba_speaker_contact"
 WITHHELD_CONTACT_EMAIL_FIELD: Final[str] = "contact_email"
 
 
-def speaker_contact_subject_id(
-    *, tenant_id: uuid.UUID, unit_id: uuid.UUID, full_name: str
-) -> uuid.UUID:
-    """Derive a stable ``user_account.id`` for a manually created contact.
+def folded_contact_name(full_name: str) -> str:
+    """Fold a contact's name the way the duplicate hint compares names.
 
-    ``uuid5(SPEAKER_CONTACT_NAMESPACE, f"{tenant_id}:{unit_id}:{folded_name}")``,
-    with ``folded_name`` being ``full_name.strip().casefold()``.
+    ``full_name.strip().casefold()``. This was the input to the identity
+    derivation OQ-CBA-017 removed, and it is now the *only* thing the fold is
+    used for: matching a name a Connector just typed against the names their
+    unit already holds, so the create can say "you may be adding somebody who
+    is already here" while still creating them.
 
-    Deterministic, so a Connector who submits the same contact twice — a
-    double-clicked form, a retried request — derives the same id rather than
-    minting a second identity for one person. Folding means ``"Dana Reyes"``,
-    ``"  dana reyes  "`` and ``"DANA REYES"`` all land on the same id, because a
-    re-typed name is the ordinary way the same person gets entered again.
+    Folding is what makes that hint useful rather than pedantic.
+    ``"Dana Reyes"``, ``"  dana reyes  "`` and ``"DANA REYES"`` are the ordinary
+    ways one person gets entered a second time, and a comparison that matched
+    only byte-identical strings would miss every one of them.
 
-    Both ``tenant_id`` and ``unit_id`` are in the hash input. ``unit_id``
-    because two departments' contacts must not collide on one ``user_account``
-    row merely because they share a name. ``tenant_id`` because
-    ``uq_user_account_external_subject`` is **globally** unique rather than
-    per-tenant — ``0007`` dropped the tenant-scoped constraint that used to
-    stand beside it — so without the tenant in the hash, two institutions'
-    identically named contacts would derive the same external subject and the
-    second one's create would fail on a constraint that names neither of them.
+    ``casefold`` rather than ``lower``, because it is the case-insensitive
+    *matching* operation — it folds ``"ß"`` to ``"ss"`` where ``lower`` leaves
+    it — and matching is what this is for. The SQL side of the same comparison
+    spells it ``lower(btrim(full_name))``, which is what
+    ``ix_speaker_profile_unit_folded_name`` indexes; the two agree on every name
+    this surface has stored, and where they could disagree the database's answer
+    is the one that decides, because the database is what runs the query.
 
-    That determinism is exactly why a second, genuinely different person with
-    the same name in the same unit cannot simply be inserted: they derive the
-    id of the first. Silently merging them and silently duplicating them are
-    both worse than refusing, so the create surface answers ``409`` and asks
-    which the caller meant. **OQ-CBA-017.**
-
-    Raises:
-        ValueError: ``full_name.strip()`` is empty. An identity derived from an
-            empty name would be the same identity for every unnamed row.
+    Returns the fold and refuses nothing. A blank name is
+    :class:`SpeakerContactDraft`'s refusal to make, and it makes it. The fold no
+    longer produces an *identity*, so a blank one is now a hint that matches
+    nothing rather than a key that would have collided across every unnamed row.
     """
-    folded_name = full_name.strip().casefold()
-    if not folded_name:
-        raise ValueError(
-            "full_name must not be blank — a contact identity derived from an "
-            "empty name would collide across every unnamed row"
-        )
-    return uuid.uuid5(SPEAKER_CONTACT_NAMESPACE, f"{tenant_id}:{unit_id}:{folded_name}")
+    return full_name.strip().casefold()
 
 
 def speaker_contact_external_subject(subject_id: uuid.UUID) -> str:
-    """Derive ``user_account.external_subject`` from an already-derived subject id.
+    """Spell ``user_account.external_subject`` for a contact's generated subject id.
 
     Prefixed ``"contact-professional:"``, which says two true things and no
     false ones: this identity belongs to a professional contact, and no
@@ -171,16 +183,23 @@ def speaker_contact_external_subject(subject_id: uuid.UUID) -> str:
     data, and the tooling that filters on that prefix would be wrong about this
     row.
 
-    Derived *from* ``subject_id`` rather than computed independently, so the two
-    can never disagree. ``ProfessionalIdentityRepository.ensure_account``
-    depends on exactly that: its ``ON CONFLICT`` targets ``user_account_pkey``,
-    which is correct only while every caller keeps this derivation discipline.
+    Computed *from* ``subject_id`` rather than independently, so the two can
+    never disagree. ``ProfessionalIdentityRepository.ensure_account`` depends on
+    exactly that: its ``ON CONFLICT`` targets ``user_account_pkey``, which is
+    correct only while every caller keeps this discipline. Migration ``0030``'s
+    re-key keeps it too — it re-spells the subject from the *new* id rather than
+    carrying the old string across, because an account whose subject still
+    encoded its previous id would state two identities.
+
+    ``subject_id`` is now generated rather than derived from a name, and that
+    changes nothing here: this function was always a function of the id and
+    never of the person.
     """
     return f"contact-professional:{subject_id}"
 
 
 def speaker_contact_email(subject_id: uuid.UUID) -> str:
-    """Derive the placeholder ``user_account.email`` from an already-derived subject id.
+    """Spell the placeholder ``user_account.email`` for a contact's generated subject id.
 
     On the RFC 2606 reserved ``.invalid`` TLD, so it is undeliverable by
     construction rather than by a rule somebody has to remember. ``email`` is
