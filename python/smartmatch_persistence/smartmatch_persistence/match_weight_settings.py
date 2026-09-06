@@ -56,6 +56,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import sqlalchemy as sa
 from smartmatch_domain.weight_settings import (
@@ -342,7 +343,7 @@ class MatchWeightSettingRepository:
         )
 
     @staticmethod
-    def _to_record(row: sa.Row) -> MatchWeightSettingRecord:
+    def _to_record(row: sa.Row[Any]) -> MatchWeightSettingRecord:
         overrides, ignored = _split_stored_overrides(row.overrides)
         return MatchWeightSettingRecord(
             id=row.id,
