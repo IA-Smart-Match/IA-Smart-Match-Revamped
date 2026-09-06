@@ -113,11 +113,14 @@ approximated. A shortlist that did not come from the recorded inputs is a
 recommendation about a different problem, and showing one under this run's id
 would be worse than showing none.
 
-This is local, deterministic, bounded computation: no network call, no
-provider, no LLM, and a pool capped at :data:`MAX_CANDIDATES`. The request path
-still cannot reach out (``tests/unit/test_no_external_calls_on_request_path.py``
-pins that structurally), and ``ALLOW_LIVE_PROVIDERS`` is neither consulted nor
-relevant here.
+The read is local, deterministic, bounded computation: no network call, no
+provider at all, no LLM, and a pool capped at :data:`MAX_CANDIDATES`. The write
+constructs exactly one provider — the §9 topic comparator, which is the
+playback fixture and opens no socket — and neither path can reach out
+(``tests/unit/test_no_external_calls_on_request_path.py`` pins that
+structurally, by refusing any HTTP client import under ``services/api``).
+``ALLOW_LIVE_PROVIDERS`` is a necessary gate for that provider and explicitly
+not a sufficient one: there is no live adapter behind it (OQ-CBA-026).
 
 ## The presentation rules are ratified, not chosen here
 
