@@ -4,7 +4,7 @@
  * Three sections, in this order, and the order is the requirement:
  *
  *   1. **Browse events** — the unit's published catalog.
- *   2. **Your agenda** — the events this student is recorded at.
+ *   2. **Your agenda** — the events this student has registered for or is recorded at.
  *   3. **Month calendar** — last, at the bottom of the page.
  *
  * §15's "Events page requirement" is one sentence: *keep the month calendar at
@@ -42,30 +42,45 @@
  * appears only where the download works — the opposite of B07, whose whole
  * defect was a control that reported success it had not observed.
  *
- * ## B06 — "Register" is a label this page does not use
+ * ## B06 — Register, with a command behind it at last
  *
  * `docs/plans/frontend-broken-buttons.md` B06 records a **Register** button
  * that navigated to this page and created nothing, and its instruction: a real
- * idempotent registration command, "or the label must say 'View events'". There
- * is no registration command, because there is no registration table and this
- * card added no migration — `attendance_record` is attendance, and ADR-0013
- * makes it the only input to points, so a row written when somebody registers
- * would credit them for an event they never attended.
+ * idempotent registration command, "or the label must say 'View events'". The
+ * page took the second option for one card, because there was no registration
+ * table and no route to call — `attendance_record` is attendance, and ADR-0013
+ * makes it the only input to points, so a row written when somebody registered
+ * would have credited them for an event they never attended.
  *
- * So this page has no Register button, no "Save my place", and no client-side
- * set of chosen events. It says **"You are recorded at"** where a mock would
- * have said "registered", because that is what an `attendance_record` means.
- * The gap is OQ-CBA-018, and `tests/integration/test_event_registration.py`
- * fails the day a registration surface appears without it being answered.
+ * Migration `0026` gave a registration its own table and this control its
+ * command. Three properties are what make it real rather than a better-looking
+ * toast:
+ *
+ * 1. **It reflects server state, never its own.** There is no browser-held set
+ *    of chosen events. Each event's `registration` comes from the server on
+ *    every read, and after a write the page re-runs both reads and renders what
+ *    came back. If a write did not persist, the control returns to its previous
+ *    state on screen — which is exactly the feedback B07's toast withheld.
+ * 2. **It reports failure.** A refused write puts the server's own message on
+ *    the card. Nothing is optimistically flipped and then quietly left wrong.
+ * 3. **Clicking twice is safe.** The server's uniqueness on
+ *    (tenant, subject, event) makes a second Register the same registration, so
+ *    the control is disabled only while a request is in flight — to avoid
+ *    pointless traffic, not because a repeat would break anything.
+ *
+ * "You are recorded at" survives as the wording for an `attendance_record`,
+ * because the two links remain different facts: a student can be recorded at an
+ * event they never registered for, and `on_my_agenda` is the union of both.
  *
  * ## B09 — the grid is real, and still inert
  *
  * The old month grid was `MockStudentCalendar`: fabricated cells, no data, no
  * behaviour. This one is drawn from the events above it and marks the days that
- * have one. Its cells remain non-interactive, and deliberately: the action a
- * cell would offer is registration, which does not exist. A day that opened a
- * dialog with a disabled button would be a worse answer than a day that opens
- * nothing.
+ * have one. Its cells remain non-interactive — OQ-CBA-020, which asked whether a
+ * day should open or filter anything, is still open. Registration existing
+ * changes what a cell *could* offer without deciding what it should, and adding
+ * a click target because one is now technically possible is how a page acquires
+ * behaviour nobody specified.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -73,8 +88,10 @@ import { CalendarDays, CalendarX2, Download, Info, MapPin, Video } from "lucide-
 
 import {
   ApiRequestError,
+  cancelEventRegistration,
   fetchStudentAgenda,
   fetchStudentEvents,
+  registerForEvent,
   type StudentEvent,
 } from "../../../lib/api";
 import { grantedPortal } from "../../components/PortalGate";
@@ -89,8 +106,13 @@ const CALENDAR_REASON_TEXT: Record<string, string> = {
   event_end_unknown:
     "No end time is recorded for this event, and a calendar entry needs one. " +
     "SmartMatch does not guess a length.",
-  event_not_on_your_agenda: "Calendar files are available for events you are recorded at.",
+  event_not_on_your_agenda:
+    "Calendar files are available for events you have registered for, or are recorded at. " +
+    "Register above and this becomes a download.",
 };
+
+/** `event_registration.status` — the server's two values, mirrored for comparison. */
+const REGISTERED = "registered";
 
 /**
  * The day an event falls on, as `YYYY-MM-DD` in the event's **own** zone.
@@ -136,10 +158,61 @@ function whenText(event: StudentEvent): string {
   return "Date not yet announced";
 }
 
-/** One event, with whatever calendar control the server said it has. */
-function EventCard({ event }: { event: StudentEvent }) {
+/**
+ * One event, with whatever calendar control the server said it has and a
+ * register/cancel control driven by the server's own registration row.
+ *
+ * `unitId` and `onChanged` are passed in rather than reached for: the card does
+ * the write and the page owns the reload, so there is exactly one place that
+ * decides what "the current state" is — the two reads — and the card cannot
+ * drift into keeping a second answer of its own.
+ */
+function EventCard({
+  event,
+  unitId,
+  onChanged,
+}: {
+  event: StudentEvent;
+  unitId: string;
+  onChanged: () => Promise<void>;
+}) {
   const reason = event.calendar.unavailable_reason;
   const place = [event.location_city, event.location_postal_code].filter(Boolean).join(" ");
+
+  // Only "a request is in flight" and "the last one was refused" live here.
+  // Neither is a copy of server state: the first is about this browser and the
+  // second is the server's own message. Whether a place is held is read from
+  // `event.registration` on every render, so there is nothing here for a failed
+  // write to leave stale.
+  const [pending, setPending] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
+
+  const holdsPlace = event.registration?.status === REGISTERED;
+
+  const submit = async () => {
+    setPending(true);
+    setWriteError(null);
+    try {
+      if (holdsPlace) {
+        await cancelEventRegistration(unitId, event.id);
+      } else {
+        await registerForEvent(unitId, event.id);
+      }
+      // The reload is the success signal, and the only one. Nothing is flipped
+      // locally first: if the write did not persist, the lists come back saying
+      // so and the button is still where it was.
+      await onChanged();
+    } catch (cause) {
+      setWriteError(
+        cause instanceof ApiRequestError
+          ? cause.message
+          : "That could not be saved and the server gave no reason.",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <li className="rounded-xl border border-border/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -157,7 +230,23 @@ function EventCard({ event }: { event: StudentEvent }) {
                 {place}
               </span>
             )}
-            {event.on_my_agenda ? <span>You are recorded at this event</span> : null}
+            {/*
+              Two different facts, said differently. A registration is something
+              this student did; being recorded at an event is something their
+              department did — a scan, a coordinator entry, an imported roster —
+              and it can be true of an event they never registered for. Merging
+              the two into one "on your agenda" badge would hide which one a
+              student is actually looking at, and only one of them is theirs to
+              undo.
+            */}
+            {holdsPlace ? (
+              <span>You have registered for this event</span>
+            ) : event.registration === null ? null : (
+              <span>You cancelled your registration for this event</span>
+            )}
+            {event.on_my_agenda && !holdsPlace ? (
+              <span>You are recorded at this event</span>
+            ) : null}
           </p>
         </div>
 
@@ -167,22 +256,53 @@ function EventCard({ event }: { event: StudentEvent }) {
           URL — both would be a second opinion about a rule that lives in
           `routers/calendar.py`.
         */}
-        {event.calendar.available && event.calendar.download_path !== null ? (
-          <a
-            href={event.calendar.download_path}
-            className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground"
+        <div className="flex flex-col items-end gap-2">
+          {/*
+            The Register control (B06). Its label is read from
+            `event.registration`, which the server sent — not from anything this
+            component remembers about having been clicked.
+          */}
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={pending}
+            aria-busy={pending}
+            className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground disabled:opacity-60"
           >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Download .ics
-          </a>
-        ) : (
-          <p className="max-w-xs text-xs leading-5 text-muted-foreground">
-            {reason === null
-              ? "No calendar file is available for this event."
-              : (CALENDAR_REASON_TEXT[reason] ?? reason)}
-          </p>
-        )}
+            {pending ? "Saving…" : holdsPlace ? "Cancel registration" : "Register"}
+          </button>
+
+          {event.calendar.available && event.calendar.download_path !== null ? (
+            <a
+              href={event.calendar.download_path}
+              className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Download .ics
+            </a>
+          ) : (
+            <p className="max-w-xs text-right text-xs leading-5 text-muted-foreground">
+              {reason === null
+                ? "No calendar file is available for this event."
+                : (CALENDAR_REASON_TEXT[reason] ?? reason)}
+            </p>
+          )}
+        </div>
       </div>
+
+      {/*
+        The server's own words, on the card the write was attempted from. A
+        refusal a student never sees is the same defect as a success that never
+        happened.
+      */}
+      {writeError === null ? null : (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-foreground"
+        >
+          {writeError}
+        </p>
+      )}
 
       {event.description === null ? null : (
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{event.description}</p>
@@ -265,8 +385,9 @@ function MonthCalendar({ events }: { events: StudentEvent[] }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        The same events as the lists above, laid out by date. Days are marked, not clickable — the
-        only action a day could offer is signing up, and this deployment has no sign-up.
+        The same events as the lists above, laid out by date. Days are marked, not clickable:
+        whether a day should open or filter anything is still an open question, and registering is
+        done from the lists above.
       </p>
 
       <div className="grid grid-cols-7 gap-1 text-center text-xs">
@@ -374,7 +495,7 @@ export function StudentEvents() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-foreground">Events</h1>
         <p className="text-sm text-muted-foreground">
-          What your department has published, and what you are recorded at.
+          What your department has published, and what you have registered for or are recorded at.
         </p>
         <p className="text-xs text-muted-foreground">
           Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
@@ -411,7 +532,12 @@ export function StudentEvents() {
               <>
                 <ul className="space-y-3">
                   {published.map((event) => (
-                    <EventCard key={event.id} event={event} />
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      unitId={unitId}
+                      onChanged={load}
+                    />
                   ))}
                 </ul>
                 {withheldUnpublished === 0 ? null : (
@@ -433,16 +559,21 @@ export function StudentEvents() {
               <p className="flex items-start gap-2 rounded-xl border border-border/70 p-4 text-sm text-muted-foreground">
                 <CalendarX2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
-                  You are not recorded at any events in this department yet. This list shows events
-                  your department has recorded you at — signing up for one is not something this
-                  deployment can do.
+                  Nothing is on your agenda in this department yet. This list shows events you have
+                  registered for, plus any your department has recorded you at — register from
+                  Browse events above and it will appear here.
                 </span>
               </p>
             ) : (
               <>
                 <ul className="space-y-3">
                   {agenda.map((event) => (
-                    <EventCard key={event.id} event={event} />
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      unitId={unitId}
+                      onChanged={load}
+                    />
                   ))}
                 </ul>
                 {withheldUndated === 0 ? null : (
