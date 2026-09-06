@@ -195,13 +195,22 @@ class SkipReason(StrEnum):
     #: The channel is active but the consent behind it came from a source that
     #: can never authorize a send — scraped, purchased, inferred.
     CONSENT_SOURCE_NOT_APPROVED = "consent_source_not_approved"
-    #: The same recipient was named twice in one request. Reported rather than
-    #: silently folded, so the count a Connector sees matches the list they sent.
-    DUPLICATE_IN_REQUEST = "duplicate_in_request"
-    #: This batch was replayed under its original idempotency key and this
-    #: recipient already holds an invitation from the first submission. Not an
-    #: error and not a second invitation — see the batch route.
-    ALREADY_INVITED = "already_invited"
+
+    # **There is deliberately no `duplicate_in_request` value, and no
+    # `already_invited`.** Both look like skips and neither is one.
+    #
+    # A person named twice in one request cannot hold two outcome rows —
+    # `uq_cba_invitation_batch_recipient` is one row per person per batch, which
+    # is the constraint that makes a replayed batch safe — so a "duplicate" skip
+    # would have nowhere to live, and folding the second mention silently would
+    # return fewer outcomes than the Connector sent. The route refuses the
+    # request instead, naming the repeated ids: a list with a name twice in it is
+    # a list somebody should look at before anything is sent.
+    #
+    # `already_invited` would describe a replay, and a replay composes nothing
+    # and reports the *first* submission's outcomes unchanged. A skip reason
+    # invented for it would be this system narrating its own idempotency into
+    # rows that already say what happened.
 
 
 class InvitationResponseConflict(ValueError):

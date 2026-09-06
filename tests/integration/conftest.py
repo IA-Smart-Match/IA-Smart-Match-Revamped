@@ -75,6 +75,17 @@ _TENANT_SCOPED_TABLES = (
     # rows are immutable: 0018 blocks UPDATE only, because retention is a
     # question that card does not decide and a table nothing could delete from
     # would make its tenant undeletable.
+    # Migration 0029, and the most heavily referenced pair in this tuple: an
+    # invitation holds ON DELETE RESTRICT references to `org_unit`,
+    # `contact_channel`, `outreach_draft`, `job` and `user_account`, and its
+    # batch holds them to `org_unit`, `match_run` and `user_account`. So both go
+    # above every one of those, `match_run` included — which is why they are
+    # listed here rather than beside the 0021 outreach tables they also
+    # reference. Getting this wrong is precisely the ordering failure PR #26 had
+    # to fix for `match_run`/`job`, and it was found here the same way: the
+    # teardown's `job` sweep failed on a foreign key from a row a test left.
+    "cba_invitation",
+    "cba_invitation_batch",
     "match_run",
     # Migration 0021, in dependency order among themselves and all before
     # `job`, which `outreach_send` references ON DELETE RESTRICT — the same
@@ -210,6 +221,18 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
         # `outreach_send` in turn.
         conn.execute(text("DELETE FROM delivery_event"))
         conn.execute(text("DELETE FROM outreach_send"))
+        # Migration 0029, for the third time the same reason: `cba_invitation`
+        # holds an ON DELETE RESTRICT foreign key to `job`, so an invitation left
+        # behind by an aborted earlier run makes the `DELETE FROM job` below fail
+        # in *every* integration test, including all of the ones written before
+        # invitations existed. That is how this line was found.
+        #
+        # Only the invitation, not its batch: the batch references `match_run`
+        # and `org_unit` rather than `job`, so it is a tenant-scoped row and
+        # `_TENANT_SCOPED_TABLES` is where it belongs. Clearing it globally here
+        # would delete another test's batch while its own tenant fixture still
+        # expects it.
+        conn.execute(text("DELETE FROM cba_invitation"))
         conn.execute(text("DELETE FROM job"))
     yield
 

@@ -651,6 +651,44 @@ def _require_idempotency_key(idempotency_key: str | None) -> str:
     return idempotency_key.strip()
 
 
+def _require_distinct_recipients(professional_ids: list[uuid.UUID]) -> None:
+    """Raise 400 when the same person is named more than once.
+
+    Refused rather than folded, and the choice is not fussiness. A batch holds
+    one outcome per person — ``uq_cba_invitation_batch_recipient``, which is the
+    constraint that makes a replay safe — so a repeated name has nowhere to
+    produce a second outcome, and quietly dropping it would return fewer
+    outcomes than the Connector sent. That is the silent shrink this surface is
+    arranged against, and a list with a name twice in it is a list somebody
+    should look at before anything is sent.
+
+    The repeated ids are named in the message, because "your list has a
+    duplicate" without saying which one makes a Connector re-read twelve UUIDs.
+
+    Raises:
+        ApiError: 400, naming every id that appears more than once.
+    """
+    seen: set[uuid.UUID] = set()
+    repeated: list[uuid.UUID] = []
+    for professional_id in professional_ids:
+        if professional_id in seen and professional_id not in repeated:
+            repeated.append(professional_id)
+        seen.add(professional_id)
+
+    if repeated:
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="speaker_invitation_duplicate_recipient",
+            message=(
+                "The same person is named more than once: "
+                f"{', '.join(str(pid) for pid in repeated)}. A batch holds one "
+                "outcome per person, so a repeat has no second outcome to "
+                "report — and dropping it silently would hand back a shorter "
+                "list than the one submitted. Nothing was composed."
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Compose a batch
 # ---------------------------------------------------------------------------
@@ -696,12 +734,15 @@ def create_invitation_batch(
 
     Raises:
         ApiError: 404 when the unit does not exist in this tenant; 400 when the
-            idempotency key is missing.
+            idempotency key is missing, or when the same person is named twice
+            (see :func:`_require_distinct_recipients` — a repeat has no second
+            outcome to report, and dropping it would shorten the answer).
     """
     charge_quota(session, principal, INVITATION_BATCH_RATE_LIMIT)
 
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     key = _require_idempotency_key(idempotency_key)
+    _require_distinct_recipients(body.professional_ids)
 
     reservation = _invites.reserve_batch(
         session,
@@ -723,20 +764,7 @@ def create_invitation_batch(
         # changed since.
         return _batch_response(session, principal, batch_id=reservation.batch.id, replayed=True)
 
-    seen: set[uuid.UUID] = set()
     for professional_id in body.professional_ids:
-        if professional_id in seen:
-            _skip(
-                session,
-                principal,
-                unit_id=unit.id,
-                batch_id=reservation.batch.id,
-                professional_id=professional_id,
-                reason=SkipReason.DUPLICATE_IN_REQUEST,
-            )
-            continue
-        seen.add(professional_id)
-
         _compose_one(
             session,
             principal,
