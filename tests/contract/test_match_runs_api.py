@@ -302,7 +302,7 @@ def test_the_submission_reports_which_candidates_could_be_scored(match_context) 
     assert body["unscorable_candidates"] == 1
     # This surface scores with the superseded two-factor composition
     # (`rank_candidates`), so it reports that rulebook's pin. Migrating the
-    # request body to CBA evidence is OQ-CBA-029; until then a run submitted
+    # request body to CBA evidence is OQ-CBA-031; until then a run submitted
     # here is honestly a 1.x run and says so, rather than borrowing the 2.0.0
     # label from a registry whose four factors it never computed.
     assert body["registry_version"] == SUPERSEDED_REGISTRY_VERSION

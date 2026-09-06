@@ -763,7 +763,7 @@ def create_match_run(
             #
             # Migrating this surface to `rank_cba_candidates` needs industry,
             # role, topic-evidence and location on the request body, which is a
-            # request-schema change and therefore its own card: OQ-CBA-029.
+            # request-schema change and therefore its own card: OQ-CBA-031.
             "scoring_mode": ranked[0].scoring_mode if ranked else None,
             "explanations": [explanation_to_payload(item) for item in explanations],
         },

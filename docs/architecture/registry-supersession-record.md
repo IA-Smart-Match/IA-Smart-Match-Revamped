@@ -128,7 +128,7 @@ customer §9 has a stated policy about.
   move without that being a change to the bands.
 * **The HTTP match-run surface** has not migrated. It still scores with the
   superseded composition and still produces `1.1.1-approved-g1-m6j` runs — see
-  OQ-CBA-029. That is deliberate and recorded rather than papered over: the
+  OQ-CBA-031. That is deliberate and recorded rather than papered over: the
   route writes `scoring_mode: null`, so a stored run's weights are always the
   ones that touched its numbers.
 
@@ -136,10 +136,10 @@ customer §9 has a stated policy about.
 
 | ID | What is unresolved |
 |---|---|
-| OQ-CBA-024 | How a city/ZIP becomes a coordinate. Owner steer is a static offline ZIP-centroid table; not built, because the goldens supply distances directly. Blocks OQ-CBA-029. |
+| OQ-CBA-024 | How a city/ZIP becomes a coordinate. Owner steer is a static offline ZIP-centroid table; not built, because the goldens supply distances directly. Blocks OQ-CBA-031. |
 | OQ-CBA-025 | *Deletion* of the retired factors. Coexist is implemented; retirement still waits on no pinned run referencing them. |
 | OQ-CBA-028 | `scoring_mode` as a `match_run` column. Recoverable from the payload today, but not queryable. Needs DDL. |
-| OQ-CBA-029 | Migrating the HTTP surface to CBA evidence. A request-schema change, dependent on OQ-CBA-024. |
+| OQ-CBA-031 | Migrating the HTTP surface to CBA evidence. A request-schema change, dependent on OQ-CBA-024. |
 
 ## Where the guarantees are asserted
 
