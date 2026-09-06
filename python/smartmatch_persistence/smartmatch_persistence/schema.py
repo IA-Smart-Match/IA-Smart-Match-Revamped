@@ -54,6 +54,8 @@ __all__ = [
     "job",
     "job_event",
     "match_run",
+    "match_weight_setting",
+    "match_weight_setting_revision",
     "membership",
     "org_unit",
     "outbox_record",
@@ -2154,4 +2156,108 @@ event_registration = sa.Table(
         "status IN ('registered','cancelled')",
         name="ck_event_registration_status",
     ),
+)
+
+
+match_weight_setting = sa.Table(
+    "match_weight_setting",
+    METADATA,
+    # Migration 0027, customer §5's "one configurable location". What this row
+    # holds is *overrides* and nothing else: a factor key absent from
+    # `overrides` has no stored weight anywhere in this database, and its value
+    # is read from `smartmatch_domain.factor_registry` at scoring time.
+    #
+    # That absence is the design, not an omission. A row seeded with all four
+    # approved weights would be a second copy of ADR-0016's figures, and the two
+    # copies would disagree the first time either changed with nothing able to
+    # say which one scored a run. So there is no server default naming a weight
+    # here, and clearing an override deletes the entry rather than writing the
+    # registry value back.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as import_batch.owning_unit_id and event_registration's are:
+    # the unit whose matching this configures.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # A JSON object, possibly empty. `{}` is a unit that configured something
+    # and then reset it -- which has an author and a timestamp that a unit with
+    # no row at all does not, so the two states stay distinguishable.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    # Monotonic from 1. What a client echoes back to say which version it meant
+    # to modify, so two Connectors editing one unit's weights cannot silently
+    # overwrite each other.
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("updated_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_pkey"),
+    # One weighting per unit, not a most-recent one.
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", name="uq_match_weight_setting_unit"),
+    # RESTRICT: reorganizing a unit must not silently delete its configuration.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: deleting an account must not erase the authorship of a change
+    # it made.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "updated_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # An object, so `{}` is admissible and a bare array or scalar is not. It
+    # says nothing about which keys or values are acceptable: a CHECK cannot see
+    # the registry, and encoding the factor vocabulary in DDL would make this
+    # one more place a factor key is written down.
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_version"),
+)
+
+
+match_weight_setting_revision = sa.Table(
+    "match_weight_setting_revision",
+    METADATA,
+    # Migration 0027. One insert-only row per accepted change, so "what is in
+    # force and who set it" (the table above) is joined by "and what was it
+    # before". Held immutable by the `match_weight_setting_revision_is_immutable`
+    # trigger, which is 0018's device for 0018's reason: a CHECK cannot express
+    # "this row may not change", and a log that survives a hand-written UPDATE
+    # is the only kind worth keeping.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The state this change put the unit into, in full rather than as a diff: a
+    # diff is only readable next to the row it applies to, and the row it
+    # applies to is the one that moved.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("changed_by_user_id", _UUID, nullable=False),
+    sa.Column("changed_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_revision_pkey"),
+    # One row per version per unit -- also this log's idempotency, so a re-driven
+    # write cannot append a second entry claiming a change that happened once.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "version",
+        name="uq_match_weight_setting_revision_version",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "changed_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_revision_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_revision_version"),
 )

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -93,10 +94,10 @@ def test_a_partial_override_leaves_every_other_factor_on_its_registry_share() ->
     applied = applied_weights(overrides, model=CBA_PHYSICAL_MODEL)
 
     others = [key for key in defaults if key != INDUSTRY_MATCH_FACTOR_KEY]
-    for left, right in zip(others, others[1:], strict=False):
-        assert applied[left] * defaults[right] == pytest.approx(
-            applied[right] * defaults[left]
-        ), "un-overridden factors must keep the registry's ratios"
+    for left, right in pairwise(others):
+        assert applied[left] * defaults[right] == pytest.approx(applied[right] * defaults[left]), (
+            "un-overridden factors must keep the registry's ratios"
+        )
 
 
 def test_applied_weights_always_sum_to_one() -> None:
@@ -186,7 +187,7 @@ def test_a_set_that_only_breaks_the_virtual_model_is_still_refused() -> None:
 
 
 def test_an_empty_proposal_is_accepted_as_a_reset() -> None:
-    """"Use the approved weights" is not the same request as "score nothing"."""
+    """Asking for the approved weights is not the same as asking to score nothing."""
     assert dict(validate_weight_overrides({})) == {}
 
 
