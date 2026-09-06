@@ -223,8 +223,36 @@ class MatchRunPins:
             and not merely the one that happened to be loaded.
         route_estimate_source: One of :data:`ROUTE_ESTIMATE_SOURCES`.
         route_estimate_version: The formula or provider version behind that
-            source — today
-            :data:`smartmatch_domain.factors.travel_burden.TRAVEL_BURDEN_FORMULA_VERSION`.
+            source —
+            :data:`smartmatch_domain.factors.travel_burden.TRAVEL_BURDEN_FORMULA_VERSION`
+            for a run pinned to the superseded registry, and
+            :data:`smartmatch_domain.factors.proximity.CBA_PROXIMITY_FORMULA_VERSION`
+            for a CBA one.
+        scoring_mode: ADR-0016 Proposal 9's second pin —
+            ``"cba-physical-1"``, ``"cba-virtual-1"``, or ``None`` for a
+            pre-ADR-0016 run. **A mode is never a registry version and a
+            registry version is never a mode.** ``registry_version`` answers
+            "which rulebook"; this answers "which of its models", and
+            conflating them would make ``cba-virtual-1`` look like a different
+            rulebook and mint a registry version per event shape.
+
+            Optional rather than required, and ``None`` rather than defaulted,
+            because a pre-ADR-0016 run genuinely has no mode: reading such a
+            run as ``cba-physical-1`` would claim a proximity factor was scored
+            under a rulebook that had no modes at all.
+
+            **Not persisted on the ``match_run`` row.** That table (migration
+            ``0018``) has no column for it and this card adds no DDL, so the
+            durable record of a run's mode is the job summary event and the
+            stored explanation payload, plus ``registry_hash`` — which differs
+            between the two modes by construction, because they apply different
+            weight sets. Giving the mode its own column is OQ-CBA-028, and
+            until it lands the mode is recoverable but not queryable.
+        scoring_mode_version: The mode vocabulary's version
+            (:data:`smartmatch_domain.factor_registry.SCORING_MODE_VERSION`),
+            set exactly when :attr:`scoring_mode` is, so a stored
+            ``cba-virtual-1`` is never re-read under a later definition of that
+            name.
     """
 
     #: Checked for blankness by :meth:`__post_init__`. A ``ClassVar``, so the
@@ -248,6 +276,8 @@ class MatchRunPins:
     solver_version: str
     route_estimate_source: str
     route_estimate_version: str
+    scoring_mode: str | None = None
+    scoring_mode_version: str | None = None
 
     def __post_init__(self) -> None:
         """Reject a blank pin, and an unrecognised route-estimate source.
@@ -269,5 +299,22 @@ class MatchRunPins:
                 "route_estimate_source: must be one of "
                 f"{sorted(ROUTE_ESTIMATE_SOURCES)}, got {self.route_estimate_source!r}"
             )
+        # Either both mode pins or neither. A mode with no version cannot be
+        # re-read under the definition it actually used, and a version naming
+        # no mode is a version of nothing — both are unrecordable in the same
+        # sense a blank registry_version is, so both fail here rather than
+        # years later.
+        if (self.scoring_mode is None) != (self.scoring_mode_version is None):
+            problems.append(
+                "scoring_mode and scoring_mode_version: must be set or unset together; "
+                f"got {self.scoring_mode!r} and {self.scoring_mode_version!r}"
+            )
+        for name in ("scoring_mode", "scoring_mode_version"):
+            value = getattr(self, name)
+            if value is not None and not value.strip():
+                problems.append(
+                    f"{name}: must be a non-blank string or None; a blank is neither a "
+                    "mode nor the honest absence of one"
+                )
         if problems:
             raise ValueError("; ".join(problems))

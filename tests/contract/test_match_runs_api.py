@@ -40,7 +40,7 @@ from smartmatch_domain.explanation import (
     MIN_SHORTLIST_SIZE,
     SCORE_PROVENANCE_LABEL,
 )
-from smartmatch_domain.factor_registry import REGISTRY_VERSION
+from smartmatch_domain.factor_registry import REGISTRY_VERSION, SUPERSEDED_REGISTRY_VERSION
 from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
@@ -300,7 +300,13 @@ def test_the_submission_reports_which_candidates_could_be_scored(match_context) 
 
     assert body["scored_candidates"] == 3
     assert body["unscorable_candidates"] == 1
-    assert body["registry_version"] == REGISTRY_VERSION
+    # This surface scores with the superseded two-factor composition
+    # (`rank_candidates`), so it reports that rulebook's pin. Migrating the
+    # request body to CBA evidence is OQ-CBA-031; until then a run submitted
+    # here is honestly a 1.x run and says so, rather than borrowing the 2.0.0
+    # label from a registry whose four factors it never computed.
+    assert body["registry_version"] == SUPERSEDED_REGISTRY_VERSION
+    assert body["registry_version"] != REGISTRY_VERSION
     assert body["score_label"] == SCORE_PROVENANCE_LABEL
 
 
@@ -416,13 +422,17 @@ def test_every_score_on_the_read_carries_its_label_and_its_registry_version(
     _, run = _submit_and_execute(match_context, engine)
 
     assert run["score_label"] == SCORE_PROVENANCE_LABEL == "heuristic score"
-    assert run["registry_version"] == REGISTRY_VERSION
+    assert run["registry_version"] == SUPERSEDED_REGISTRY_VERSION
 
     scored = run["shortlist"] + run["considered"] + run["unscorable"]
     assert scored, "the read returned no candidates at all"
     for entry in scored:
         assert entry["score_label"] == SCORE_PROVENANCE_LABEL
-        assert entry["registry_version"] == REGISTRY_VERSION
+        # Every score says which rulebook produced it, and after the 2.0.0
+        # bump that is the sharpest form of the rule: the stored pin is the
+        # one the score was produced under, never today's.
+        assert entry["registry_version"] == SUPERSEDED_REGISTRY_VERSION
+        assert entry["registry_version"] != REGISTRY_VERSION
 
 
 def test_the_read_reports_the_pins_the_snapshot_recorded(match_context, engine) -> None:

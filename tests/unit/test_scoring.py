@@ -6,6 +6,7 @@ import pytest
 from smartmatch_domain import factor_registry, scoring
 from smartmatch_domain.factor_registry import (
     REGISTRY_VERSION,
+    SUPERSEDED_REGISTRY_VERSION,
     RegistryNotApprovedError,
     RegistryNotReadyError,
 )
@@ -223,10 +224,22 @@ def test_duplicate_subject_id_is_rejected():
 
 
 def test_result_records_registry_and_formula_versions():
+    """``score_candidate`` is the superseded composition and says so.
+
+    It composes ``topic_relevance`` and ``travel_burden``, which is the
+    rulebook ``1.1.1-approved-g1-m6j`` declares, so that is the pin it records
+    — *not* today's ``REGISTRY_VERSION``. Labelling a two-factor score 2.0.0
+    would make it look comparable against a CBA four-factor score, which is
+    exactly what the major bump exists to prevent.
+    """
     result = score_candidate(_evidence("SYNTH-PRO-VERSIONS"))
-    assert result.registry_version == REGISTRY_VERSION
+    assert result.registry_version == SUPERSEDED_REGISTRY_VERSION
     assert result.registry_version == "1.1.1-approved-g1-m6j"
+    assert result.registry_version != REGISTRY_VERSION
     assert result.formula_version == STAGE_B_FORMULA_VERSION
+    # No mode: the vocabulary postdates this composition (ADR-0016 Proposal 7).
+    assert result.scoring_mode is None
+    assert result.scoring_mode_version is None
 
 
 def test_scoring_raises_when_the_registry_is_not_approved(monkeypatch):
@@ -261,7 +274,10 @@ def test_scoring_raises_when_applied_weights_outrun_computed_factor_scores(monke
     monkeypatch.setattr(
         scoring,
         "normalize_weights",
-        lambda weight_overrides=None: {
+        # ``model`` is accepted and ignored: this stub stands in for a registry
+        # that widened its weight map, and the point is that scoring must fail
+        # closed whichever model asked for the widened map.
+        lambda weight_overrides=None, *, model=None: {
             "topic_relevance": 0.5,
             "travel_burden": 0.3,
             "role_fit": 0.2,
