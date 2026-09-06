@@ -47,6 +47,7 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_respo
 from smartmatch_api.routers import (
     auth,
     calendar,
+    cba_contact_channels,
     cba_contacts,
     engagement,
     events,
@@ -388,6 +389,20 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # names. A product without consented outreach has no contact channels to
     # administer.
     (outreach_contacts.router, Capability.CONSENTED_OUTREACH),
+    # The §13 roster's channels — the one place a Speaker Connector's contact
+    # *record* can acquire a contact *channel*. `CONSENTED_OUTREACH` rather than
+    # `SPEAKER_CONTACT_MANAGEMENT`, and the split is the same one the
+    # `cba_contacts` note above draws, applied honestly in the other direction:
+    # a deployment that offers the roster with outreach switched off should get
+    # the roster and no way to make anybody writable-to, which is precisely what
+    # gating these three here produces. Classifying them with the roster would
+    # have handed a consent surface to every deployment that wanted a directory.
+    #
+    # They still authorize through `cba_contacts._authorize_speaker_contacts`,
+    # so the capability flag and the role gate answer two different questions:
+    # whether this product includes consent management at all, and whether this
+    # caller may exercise it on this unit.
+    (cba_contact_channels.router, Capability.CONSENTED_OUTREACH),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
