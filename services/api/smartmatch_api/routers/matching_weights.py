@@ -68,6 +68,17 @@ rather than against a response.
 It also does not re-run anything. A new weighting applies to the next run
 submitted, and OQ-CBA-032 records the unanswered question of whether it should
 have to pass MM-005's shadow-evaluation gate first.
+
+## There is no frontend for this yet, on purpose
+
+Deferred in writing, in ``docs/plans/open-questions/cba-phase-deferred.md``
+("Connector weights UI — deferred by ``CBA-MATCH-WEIGHTS``"). The short version:
+the ``GET`` already returns the effective weights a panel would have had to
+compute, so a later UI renders this contract rather than designing anything new;
+and a weights form is the exact shape that goes wrong as a control with nothing
+behind it, which this repository treats as a defect rather than as a smaller
+product. Read that entry before building one — it names what the panel owes,
+including that it must never print a registry default as a placeholder.
 """
 
 from __future__ import annotations

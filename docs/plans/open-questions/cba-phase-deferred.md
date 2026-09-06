@@ -41,6 +41,9 @@ This register is the fail-closed boundary for the CBA phase. Unresolved product 
 | OQ-CBA-029 | Does an event have a **capacity**, and what happens to a student who registers past it? Migration `0026`'s `ck_event_registration_status` admits `registered` and `cancelled` and deliberately not `waitlisted`, because nothing anywhere in this schema states how many students an event can hold: `event` carries no seat count and no `max_attendees`. | `event_registration.status` stays two values. A waitlist is overflow from a capacity, so admitting `waitlisted` now would put a state in the constraint that no writer could legitimately produce — a vocabulary invented by DDL ahead of the decision that gives it meaning, which is exactly what migration `0012` refused to do for `board_role` and what `0024` cites that refusal for. Do **not** add a nullable `capacity` column "for later" either: a capacity that is `NULL` for every event is a field the register route would have to decide the meaning of, and it would be deciding it silently. When a capacity is ratified, widening the CHECK is a two-line revision and the diff will say which card decided it. `tests/integration/test_event_registration.py` asserts the absence in both directions — the constraint definition carries no waitlist value, and an attempted `waitlisted` insert is refused by the database. | CBA product owner with the events owner; decide before any surface shows a student how many places are left, and before any card promises a student a place it cannot guarantee. | Capacity limits, a waitlist and its ordering (which `registered_at` already supports), "N places left" on the browse surface, and any rule about registering for an event that has already happened. |
 | OQ-CBA-030 | Does a registration need a **history** of its transitions, or is the current status plus one `updated_at` enough? Migration `0026` stores the current value only, so a student who registered, cancelled, and registered again leaves one row saying `registered` and an `updated_at` that describes only the last move. | Current value only, the same treatment `0024` gives a classification under OQ-CBA-008. `registered_at` never moves and `updated_at` says when the status last did, which answers "how late was this cancellation" — the question that motivated keeping the row at all. It does **not** answer "how many times did they change their mind", and no column here pretends to: a `cancelled_at` recording one cancellation would quietly become wrong the moment there were two, which is why `0026` declines to add one. If the answer is yes, the shape is `contact_channel_transition`'s (migration `0023`) and it is a later revision — do not approximate it by accumulating rows in `event_registration`, which would break the uniqueness that makes registering idempotent. | CBA product owner with the events owner; decide before any coordinator surface reports churn, and before anyone asks how many students dropped out of an event. | A registration audit trail; churn and drop-out reporting; distinguishing "registered late" from "re-registered after cancelling", which today read identically. |
 | OQ-CBA-031 | When does the **HTTP match-run surface** move from the superseded two-factor composition to the CBA four? `POST /v1/units/{unit_id}/match-runs` still scores with `rank_candidates` (`topic_relevance` + `travel_burden`) and therefore still submits, pins and returns `1.1.1-approved-g1-m6j`. The CBA composition is implemented, tested and golden-pinned in the domain, but nothing reaches it over HTTP. | The route is **honest rather than upgraded**: it records `scoring_mode: null` on the command payload, so the worker pins the rulebook that actually produced the utilities. Claiming `cba-physical-1` there would give a stored run weights that never touched its stored numbers — a reproducible-looking record of something that did not happen. Migrating it is a **request-schema change**, not a swap: `score_cba_candidate` needs a resolved primary sector, a resolved role category, `SpeakerTopicEvidence` distinguishing "profile read and empty" from "no profile row", a city/ZIP, and a resolved `distance_miles` per candidate, plus the event's `is_virtual` to pick the mode — none of which `MatchRunRequest` carries. It is therefore a real OpenAPI change with its own review, and it also depends on OQ-CBA-024, since without a resolution method every physical candidate resolves to an unknown distance and no shortlist can be filled. | CBA product owner with the API owner and the matching lead; decide before any CBA match run is expected to be reachable by a client. | CBA four-factor scoring over HTTP; virtual-event match runs from a real Speaker Request; and the first stored run pinned to `2.0.0-approved-oq-cba-004`. |
+| OQ-CBA-032 | Must a matching-weight change pass a **shadow evaluation** before it takes effect? The G1 workshop worksheet and MM-005 say weights may only change through a shadow-evaluation gate, and customer §5 says a Speaker Connector may adjust them. `CBA-MATCH-WEIGHTS` implements the second and does not build the first. | A change takes effect immediately for the **next** run, and never for a run already recorded — `match_run` snapshots the weights it applied and migration `0018`'s trigger refuses to let the row change. Every change is versioned and logged with its author in `match_weight_setting_revision`, so a weighting that turns out to be wrong is attributable and reversible by making another change. No gate is enforced, and none is faked: a shadow evaluation nobody specified would be a policy invented in code, and the compensating control is the audit trail plus the fact that no historical result moves. | CBA product owner with the matching lead; decide before a unit's weights are adjusted against a live cohort rather than a synthetic one. | Governed weight changes, and any before/after comparison of two weightings over the same pool. |
+| OQ-CBA-033 | Should a weight override be scoped **per scoring mode**? A unit runs both physical and virtual events, and today one override map serves both — the virtual model simply never reads the `proximity` entry (customer §11). | One map per unit, not one per mode. `normalize_weights` is already given the model, so a mode that does not score a factor ignores its override without a second row needing to say so, and `validate_weight_overrides` refuses any proposal that would leave *either* current model summing to zero — so a setting cannot be admissible for one event shape and broken for the other. A per-mode setting would be a second row shape and a second thing to keep consistent, for a distinction no requirement has drawn. | CBA product owner; decide if a Connector asks to weight a virtual event differently from a physical one. | Per-mode weighting, and a settings surface that presents the two event shapes separately. |
+| OQ-CBA-034 | How long is the matching-weight **revision log** kept? `match_weight_setting_revision` is insert-only and nothing prunes it. | Nothing prunes it, and nothing should until a retention period is stated. The rows are small, one per accepted change, and a change is a rare policy decision rather than a workflow step — the same current-state-plus-log treatment `contact_channel_transition` gets, with the same unanswered retention question. The table is deletable per tenant (it is in `tests/integration/conftest.py`'s teardown tuple) so a tenant stays removable; only the `UPDATE` is refused. | CBA product owner with the privacy owner; decide alongside the retention questions already open for the other transition logs. | A retention policy for the audit trails, and any pruning job that would implement it. |
 
 ### OQ-CBA-004 decision record requirements
 
@@ -104,6 +107,42 @@ build a Connector-facing view. OQ-CBA-020: the month calendar's cells stay inert
 registration exists, because the action a day would offer is registration and a day that
 opens a disabled control is worse than a day that opens nothing.
 
+
+### Connector weights UI — deferred by `CBA-MATCH-WEIGHTS`, 6 September 2026
+
+**No frontend surface was built for the matching weights, and this is the written
+deferral the card's `deferral_policy` allows** ("complex admin UI and autonomous
+feedback tuning are deferred"). What exists is the API:
+`GET`/`PATCH /v1/units/{unit_id}/matching-weights`, admin/coordinator, unit
+scoped, with the policy-matrix rows to prove it.
+
+Three reasons, in order of weight:
+
+1. **Nothing is hidden by the absence.** A Connector's weighting is readable and
+   changeable through the documented contract, and the `GET` already returns the
+   *effective* weights per scoring mode — the number a screen would have had to
+   compute. A later UI renders what the route returns; it does not need anything
+   this card would have had to design first.
+2. **A half-built panel is the failure mode this repository already named.**
+   `docs/plans/frontend-broken-buttons.md` treats a control with nothing behind
+   it as a defect rather than a smaller product, and a weights form is exactly the
+   shape that goes wrong that way: a slider that looks live, saves nothing, and
+   tells nobody. The honest states here are "no surface" and "a surface that
+   round-trips, refuses, and shows the version it is editing" — and the second is
+   more than a minimal panel.
+3. **The role question is already settled and does not wait on a screen.** A UI
+   label grants nothing: `_authorize_matching_weights` is the permit, a student
+   and a volunteer are refused both routes server-side, and
+   `tests/authz/test_policy_matrix.py` executes all fourteen shapes against the
+   real authorizer. Shipping the UI later cannot widen that.
+
+**What a later card owes.** The panel belongs on the Connector surface beside the
+shortlist, must send the `expected_version` it read (or accept the 409 it will
+otherwise get), must render `ignored_factor_keys` rather than dropping them, and
+must not print a registry default as a placeholder — the response's `modes` is
+where an effective weight comes from, and a placeholder typed into a form would
+be the duplicated default this whole card exists to prevent. See OQ-CBA-033 for
+whether that panel presents the two event shapes separately.
 
 ## CBA-gated capabilities
 
