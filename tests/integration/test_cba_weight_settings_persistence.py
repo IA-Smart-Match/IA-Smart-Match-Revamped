@@ -98,7 +98,15 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``0028`` composes with ``0027``: it touches ``speaker_profile`` only, adding
 #: six nullable columns and two ``CHECK``s over them, and neither
 #: ``match_weight_setting`` nor its revision log is read or written by it.
-_HEAD_REVISION = "0028_classification_provenance"
+#:
+#: Moved again by ``CBA-INVITATIONS``: ``0029_cba_speaker_invitation`` is now the
+#: head. It composes with ``0027`` more simply than ``0028`` did — two new tables
+#: and nothing altered — and it touches this card's surface only in that a batch
+#: may record the ``match_run`` its shortlist came from, through a nullable
+#: ``ON DELETE RESTRICT`` reference. Neither ``match_weight_setting`` nor its
+#: revision log is read or written, and a unit with no weighting configured
+#: invites exactly as a unit with one does.
+_HEAD_REVISION = "0029_cba_speaker_invitation"
 
 NEED = "need-weight-settings-1"
 

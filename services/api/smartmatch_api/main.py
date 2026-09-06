@@ -49,6 +49,7 @@ from smartmatch_api.routers import (
     calendar,
     cba_contact_channels,
     cba_contacts,
+    cba_invitations,
     engagement,
     events,
     imports,
@@ -403,6 +404,21 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # whether this product includes consent management at all, and whether this
     # caller may exercise it on this unit.
     (cba_contact_channels.router, Capability.CONSENTED_OUTREACH),
+    # Speaker invitations (customer §6 steps 7-8, §13, §14). `CONSENTED_OUTREACH`
+    # and not `SPEAKER_CONTACT_MANAGEMENT`, for the reason the note directly
+    # above gives and more plainly still: these routes put messages in inboxes.
+    # Every one of them is composed from the closed template registry, addressed
+    # to an `active_candidate` channel, and delivered by the one `outreach.send`
+    # handler — so a deployment with consented outreach switched off must not
+    # have them, and a deployment that has them has already accepted the
+    # capability that governs sending.
+    #
+    # Both routers ride the same flag, and the second is the unauthenticated one
+    # — the Speaker's own accept/decline. It is listed here rather than mounted
+    # unconditionally because an invitation nobody can be sent has nothing to
+    # answer: gating the answer with the send is what keeps the pair coherent.
+    (cba_invitations.router, Capability.CONSENTED_OUTREACH),
+    (cba_invitations.public_router, Capability.CONSENTED_OUTREACH),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
@@ -462,5 +478,43 @@ def unsubscribe_page(token: str) -> HTMLResponse:
         "<!doctype html><title>Unsubscribe</title>"
         "<h1>Confirm unsubscribe</h1>"
         "<p>Confirm below to stop receiving these messages.</p>",
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@app.get(
+    "/i/{token}",
+    tags=["speaker-invitations"],
+    summary="Speaker invitation response page",
+    # Declared per response for `unsubscribe_page`'s reason: a route-wide
+    # response class would document this route's inherited 4xx bodies as HTML
+    # while the exception handlers return JSON.
+    responses={
+        200: {"content": {"text/html": {}}, "description": "Response page"},
+        **{
+            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
+            for code in (400, 401, 403, 404, 409, 422, 429)
+        },
+    },
+)
+def invitation_response_page(token: str) -> HTMLResponse:
+    """Render the accept-or-decline page. **Never changes state.**
+
+    The link an invitation actually carries, and a GET for the reason
+    :func:`unsubscribe_page` is one: a link in an email is fetched by scanners,
+    prefetchers and security proxies, so a GET that recorded an answer would
+    have Speakers accepting engagements they never read about. The answer is the
+    POST to ``/v1/speaker-invitations/respond``, which this page submits.
+
+    The token is deliberately not echoed into the HTML — reflecting it invites
+    both leakage and injection — and the page says nothing about whether the
+    token is real, for the same anti-oracle reason the POST answers identically
+    to every token.
+    """
+    return HTMLResponse(
+        "<!doctype html><title>Speaker invitation</title>"
+        "<h1>Respond to this invitation</h1>"
+        "<p>Choose below to accept or decline. Neither choice changes whether "
+        "you receive other messages.</p>",
         status_code=status.HTTP_200_OK,
     )

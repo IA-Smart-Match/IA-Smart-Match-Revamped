@@ -2330,3 +2330,182 @@ match_weight_setting_revision = sa.Table(
     ),
     sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_revision_version"),
 )
+
+
+cba_invitation_batch = sa.Table(
+    "cba_invitation_batch",
+    METADATA,
+    # Migration 0029, customer §6 step 7 and §13's "batch-invite candidates where
+    # supported". One row per act of composing invitations: which shortlist they
+    # came from, which template said the words, and who pressed the button.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as match_weight_setting.owning_unit_id is: the unit whose
+    # Connector is accountable for every message in this batch.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The caller's Idempotency-Key, unique per unit. What makes a re-submitted
+    # batch return the first submission's outcomes rather than invite everybody
+    # again — the guarantee that matters most on a surface that sends email.
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    # The shortlist this came from, when it came from one. Nullable because a
+    # Connector may pick people by hand, and a required run id would make the
+    # honest case unrepresentable.
+    sa.Column("match_run_id", _UUID, nullable=True),
+    sa.Column("template_id", sa.Text, nullable=False),
+    # `event_date` is Text and is never parsed: the date as the Connector wrote
+    # it, appearing in the message verbatim. A timestamp here would mean guessing
+    # a timezone and a format for a string whose only job is to be read.
+    sa.Column("event_name", sa.Text, nullable=False),
+    sa.Column("event_date", sa.Text, nullable=False),
+    sa.Column("created_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_invitation_batch_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_invitation_batch_tenant_id"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_cba_invitation_batch_key"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "match_run_id"],
+        ["match_run.tenant_id", "match_run.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.Index("ix_cba_invitation_batch_unit", "tenant_id", "owning_unit_id", "created_at"),
+)
+
+
+cba_invitation = sa.Table(
+    "cba_invitation",
+    METADATA,
+    # Migration 0029. One row per *named* recipient, including the ones nobody
+    # was written to: a batch of twelve names that produced nine invitations
+    # stores twelve rows, because the three skips are the ones a Connector has to
+    # act on and a shorter list would report the good news only.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("batch_id", _UUID, nullable=False),
+    # No foreign key, and unlike contact_channel.professional_id this is not
+    # waiting for one: `not_on_roster` is a storable outcome, and a reference to
+    # speaker_profile would make the one skip reason about a *mistake* the one
+    # skip reason that cannot be recorded.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("skip_reason", sa.Text, nullable=True),
+    sa.Column("contact_channel_id", _UUID, nullable=True),
+    # Snapshotted for outreach_send.recipient_address's reason: a later
+    # correction to the channel must not rewrite what an invitation said.
+    sa.Column("recipient_address", sa.Text, nullable=True),
+    sa.Column("outreach_draft_id", _UUID, nullable=True),
+    # The send *command*, not the send. Whether a message left is
+    # `outreach_send.disposition`, read through this job id and deliberately not
+    # copied here — a second copy would be a second place the answer lives.
+    sa.Column("outreach_send_job_id", _UUID, nullable=True),
+    sa.Column("dispatched_at", _TS, nullable=True),
+    # **The column this table exists for.** What the Speaker said, in a
+    # vocabulary that shares no value with SendDisposition or DeliveryEventType:
+    # 'awaiting_response', 'accepted_invitation', 'declined_invitation'. A
+    # provider taking custody of bytes is not a person agreeing to speak, and an
+    # Event Host handed the first as the second books a room for nobody.
+    sa.Column("response_status", sa.Text, nullable=False),
+    sa.Column("response_recorded_at", _TS, nullable=True),
+    # 'speaker_link' or 'connector_recorded'. Kept apart because a Connector
+    # typing what they were told on the phone is a weaker evidentiary claim than
+    # a Speaker following the link in their own invitation.
+    sa.Column("response_channel", sa.Text, nullable=True),
+    sa.Column("response_recorded_by_user_id", _UUID, nullable=True),
+    # SHA-256 only; the token itself is never stored, so a reader of this
+    # database cannot answer on anybody's behalf. Globally unique, like
+    # outreach_send.unsubscribe_token_hash, because the public respond route has
+    # no tenant to scope by.
+    sa.Column("response_token_hash", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_invitation_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_invitation_tenant_id"),
+    # One outcome per named recipient per batch — the replay guarantee at the row
+    # level, so a re-submitted batch cannot double-invite even if a route forgot.
+    sa.UniqueConstraint(
+        "tenant_id", "batch_id", "professional_id", name="uq_cba_invitation_batch_recipient"
+    ),
+    sa.UniqueConstraint("tenant_id", "outreach_send_job_id", name="uq_cba_invitation_send_job"),
+    sa.UniqueConstraint("response_token_hash", name="uq_cba_invitation_response_token"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "batch_id"],
+        ["cba_invitation_batch.tenant_id", "cba_invitation_batch.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "outreach_draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "outreach_send_job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "response_recorded_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('pending', 'dispatched', 'skipped')", name="ck_cba_invitation_status"
+    ),
+    sa.CheckConstraint(
+        "(status = 'skipped') = (skip_reason IS NOT NULL)", name="ck_cba_invitation_skip_reason"
+    ),
+    sa.CheckConstraint(
+        "(status = 'skipped') = (contact_channel_id IS NULL AND recipient_address IS NULL "
+        "AND outreach_draft_id IS NULL)",
+        name="ck_cba_invitation_addressed",
+    ),
+    sa.CheckConstraint(
+        "(status = 'dispatched') = "
+        "(outreach_send_job_id IS NOT NULL AND dispatched_at IS NOT NULL)",
+        name="ck_cba_invitation_dispatched",
+    ),
+    sa.CheckConstraint(
+        "response_status IN ('awaiting_response', 'accepted_invitation', 'declined_invitation')",
+        name="ck_cba_invitation_response_status",
+    ),
+    sa.CheckConstraint(
+        "(response_status = 'awaiting_response') = "
+        "(response_recorded_at IS NULL AND response_channel IS NULL)",
+        name="ck_cba_invitation_response_dated",
+    ),
+    sa.CheckConstraint(
+        "response_channel IS NULL OR response_channel IN ('speaker_link', 'connector_recorded')",
+        name="ck_cba_invitation_response_channel",
+    ),
+    sa.CheckConstraint(
+        "(response_channel = 'connector_recorded') = (response_recorded_by_user_id IS NOT NULL)",
+        name="ck_cba_invitation_response_actor",
+    ),
+    sa.CheckConstraint(
+        "status <> 'skipped' OR "
+        "(response_status = 'awaiting_response' AND response_token_hash IS NULL)",
+        name="ck_cba_invitation_skipped_unanswered",
+    ),
+    sa.Index("ix_cba_invitation_batch", "tenant_id", "batch_id", "professional_id"),
+)
