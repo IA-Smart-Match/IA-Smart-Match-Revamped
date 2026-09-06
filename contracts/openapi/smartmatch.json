@@ -298,18 +298,6 @@
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
-          "caption": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The approved caption a surface must show beside this score, verbatim, or null when none applies (ADR-0016 Proposal 8).",
-            "title": "Caption"
-          },
           "factors": {
             "description": "Every implemented Stage B factor, unknown ones included.",
             "items": {
@@ -334,14 +322,6 @@
             "description": "The composite in [0.0, 1.0], or null when any factor's evidence was absent. Not a percentage and never rendered as one.",
             "title": "Heuristic Score"
           },
-          "policy_neutral_factor_keys": {
-            "description": "The factors whose value came from a stated customer policy rather than a measurement, in registry order. These participate in the composite; they are listed so a consumer can say which parts of a score were policy without comparing floats to a constant.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Policy Neutral Factor Keys",
-            "type": "array"
-          },
           "registry_version": {
             "description": "The registry version this score was produced under.",
             "title": "Registry Version",
@@ -352,32 +332,8 @@
             "title": "Score Label",
             "type": "string"
           },
-          "scoring_mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The model this score was produced under \u2014 cba-virtual-1, cba-physical-1, or null for a run stored before the vocabulary existed. null is not cba-physical-1: a pre-ADR-0016 run never asked the question, and reading it as physical would claim a proximity factor was scored.",
-            "title": "Scoring Mode"
-          },
-          "scoring_mode_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The mode vocabulary's version. Set exactly when scoring_mode is.",
-            "title": "Scoring Mode Version"
-          },
           "state": {
-            "description": "measured, policy_neutral, or unknown.",
+            "description": "measured or unknown.",
             "title": "State",
             "type": "string"
           },
@@ -758,172 +714,6 @@
           "events_url"
         ],
         "title": "CommandAcceptedResponse",
-        "type": "object"
-      },
-      "ConfirmedSpeakerListResponse": {
-        "description": "The confirmed speakers a unit can hand its Event Hosts.",
-        "properties": {
-          "event_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The event this list was filtered to, or null when it covers the unit.",
-            "title": "Event Id"
-          },
-          "speakers": {
-            "items": {
-              "$ref": "#/components/schemas/ConfirmedSpeakerView"
-            },
-            "title": "Speakers",
-            "type": "array"
-          },
-          "unit_id": {
-            "format": "uuid",
-            "title": "Unit Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "unit_id",
-          "event_id",
-          "speakers"
-        ],
-        "title": "ConfirmedSpeakerListResponse",
-        "type": "object"
-      },
-      "ConfirmedSpeakerView": {
-        "description": "One confirmed speaker, as an Event Host is handed them.\n\nCarries **no** ``member_inquiry_at`` field. Not filtered, not nulled -- the\nfield does not exist, so no client rendering this model can show a CBA\nmember-inquiry outcome even by accident.\n\nThe three identity fields are ``null`` when this tenant holds no\n``speaker_profile`` for the id: an honest unknown, never a blank name\nstanding in for one. The speaker is identified by ``professional_id``, and\nthe name is for display only -- nothing about this record is derived from\nit.",
-        "properties": {
-          "attendance_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The attendance_record the Attended stage cites, once it is reached.",
-            "title": "Attendance Id"
-          },
-          "attended_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Attended At"
-          },
-          "company": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Company"
-          },
-          "confirmed_at": {
-            "format": "date-time",
-            "title": "Confirmed At",
-            "type": "string"
-          },
-          "contacted_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contacted At"
-          },
-          "current_stage": {
-            "description": "The furthest CBA stage reached, derived from the timestamps below.",
-            "title": "Current Stage",
-            "type": "string"
-          },
-          "event_id": {
-            "format": "uuid",
-            "title": "Event Id",
-            "type": "string"
-          },
-          "full_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Full Name"
-          },
-          "matched_at": {
-            "format": "date-time",
-            "title": "Matched At",
-            "type": "string"
-          },
-          "professional_id": {
-            "format": "uuid",
-            "title": "Professional Id",
-            "type": "string"
-          },
-          "record_id": {
-            "format": "uuid",
-            "title": "Record Id",
-            "type": "string"
-          },
-          "stages": {
-            "description": "The stage-to-evidence map for this journey. Empty on the list surface, which reads stored rows rather than re-deriving the plan behind them.",
-            "items": {
-              "$ref": "#/components/schemas/StageEvidenceView"
-            },
-            "title": "Stages",
-            "type": "array"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "required": [
-          "record_id",
-          "professional_id",
-          "event_id",
-          "full_name",
-          "company",
-          "title",
-          "current_stage",
-          "matched_at",
-          "contacted_at",
-          "confirmed_at",
-          "attended_at",
-          "attendance_id"
-        ],
-        "title": "ConfirmedSpeakerView",
         "type": "object"
       },
       "ConsentSource": {
@@ -1381,6 +1171,33 @@
         "title": "DraftResponse",
         "type": "object"
       },
+      "EditWindowView": {
+        "description": "When this rating stops being its author's to change.",
+        "properties": {
+          "closes_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the window shuts, ISO-8601. Null when the state is 'unknown'. Never a fabricated date: a surface with no cutoff to show says so.",
+            "title": "Closes At"
+          },
+          "state": {
+            "description": "'open', 'closed', or 'unknown'. 'unknown' means the event carries no resolved date, so no cutoff can be measured \u2014 which is not the same as a cutoff that has not arrived, and not the same as one that has.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "EditWindowView",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The inner error object.",
         "properties": {
@@ -1642,26 +1459,6 @@
         "title": "EventTimeView",
         "type": "object"
       },
-      "ExcludedCandidateView": {
-        "description": "One named subject that never entered the pool, and why.\n\nDistinct from ``unscorable_candidates`` and deliberately so. An unscorable\ncandidate *was* evaluated and some factor had no evidence; an excluded one\nwas never evaluated at all \u2014 no profile row, or a classification \u00a719 says a\nperson must review first. Collapsing the two would tell a Speaker Connector\nthat somebody scored poorly when in fact nobody has looked at their record.",
-        "properties": {
-          "reason": {
-            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, or role_code_unrecognised.",
-            "title": "Reason",
-            "type": "string"
-          },
-          "subject_id": {
-            "title": "Subject Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "subject_id",
-          "reason"
-        ],
-        "title": "ExcludedCandidateView",
-        "type": "object"
-      },
       "FactorExplanationView": {
         "description": "One factor's contribution to one candidate's score, or its absence.",
         "properties": {
@@ -1695,32 +1492,8 @@
             "title": "Kind",
             "type": "string"
           },
-          "policy_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The customer policy behind a policy_neutral value, null otherwise. Carried so a neutral default is attributable rather than indistinguishable from a measurement that happened to land there.",
-            "title": "Policy Id"
-          },
-          "policy_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The policy's version. Set exactly when policy_id is.",
-            "title": "Policy Version"
-          },
           "state": {
-            "description": "measured, policy_neutral, or unknown (ADR-0016's three states). Read this before reading value.",
+            "description": "measured or unknown. Read this before reading value.",
             "title": "State",
             "type": "string"
           },
@@ -1733,7 +1506,7 @@
                 "type": "null"
               }
             ],
-            "description": "The factor value in [0.0, 1.0], or null when state is unknown. A null is an absence of evidence and is never a zero. A policy_neutral value is a stated customer policy, not a measurement.",
+            "description": "The factor value in [0.0, 1.0], or null when state is unknown. A null is an absence of evidence and is never a zero.",
             "title": "Value"
           },
           "weight": {
@@ -1763,6 +1536,59 @@
           "basis"
         ],
         "title": "FactorExplanationView",
+        "type": "object"
+      },
+      "FeedbackSubmission": {
+        "description": "What a student says about one speaker.\n\nTwo fields. There are no sub-criteria: OQ-CBA-003 approved one overall\ndimension and customer \u00a716 says not to over-design the requirement, so a\nsecond axis is a product decision rather than a field.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free text. Absent means the student wrote nothing; a blank or whitespace-only value is normalized to absent rather than stored, so there is no third state between 'wrote nothing' and 'wrote something'.",
+            "title": "Comment"
+          },
+          "rating": {
+            "description": "Overall rating, 1 to 5. Required. There is no zero on this scale: a speaker nobody rated has no row, which is a different fact from a speaker rated badly.",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "FeedbackSubmission",
+        "type": "object"
+      },
+      "GeoPointRequest": {
+        "description": "A synthetic pilot coordinate pair.\n\nOptional wherever it appears, and its absence is meaningful: no coordinate\nis *unknown* travel evidence, which\n:func:`~smartmatch_domain.factors.travel_burden.score_travel_burden`\nreports as ``None`` and never as a distance of zero. Synthetic fixtures\nonly \u2014 nothing here geocodes, and no provider is consulted.",
+        "properties": {
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "GeoPointRequest",
         "type": "object"
       },
       "ImportRequest": {
@@ -2027,21 +1853,55 @@
         "title": "LogoutResponse",
         "type": "object"
       },
+      "MatchCandidateRequest": {
+        "description": "One professional's evidence, as the caller submits it.\n\nCarries evidence, never a score. A caller-supplied score would be a caller\nchoosing their own shortlist, and the registry would be decoration.\n\n``expertise_topics`` is nullable **and** that is different from ``[]``:\n``null`` means no expertise record exists for this professional (unknown),\nan empty list means the record exists and is empty (measurable, and\nmeasurably zero against any declared topic). ADR-0011 lives in that\ndistinction, and\n:class:`~smartmatch_domain.factors.topic_relevance.TopicRelevanceInputs`\ndraws it the same way, so the field is passed through rather than\nnormalized.",
+        "properties": {
+          "expertise_topics": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recorded expertise topics. null means no expertise record exists (unknown); [] means the record exists and is empty (a measured zero against any declared topic). The two are not interchangeable.",
+            "title": "Expertise Topics"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoPointRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The professional's synthetic coordinates, or null when none are on file."
+          },
+          "subject_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id"
+        ],
+        "title": "MatchCandidateRequest",
+        "type": "object"
+      },
       "MatchRunAcceptedResponse": {
-        "description": "Acknowledgement for an accepted match-run command.\n\n``scored_candidates``, ``unscorable_candidates`` and ``excluded_candidates``\nare reported at submission rather than only on the read, because they are\nthe one thing a caller cannot infer from a job id: a pool of forty that\nproduced eleven scorable candidates is a different submission from one that\nproduced forty, and both are accepted.",
+        "description": "Acknowledgement for an accepted match-run command.\n\n``scored_candidates`` and ``unscorable_candidates`` are reported at\nsubmission rather than only on the read, because they are the one thing a\ncaller cannot infer from a job id: a pool of forty that produced eleven\nscorable candidates is a different submission from one that produced forty,\nand both are accepted.",
         "properties": {
           "events_url": {
             "description": "Where to follow the work.",
             "title": "Events Url",
             "type": "string"
-          },
-          "excluded_candidates": {
-            "description": "Named subjects that were never evaluated \u2014 no profile row, or a classification awaiting the review customer \u00a719 requires before a speaker becomes available for matching. Absent from the pool, not ranked last in it.",
-            "items": {
-              "$ref": "#/components/schemas/ExcludedCandidateView"
-            },
-            "title": "Excluded Candidates",
-            "type": "array"
           },
           "job_id": {
             "format": "uuid",
@@ -2070,23 +1930,13 @@
             "title": "Scored Candidates",
             "type": "integer"
           },
-          "scoring_mode": {
-            "description": "The model within that registry the pool was scored under, resolved from the Speaker Request's virtual/physical switch and never from this body. Today always cba-virtual-1 \u2014 see the physical refusal.",
-            "title": "Scoring Mode",
-            "type": "string"
-          },
-          "scoring_mode_version": {
-            "description": "The mode vocabulary's version. Set exactly when scoring_mode is.",
-            "title": "Scoring Mode Version",
-            "type": "string"
-          },
           "status": {
             "default": "accepted",
             "title": "Status",
             "type": "string"
           },
           "unscorable_candidates": {
-            "description": "Candidates evaluated whose composite was unknown because at least one factor's evidence was absent. Reported, never entered at zero (ADR-0011).",
+            "description": "Candidates excluded because at least one factor's evidence was absent. Reported, never entered at zero (ADR-0011).",
             "title": "Unscorable Candidates",
             "type": "integer"
           }
@@ -2095,8 +1945,6 @@
           "job_id",
           "events_url",
           "registry_version",
-          "scoring_mode",
-          "scoring_mode_version",
           "scored_candidates",
           "unscorable_candidates"
         ],
@@ -2104,18 +1952,34 @@
         "type": "object"
       },
       "MatchRunRequest": {
-        "description": "One match-run submission: who to consider, and against which request.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).\n\nIt also carries **no evidence**, and that is OQ-CBA-031's point. There is no\nfield here for a speaker's industry, role, topic text or location, and none\nfor the event's description or its physical/virtual switch: every one of\nthose is read from this tenant's own rows by\n:mod:`smartmatch_api.match_run_evidence`. A request body that could state a\nspeaker's expertise is a request body that can decide its own shortlist.",
+        "description": "One match-run submission.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).",
         "properties": {
-          "candidate_subject_ids": {
-            "description": "The professionals to consider, at most 200. Each is a speaker_profile.professional_id as the \u00a713 contact listing reports it \u2014 an identifier the caller was given, never one derived from a name. Their evidence is read from that row; naming somebody here does not assert anything about them.",
+          "candidates": {
+            "description": "The candidate pool, at most 200 entries.",
             "items": {
-              "format": "uuid",
-              "type": "string"
+              "$ref": "#/components/schemas/MatchCandidateRequest"
             },
             "maxItems": 200,
             "minItems": 1,
-            "title": "Candidate Subject Ids",
+            "title": "Candidates",
             "type": "array"
+          },
+          "event_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoPointRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event_need's synthetic coordinates, or null when none are on file \u2014 in which case travel burden is unknown for every candidate and no distance is guessed."
+          },
+          "event_need_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Need Id",
+            "type": "string"
           },
           "portfolio_size": {
             "default": 2,
@@ -2125,6 +1989,14 @@
             "title": "Portfolio Size",
             "type": "integer"
           },
+          "preferred_topics": {
+            "description": "Topics the event_need declares as preferred.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Preferred Topics",
+            "type": "array"
+          },
           "random_seed": {
             "default": 0,
             "description": "Seed handed to the solver. Part of the reproducibility contract: the same pool, size and seed always produce the same selection.",
@@ -2132,16 +2004,18 @@
             "title": "Random Seed",
             "type": "integer"
           },
-          "speaker_request_id": {
-            "description": "The filed Speaker Request (customer \u00a712) this run is for. Its description, its industry and role targets and its virtual/physical switch are read from the stored row, not from this body.",
-            "format": "uuid",
-            "title": "Speaker Request Id",
-            "type": "string"
+          "required_topics": {
+            "description": "Topics the event_need declares as required.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Topics",
+            "type": "array"
           }
         },
         "required": [
-          "speaker_request_id",
-          "candidate_subject_ids"
+          "event_need_id",
+          "candidates"
         ],
         "title": "MatchRunRequest",
         "type": "object"
@@ -3555,57 +3429,6 @@
         "title": "RewardCatalogResponse",
         "type": "object"
       },
-      "SameNameContact": {
-        "description": "One contact this unit already holds under the name a create just used.\n\nEnough to recognize a person and nothing more. The identifying fields are\nhere because a bare \"somebody has this name\" is not something a Connector\ncan act on, and \"Dana Reyes, Principal Analyst at Reyes Analytics\" is \u2014 that\nwas the removed ``409``'s one virtue and it is the part kept.\n\nWhat is **not** here is everything else on the row: no classification, no\nprovenance, no match eligibility, no email of any kind. This is a prompt to\nlook, not a second way to read a contact \u2014 the roster and the by-id read are\nthat, and both are one call away with their own authorization already\napplied.",
-        "properties": {
-          "company": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Company"
-          },
-          "created_at": {
-            "description": "When this contact was added. The one field that helps a Connector tell 'I added this five seconds ago by double-clicking' from 'this person has been on the roster since March'.",
-            "title": "Created At",
-            "type": "string"
-          },
-          "full_name": {
-            "description": "As stored, not as folded. The match is case- and space-insensitive, so this may differ from what the caller typed \u2014 and seeing how the existing record spells the name is part of recognizing it.",
-            "title": "Full Name",
-            "type": "string"
-          },
-          "professional_id": {
-            "format": "uuid",
-            "title": "Professional Id",
-            "type": "string"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "required": [
-          "professional_id",
-          "full_name",
-          "company",
-          "title",
-          "created_at"
-        ],
-        "title": "SameNameContact",
-        "type": "object"
-      },
       "ScoringModeWeightsView": {
         "description": "What one scoring mode would actually score with, right now.\n\nDerived on every read from the registry and this unit's overrides. Not\nstored, and deliberately so \u2014 see the module docstring.",
         "properties": {
@@ -3909,7 +3732,7 @@
         "type": "object"
       },
       "SpeakerContactCreate": {
-        "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis generated by the server, so a caller cannot choose an identity \u2014 least of\nall somebody else's (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
+        "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis derived from the name rather than supplied, so a caller cannot choose\nsomebody else's identity (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
         "properties": {
           "company": {
             "anyOf": [
@@ -3939,7 +3762,7 @@
             "title": "Contact Email"
           },
           "full_name": {
-            "description": "The contact's name. The one field without which the record is not a contact \u2014 and an ordinary label rather than an identifier: the stored identity is generated, so correcting a name later moves nothing. Two submissions of the same name are two people, and the second one's response says who already carries it.",
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
             "maxLength": 200,
             "minLength": 1,
             "title": "Full Name",
@@ -4198,20 +4021,6 @@
             ],
             "title": "Role Taxonomy Version"
           },
-          "same_name_contacts": {
-            "description": "Other contacts in this unit that already carry the name this create used, matched case- and space-insensitively. **A hint, never a refusal** \u2014 the contact in this response was created, and these are additional people the caller may not have meant to duplicate. Empty on every read and on every edit, and empty on a create when nobody else has the name, which is the ordinary case.",
-            "items": {
-              "$ref": "#/components/schemas/SameNameContact"
-            },
-            "title": "Same Name Contacts",
-            "type": "array"
-          },
-          "same_name_truncated": {
-            "default": false,
-            "description": "True when more same-name contacts exist than this response lists. Answered by reading one row past the cap, so a capped hint never reads as the complete set \u2014 the same guarantee the roster's `truncated` gives. False on reads and edits.",
-            "title": "Same Name Truncated",
-            "type": "boolean"
-          },
           "title": {
             "anyOf": [
               {
@@ -4300,7 +4109,7 @@
             "title": "Contact Email"
           },
           "full_name": {
-            "description": "The contact's name. The one field without which the record is not a contact \u2014 and an ordinary label rather than an identifier: the stored identity is generated, so correcting a name later moves nothing. Two submissions of the same name are two people, and the second one's response says who already carries it.",
+            "description": "The contact's name. The one field without which the record is not a contact, and the field the stored identity is derived from \u2014 so two submissions of the same name in the same unit are the same person.",
             "maxLength": 200,
             "minLength": 1,
             "title": "Full Name",
@@ -4407,55 +4216,61 @@
         "title": "SpeakerContactUpdate",
         "type": "object"
       },
-      "SpeakerHandoffRequest": {
-        "description": "Which invitation to reconcile, and optionally which attendance it cites.\n\nNo ``stage`` field and no ``reached_at`` field, and their absence is the\ndesign rather than an omission: every stage and every timestamp this request\ncan cause to be written is read out of the invitation or the attendance row.\nA request cannot assert that something happened, only name the record that\nalready says so.",
+      "SpeakerFeedbackSummaryResponse": {
+        "description": "What a Connector is told about one speaker.\n\nThree numbers and a sentence, and **no field that can name a student**. That\nis part 1 of OQ-CBA-003 held as a type rather than as a discipline.",
         "properties": {
-          "attendance_id": {
+          "display_text": {
+            "description": "What to render. 'not enough responses yet' when suppressed \u2014 a sentence rather than a dash or a zero, so a reader can tell 'we are not telling you' from 'the answer is nothing'.",
+            "title": "Display Text",
+            "type": "string"
+          },
+          "mean_rating": {
             "anyOf": [
               {
-                "format": "uuid",
-                "type": "string"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The attendance_record the Attended stage cites. Optional -- a speaker who has confirmed but not yet presented is the ordinary state. Must belong to this speaker and to this event.",
-            "title": "Attendance Id"
+            "description": "The average, to two decimals, or null when suppressed. Null and never 0.0 \u2014 ADR-0011 rule 1: a value with no evidence is unknown, and a speaker nobody rated must not read as a speaker rated zero.",
+            "title": "Mean Rating"
           },
-          "invitation_id": {
-            "description": "The cba_invitation whose stored answer supplies the Confirmed stage. Must belong to this unit, and must record an accepted invitation.",
+          "minimum_responses": {
+            "description": "The threshold below which nothing is published, so a surface can explain the suppression without hard-coding the number.",
+            "title": "Minimum Responses",
+            "type": "integer"
+          },
+          "response_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many ratings the mean was computed from, or null when suppressed. Withheld along with the mean rather than published beside it: in a class of thirty, 'two students rated this speaker' narrows the field considerably.",
+            "title": "Response Count"
+          },
+          "speaker_professional_id": {
             "format": "uuid",
-            "title": "Invitation Id",
+            "title": "Speaker Professional Id",
             "type": "string"
-          }
-        },
-        "required": [
-          "invitation_id"
-        ],
-        "title": "SpeakerHandoffRequest",
-        "type": "object"
-      },
-      "SpeakerHandoffResponse": {
-        "description": "What the reconciliation wrote, and the speaker it leaves behind.\n\n``applied`` is only the stages *this request's own statements* reached, so a\nreplay comes back with an empty list beside an unchanged speaker -- \"they are\nconfirmed\" and \"this request confirmed them\" stay separable, the distinction\n``PipelineStageOutcome`` draws between ``transitioned`` and\n``already_reached``.",
-        "properties": {
-          "applied": {
-            "description": "Stages this request itself wrote. Empty when the evidence was already applied.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Applied",
-            "type": "array"
           },
-          "speaker": {
-            "$ref": "#/components/schemas/ConfirmedSpeakerView"
+          "suppressed": {
+            "description": "True when fewer than the threshold of students have rated this speaker. Both numbers below are then null.",
+            "title": "Suppressed",
+            "type": "boolean"
           }
         },
         "required": [
-          "applied",
-          "speaker"
+          "speaker_professional_id",
+          "suppressed",
+          "display_text",
+          "minimum_responses"
         ],
-        "title": "SpeakerHandoffResponse",
+        "title": "SpeakerFeedbackSummaryResponse",
         "type": "object"
       },
       "SpeakerRequestCreate": {
@@ -4942,33 +4757,6 @@
         "title": "StageAdvanceResponse",
         "type": "object"
       },
-      "StageEvidenceView": {
-        "description": "One stage, and the stored fact that makes it true.",
-        "properties": {
-          "evidence": {
-            "description": "Which kind of stored row supports this stage: invitation_composed, invitation_dispatched, invitation_accepted, or attendance_record.",
-            "title": "Evidence",
-            "type": "string"
-          },
-          "occurred_at": {
-            "description": "The evidencing row's own timestamp, not a server clock reading.",
-            "format": "date-time",
-            "title": "Occurred At",
-            "type": "string"
-          },
-          "stage": {
-            "title": "Stage",
-            "type": "string"
-          }
-        },
-        "required": [
-          "stage",
-          "evidence",
-          "occurred_at"
-        ],
-        "title": "StageEvidenceView",
-        "type": "object"
-      },
       "StudentAgendaResponse": {
         "description": "The caller's own events, soonest first.\n\nSelf-scoped in the query, not in the response: every row is selected by\n``attendance_record.subject_id = principal.user_id``, so there is no filter a\nlater edit could drop and no id a caller could substitute.",
         "properties": {
@@ -5234,6 +5022,120 @@
           "precision"
         ],
         "title": "StudentEventTimeView",
+        "type": "object"
+      },
+      "StudentFeedbackListResponse": {
+        "description": "What this student has said about speakers at one event.",
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/StudentFeedbackView"
+            },
+            "title": "Feedback",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "event_id",
+          "feedback"
+        ],
+        "title": "StudentFeedbackListResponse",
+        "type": "object"
+      },
+      "StudentFeedbackResponse": {
+        "description": "The result of one submit or withdraw.",
+        "properties": {
+          "changed": {
+            "description": "Whether this request moved anything. False for a repeat of an identical submission and for a withdrawal with nothing to withdraw, so a response never claims an edit that did not happen.",
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentFeedbackView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The rating as it now stands. Null only from a withdrawal by a student who never rated this speaker, which stores nothing rather than manufacturing a pre-withdrawn row."
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "title": "StudentFeedbackResponse",
+        "type": "object"
+      },
+      "StudentFeedbackView": {
+        "description": "One of the caller's own ratings.\n\nCarries no ``student_id``. Not because it would leak here \u2014 these are the\ncaller's own rows \u2014 but because the field exists on no response model in this\nmodule, which is what stops one appearing on the Connector's by a later\ncopy-paste.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The student's words, or null. Null both when they wrote none and after a withdrawal took them back: a retraction takes back the words as well as the number.",
+            "title": "Comment"
+          },
+          "edit_window": {
+            "$ref": "#/components/schemas/EditWindowView"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 to 5, or null on a withdrawn rating. Null is an absence, never a zero \u2014 the rating was taken back, not scored badly.",
+            "title": "Rating"
+          },
+          "speaker_professional_id": {
+            "format": "uuid",
+            "title": "Speaker Professional Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "'submitted' or 'withdrawn'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker_professional_id",
+          "status",
+          "submitted_at",
+          "updated_at",
+          "edit_window"
+        ],
+        "title": "StudentFeedbackView",
         "type": "object"
       },
       "StudentRegistrationResponse": {
@@ -7156,303 +7058,6 @@
         ]
       }
     },
-    "/v1/units/{unit_id}/cba/confirmed-speakers": {
-      "get": {
-        "description": "The speakers whose ``confirmed_at`` is set, in this unit.\n\nWith no ``event_id`` this is the *same set* the ``pipeline_confirmed``\naggregate counts -- the same predicate against the same table, scoped by the\nsame tenant and unit. It is not a second count of that metric: it reports no\ntotal, only which speakers and who they are, which the aggregate cannot say\nand the register does not publish.\n\nOrdered by ``confirmed_at`` then ``id``, so the Host reads them in the order\nthey said yes.",
-        "operationId": "confirmed_speakers_view_v1_units__unit_id__cba_confirmed_speakers_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "unit_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Unit Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "event_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Event Id"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConfirmedSpeakerListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Request Entity Too Large"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          }
-        },
-        "summary": "List the confirmed speakers this unit can hand an Event Host",
-        "tags": [
-          "cba-handoff"
-        ]
-      }
-    },
-    "/v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff": {
-      "post": {
-        "description": "Bring one speaker's journey up to whatever the stored evidence supports.\n\nWrites ``matched`` from the invitation's ``created_at``, ``contacted`` from\nits ``dispatched_at``, ``confirmed`` from its ``response_recorded_at`` -- and\nonly when the Speaker accepted -- and, when ``attendance_id`` is given,\n``attended`` from that attendance row's own timestamp. Nothing is inferred\nand nothing is defaulted: a stage whose evidence is absent is not written.\n\nA repeat is a ``200`` with an empty ``applied``, not a ``409``: a coordinator\nre-running a handoff has asked for nothing illegal, and the speaker they get\nback is the one that was already there.\n\nRaises:\n    ApiError: 404 when the invitation is not in this unit or the event is\n        not in this tenant; 409 when the invitation records no acceptance,\n        when the cited attendance is not this journey's, or when the stored\n        timestamps cannot be ordered into the funnel.",
-        "operationId": "reconcile_speaker_handoff_v1_units__unit_id__cba_events__event_id__speaker_handoff_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "unit_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Unit Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "event_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Event Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SpeakerHandoffRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SpeakerHandoffResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Request Entity Too Large"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          }
-        },
-        "summary": "Record the funnel stages an invitation and attendance already evidence",
-        "tags": [
-          "cba-handoff"
-        ]
-      }
-    },
     "/v1/units/{unit_id}/engagement/attendance-summary": {
       "get": {
         "description": "Return how much attendance evidence this unit holds, by mechanism.\n\nAuthorization runs before any attendance row is read\n(:func:`_authorize_engagement_read`), and the unit it authorizes against is\nthe unit the counts are scoped to.\n\nA unit with nothing recorded answers ``total: 0``, all three methods at\n``0``, and two null instants \u2014 a measured zero, because the query ran and\nfound none, which is a different claim from \"we did not look\" (ADR-0011).\nThe route cannot be reached for a unit that does not exist: that is a 404\nfrom ``load_unit_or_404``, decided before any counting.\n\nQuota is not charged. ADR-0015 governs command routes, where a refusal still\ncost something to attempt; this route reads rows the caller is already\nauthorized for, exactly as the two event reads and the rewards catalog do.",
@@ -8007,7 +7612,7 @@
     },
     "/v1/units/{unit_id}/match-runs": {
       "post": {
-        "description": "Score this unit's named speakers against a filed Speaker Request.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together. ``event_need_id`` is the Speaker Request's own id,\n  which is what makes a stored run traceable to the request it answered.\n* ``scoring_mode`` \u2014 resolved from that request's virtual/physical switch.\n  The worker pins the registry, the weights and the route-estimate version\n  off it, so this is the value that decides which rulebook the snapshot\n  records.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready or the request is physical\n        (see :func:`_assert_mode_available`); 404 when no such Speaker\n        Request exists in this unit; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer\n        candidates can be scored than the requested shortlist needs.",
+        "description": "Score the submitted pool and enqueue ``match-run.create``.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate ``subject_id``; 422 when\n        fewer candidates have complete evidence than the requested shortlist\n        needs.",
         "operationId": "create_match_run_v1_units__unit_id__match_runs_post",
         "parameters": [
           {
@@ -8573,7 +8178,7 @@
     },
     "/v1/units/{unit_id}/metrics": {
       "get": {
-        "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.\n\n``surface`` selects which product's view of the register to return and\nchanges nothing else: the same owning query measures each metric either\nway, so a metric present in both views reports the identical number. See\n:data:`MetricSurface` for why the narrower view is a parameter rather than\nthe default.",
+        "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.",
         "operationId": "list_metrics_v1_units__unit_id__metrics_get",
         "parameters": [
           {
@@ -8583,20 +8188,6 @@
             "schema": {
               "format": "uuid",
               "title": "Unit Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "surface",
-            "required": false,
-            "schema": {
-              "default": "all",
-              "enum": [
-                "all",
-                "cba"
-              ],
-              "title": "Surface",
               "type": "string"
             }
           },
@@ -8720,7 +8311,7 @@
     },
     "/v1/units/{unit_id}/metrics/{metric_name}/drill-down": {
       "get": {
-        "description": "Return exactly the rows the named metric's aggregate counted.\n\nAuthorization and the metric-not-found check both run before any\nconditional-request handling, for the same reason as ``list_metrics``: a\n404 must never be short-circuited into a 304 by a caller replaying an\nETag it never legitimately received. Only ``admin`` and ``coordinator``\nmay drill into rows \u2014 see :func:`_authorize_drill_down_read`.\n\nA metric the requested ``surface`` does not present is a **404**, the same\nanswer an unregistered name gets, and the same one ``list_metrics`` implies\nby not offering a link to it. That keeps one surface self-consistent: a CBA\nclient cannot list six metrics and then successfully drill into a seventh it\nwas never shown. The default ``all`` surface still serves every registered\nmetric, ``pipeline_member_inquiry`` included, because its rows and its\ndefinition are both preserved.",
+        "description": "Return exactly the rows the named metric's aggregate counted.\n\nAuthorization and the metric-not-found check both run before any\nconditional-request handling, for the same reason as ``list_metrics``: a\n404 must never be short-circuited into a 304 by a caller replaying an\nETag it never legitimately received. Only ``admin`` and ``coordinator``\nmay drill into rows \u2014 see :func:`_authorize_drill_down_read`.",
         "operationId": "metric_drill_down_v1_units__unit_id__metrics__metric_name__drill_down_get",
         "parameters": [
           {
@@ -8740,20 +8331,6 @@
             "schema": {
               "minLength": 1,
               "title": "Metric Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "surface",
-            "required": false,
-            "schema": {
-              "default": "all",
-              "enum": [
-                "all",
-                "cba"
-              ],
-              "title": "Surface",
               "type": "string"
             }
           },
@@ -11314,7 +10891,7 @@
         ]
       },
       "post": {
-        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\n**A name this unit already holds is not an error.** The identity is opaque\n(OQ-CBA-017), so this create stores a second, distinct person and reports\nthe ones already carrying the name in ``same_name_contacts``. There is no\n``409`` on this route any more, and there is no circumstance in which the\nhint prevents the write \u2014 see the module docstring.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is outside\n        its closed taxonomy. Nothing else; a same-name create is a ``201``.",
+        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is outside\n        its closed taxonomy; 409 when this unit already holds a contact under\n        the identity this name derives.",
         "operationId": "create_speaker_contact_v1_units__unit_id__speaker_contacts_post",
         "parameters": [
           {
@@ -11592,7 +11169,7 @@
         ]
       },
       "patch": {
-        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity.\n``professional_id`` is generated rather than derived (OQ-CBA-017), so there\nis no longer any sense in which a rename *could* move it \u2014 which is the\npoint of the decision, since under the previous scheme the id stayed put\nwhile quietly ceasing to correspond to the name beside it.\n\nThis route reports no ``same_name_contacts``. Renaming somebody into a name\nthe unit already uses is the same hazard the create hints about, from the\nother direction, and it is left unanswered on purpose rather than by\noversight: a Connector fixing a typo is not proposing a new person, so\n\"somebody else is called this\" would mean something different here than it\ndoes on a create. **OQ-CBA-049.**\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit.",
+        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity:\n``professional_id`` was derived at create time and is now a stored key other\nrows reference. ``smartmatch_persistence.cba_contacts`` states the\nconsequence in full.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit.",
         "operationId": "update_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__patch",
         "parameters": [
           {
@@ -13371,6 +12948,146 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary": {
+      "get": {
+        "description": "The mean and the count, or a sentence saying there are too few to publish.\n\n\u00a716's \"Speaker Connectors/admin users must be able to view the feedback\",\nread as an aggregate rather than a transcript. **No student is named, and no\nindividual rating is returned** \u2014 see the module docstring for why the list\nroute a reader might expect does not exist.\n\nBelow :data:`MIN_RESPONSES_FOR_AGGREGATE` responses both numbers are null and\n``display_text`` reads \"not enough responses yet\". A speaker nobody has rated\nis suppressed for the same reason a speaker two people rated is: zero is not\nthe average of nothing.\n\nA speaker who is not on this unit's roster is a ``404`` rather than an empty\nsummary, so this route cannot be used to enumerate ids \u2014 an empty aggregate\nfor every unknown id would answer \"does this id exist here?\" for free.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator here.\n    404: ``unit_not_found`` or ``speaker_contact_not_found``.",
+        "operationId": "read_speaker_feedback_summary_v1_units__unit_id__speakers__speaker_id__feedback_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerFeedbackSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "How students rated a speaker, in aggregate",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/student/agenda": {
       "get": {
         "description": "Return the caller's own events in this unit (customer \u00a715, fix #10).\n\n\"Own\" means either link: an active ``event_registration`` naming them and the\nevent, or an ``attendance_record`` doing the same. Before migration ``0026``\nonly the second existed, which is why this list was documented as \"events you\nare recorded at\" and why ``on_my_agenda`` is still not called ``registered``\n\u2014 the narrower name would drop every event a student attended without ever\nclicking anything, which a coordinator entry or an imported roster produces.\n\nThe two links stay two tables. Registering writes no ``attendance_record``:\nADR-0013 makes attendance the only input to points, so a row written when\nsomebody signs up would credit them for an event they have not been to. That\nis the refusal ``CBA-STUDENT-EVENTS`` made and migration ``0026`` ended\nproperly rather than cheaply.\n\nSelf-scoping is in the query, and now in both halves of it. ``subject_id``\ncomes from the verified principal and appears in the ``WHERE`` clause of the\nattendance select *and* of the registration select, so there is no request\nfield naming a subject and no post-filter a later edit could drop \u2014 the\ncaller-selected identity shape (MM-A01) has nowhere to enter.\n\nUnlike the browse route this does **not** filter on ``publication_status``:\nan event a student attended or holds a place at is theirs to see on their own\nagenda whether or not the unit still publishes it, and withholding it would\nmake their own history disagree with itself. Unresolved-date rows are still\nexcluded \u2014 they have no position on a time-ordered list \u2014 and counted.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any row is read.",
@@ -13909,6 +13626,454 @@
         "summary": "Register this student for an event",
         "tags": [
           "student-events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events/{event_id}/speaker-feedback": {
+      "get": {
+        "description": "This caller's own ratings at one event, whatever their status.\n\nWithdrawn rows are returned too. The form has to render \"you withdrew this\"\ndifferently from \"you have not rated this speaker\", and dropping withdrawn\nrows here would make the two indistinguishable on the one surface that has to\ntell them apart.\n\nScoped to the caller by ``principal.user_id``, so this route cannot be aimed\nat another student: there is no parameter to aim it with.\n\nOne window is resolved for the whole listing rather than one per row: the\ncutoff depends on the event, not on the speaker, so resolving it per row\nwould issue N identical queries to reach N identical answers.\n\nRaises:\n    403: ``forbidden`` for a caller who is not a student in this unit.\n    404: ``unit_not_found`` or ``event_not_found``.",
+        "operationId": "list_my_speaker_feedback_v1_units__unit_id__student_events__event_id__speaker_feedback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "What you have already said about speakers at this event",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback": {
+      "delete": {
+        "description": "Take this student's rating back.\n\nThe row survives and its status moves \u2014 a withdrawal is a transition, not a\n``DELETE``, so \"withdrawn\" and \"never rated\" stay distinguishable. Both the\nrating and the comment are cleared, because a retraction that took back the\nnumber and left the words would be half-honoured.\n\nWithdrawing something that was never rated is not an error: it writes nothing\nand reports ``changed: false`` with a null ``feedback``. Answering ``409`` to\na request whose outcome is already the one the caller wanted would be a worse\nsurface than saying \"there is nothing there\".\n\nRaises:\n    403: ``forbidden``, or ``student_feedback_not_eligible``.\n    404: ``unit_not_found``, ``event_not_found``, or\n        ``speaker_contact_not_found``.\n    409: ``student_feedback_window_closed`` \u2014 a locked rating cannot be\n        withdrawn either, which is what \"then locked\" means.\n    429: over the write quota.",
+        "operationId": "withdraw_speaker_feedback_v1_units__unit_id__student_events__event_id__speakers__speaker_id__feedback_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Withdraw your rating of a speaker",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      },
+      "post": {
+        "description": "Record this student's rating, or amend the one already there.\n\nOne route for both, because it is one row: the natural key\n``(tenant, student, event, speaker)`` means a second submission is an edit of\nthe caller's own rating rather than a second vote. Editing is part 3 of\nOQ-CBA-003 and needs no separate verb.\n\n``201`` when this created the rating, ``200`` when it amended or repeated\none. A repeat that changes nothing writes nothing and reports\n``changed: false``, so ``updated_at`` keeps meaning \"when this last moved\".\n\nRaises:\n    403: ``forbidden`` for a caller who is not a student in this unit;\n        ``student_feedback_not_eligible`` for a student with no attendance\n        record at this event.\n    404: ``unit_not_found``, ``event_not_found``, or\n        ``speaker_contact_not_found``.\n    409: ``student_feedback_window_closed`` once the cutoff has passed.\n    422: ``invalid_request`` for a rating off the 1-5 scale.\n    429: over the write quota.",
+        "operationId": "submit_speaker_feedback_v1_units__unit_id__student_events__event_id__speakers__speaker_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Rate a speaker at an event you attended, or amend your rating",
+        "tags": [
+          "student-speaker-feedback"
         ]
       }
     },

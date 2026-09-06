@@ -1639,6 +1639,60 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # --- Student speaker feedback (customer §§15-16, OQ-CBA-003) --------
+    #
+    # Three student operations and one Connector operation, and the split is
+    # the card's central privacy claim rather than an arrangement of routes: a
+    # student writes and reads their own rows, a Connector reads only an
+    # aggregate, and no role holds both.
+    Operation(
+        key="student_speaker_feedback.submit",
+        method="POST",
+        path="/v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        module="smartmatch_api.routers.student_speaker_feedback",
+        authorizer="_authorize_student_feedback_write",
+        roles_constant="_STUDENT_FEEDBACK_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="student_speaker_feedback.withdraw",
+        method="DELETE",
+        path="/v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        module="smartmatch_api.routers.student_speaker_feedback",
+        authorizer="_authorize_student_feedback_write",
+        roles_constant="_STUDENT_FEEDBACK_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="student_speaker_feedback.list",
+        method="GET",
+        path="/v1/units/{unit_id}/student/events/{event_id}/speaker-feedback",
+        module="smartmatch_api.routers.student_speaker_feedback",
+        authorizer="_authorize_student_feedback_read",
+        roles_constant="_STUDENT_FEEDBACK_READ_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_feedback.summary.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary",
+        module="smartmatch_api.routers.student_speaker_feedback",
+        authorizer="_authorize_speaker_feedback_summary_read",
+        roles_constant="_SPEAKER_FEEDBACK_SUMMARY_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The CBA speaker handoff, ``routers/cba_handoff.py``: bringing a speaker's
     # funnel journey up to whatever the stored invitation/attendance evidence
     # supports, and reading the confirmed speakers a unit can hand its Event
@@ -5882,6 +5936,335 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # --- Student speaker feedback (customer §§15-16, OQ-CBA-003) --------
+    #
+    # The three student rows below are `student_event.register`'s, cell for
+    # cell, and the Connector row is their mirror image. Read together, the four
+    # are the card's privacy claim in matrix form: **no shape permits both a
+    # write and the aggregate.** A coordinator who could write a rating could
+    # manufacture the evidence they are about to read, and the n=3 threshold
+    # would be three keystrokes from any number they wanted; a student who could
+    # read the aggregate would be reading their classmates' opinions rather than
+    # their own.
+    "student_speaker_feedback.submit": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set, and on this write "
+                "that is a stronger statement than on a read: a rating is a "
+                "statement of opinion, and no route here lets one person make "
+                "another person's. The root grant covers the unit, so containment "
+                "is satisfied and the role is the only thing refusing — which is "
+                "the shape a widening of `_STUDENT_FEEDBACK_WRITE_ROLES` would flip"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the load-bearing denial of this card. A Speaker Connector is the "
+                "speaker's advocate and the reader of the aggregate; one who could "
+                "also write a rating could lift a speaker over the n=3 threshold "
+                "with three requests, and the number they then read would be their "
+                "own"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "refused twice over — wrong role and, independently, a sibling "
+                "department does not contain the owning unit. The role check is "
+                "what `evaluate` reaches first, so `no_grant` is the code either way"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the column this file keeps to make `tenant_wide_roles` visible. "
+                "`_authorize_student_feedback_write` passes none, and the role is "
+                "wrong here besides"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "customer §15: the Student rates speakers at their unit's events. "
+                "Containment is inclusive, so a membership at exactly the owning "
+                "unit covers it. This is the permit the card rests on, and it is "
+                "narrower than it looks — the row written names "
+                "`principal.user_id` as its `student_id`, so the permit is to rate "
+                "*as yourself* and there is no request field that could name "
+                "somebody else (MM-A01). The route then refuses this same student "
+                "unless an `attendance_record` puts them at the event, which is "
+                "not a policy decision and could not be one"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host (customer §4), who files Speaker "
+                "Requests. An active membership at exactly the owning unit leaves "
+                "the role as the only thing that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance. The "
+                "cell asserts the *code*, and the deny is what wins even though the "
+                "role would have refused this principal regardless"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "rating has no actor path — the shape degenerates to a role-less "
+                "member, which is correct: this operation is not reachable through "
+                "job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here; what is left is a deny "
+                "on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    # Identical to the row above, cell for cell, and written out rather than
+    # aliased for `student_event.cancel`'s reason. The one thing a reader should
+    # not conclude from the identity is that withdrawal is a weaker permission
+    # than submission: it is the same permission over the same row, which is why
+    # a coordinator cannot retract a student's rating any more than write one.
+    "student_speaker_feedback.withdraw": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set. Withdrawing somebody "
+                "else's rating is retracting a statement they made, which is not an "
+                "administrative act this deployment offers"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "and this is the direction that matters most: a Connector who could "
+                "withdraw ratings could retract the low ones and leave the high "
+                "ones, which is the same aggregate fabricated from the other end"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, and a sibling department does not contain the owning unit",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="active membership, wrong role, wrong path; no `tenant_wide_roles`",
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "part 3 of OQ-CBA-003: a rating is withdrawable by its author until "
+                "the cutoff. Scoped to the author structurally — the route takes "
+                "`student_id` from the principal — and refused after the window by "
+                "the route rather than by policy, since `evaluate` has no concept "
+                "of a deadline"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="the Event Host has no part in a student's opinion of a speaker",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant", why="the withdrawal is written in the request's own transaction"
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    # The read half of the student's own surface. Same cells again, and a
+    # separate row because it is a separate authorizer — see the dispatcher's
+    # note on why the read is not routed through the write's.
+    "student_speaker_feedback.list": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set. This route returns one "
+                "student's own ratings including their free text, so admitting an "
+                "administrator here would hand them the transcript the Connector "
+                "surface deliberately does not publish"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "same, and more pointedly: this is the route that would let a "
+                "Connector read individual ratings if it admitted them. The "
+                "aggregate is what §16 asks for, and "
+                "`speaker_feedback.summary.read` is where they get it"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, and a sibling department does not contain the owning unit",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="active membership, wrong role, wrong path; no `tenant_wide_roles`",
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "a student reads their own rows back, which is what lets the form "
+                "prefill and what makes 'you withdrew this' renderable. Scoped to "
+                "the caller structurally: there is no parameter this route could be "
+                "aimed at another student with"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="the Event Host has no part in a student's opinion of a speaker",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny("no_grant", why="a read is not reachable through a job"),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    # The Connector's aggregate, and the mirror of the three rows above: every
+    # shape they permit, this one denies, and the reverse.
+    "speaker_feedback.summary.read": {
+        "admin_at_org_root": permit(
+            why=(
+                "§16 names admin users explicitly, and a root grant covers every "
+                "unit beneath it. What they read is a mean and a count over at "
+                "least three responses — never a student id, never an individual "
+                "rating, and never the free text"
+            ),
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "§16's Speaker Connector, at the unit that owns the roster. "
+                "Containment is inclusive, so a membership at exactly the owning "
+                "unit covers it"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "right role, wrong path: a sibling department does not contain the "
+                "owning unit, so a Connector cannot read another department's "
+                "speakers' ratings"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership and the required role, but the wrong path, and "
+                "`_authorize_speaker_feedback_summary_read` passes no "
+                "`tenant_wide_roles`. This operation is deliberately absent from "
+                "`TENANT_WIDE_ROLE_OPERATIONS`: reading a whole tenant's speaker "
+                "ratings from one department is a reach nothing has ratified"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the mirror of the three permits above. A student writes and reads "
+                "their own rows; the class's average is not theirs to read, and a "
+                "student who could read it could watch it move as their classmates "
+                "answered"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host (customer §4). §16 names Speaker "
+                "Connectors and admin users, and under deny-by-default the absence "
+                "of a mention is a denial rather than an invitation to guess"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance. Here "
+                "the role *would* have permitted, so this cell exercises the "
+                "precedence rather than merely agreeing with it"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "an expired membership is not a membership: the right role at the "
+                "right path still fails"
+            ),
+        ),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny("no_grant", why="a read is not reachable through a job"),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
     # The CBA speaker handoff. Both operations below call the identical
     # `_authorize_handoff` against the identical `org_unit` resource, so their
     # rows are the same shape as `pipeline.record.read` /
@@ -6214,6 +6597,38 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # act on this unit's CBA handoff — against the identical `org_unit`
         # resource, so a widening reaches both or neither.
         "_authorize_handoff",
+        # The nineteenth, twentieth and twenty-first
+        # (`routers/student_speaker_feedback.py`), on the same terms as every
+        # name before them: load the unit, then make exactly this call against
+        # that row's path.
+        #
+        # Three names rather than one, and the split carries the card's privacy
+        # claim rather than a style preference.
+        # `_authorize_student_feedback_write` covers submitting and withdrawing
+        # -- one persona managing one row, the
+        # `_authorize_student_registration_write` arrangement.
+        # `_authorize_student_feedback_read` is separate even though its set
+        # reads `{student}` too, because a read routed through the write
+        # authorizer would make this file's own `authorizer` column say
+        # something false, and OQ-CBA-019's possible widening (may a Connector
+        # *preview* the student surface?) must not be able to hand out the write.
+        #
+        # `_authorize_speaker_feedback_summary_read` is the one that must never
+        # merge with the other two in either direction: a coordinator who could
+        # write a rating could manufacture the evidence they are about to read,
+        # and a student who could read the aggregate would be reading their
+        # classmates' opinions rather than their own.
+        #
+        # The self-scope on all three student routes -- `student_id` comes from
+        # `principal.user_id` and no route accepts one in a body or a path -- is
+        # not a policy decision and could not be one: `evaluate` has no concept
+        # of a self-scope. That half, and the rule that no Connector-facing
+        # response carries a `student_id` at all, are asserted over HTTP in
+        # `tests/contract/test_student_feedback_api.py` -- the division of labour
+        # `_authorize_invite_read` already uses.
+        "_authorize_student_feedback_write",
+        "_authorize_student_feedback_read",
+        "_authorize_speaker_feedback_summary_read",
     ):
         assert_allowed(
             resolved.principal,
