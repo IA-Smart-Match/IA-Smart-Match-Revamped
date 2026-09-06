@@ -1204,10 +1204,17 @@ def read_match_run(
     ]
     shortlisted_ids = {item.subject_id for item in shortlist}
 
+    # `is_shortlistable`, not `state is MEASURED`. The two agreed while a score
+    # had only two states; ADR-0016 added a third, and a `policy_neutral`
+    # candidate who was not selected satisfied neither this filter nor the
+    # `unscorable` one below — so they disappeared from the read entirely, which
+    # is the one outcome worse than showing them with a caveat. The domain
+    # property is the authority on which candidates could have entered the
+    # portfolio, and asking it is what keeps a fourth state from reopening this.
     considered = [
         item
         for item in explanations
-        if item.state is ScoreState.MEASURED and item.subject_id not in shortlisted_ids
+        if item.is_shortlistable and item.subject_id not in shortlisted_ids
     ]
     unscorable = [item for item in explanations if item.state is ScoreState.UNKNOWN]
 
