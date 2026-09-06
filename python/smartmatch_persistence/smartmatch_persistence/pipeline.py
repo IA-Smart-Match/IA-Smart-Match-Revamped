@@ -74,25 +74,37 @@ from typing import Any, Final
 
 import sqlalchemy as sa
 from smartmatch_domain.pipeline import (
+    CbaStageEvidence,
+    CbaStageEvidenceKind,
     PipelineStage,
+    assert_cba_stage_writable,
     assert_stage_reachable,
+    plan_cba_stages,
     prerequisite_stage,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
+from smartmatch_persistence.cba_invitations import InvitationRepository
 
 __all__ = [
     "MATCH_PROVENANCE_MATCH_ENGINE",
     "MATCH_PROVENANCE_SYNTHETIC_COORDINATOR",
     "MATCH_PROVENANCE_VALUES",
+    "CbaAttendanceMismatchError",
+    "CbaHandoffOutcome",
+    "CbaHandoffRepository",
+    "CbaInvitationNotConfirmedError",
+    "CbaInvitationNotFoundError",
+    "ConfirmedSpeakerRow",
     "ConflictingOwningUnitError",
     "PipelineRecordRow",
     "PipelineRepository",
     "PipelineStageOrderError",
     "PipelineStageOutcome",
     "UnknownAttendanceEvidenceError",
+    "UnknownOpportunityEventError",
 ]
 
 #: A coordinator accepted a synthetic, in-list opportunity row in the pilot
@@ -695,3 +707,518 @@ def _to_row(row: sa.Row[Any]) -> PipelineRecordRow:
         member_inquiry_at=row.member_inquiry_at,
         attended_attendance_id=row.attended_attendance_id,
     )
+
+
+# ===========================================================================
+# The CBA speaker handoff (track CBA-HANDOFF-PIPELINE)
+# ===========================================================================
+#
+# Everything above is the general funnel writer, unchanged: it still writes all
+# five stages, ``member_inquiry`` included, because the pre-CBA product and
+# every row already in ``pipeline_record`` depend on it.
+#
+# What follows is the CBA product's own writer, and its whole difference is
+# where the stages come from. :class:`PipelineRepository.advance_stage` takes a
+# caller's word for *when* a stage was reached; :class:`CbaHandoffRepository`
+# takes nobody's word. Each stage it writes is derived from a row that is
+# already in the database and is stamped with **that row's own timestamp**:
+#
+#   matched    <- cba_invitation.created_at        (a Connector composed it)
+#   contacted  <- cba_invitation.dispatched_at     (ck_..._dispatched ties this
+#                                                   to a real send job)
+#   confirmed  <- cba_invitation.response_recorded_at, and only when
+#                 response_status = 'accepted_invitation' -- the Speaker's own
+#                 answer, never a provider's delivery disposition
+#   attended   <- attendance_record.created_at, for a row whose subject and
+#                 event both match this journey
+#
+# There is no argument by which a caller can name a stage or a moment. That is
+# what makes this not a stage toggle with a nicer name: re-running it against
+# unchanged evidence writes nothing, and running it against evidence that does
+# not support Confirmed refuses rather than writing a weaker claim.
+
+
+class UnknownOpportunityEventError(ValueError):
+    """``opportunity_event_id`` does not name a real event in this tenant.
+
+    ``pipeline_record.opportunity_event_id`` carries **no foreign key** -- the
+    column predates the ``event`` table and migration ``0017`` added the
+    constraint to ``attendance_record.event_id`` only. So nothing in the schema
+    stops a journey being opened against an id that names nothing, and a funnel
+    row whose opportunity does not exist is a count no Event Host can act on.
+    Checked here, with a ``SELECT``, because the database will not.
+    """
+
+
+class CbaInvitationNotFoundError(ValueError):
+    """No such ``cba_invitation`` in this tenant and this unit.
+
+    One error for both, deliberately. A caller that may act in the unit it named
+    and is handed an invitation id belonging to a *different* unit has named
+    something it is not entitled to distinguish from a typo; a route turns this
+    into a 404 rather than a 403 for the same reason ``compose_draft`` does.
+    """
+
+
+class CbaInvitationNotConfirmedError(ValueError):
+    """The invitation exists but does not evidence a confirmed speaker.
+
+    Raised **before anything is written**, so an unanswered, declined or skipped
+    invitation leaves no journey behind at all -- not even one stopped at
+    Contacted. That is the deliberate choice: this repository's purpose is the
+    Event Host handoff, and a half-opened journey for a speaker who never said
+    yes would put a row into the Matched and Contacted aggregates as a side
+    effect of somebody checking whether the handoff was possible yet.
+    """
+
+
+class CbaAttendanceMismatchError(ValueError):
+    """The cited attendance is real, but it is not this journey's.
+
+    ``ck_pipeline_record_attendance_evidence`` makes the citation biconditional
+    -- an Attended row names an attendance, and a row naming one is Attended --
+    but the schema never checks *whose* attendance, or *which event's*. Both
+    gaps are closed here: an Attended stage evidenced by somebody else's
+    attendance, or by attendance at a different event, is a number the
+    drill-down would report faithfully and a reader could not reconcile.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmedSpeakerRow:
+    """One confirmed speaker, as the Event Host is handed them.
+
+    Carries **no** ``member_inquiry_at``. Not filtered out at the edge and not
+    set to ``None`` -- the field does not exist on this record, so no CBA
+    surface built on it can render one even by accident. The stage's column,
+    its history and :class:`PipelineRecordRow`'s own field are all untouched.
+
+    The three identity fields come from ``speaker_profile`` and are ``None``
+    when this tenant holds no profile for the ``professional_id`` -- an honest
+    unknown rather than a blank string, the same distinction
+    ``speaker_profile.company``'s own column comment draws.
+    """
+
+    record_id: uuid.UUID
+    owning_unit_id: uuid.UUID
+    professional_id: uuid.UUID
+    opportunity_event_id: uuid.UUID
+    full_name: str | None
+    company: str | None
+    title: str | None
+    matched_at: datetime
+    contacted_at: datetime | None
+    confirmed_at: datetime
+    attended_at: datetime | None
+    attended_attendance_id: uuid.UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class CbaHandoffOutcome:
+    """What one reconciliation found, and what it wrote.
+
+    :attr:`evidence` is the whole stage-to-evidence map the stored rows support
+    right now, whoever wrote it; :attr:`applied` is only the stages *this call's
+    own statements* reached. The two are separate for the reason
+    :class:`PipelineStageOutcome` keeps ``transitioned`` and ``already_reached``
+    apart: "the speaker is confirmed" and "this request confirmed them" are
+    different facts, and a replay must be able to say the first without
+    claiming the second.
+    """
+
+    record: PipelineRecordRow
+    evidence: tuple[CbaStageEvidence, ...]
+    applied: tuple[PipelineStage, ...]
+
+
+class CbaHandoffRepository:
+    """Derives CBA funnel stages from invitation and attendance evidence.
+
+    Stateless; one instance serves all. Takes a session per call and **commits
+    nothing** -- transaction boundaries belong to the caller, exactly as they do
+    for :class:`PipelineRepository` and every other repository in this package.
+    A route calling this must issue its own ``session.commit()``: ``get_session``
+    rolls back unconditionally, so a route that forgets returns a clean 2xx and
+    stores nothing.
+    """
+
+    def __init__(self) -> None:
+        self._pipeline = PipelineRepository()
+        self._invitations = InvitationRepository()
+
+    # -- writes ----------------------------------------------------------
+
+    def reconcile_invitation(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        opportunity_event_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        attendance_id: uuid.UUID | None = None,
+    ) -> CbaHandoffOutcome:
+        """Bring one speaker's journey up to whatever the evidence supports.
+
+        Idempotent, and idempotent in the strong sense: the stages and their
+        timestamps are read out of the invitation and the attendance row rather
+        than passed in, so calling this twice with the same stored evidence
+        cannot produce a second row, a moved timestamp, or a different answer.
+        The second call reports the same :attr:`~CbaHandoffOutcome.evidence` and
+        an empty :attr:`~CbaHandoffOutcome.applied`.
+
+        Ordered, and the order is not this method's to skip: the plan is a
+        prefix of the CBA funnel by construction
+        (``smartmatch_domain.pipeline.plan_cba_stages``), and each stage is
+        still written through :meth:`PipelineRepository.advance_stage`, which
+        re-checks the prerequisite against the row and lets
+        ``ck_pipeline_record_stage_prefix`` remain the backstop.
+
+        **Provenance.** The journey is opened with
+        :data:`MATCH_PROVENANCE_SYNTHETIC_COORDINATOR`, never
+        :data:`MATCH_PROVENANCE_MATCH_ENGINE`, even when the invitation's batch
+        names a ``match_run_id``. A shortlist may suggest a speaker, but what
+        pairs *this* speaker with *this* event is a Speaker Connector composing
+        an invitation for them -- a coordinator-accepted pairing, which is what
+        that value says. ``match-engine`` stays the reserved slot its own
+        docstring describes.
+
+        Args:
+            owning_unit_id: The unit the caller is authorized in. The invitation
+                must belong to it; a journey is never opened under a unit the
+                invitation does not name.
+            opportunity_event_id: The Event Host's own event. Supplied by the
+                caller because ``cba_invitation_batch`` holds only
+                ``event_name``/``event_date`` free text and no event id, so
+                there is nothing in the invitation to derive it from -- but it
+                is verified to name a real event in this tenant before any
+                journey is opened against it.
+            attendance_id: The ``attendance_record`` this Attended claim cites.
+                Optional: a speaker who has confirmed but not yet presented is
+                the ordinary state, and omitting it records exactly that.
+
+        Returns:
+            A :class:`CbaHandoffOutcome` carrying the row as it now stands, the
+            evidence map, and the stages this call itself wrote.
+
+        Raises:
+            CbaInvitationNotFoundError: no such invitation in this tenant/unit.
+            UnknownOpportunityEventError: ``opportunity_event_id`` names no
+                event in this tenant.
+            CbaInvitationNotConfirmedError: the invitation does not evidence a
+                confirmed speaker. Nothing is written.
+            UnknownAttendanceEvidenceError: ``attendance_id`` names no
+                attendance record in this tenant.
+            CbaAttendanceMismatchError: it names one belonging to another
+                subject or another event.
+        """
+        invitation = self._invitations.get_invitation(
+            session, tenant_id=tenant_id, invitation_id=invitation_id
+        )
+        if invitation is None or invitation.owning_unit_id != owning_unit_id:
+            raise CbaInvitationNotFoundError(
+                f"no cba_invitation {invitation_id} in tenant {tenant_id} under unit "
+                f"{owning_unit_id}"
+            )
+
+        self._assert_event_exists(
+            session, tenant_id=tenant_id, opportunity_event_id=opportunity_event_id
+        )
+
+        # Everything below reads or refuses before the first write, so a refused
+        # handoff leaves no partial journey behind.
+        evidence = plan_cba_stages(invitation)
+        if not any(item.stage is PipelineStage.CONFIRMED for item in evidence):
+            raise CbaInvitationNotConfirmedError(
+                f"cba_invitation {invitation_id} does not evidence a confirmed speaker "
+                f"(status={invitation.status!r}, response_status={invitation.response_status!r}); "
+                "an accepted invitation is what supplies the Confirmed stage"
+            )
+
+        if attendance_id is not None:
+            evidence = (
+                *evidence,
+                self._attendance_evidence(
+                    session,
+                    tenant_id=tenant_id,
+                    attendance_id=attendance_id,
+                    subject_id=invitation.professional_id,
+                    opportunity_event_id=opportunity_event_id,
+                ),
+            )
+
+        record, applied = self._apply(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            subject_id=invitation.professional_id,
+            opportunity_event_id=opportunity_event_id,
+            evidence=evidence,
+            attendance_id=attendance_id,
+        )
+        return CbaHandoffOutcome(record=record, evidence=evidence, applied=applied)
+
+    def advance_cba_stage(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        record_id: uuid.UUID,
+        stage: PipelineStage,
+        reached_at: datetime,
+        attended_attendance_id: uuid.UUID | None = None,
+    ) -> PipelineStageOutcome:
+        """:meth:`PipelineRepository.advance_stage`, refusing ``member_inquiry``.
+
+        The one behavioural difference, and the reason this wrapper exists
+        rather than a comment asking callers to remember:
+        ``assert_cba_stage_writable`` runs first, so every CBA write path --
+        including any future one that does not go through
+        :meth:`reconcile_invitation` -- refuses the excluded stage in one place.
+
+        Raises:
+            MemberInquiryExcludedError: ``stage`` is ``member_inquiry``. The
+                stage remains writable through :class:`PipelineRepository` for
+                the pre-CBA product and for the rows that already have one.
+        """
+        assert_cba_stage_writable(stage)
+        return self._pipeline.advance_stage(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            stage=stage,
+            reached_at=reached_at,
+            attended_attendance_id=attended_attendance_id,
+        )
+
+    # -- reads -----------------------------------------------------------
+
+    def list_confirmed_speakers(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        opportunity_event_id: uuid.UUID | None = None,
+    ) -> tuple[ConfirmedSpeakerRow, ...]:
+        """The confirmed speakers this unit can hand an Event Host.
+
+        The ``WHERE`` clause is deliberately the *same predicate* the
+        ``pipeline_confirmed`` metric uses -- ``confirmed_at IS NOT NULL``,
+        scoped by ``tenant_id`` and ``owning_unit_id`` and nothing else -- so
+        with no ``opportunity_event_id`` filter this list and that aggregate are
+        the same set by construction rather than by coincidence. That is ADR-0011
+        rule 3 held at the query, and
+        ``tests/integration/test_cba_confirmed_handoff.py`` compares the two
+        numbers rather than trusting this paragraph.
+
+        This is not a second count of the metric. It answers a different
+        question -- *which speakers*, with the names an Event Host needs, and
+        optionally for one event -- and it never reports a total of its own; the
+        aggregate stays the register's to publish through its one owning query.
+
+        The join to ``speaker_profile`` is a ``LEFT`` join and cannot multiply
+        rows: that table's primary key is ``(tenant_id, professional_id)``, so
+        it contributes at most one row per journey. A speaker with no profile in
+        this tenant comes back with ``None`` names rather than being dropped --
+        a confirmed speaker the roster has lost track of is exactly the row a
+        Host most needs to see.
+        """
+        profile = schema.speaker_profile
+        record = schema.pipeline_record
+        where = [
+            record.c.tenant_id == tenant_id,
+            record.c.owning_unit_id == owning_unit_id,
+            record.c.confirmed_at.is_not(None),
+        ]
+        if opportunity_event_id is not None:
+            where.append(record.c.opportunity_event_id == opportunity_event_id)
+
+        rows = session.execute(
+            sa.select(
+                record.c.id,
+                record.c.owning_unit_id,
+                record.c.subject_id,
+                record.c.opportunity_event_id,
+                profile.c.full_name,
+                profile.c.company,
+                profile.c.title,
+                record.c.matched_at,
+                record.c.contacted_at,
+                record.c.confirmed_at,
+                record.c.attended_at,
+                record.c.attended_attendance_id,
+            )
+            .select_from(
+                record.outerjoin(
+                    profile,
+                    sa.and_(
+                        profile.c.tenant_id == record.c.tenant_id,
+                        profile.c.professional_id == record.c.subject_id,
+                    ),
+                )
+            )
+            .where(*where)
+            .order_by(record.c.confirmed_at, record.c.id)
+        )
+        return tuple(
+            ConfirmedSpeakerRow(
+                record_id=row.id,
+                owning_unit_id=row.owning_unit_id,
+                professional_id=row.subject_id,
+                opportunity_event_id=row.opportunity_event_id,
+                full_name=row.full_name,
+                company=row.company,
+                title=row.title,
+                matched_at=row.matched_at,
+                contacted_at=row.contacted_at,
+                confirmed_at=row.confirmed_at,
+                attended_at=row.attended_at,
+                attended_attendance_id=row.attended_attendance_id,
+            )
+            for row in rows
+        )
+
+    def evidence_for_invitation(
+        self, session: Session, *, tenant_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> tuple[CbaStageEvidence, ...]:
+        """The stages one invitation currently evidences, without writing any.
+
+        A read of the same plan :meth:`reconcile_invitation` acts on, so a
+        surface can show a Connector why a handoff is not yet possible without
+        attempting one and catching the refusal.
+        """
+        invitation = self._invitations.get_invitation(
+            session, tenant_id=tenant_id, invitation_id=invitation_id
+        )
+        if invitation is None:
+            raise CbaInvitationNotFoundError(
+                f"no cba_invitation {invitation_id} in tenant {tenant_id}"
+            )
+        return plan_cba_stages(invitation)
+
+    # -- internals -------------------------------------------------------
+
+    def _assert_event_exists(
+        self, session: Session, *, tenant_id: uuid.UUID, opportunity_event_id: uuid.UUID
+    ) -> None:
+        exists = session.execute(
+            sa.select(schema.event.c.id).where(
+                schema.event.c.tenant_id == tenant_id,
+                schema.event.c.id == opportunity_event_id,
+            )
+        ).one_or_none()
+        if exists is None:
+            raise UnknownOpportunityEventError(
+                f"event {opportunity_event_id} does not exist in tenant {tenant_id}; "
+                "pipeline_record.opportunity_event_id carries no foreign key, so a journey "
+                "against an id that names nothing would otherwise be storable"
+            )
+
+    def _attendance_evidence(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        attendance_id: uuid.UUID,
+        subject_id: uuid.UUID,
+        opportunity_event_id: uuid.UUID,
+    ) -> CbaStageEvidence:
+        """Read the attendance row and check it is *this* journey's.
+
+        Returns the Attended evidence stamped with the attendance row's own
+        ``created_at`` -- when the attendance was recorded, which is the only
+        moment this table stores. ``attendance_record`` has no separate
+        "attended at", so a caller-supplied one would be an invention.
+        """
+        row = session.execute(
+            sa.select(
+                schema.attendance_record.c.subject_id,
+                schema.attendance_record.c.event_id,
+                schema.attendance_record.c.created_at,
+            ).where(
+                schema.attendance_record.c.tenant_id == tenant_id,
+                schema.attendance_record.c.id == attendance_id,
+            )
+        ).one_or_none()
+        if row is None:
+            raise UnknownAttendanceEvidenceError(
+                f"attendance_record {attendance_id} does not exist in tenant {tenant_id} — "
+                "ck_pipeline_record_attendance_evidence requires real evidence"
+            )
+        if row.subject_id != subject_id:
+            raise CbaAttendanceMismatchError(
+                f"attendance_record {attendance_id} belongs to subject {row.subject_id}, "
+                f"not to this journey's speaker {subject_id}"
+            )
+        if row.event_id != opportunity_event_id:
+            raise CbaAttendanceMismatchError(
+                f"attendance_record {attendance_id} is at event {row.event_id}, not at this "
+                f"journey's opportunity {opportunity_event_id}"
+            )
+        return CbaStageEvidence(
+            stage=PipelineStage.ATTENDED,
+            kind=CbaStageEvidenceKind.ATTENDANCE_RECORD,
+            occurred_at=row.created_at,
+        )
+
+    def _apply(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        subject_id: uuid.UUID,
+        opportunity_event_id: uuid.UUID,
+        evidence: tuple[CbaStageEvidence, ...],
+        attendance_id: uuid.UUID | None,
+    ) -> tuple[PipelineRecordRow, tuple[PipelineStage, ...]]:
+        """Open the journey, then walk the plan. Writes nothing this call is not sure of."""
+        opening, *rest = evidence
+
+        # record_matched conflicts DO NOTHING and returns the resulting row
+        # either way, so the row it hands back cannot say whether this call is
+        # the one that opened the journey. Asked here instead, before the
+        # insert. Under READ COMMITTED a concurrent opener between this read and
+        # that insert would make both calls report MATCHED as applied; that is
+        # the same window record_matched's own docstring already describes, and
+        # it cannot produce a second row -- uq_pipeline_record_subject_opportunity
+        # is what guarantees the count, not this flag.
+        existed_before = (
+            session.execute(
+                sa.select(schema.pipeline_record.c.id).where(
+                    schema.pipeline_record.c.tenant_id == tenant_id,
+                    schema.pipeline_record.c.subject_id == subject_id,
+                    schema.pipeline_record.c.opportunity_event_id == opportunity_event_id,
+                )
+            ).one_or_none()
+            is not None
+        )
+
+        record = self._pipeline.record_matched(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            subject_id=subject_id,
+            opportunity_event_id=opportunity_event_id,
+            matched_at=opening.occurred_at,
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
+        )
+        applied: list[PipelineStage] = [] if existed_before else [PipelineStage.MATCHED]
+
+        for item in rest:
+            outcome = self.advance_cba_stage(
+                session,
+                tenant_id=tenant_id,
+                record_id=record.id,
+                stage=item.stage,
+                reached_at=item.occurred_at,
+                attended_attendance_id=(
+                    attendance_id if item.stage is PipelineStage.ATTENDED else None
+                ),
+            )
+            if outcome.record is not None:
+                record = outcome.record
+            if outcome.transitioned:
+                applied.append(item.stage)
+        return record, tuple(applied)
