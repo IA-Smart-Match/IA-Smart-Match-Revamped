@@ -71,13 +71,15 @@ from smartmatch_domain.factor_registry import (
     FactorSpec,
     assert_registry_approved,
 )
-from smartmatch_domain.factors import FactorScore, ZeroClassification
+from smartmatch_domain.factors import FactorScore, FactorState, ZeroClassification
 from smartmatch_domain.scoring import StageBScore
 
 __all__ = [
+    "COMPOSITE_NEUTRAL_CAPTION",
     "MAX_SHORTLIST_SIZE",
     "MIN_SHORTLIST_SIZE",
     "SCORE_PROVENANCE_LABEL",
+    "VIRTUAL_EVENT_CAPTION",
     "CandidateExplanation",
     "FactorExplanation",
     "ScoreState",
@@ -106,6 +108,22 @@ MIN_SHORTLIST_SIZE: Final[int] = 2
 #: Most candidates a shortlist may contain. The other half of "2-3".
 MAX_SHORTLIST_SIZE: Final[int] = 3
 
+#: ADR-0016 Proposal 8, verbatim. Shown *with* the composite, never instead of
+#: it and never omitted: a score that silently folded in a policy default would
+#: read as a measurement of the whole candidate. The factor-level Topic labels
+#: live beside the factor that produces them, in
+#: :mod:`smartmatch_domain.cba_topic_explanation`; this one is the composite's,
+#: so it lives with the composite.
+COMPOSITE_NEUTRAL_CAPTION: Final[str] = (
+    "Includes a neutral default for missing topic information."
+)
+
+#: ADR-0016 Proposal 8, verbatim. Customer §11: for a virtual event proximity
+#: is not scored at all, and the surface must say so. Never a proximity row
+#: showing 0 — that would be a measured claim about a distance nobody measured
+#: — and never a silently absent row, which reads as an oversight.
+VIRTUAL_EVENT_CAPTION: Final[str] = "Virtual event — proximity not scored"
+
 #: Registry specs by key, built once. Used only to attach a factor's
 #: coordinator-facing label and its Stage A/B kind to an explanation; the
 #: weights come from the score's own ``applied_weights`` and never from here,
@@ -115,17 +133,38 @@ _SPECS_BY_KEY: Final[Mapping[str, FactorSpec]] = {spec.key: spec for spec in PRO
 
 
 class ScoreState(StrEnum):
-    """Whether a number exists, stated beside the number itself (ADR-0011).
+    """Whether a number exists and where it came from (ADR-0011, ADR-0016).
 
     ``MEASURED`` means the evidence was there and the value — possibly
-    ``0.0`` — is what it measured. ``UNKNOWN`` means the evidence was absent
-    and there is no value at all. The two are different strings so that a
-    consumer choosing what to draw makes the choice explicitly; a consumer
-    that only looked at the value would have to infer the difference from a
-    null, which is the inference every surface in the legacy system got wrong.
+    ``0.0`` — is what it measured. ``UNKNOWN`` means the evidence could not be
+    evaluated and there is no value at all. The two are different strings so
+    that a consumer choosing what to draw makes the choice explicitly; a
+    consumer that only looked at the value would have to infer the difference
+    from a null, which is the inference every surface in the legacy system got
+    wrong.
+
+    ``POLICY_NEUTRAL`` is ADR-0016 Proposal 1's third state, and it is neither
+    of the other two. The record **was read** and carried no usable evidence —
+    an *observed absence* — and the customer has a stated policy for what one
+    is worth (§9). It carries a value, that value participates in scoring, and
+    it carries the policy's identifier so no consumer can mistake it for
+    something the system measured. A neutral rendered without its policy is
+    indistinguishable in storage from a measured value, which is ADR-0011's
+    defect in a new costume; that is why the state and the ``policy_id`` are
+    checked against each other rather than merely carried.
+
+    Unknown dominates. A composite with any unknown factor is ``UNKNOWN`` even
+    when other factors were policy values, because "we could not evaluate one
+    of these" outranks "one of these came from a policy" as a caveat.
+
+    The member values match
+    :class:`smartmatch_domain.factors.FactorState`'s and
+    :class:`~smartmatch_domain.factors.cba_semantic_topic.TopicEvidenceState`'s
+    exactly, so a state crosses every boundary as the same string.
     """
 
     MEASURED = "measured"
+    POLICY_NEUTRAL = "policy_neutral"
     UNKNOWN = "unknown"
 
 
@@ -161,6 +200,15 @@ class FactorExplanation:
         estimate_label: Set when the value is an explicitly coarse estimate
             (today: the straight-line travel proxy while D3 is deferred),
             otherwise ``None``.
+        policy_id: The customer policy that supplied this value — required when
+            :attr:`state` is ``POLICY_NEUTRAL``, forbidden otherwise. This is
+            the field that makes a neutral recoverable as a neutral: a stored
+            ``0.5`` with no policy beside it cannot be told from a measured
+            ``0.5`` a year later, and the day somebody asks "was that
+            measured?" the answer would be unrecoverable.
+        policy_version: That policy's version, required and forbidden under the
+            same conditions, so an older stored run is never re-read under a
+            newer policy.
     """
 
     factor_key: str
@@ -172,20 +220,46 @@ class FactorExplanation:
     zero_classification: str | None
     basis: str
     estimate_label: str | None = None
+    policy_id: str | None = None
+    policy_version: str | None = None
 
     def __post_init__(self) -> None:
-        """Refuse an explanation whose state and value disagree.
+        """Refuse an explanation whose state, value and provenance disagree.
 
-        The one invariant this type exists to carry, checked rather than
-        assumed: ``UNKNOWN`` with a value would be an absence wearing a
-        measurement, and ``MEASURED`` without one would be a measurement that
-        renders as blank — which some consumer would then fill in with a zero.
+        The invariant this type exists to carry, checked rather than assumed
+        and widened by ADR-0016 Proposal 7 from two states to three:
+
+        * ``UNKNOWN`` ⇔ ``value is None``. An unknown with a value would be an
+          absence wearing a measurement; a measured or neutral value that was
+          absent would render as blank, which some consumer would fill with a
+          zero.
+        * ``POLICY_NEUTRAL`` ⇔ ``policy_id is not None``. Both directions
+          matter: a neutral without its policy is an unlabelled number, and a
+          policy id on a measured value would claim the system's own
+          measurement came from somebody else's policy.
+        * ``policy_version`` travels with ``policy_id`` or not at all.
+
+        A payload where these disagree is refused, not repaired.
         """
         if (self.state is ScoreState.UNKNOWN) != (self.value is None):
             raise ValueError(
                 f"{self.factor_key}: state {self.state.value!r} and value "
                 f"{self.value!r} disagree (ADR-0011: an unknown has no value, "
                 "and a measured value is never absent)"
+            )
+        if (self.state is ScoreState.POLICY_NEUTRAL) != (self.policy_id is not None):
+            raise ValueError(
+                f"{self.factor_key}: state {self.state.value!r} and policy_id "
+                f"{self.policy_id!r} disagree (ADR-0016 Proposal 7: a "
+                "policy_neutral score must name the policy it applied, and no "
+                "other state may name one)"
+            )
+        if (self.policy_id is None) != (self.policy_version is None):
+            raise ValueError(
+                f"{self.factor_key}: policy_id {self.policy_id!r} and policy_version "
+                f"{self.policy_version!r} must be set or unset together; a policy "
+                "value whose version is unrecoverable cannot be re-read under the "
+                "policy that produced it"
             )
         if self.value is not None and not 0.0 <= self.value <= 1.0:
             raise ValueError(
@@ -222,6 +296,20 @@ class CandidateExplanation:
             **including the unknown ones**. An unknown factor is never dropped:
             a list that omitted it would make "no evidence for travel" look
             identical to "travel was not part of this score".
+        policy_neutral_factor_keys: The factors whose value came from a stated
+            customer policy rather than a measurement, in registry order.
+            Reported beside :attr:`unknown_factor_keys` and for the same reason:
+            "which factors were policy values" must be answerable without
+            scanning, and an empty tuple is a positive statement that every
+            scored factor was measured.
+        scoring_mode: The mode this score was produced under —
+            ``"cba-physical-1"``, ``"cba-virtual-1"``, or ``None`` for a
+            pre-ADR-0016 run. ``None`` is **not** ``cba-physical-1``: a stored
+            explanation that never recorded a mode predates the vocabulary, and
+            reading it as physical would claim a proximity factor was scored
+            when the question had not yet been asked.
+        scoring_mode_version: The mode vocabulary's version, set exactly when
+            :attr:`scoring_mode` is.
     """
 
     subject_id: str
@@ -232,9 +320,21 @@ class CandidateExplanation:
     formula_version: str
     unknown_factor_keys: tuple[str, ...]
     factors: tuple[FactorExplanation, ...]
+    policy_neutral_factor_keys: tuple[str, ...] = ()
+    scoring_mode: str | None = None
+    scoring_mode_version: str | None = None
 
     def __post_init__(self) -> None:
-        """Check the three things a consumer would otherwise have to trust."""
+        """Check the things a consumer would otherwise have to trust.
+
+        The composite's state is a function of its factors, and ADR-0016
+        Proposal 7 fixes the order of precedence: ``unknown`` when any factor
+        was unknown, otherwise ``policy_neutral`` when any factor was a policy
+        value, otherwise ``measured``. **Unknown dominates** — a run with both
+        an unknown factor and a policy-neutral one is unknown, because "we
+        could not evaluate one of these" is the stronger caveat and burying it
+        under the milder one is how a caveat stops being read.
+        """
         if not self.subject_id.strip():
             raise ValueError("subject_id: must not be empty or blank")
         if (self.state is ScoreState.UNKNOWN) != (self.heuristic_score is None):
@@ -242,14 +342,36 @@ class CandidateExplanation:
                 f"{self.subject_id}: state {self.state.value!r} and heuristic_score "
                 f"{self.heuristic_score!r} disagree (ADR-0011)"
             )
-        if bool(self.unknown_factor_keys) != (self.state is ScoreState.UNKNOWN):
+        expected = (
+            ScoreState.UNKNOWN
+            if self.unknown_factor_keys
+            else ScoreState.POLICY_NEUTRAL
+            if self.policy_neutral_factor_keys
+            else ScoreState.MEASURED
+        )
+        if self.state is not expected:
             raise ValueError(
-                f"{self.subject_id}: unknown_factor_keys "
-                f"{list(self.unknown_factor_keys)} does not agree with state "
-                f"{self.state.value!r}; an unknown factor makes the composite unknown"
+                f"{self.subject_id}: state {self.state.value!r} does not follow from "
+                f"unknown_factor_keys {list(self.unknown_factor_keys)} and "
+                f"policy_neutral_factor_keys {list(self.policy_neutral_factor_keys)}; "
+                f"expected {expected.value!r}. An unknown factor makes the composite "
+                "unknown, and unknown dominates a policy-neutral one."
+            )
+        overlap = set(self.unknown_factor_keys) & set(self.policy_neutral_factor_keys)
+        if overlap:
+            raise ValueError(
+                f"{self.subject_id}: {sorted(overlap)} is reported as both unknown and "
+                "policy_neutral. A factor is in exactly one state; being in two would "
+                "make the composite's own state unrecoverable."
             )
         if not self.registry_version.strip():
             raise ValueError(f"{self.subject_id}: registry_version must not be blank")
+        if (self.scoring_mode is None) != (self.scoring_mode_version is None):
+            raise ValueError(
+                f"{self.subject_id}: scoring_mode {self.scoring_mode!r} and "
+                f"scoring_mode_version {self.scoring_mode_version!r} must be set or "
+                "unset together"
+            )
         if self.score_label != SCORE_PROVENANCE_LABEL:
             raise ValueError(
                 f"{self.subject_id}: score_label must be {SCORE_PROVENANCE_LABEL!r}, "
@@ -266,8 +388,36 @@ class CandidateExplanation:
         excluded from the pool and *reported* as excluded, never quietly
         entered at ``0.0`` where it would rank below every measured candidate
         as though it had been measured badly.
+
+        A ``POLICY_NEUTRAL`` composite **is** shortlistable. That is ADR-0016's
+        central consequence and the whole point of customer §9: a speaker with
+        no topic information on file has a score, and excluding them here would
+        reintroduce by the back door the zero the ADR exists to forbid.
         """
-        return self.state is ScoreState.MEASURED
+        return self.state is not ScoreState.UNKNOWN
+
+    @property
+    def caption(self) -> str | None:
+        """The approved caption a surface must show beside this score, if any.
+
+        :data:`COMPOSITE_NEUTRAL_CAPTION` verbatim when a policy default is
+        folded into the composite, ``None`` otherwise. Returned rather than
+        left to each surface to compose, because ADR-0016 Proposal 8 approved
+        the exact words and a paraphrase is a different decision.
+        """
+        return COMPOSITE_NEUTRAL_CAPTION if self.state is ScoreState.POLICY_NEUTRAL else None
+
+
+#: One place the factor-level discriminator crosses into the explanation
+#: layer's own. Both enums carry the same three strings on purpose — see
+#: :class:`ScoreState` — and mapping through a table rather than by
+#: ``ScoreState(score.state.value)`` means a member added to one and not the
+#: other fails loudly here instead of constructing a state nothing renders.
+_STATE_BY_FACTOR_STATE: Final[Mapping[FactorState, ScoreState]] = {
+    FactorState.MEASURED: ScoreState.MEASURED,
+    FactorState.POLICY_NEUTRAL: ScoreState.POLICY_NEUTRAL,
+    FactorState.UNKNOWN: ScoreState.UNKNOWN,
+}
 
 
 def _explain_factor(score: FactorScore, weight: float) -> FactorExplanation:
@@ -283,11 +433,13 @@ def _explain_factor(score: FactorScore, weight: float) -> FactorExplanation:
         display_label=spec.display_label if spec is not None else score.factor_key,
         kind=str(spec.kind.value) if spec is not None else "unknown",
         weight=weight,
-        state=ScoreState.UNKNOWN if score.is_unknown else ScoreState.MEASURED,
+        state=_STATE_BY_FACTOR_STATE[score.state],
         value=score.value,
         zero_classification=None if classification is None else str(classification.value),
         basis=score.basis,
         estimate_label=score.estimate_label,
+        policy_id=score.policy_id,
+        policy_version=score.policy_version,
     )
 
 
@@ -309,7 +461,15 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
     """
     assert_registry_approved()
 
-    state = ScoreState.UNKNOWN if score.value is None else ScoreState.MEASURED
+    # Unknown dominates (ADR-0016 Proposal 7). Taken from the score's own key
+    # lists rather than re-derived from its value, so the composite's state and
+    # the reasons given for it cannot disagree.
+    if score.unknown_factor_keys:
+        state = ScoreState.UNKNOWN
+    elif score.policy_neutral_factor_keys:
+        state = ScoreState.POLICY_NEUTRAL
+    else:
+        state = ScoreState.MEASURED
     return CandidateExplanation(
         subject_id=score.subject_id,
         heuristic_score=score.value,
@@ -318,6 +478,9 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
         registry_version=score.registry_version,
         formula_version=score.formula_version,
         unknown_factor_keys=tuple(score.unknown_factor_keys),
+        policy_neutral_factor_keys=tuple(score.policy_neutral_factor_keys),
+        scoring_mode=score.scoring_mode,
+        scoring_mode_version=score.scoring_mode_version,
         factors=tuple(
             # ``applied_weights`` and ``factor_scores`` are guaranteed to cover
             # the same keys — ``score_candidate`` refuses to return a score
@@ -355,7 +518,10 @@ def explanation_to_payload(explanation: CandidateExplanation) -> dict[str, Any]:
         "score_label": explanation.score_label,
         "registry_version": explanation.registry_version,
         "formula_version": explanation.formula_version,
+        "scoring_mode": explanation.scoring_mode,
+        "scoring_mode_version": explanation.scoring_mode_version,
         "unknown_factor_keys": list(explanation.unknown_factor_keys),
+        "policy_neutral_factor_keys": list(explanation.policy_neutral_factor_keys),
         "factors": [
             {
                 "factor_key": factor.factor_key,
@@ -367,6 +533,8 @@ def explanation_to_payload(explanation: CandidateExplanation) -> dict[str, Any]:
                 "zero_classification": factor.zero_classification,
                 "basis": factor.basis,
                 "estimate_label": factor.estimate_label,
+                "policy_id": factor.policy_id,
+                "policy_version": factor.policy_version,
             }
             for factor in explanation.factors
         ],
@@ -398,6 +566,18 @@ def _read_text(raw: object, field: str, *, allow_none: bool = False) -> str | No
     return raw
 
 
+def _read_key_list(raw: object, field: str) -> tuple[str, ...]:
+    """Read a list-of-factor-keys field, refusing anything else.
+
+    Shared by ``unknown_factor_keys`` and ``policy_neutral_factor_keys``
+    because they carry the same shape for the same reason, and two copies of
+    the check would be two places for the strictness to diverge.
+    """
+    if not isinstance(raw, list) or not all(isinstance(entry, str) for entry in raw):
+        raise ValueError(f"{field}: must be a list of strings")
+    return tuple(raw)
+
+
 def _factor_from_payload(entry: object, index: int) -> FactorExplanation:
     """Read one factor explanation back, or say which entry was unreadable."""
     if not isinstance(entry, Mapping):
@@ -413,9 +593,11 @@ def _factor_from_payload(entry: object, index: int) -> FactorExplanation:
         f"factors[{index}].zero_classification",
         allow_none=True,
     )
-    # ``FactorExplanation.__post_init__`` is what rejects a state/value
-    # disagreement; this function only has to get the values across the
-    # boundary without repairing them.
+    # ``FactorExplanation.__post_init__`` is what rejects a state/value or
+    # state/policy disagreement; this function only has to get the values across
+    # the boundary without repairing them. In particular a payload claiming
+    # ``policy_neutral`` with a null ``policy_id`` is refused there rather than
+    # given a plausible id here, which is the whole reason the id is stored.
     return FactorExplanation(
         factor_key=str(_read_text(entry.get("factor_key"), f"factors[{index}].factor_key")),
         display_label=str(
@@ -429,6 +611,12 @@ def _factor_from_payload(entry: object, index: int) -> FactorExplanation:
         basis=str(_read_text(entry.get("basis"), f"factors[{index}].basis")),
         estimate_label=_read_text(
             entry.get("estimate_label"), f"factors[{index}].estimate_label", allow_none=True
+        ),
+        policy_id=_read_text(
+            entry.get("policy_id"), f"factors[{index}].policy_id", allow_none=True
+        ),
+        policy_version=_read_text(
+            entry.get("policy_version"), f"factors[{index}].policy_version", allow_none=True
         ),
     )
 
@@ -463,11 +651,20 @@ def explanation_from_payload(payload: object) -> CandidateExplanation:
     if state_value not in {member.value for member in ScoreState}:
         raise ValueError(f"state: unrecognised state {state_value!r}")
 
-    raw_unknown = payload.get("unknown_factor_keys")
-    if not isinstance(raw_unknown, list) or not all(
-        isinstance(entry, str) for entry in raw_unknown
-    ):
-        raise ValueError("unknown_factor_keys: must be a list of strings")
+    raw_unknown = _read_key_list(payload.get("unknown_factor_keys"), "unknown_factor_keys")
+
+    # Absent is read as "no policy-neutral factors", which is the correct
+    # reading of a pre-ADR-0016 payload: the state did not exist when it was
+    # written, so no factor in it can have been in that state. This is *not* the
+    # same permissiveness as inventing a missing ``state`` — an absent list is
+    # a fact about the release that wrote the row, while an absent state is a
+    # fact the row was supposed to carry.
+    raw_policy_neutral = payload.get("policy_neutral_factor_keys")
+    policy_neutral_keys = (
+        ()
+        if raw_policy_neutral is None
+        else _read_key_list(raw_policy_neutral, "policy_neutral_factor_keys")
+    )
 
     return CandidateExplanation(
         subject_id=str(_read_text(payload.get("subject_id"), "subject_id")),
@@ -476,7 +673,16 @@ def explanation_from_payload(payload: object) -> CandidateExplanation:
         score_label=str(_read_text(payload.get("score_label"), "score_label")),
         registry_version=str(_read_text(payload.get("registry_version"), "registry_version")),
         formula_version=str(_read_text(payload.get("formula_version"), "formula_version")),
-        unknown_factor_keys=tuple(str(entry) for entry in raw_unknown),
+        # A payload lacking these is a pre-ADR-0016 run, read as such rather
+        # than as ``cba-physical-1`` (ADR-0016 Proposal 7). Defaulting it to the
+        # physical mode would claim a proximity factor was scored under a
+        # rulebook that had no modes at all.
+        scoring_mode=_read_text(payload.get("scoring_mode"), "scoring_mode", allow_none=True),
+        scoring_mode_version=_read_text(
+            payload.get("scoring_mode_version"), "scoring_mode_version", allow_none=True
+        ),
+        unknown_factor_keys=raw_unknown,
+        policy_neutral_factor_keys=policy_neutral_keys,
         factors=tuple(
             _factor_from_payload(entry, index) for index, entry in enumerate(raw_factors)
         ),

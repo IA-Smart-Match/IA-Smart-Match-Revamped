@@ -752,6 +752,19 @@ def create_match_run(
                 {"subject_id": item.subject_id, "utility": item.heuristic_score}
                 for item in scorable
             ],
+            # The mode the pool was *actually* scored under, read off the
+            # scores rather than chosen here. This route calls
+            # `rank_candidates`, the superseded two-factor composition, so the
+            # value is `None` — a pre-ADR-0016 run — and the worker pins it to
+            # `1.1.1-approved-g1-m6j` accordingly. Writing `cba-physical-1`
+            # here would pin the run to a rulebook whose four factors this
+            # route does not compute, and the stored weights would then never
+            # have touched the stored utilities.
+            #
+            # Migrating this surface to `rank_cba_candidates` needs industry,
+            # role, topic-evidence and location on the request body, which is a
+            # request-schema change and therefore its own card: OQ-CBA-029.
+            "scoring_mode": ranked[0].scoring_mode if ranked else None,
             "explanations": [explanation_to_payload(item) for item in explanations],
         },
         idempotency_key=idempotency_key,

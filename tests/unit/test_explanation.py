@@ -34,7 +34,7 @@ from smartmatch_domain.explanation import (
     explanation_from_payload,
     explanation_to_payload,
 )
-from smartmatch_domain.factor_registry import REGISTRY_VERSION
+from smartmatch_domain.factor_registry import REGISTRY_VERSION, SUPERSEDED_REGISTRY_VERSION
 from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs
 from smartmatch_domain.factors.travel_burden import GeoPoint, TravelInputs
 from smartmatch_domain.scoring import CandidateEvidence, rank_candidates, score_candidate
@@ -258,7 +258,11 @@ def test_every_explanation_carries_the_heuristic_score_label_and_the_registry_ve
     assert len(explanations) == 3
     for explanation in explanations:
         assert explanation.score_label == SCORE_PROVENANCE_LABEL == "heuristic score"
-        assert explanation.registry_version == REGISTRY_VERSION
+        # These explanations come from ``score_candidate``, the superseded
+        # two-factor composition, so they carry the pin of the rulebook that
+        # declares those two factors — never today's REGISTRY_VERSION.
+        assert explanation.registry_version == SUPERSEDED_REGISTRY_VERSION
+        assert explanation.registry_version != REGISTRY_VERSION
         assert explanation.registry_version.strip()
 
 
