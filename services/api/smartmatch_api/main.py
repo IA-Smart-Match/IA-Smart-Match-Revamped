@@ -294,11 +294,26 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # decision any committed artifact makes — customer §22 keeps event reads and
     # §15 says students are among the readers.
     #
-    # It is emphatically not a *registration* capability. This card ships no
-    # registration route: `attendance_record` is attendance and ADR-0013 makes
-    # it the only input to points, so a row written at registration time would
-    # credit a student for an event they had not attended. See
-    # `routers/student_events.py` and OQ-CBA-018.
+    # Since `CBA-STUDENT-REGISTRATION` this router also carries the two
+    # registration *writes*, and they ride `EVENT_READS` rather than taking a
+    # capability of their own. That is the opposite of the decision
+    # `SPEAKER_REQUEST_INTAKE` below makes about a write, so it has to be argued
+    # rather than assumed.
+    #
+    # That capability exists because a product showing a coordinator the event
+    # catalog without accepting Speaker Requests is coherent, and so is the
+    # reverse: two genuinely separable products. A student catalog without
+    # registration is not that shape. It is the state this page was in for
+    # exactly one card, and `docs/plans/frontend-broken-buttons.md` B06 names it
+    # a defect rather than a smaller product — a Register button with nothing
+    # behind it, or a browse list relabelled to conceal that there was nothing.
+    # A separate capability would make that degraded state a *supported*
+    # configuration, which is the thing nobody wants to be able to ship again.
+    #
+    # What has not changed is that this is not an *attendance* surface.
+    # Registration writes `event_registration`; `attendance_record` is attendance
+    # and ADR-0013 makes it the only input to points, so nothing on this router
+    # writes it. See `routers/student_events.py` and migration `0026`.
     (student_events.router, Capability.EVENT_READS),
     # The Speaker Request intake and its queue (customer §§12-13). Its own
     # capability rather than a share of `events`, and the distinction is the

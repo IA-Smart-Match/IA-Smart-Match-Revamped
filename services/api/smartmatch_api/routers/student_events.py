@@ -1,13 +1,20 @@
-"""The two student-facing event reads: the published catalog, and your own agenda.
+"""The student event surface: the published catalog, your own agenda, and registering.
 
-Card ``CBA-STUDENT-EVENTS``, customer §15 ("Students should be able to browse
-events ... add events to their calendar"). Two unit-scoped ``GET`` routes over
-the ``event`` and ``attendance_record`` tables that already exist:
+Cards ``CBA-STUDENT-EVENTS`` and ``CBA-STUDENT-REGISTRATION``, customer §15
+("Students should be able to browse events, register for events ... add events
+to their calendar"). Four unit-scoped routes:
 
 * ``GET /v1/units/{unit_id}/student/events`` — what the unit has published. See
   :func:`browse_student_events`.
 * ``GET /v1/units/{unit_id}/student/agenda`` — the events *this* student is
   attached to, soonest first. See :func:`list_student_agenda`.
+* ``POST /v1/units/{unit_id}/student/events/{event_id}/registration`` — take a
+  place. See :func:`register_for_event`.
+* ``DELETE`` on that same path — give it up. See :func:`cancel_registration`.
+
+The two reads shipped first and the two writes could not: until migration
+``0026`` there was no registration table, and the section below on why says what
+the obvious substitute would have cost.
 
 ## Why a student surface rather than a wider role set on the catalog
 
@@ -57,37 +64,75 @@ server already holds. No route is added here, no ICS byte is produced here, and
 ``smartmatch_domain.calendar_invite`` is not imported here — the one .ics
 surface stays the one ``tests/unit/test_calendar_invite_wiring.py`` names.
 
-## Registration is *not* here, and the agenda says why
+## Registration is here now, in its own table
 
-§15 also asks that students be able to *register* for events. There is no
-registration in this schema: ``attendance_record`` is attendance — ADR-0013
-makes it the only input to points, and ``uq_attendance_record_subject_event``
-plus the ledger's ``attendance_credit`` shape mean a row written at
-registration time would credit a student for an event they had not been to.
-Writing one anyway to make a button work is the exact defect this repository
-treats as worse than a missing feature.
+``CBA-STUDENT-EVENTS`` shipped these two reads and refused the write, because
+the schema had nowhere to put a registration and the only table that *looked*
+like it would serve — ``attendance_record`` — is attendance: ADR-0013 makes it
+the sole input to points, so a row written when a student signed up would credit
+them for an event they had not been to, indistinguishably from a check-in.
 
-So this card ships no registration route rather than a plausible one, the
-agenda is documented as "events you are recorded as attending" rather than
-labelled "registered", and the missing table is **OQ-CBA-018**. ``B06``'s
-standing instruction — "New command resource; until then relabel" — is what the
-UI does with that.
+Migration ``0026`` ends that by giving a registration its own table, and this
+module grew two writes onto the same surface:
+
+* ``POST /v1/units/{unit_id}/student/events/{event_id}/registration`` — see
+  :func:`register_for_event`.
+* ``DELETE /v1/units/{unit_id}/student/events/{event_id}/registration`` — see
+  :func:`cancel_registration`.
+
+``attendance_record`` is untouched by both. Nothing here writes it, consults it
+to decide a write, or admits a fourth ``method``; the two tables answer two
+questions, and ``on_my_agenda`` is the one place they are deliberately folded
+together — see :func:`_on_my_agenda_event_ids`.
+
+### What "on my agenda" means now, and why the field kept its name
+
+It means **either** the student holds an active registration for the event
+**or** they are recorded at it. The union is the honest reading: a student who
+registered for next week's talk and a student who was scanned into last week's
+both have that event on their agenda, and a page showing only one of them would
+be wrong for half its rows.
+
+The field is still called ``on_my_agenda`` rather than ``registered``. Now that
+registration exists the narrower name is finally *available*, and it would still
+be wrong: it would exclude the attended-but-never-registered rows that were the
+whole of the agenda before this card. :class:`StudentRegistrationView` on each
+item is the field that says whether this student holds a place, and it is
+``null`` where they have never registered — which is a different fact from a
+registration reading ``cancelled``, exactly as migration ``0026`` keeps them
+different in the table.
+
+### The .ics consequence
+
+``routers/calendar.py`` admits a student to an event's invite when they are
+attached to it, and this card widened *attached* by the same union. So a newly
+registered event stops reporting ``event_not_on_your_agenda`` and starts
+carrying a download path the moment its times resolve — which is the point of
+registering, and is why the verdict this module reports had to become correct
+rather than merely present.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Final
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Response, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
+from smartmatch_domain.event_registration import STATUS_REGISTERED
 from smartmatch_persistence import schema
+from smartmatch_persistence.event_registration import (
+    EventRegistrationRepository,
+    RegistrationRow,
+)
+from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
-from smartmatch_api.dependencies import CurrentPrincipal, DbSession
+from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
+from smartmatch_api.errors import ApiError
 from smartmatch_api.units import load_unit_or_404
 from smartmatch_api.utils import utc_now
 
@@ -107,6 +152,40 @@ router = APIRouter(prefix="/v1/units", tags=["student-events"])
 #: about its own ledger: two role sets agreeing today is not a reason a widening
 #: of one should silently widen the other.
 _STUDENT_EVENT_ROLES: Final[frozenset[str]] = frozenset({"student"})
+
+#: Who may register or cancel. ``student`` alone, and equal to
+#: :data:`_STUDENT_EVENT_ROLES` today.
+#:
+#: A second literal rather than an alias of the set above, for the reason
+#: ``tests/authz/test_route_roles.py`` gives about its own ledger: two role sets
+#: agreeing today is not a reason a widening of one should silently widen the
+#: other. The widening actually on the table makes the point — OQ-CBA-019 asks
+#: whether a Connector should be able to *preview* the student surface, and an
+#: answer of "yes" must not also hand them the ability to register a student for
+#: something. Reads and writes are different questions even when the answer
+#: happens to match.
+_STUDENT_REGISTRATION_ROLES: Final[frozenset[str]] = frozenset({"student"})
+
+#: The per-caller quota on registration writes.
+#:
+#: Charged on both write routes and on neither read: the two ``GET``s shipped in
+#: ``CBA-STUDENT-EVENTS`` with no quota and adding one here would be a behaviour
+#: change to somebody else's route smuggled in beside a feature.
+#:
+#: 30 a minute is ``routers/cba_contacts.py``'s write allowance, reused rather
+#: than a second number invented here. It is deliberately well above what a
+#: person can click: this is a defence against a loop, not against a student
+#: changing their mind twice — and because both writes are idempotent, a caller
+#: who hits the limit has already achieved whatever their repeated request was
+#: asking for.
+STUDENT_REGISTRATION_RATE_LIMIT: Final[RateLimit] = RateLimit(
+    operation="student_event.registration.write", max_requests=30, window=timedelta(minutes=1)
+)
+
+#: The one writer of ``event_registration``. Module-level and stateless, the
+#: arrangement ``routers/cba_contacts.py`` and ``routers/speaker_requests.py``
+#: use for their own repositories.
+_registrations = EventRegistrationRepository()
 
 #: The most rows either route returns. G3 §2.2a's 200-record cap, reused rather
 #: than a second number invented here — ``routers/events.py::MAX_ROWS`` and
@@ -220,6 +299,39 @@ class StudentCalendarView(BaseModel):
     )
 
 
+class StudentRegistrationView(BaseModel):
+    """This student's registration for one event, or the absence of one.
+
+    Rendered as ``null`` on an item where no registration row exists, and as an
+    object reading ``cancelled`` where one does. Those are different facts and
+    migration ``0026`` keeps them different on purpose: a ``DELETE`` on cancel
+    would have made "they cancelled" and "they never registered" the same
+    absence, and a client that could not tell them apart would have no way to
+    show a student that their cancellation had registered at all.
+    """
+
+    status: str = Field(
+        description=(
+            "'registered' — you hold a place — or 'cancelled'. There is no "
+            "'waitlisted': no capacity exists in this deployment for one to "
+            "overflow from (OQ-CBA-029)."
+        )
+    )
+    registered_at: datetime = Field(
+        description=(
+            "When the place was first taken. Does not move when you cancel and "
+            "register again, so it stays able to say how late a cancellation was."
+        )
+    )
+    updated_at: datetime = Field(
+        description=(
+            "When the status last moved. Equal to registered_at on a registration "
+            "that has never changed — and a repeated Register does not advance it, "
+            "because nothing moved."
+        )
+    )
+
+
 class StudentEventSummary(BaseModel):
     """One event as a student sees it.
 
@@ -239,12 +351,49 @@ class StudentEventSummary(BaseModel):
     tags: list[str] = Field(description="Mapped vocabulary terms. Never a quarantined value.")
     on_my_agenda: bool = Field(
         description=(
-            "True when an attendance record ties this caller to this event. Named for "
-            "what it is rather than 'registered': this deployment has no registration "
-            "(OQ-CBA-018), and a field called 'registered' would claim one."
+            "True when this caller holds an active registration for this event OR is "
+            "recorded at it. Still named for what it is rather than 'registered': "
+            "the narrower name would exclude the attended-but-never-registered rows "
+            "that made up the whole agenda before registration existed. Use the "
+            "`registration` field below to ask the narrower question."
         )
     )
+    registration: StudentRegistrationView | None = Field(
+        default=None,
+        description=(
+            "Your registration for this event, or null when you have never "
+            "registered. A registration you cancelled is an object reading "
+            "'cancelled', not a null — the two are different facts."
+        ),
+    )
     calendar: StudentCalendarView
+
+
+class StudentRegistrationResponse(BaseModel):
+    """What a register or cancel left behind, read back out of the database.
+
+    Deliberately not an acknowledgement. Both write routes re-read the row they
+    wrote and return *that*, so a client rendering this response is rendering
+    server state rather than its own optimism — the "no toast-only success" rule
+    ``docs/plans/frontend-broken-buttons.md`` states, applied to the two routes
+    that would most easily break it.
+
+    That the response carries the state rather than a message is also what makes
+    the idempotent cases legible: a second Register returns the same object the
+    first one did, with ``updated_at`` unmoved, which is a client-visible way of
+    saying nothing happened because nothing needed to.
+    """
+
+    unit_id: uuid.UUID
+    event_id: uuid.UUID
+    registration: StudentRegistrationView | None = Field(
+        default=None,
+        description=(
+            "Your registration after this call. Null only from a cancel by a "
+            "student who had never registered — which writes no row, because a "
+            "registration nobody made is not a thing to record the cancellation of."
+        ),
+    )
 
 
 class StudentEventListResponse(BaseModel):
@@ -338,6 +487,52 @@ def _authorize_student_event_read(
     )
 
 
+def _authorize_student_registration_write(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> None:
+    """Load the unit and authorize a student's registration write against it.
+
+    A separate function from :func:`_authorize_student_event_read`, and the
+    separation is the point rather than an accident of drafting. That one is
+    named for what it authorizes; routing a write through it would make
+    ``tests/authz/test_policy_matrix.py``'s ``authorizer`` column say something
+    false about these two routes, and the matrix reads that column out of the
+    source precisely so it cannot.
+
+    :data:`_STUDENT_REGISTRATION_ROLES` is likewise its own constant even though
+    it equals the read set today — see the constant for the widening that makes
+    the distinction matter.
+
+    Everything else is the read authorizer's shape, deliberately: the unit is
+    loaded first and authorization runs against *that row's* path rather than
+    against anything from the request, ``load_unit_or_404`` scopes the lookup by
+    the caller's own tenant so a foreign unit is a ``404`` rather than a ``403``
+    that would confirm the id names something real, and no
+    ``require_membership`` or ``tenant_wide_roles`` is passed.
+
+    What this function does **not** do is check that the caller is registering
+    *themselves*. It could not: the policy engine has no concept of a self-scope.
+    That guarantee is structural instead — both routes take ``subject_id`` from
+    ``principal.user_id`` and no route accepts one in a body or a path — which is
+    why there is no request field for MM-A01's caller-selected identity to enter
+    through.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_STUDENT_REGISTRATION_ROLES,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared row rendering
 # ---------------------------------------------------------------------------
@@ -375,12 +570,31 @@ def _calendar_view(
     )
 
 
+def _registration_view(row: RegistrationRow | None) -> StudentRegistrationView | None:
+    """Render a registration, or ``None`` where there has never been one.
+
+    One function so the three places that report a registration — both listings
+    and both write routes — cannot disagree about what a missing row renders as.
+    ``None`` in, ``null`` out: the absence is passed through rather than
+    substituted with a synthetic ``cancelled``, which would erase the distinction
+    migration ``0026`` keeps the row alive to preserve.
+    """
+    if row is None:
+        return None
+    return StudentRegistrationView(
+        status=row.status,
+        registered_at=row.registered_at,
+        updated_at=row.updated_at,
+    )
+
+
 def _summary(
     row: Any,
     *,
     unit_id: uuid.UUID,
     on_my_agenda: bool,
     tags: list[str],
+    registration: RegistrationRow | None = None,
 ) -> StudentEventSummary:
     """Render one event row for a student. Shared so the two surfaces cannot drift."""
     return StudentEventSummary(
@@ -399,6 +613,7 @@ def _summary(
         location_postal_code=row.location_postal_code,
         tags=tags,
         on_my_agenda=on_my_agenda,
+        registration=_registration_view(registration),
         calendar=_calendar_view(row, unit_id=unit_id, on_my_agenda=on_my_agenda),
     )
 
@@ -457,6 +672,11 @@ def _attended_event_ids(
     Restricted to the ids actually being returned, so a truncated listing does
     not read attendance it will not render, and keyed on ``subject_id`` from the
     verified principal — never from anything on the request.
+
+    This is a **read** of ``attendance_record`` and the only one in this module.
+    Nothing here writes it, and the registration routes below do not consult it:
+    the two tables answer two questions and the one place they meet is
+    :func:`_on_my_agenda_event_ids`.
     """
     if not event_ids:
         return set()
@@ -468,6 +688,33 @@ def _attended_event_ids(
         )
     ).all()
     return {row.event_id for row in rows}
+
+
+def _on_my_agenda_event_ids(
+    session: Session, *, tenant_id: uuid.UUID, subject_id: uuid.UUID, event_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Which of these events are on the caller's agenda: registered **or** attended.
+
+    The union, and the one place in this codebase where the two tables are folded
+    into a single answer. Both halves are needed and neither implies the other: a
+    student can hold a place at an event that has not happened yet, and can be
+    recorded at one they never registered for — a coordinator entry or an
+    imported roster, which are the two ``attendance_record.method`` values that
+    have nothing to do with a student clicking anything.
+
+    Registered means *actively* registered. A cancelled registration is a row the
+    table keeps (migration ``0026``) and a place the student does not hold, so it
+    contributes nothing here — which is what makes cancelling actually remove an
+    event from the agenda and withdraw its ``.ics`` link, rather than merely
+    annotate it.
+    """
+    attended = _attended_event_ids(
+        session, tenant_id=tenant_id, subject_id=subject_id, event_ids=event_ids
+    )
+    registered = _registrations.active_event_ids(
+        session, tenant_id=tenant_id, subject_id=subject_id, event_ids=event_ids
+    )
+    return attended | registered
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +786,16 @@ def browse_student_events(
     listed = listed[:MAX_ROWS]
     event_ids = [row.id for row in listed]
     terms = _mapped_terms(session, tenant_id=principal.tenant_id, event_ids=event_ids)
-    attended = _attended_event_ids(
+    on_agenda = _on_my_agenda_event_ids(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_id=principal.user_id,
+        event_ids=event_ids,
+    )
+    # Every status, not just the active ones: an item has to be able to render
+    # "you cancelled this" differently from "you have never registered", and
+    # `on_agenda` above has already answered the narrower question.
+    registrations = _registrations.rows_for_events(
         session,
         tenant_id=principal.tenant_id,
         subject_id=principal.user_id,
@@ -552,8 +808,9 @@ def browse_student_events(
             _summary(
                 row,
                 unit_id=unit_id,
-                on_my_agenda=row.id in attended,
+                on_my_agenda=row.id in on_agenda,
                 tags=terms.get(row.id, []),
+                registration=registrations.get(row.id),
             )
             for row in listed
         ],
@@ -574,23 +831,29 @@ def list_student_agenda(
 ) -> StudentAgendaResponse:
     """Return the caller's own events in this unit (customer §15, fix #10).
 
-    "Own" means ``attendance_record`` names them and the event, because that is
-    the only link between a student and an event this schema has. It is
-    deliberately not called *registered*: there is no registration table, and
-    writing an attendance row when somebody registers would credit them under
-    ADR-0013 for an event they have not been to. The gap is **OQ-CBA-018**, and
-    :class:`StudentEventSummary`'s ``on_my_agenda`` is named for what the data
-    supports rather than for the button a page would like to draw.
+    "Own" means either link: an active ``event_registration`` naming them and the
+    event, or an ``attendance_record`` doing the same. Before migration ``0026``
+    only the second existed, which is why this list was documented as "events you
+    are recorded at" and why ``on_my_agenda`` is still not called ``registered``
+    — the narrower name would drop every event a student attended without ever
+    clicking anything, which a coordinator entry or an imported roster produces.
 
-    Self-scoping is in the query. ``subject_id`` comes from the verified
-    principal and appears in the ``WHERE`` clause, so there is no request field
-    naming a subject and no post-filter a later edit could drop — the
+    The two links stay two tables. Registering writes no ``attendance_record``:
+    ADR-0013 makes attendance the only input to points, so a row written when
+    somebody signs up would credit them for an event they have not been to. That
+    is the refusal ``CBA-STUDENT-EVENTS`` made and migration ``0026`` ended
+    properly rather than cheaply.
+
+    Self-scoping is in the query, and now in both halves of it. ``subject_id``
+    comes from the verified principal and appears in the ``WHERE`` clause of the
+    attendance select *and* of the registration select, so there is no request
+    field naming a subject and no post-filter a later edit could drop — the
     caller-selected identity shape (MM-A01) has nowhere to enter.
 
     Unlike the browse route this does **not** filter on ``publication_status``:
-    an event a student actually attended is theirs to see on their own agenda
-    whether or not the unit still publishes it, and withholding it would make
-    their own history disagree with itself. Unresolved-date rows are still
+    an event a student attended or holds a place at is theirs to see on their own
+    agenda whether or not the unit still publishes it, and withholding it would
+    make their own history disagree with itself. Unresolved-date rows are still
     excluded — they have no position on a time-ordered list — and counted.
 
     Only ``student`` may read this (:func:`_authorize_student_event_read`), and
@@ -598,33 +861,45 @@ def list_student_agenda(
     """
     _authorize_student_event_read(session, principal, unit_id)
 
-    mine = (
+    # The two ways an event reaches this student's agenda, as one set of ids.
+    #
+    # A `UNION` of two id selects rather than the outer join this route used
+    # before registration existed. The join was correct when `attendance_record`
+    # was the only link; with two links an outer join against both would return
+    # one event row per matching side and a student who registered for an event
+    # *and* was then recorded at it would see it twice, which is the kind of
+    # duplicate a `DISTINCT` hides rather than prevents. `UNION` deduplicates by
+    # construction, and the event columns are then selected once from `event`.
+    #
+    # `tenant_id` is a predicate on both halves rather than reached through the
+    # join, the discipline `routers/review.py` states: a read a student acts on
+    # should not depend on a composite foreign key elsewhere staying intact to be
+    # correct.
+    attended_ids = sa.select(schema.attendance_record.c.event_id).where(
         schema.attendance_record.c.tenant_id == principal.tenant_id,
         schema.attendance_record.c.subject_id == principal.user_id,
-        schema.event.c.host_org_unit_id == unit_id,
     )
-    # Composite on `tenant_id` as well as the id: the discipline
-    # `routers/review.py` states for its own joins. A join on the surrogate id
-    # alone would return the same rows today only because the composite foreign
-    # key already forbids a cross-tenant pairing, and a read a student acts on
-    # should not depend on a constraint elsewhere staying intact to be correct.
-    joined = sa.join(
-        schema.attendance_record,
-        schema.event,
-        sa.and_(
-            schema.event.c.tenant_id == schema.attendance_record.c.tenant_id,
-            schema.event.c.id == schema.attendance_record.c.event_id,
-        ),
+    registered_ids = sa.select(schema.event_registration.c.event_id).where(
+        schema.event_registration.c.tenant_id == principal.tenant_id,
+        schema.event_registration.c.subject_id == principal.user_id,
+        # Active only. A cancelled registration is a row the table keeps and a
+        # place the student does not hold, so cancelling actually removes the
+        # event from this list rather than annotating it.
+        schema.event_registration.c.status == STATUS_REGISTERED,
+    )
+    mine = (
+        schema.event.c.tenant_id == principal.tenant_id,
+        schema.event.c.host_org_unit_id == unit_id,
+        schema.event.c.id.in_(attended_ids.union(registered_ids)),
     )
     unresolved = schema.event.c.time_precision == _UNRESOLVED
 
     withheld = session.execute(
-        sa.select(sa.func.count().filter(unresolved)).select_from(joined).where(*mine)
+        sa.select(sa.func.count().filter(unresolved)).select_from(schema.event).where(*mine)
     ).scalar_one()
 
     listed = session.execute(
         sa.select(*_EVENT_COLUMNS)
-        .select_from(joined)
         .where(*mine, ~unresolved)
         .order_by(schema.event.c.resolved_date, schema.event.c.id)
         .limit(MAX_ROWS + 1)
@@ -632,19 +907,254 @@ def list_student_agenda(
 
     truncated = len(listed) > MAX_ROWS
     listed = listed[:MAX_ROWS]
-    terms = _mapped_terms(
-        session, tenant_id=principal.tenant_id, event_ids=[row.id for row in listed]
+    event_ids = [row.id for row in listed]
+    terms = _mapped_terms(session, tenant_id=principal.tenant_id, event_ids=event_ids)
+    # Every status. A row can be on this agenda through attendance while its
+    # registration reads `cancelled` — a student who withdrew and went anyway —
+    # and the item should say so rather than render as never registered.
+    registrations = _registrations.rows_for_events(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_id=principal.user_id,
+        event_ids=event_ids,
     )
 
     return StudentAgendaResponse(
         unit_id=unit_id,
         events=[
-            # Every row here is one the caller is recorded at — that is what the
-            # join selected on — so `on_my_agenda` is true by construction rather
-            # than by a second lookup that could disagree with the join.
-            _summary(row, unit_id=unit_id, on_my_agenda=True, tags=terms.get(row.id, []))
+            # Every row here reached the list through the union above, so
+            # `on_my_agenda` is true by construction rather than by a second
+            # lookup that could disagree with the query.
+            _summary(
+                row,
+                unit_id=unit_id,
+                on_my_agenda=True,
+                tags=terms.get(row.id, []),
+                registration=registrations.get(row.id),
+            )
             for row in listed
         ],
         withheld_unresolved_date=withheld,
         truncated=truncated,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registration writes
+# ---------------------------------------------------------------------------
+
+
+def _published_event_or_404(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    event_id: uuid.UUID,
+) -> None:
+    """Require that this event is one this student could have seen listed.
+
+    The write's target is checked against the *browse* surface rather than
+    against ``event`` alone, and the three predicates are the browse query's own:
+    the unit hosts it, it is published, and its date resolved. A student can only
+    register for something they were shown, and a route that accepted any event
+    id in the tenant would let a caller register for a unit's unpublished
+    programme by guessing — a listing the ``withheld_unpublished`` count exists
+    precisely to keep them out of.
+
+    A ``404`` and not a ``403``, for ``routers/calendar.py``'s reason: a denial
+    distinguished from an absence is an existence oracle, and here it would leak
+    which of a unit's ids are real events awaiting publication.
+
+    Raises:
+        ApiError: 404 when no such event is visible to this caller in this unit.
+    """
+    found = session.execute(
+        sa.select(schema.event.c.id).where(
+            schema.event.c.tenant_id == tenant_id,
+            schema.event.c.host_org_unit_id == unit_id,
+            schema.event.c.id == event_id,
+            schema.event.c.publication_status == "published",
+            schema.event.c.time_precision != _UNRESOLVED,
+        )
+    ).one_or_none()
+    if found is None:
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="event_not_found",
+            message=(
+                "No published event with that id is listed for this unit. A student "
+                "registers for an event they were shown; an unpublished one is not "
+                "one of those."
+            ),
+        )
+
+
+@router.post(
+    "/{unit_id}/student/events/{event_id}/registration",
+    status_code=status.HTTP_201_CREATED,
+    response_model=StudentRegistrationResponse,
+    summary="Register this student for an event",
+    responses={
+        200: {
+            "description": (
+                "You were already registered, or were returning after cancelling. "
+                "Uniqueness on (tenant, subject, event) makes a second Register the "
+                "same registration rather than a second one."
+            )
+        },
+        201: {"description": "A new registration was recorded."},
+    },
+)
+def register_for_event(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    event_id: Annotated[uuid.UUID, Path()],
+    response: Response,
+) -> StudentRegistrationResponse:
+    """Take this student's place at this event (customer §15).
+
+    ``201``: this has completed when it returns. The row exists, it is committed,
+    and the response is read back out of it rather than echoed. ``200``: the
+    registration was already there, or a cancelled one was moved back — a second
+    click is the same registration, not a conflict, and the status code is how a
+    caller learns which happened.
+
+    **No request body.** There is nothing to send: the event is in the path, and
+    ``subject_id`` comes from the verified principal. That absence is the
+    self-scope — with no field naming a subject, MM-A01's caller-selected
+    identity has nowhere to enter, and no future edit can drop a filter that was
+    never a filter.
+
+    **No ``Idempotency-Key``.** Idempotency is
+    ``uq_event_registration_subject_event``, the data's own identity, which is
+    the rule ``routers/speaker_requests.py`` states: a header key recognises only
+    a repeat of an identical body, and a body-less request has no identity to
+    repeat. Two clicks are the same registration under any phrasing.
+
+    **Nothing is written to ``attendance_record``.** ADR-0013 makes attendance
+    the only input to points; a registration is a claim about the future, and
+    crediting it would pay a student for an event they had not attended.
+
+    Quota is charged first, before the unit is loaded and before authorization
+    runs (ADR-0015).
+
+    Raises:
+        ApiError: 403 when the caller may not register into this unit; 404 when
+            the unit is not this tenant's, or the event is not a published event
+            of this unit; 429 when the minute's quota is spent.
+    """
+    charge_quota(session, principal, STUDENT_REGISTRATION_RATE_LIMIT)
+
+    _authorize_student_registration_write(session, principal, unit_id)
+    _published_event_or_404(
+        session, tenant_id=principal.tenant_id, unit_id=unit_id, event_id=event_id
+    )
+
+    result = _registrations.register(
+        session,
+        tenant_id=principal.tenant_id,
+        owning_unit_id=unit_id,
+        subject_id=principal.user_id,
+        event_id=event_id,
+    )
+    # `get_session` rolls back unconditionally, so without this the route returns
+    # a clean 201 having stored nothing at all.
+    session.commit()
+
+    row = _registrations.get(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_id=principal.user_id,
+        event_id=event_id,
+    )
+    if row is None:  # pragma: no cover - the row was committed in this transaction
+        raise ApiError(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="registration_not_readable",
+            message="The registration was written but could not be read back.",
+        )
+
+    if not result.created:
+        # FastAPI stamped 201 from the decorator; this call did not create
+        # anything, and saying "created" of a repeat would make a second click
+        # indistinguishable from a first.
+        response.status_code = status.HTTP_200_OK
+    return StudentRegistrationResponse(
+        unit_id=unit_id, event_id=event_id, registration=_registration_view(row)
+    )
+
+
+@router.delete(
+    "/{unit_id}/student/events/{event_id}/registration",
+    response_model=StudentRegistrationResponse,
+    summary="Cancel this student's registration for an event",
+    responses={
+        200: {
+            "description": (
+                "You are not registered for this event. Returned whether this call "
+                "cancelled an active registration, found one already cancelled, or "
+                "found none at all — the outcome the caller asked for in each case."
+            )
+        }
+    },
+)
+def cancel_registration(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    event_id: Annotated[uuid.UUID, Path()],
+) -> StudentRegistrationResponse:
+    """Give up this student's place at this event (customer §15).
+
+    ``DELETE`` addresses the *registration* — the caller's claim on the event —
+    and after this call they hold none, which is what the verb promises them.
+    What the database does is narrower and deliberate: the row survives and its
+    ``status`` moves to ``cancelled``. Migration ``0026`` argues that at length,
+    and the short version is that deleting would make "they cancelled" and "they
+    never registered" the same absence, and would discard the ``registered_at``
+    that says how late the cancellation was. The response says so rather than
+    hiding it: a cancelled registration comes back as an object, not as a null.
+
+    Idempotent in both directions a caller can reach it. Cancelling an
+    already-cancelled registration writes nothing and answers ``200``; cancelling
+    one that never existed writes **no row at all** and answers ``200`` with a
+    ``null`` registration. Neither is an error, because in both the caller ends up
+    exactly where they were asking to be — and manufacturing a pre-cancelled row
+    for the second would put a row in the table for every stray click.
+
+    Self-scoped identically to the register route: no body, ``subject_id`` from
+    the principal, so this can only ever cancel the caller's own registration.
+
+    Raises:
+        ApiError: 403 when the caller may not manage registrations in this unit;
+            404 when the unit is not this tenant's, or the event is not a
+            published event of this unit; 429 when the minute's quota is spent.
+    """
+    charge_quota(session, principal, STUDENT_REGISTRATION_RATE_LIMIT)
+
+    _authorize_student_registration_write(session, principal, unit_id)
+    _published_event_or_404(
+        session, tenant_id=principal.tenant_id, unit_id=unit_id, event_id=event_id
+    )
+
+    _registrations.cancel(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_id=principal.user_id,
+        event_id=event_id,
+    )
+    session.commit()
+
+    # Re-read after the commit rather than trusting the write result, for the
+    # same reason the register route does: what the caller renders is what the
+    # database holds.
+    row = _registrations.get(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_id=principal.user_id,
+        event_id=event_id,
+    )
+    return StudentRegistrationResponse(
+        unit_id=unit_id, event_id=event_id, registration=_registration_view(row)
     )
