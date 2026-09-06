@@ -318,6 +318,18 @@ _PILOT_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: The invitation template's contract: the five above plus the one thing an
+#: invitation needs that no other message does — somewhere for the recipient to
+#: answer. Derived from ``_PILOT_PLACEHOLDERS`` rather than typed out, so the
+#: five shared names cannot drift apart between templates.
+#:
+#: ``response_url`` is **server-composed**, never a caller's string. A route that
+#: accepted a URL here would be accepting an arbitrary link to put in an
+#: institutional email over an already-consented address, which is a phishing
+#: primitive rather than a placeholder; ``routers/cba_invitations.py`` builds it
+#: from the configured public origin and the invitation's own token.
+_INVITATION_PLACEHOLDERS: Final[frozenset[str]] = _PILOT_PLACEHOLDERS | {"response_url"}
+
 #: The closed set of templates. Every entry addresses someone who has *already*
 #: consented through an approved source; none asks anyone to opt in.
 #:
@@ -371,6 +383,33 @@ TEMPLATES: Final[Mapping[str, OutreachTemplate]] = MappingProxyType(
                     "$coordinator_name\n"
                 ),
                 placeholders=_PILOT_PLACEHOLDERS,
+            ),
+            # Fourth template, added by CBA-INVITATIONS for customer §6 step 7
+            # and §13's "send speaker invitations". Like the other three it
+            # addresses somebody who is already an `active_candidate` with an
+            # approved source — it asks a professional who agreed to hear about
+            # opportunities whether they will take *this* one, which is the
+            # thing they agreed to be asked.
+            #
+            # What makes it a distinct template rather than a reuse of
+            # `pilot.event_invitation.v1`: this one carries a way to answer. An
+            # invitation with no answer path is a message that produces replies
+            # into a mailbox nobody reads, which is how "track speaker
+            # responses" degenerates into a coordinator retyping what they were
+            # told on the phone.
+            _template(
+                "cba.speaker_invitation.v1",
+                subject="Invitation to speak at $event_name on $event_date",
+                body=(
+                    "Hello $professional_name,\n\n"
+                    "$unit_name is hosting $event_name on $event_date, and "
+                    "$coordinator_name would like to invite you to speak with "
+                    "our students.\n\n"
+                    "You can accept or decline here: $response_url\n\n"
+                    "If neither suits you, you can simply ignore this message.\n\n"
+                    "$coordinator_name\n"
+                ),
+                placeholders=_INVITATION_PLACEHOLDERS,
             ),
         )
     }

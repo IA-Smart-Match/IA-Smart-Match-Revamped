@@ -66,12 +66,36 @@ _PARENT_REVISION = "0024_cba_classification"
 #: an earlier revision wrote is touched. ``0025`` is now two links down and still
 #: reachable from ``head``, which is what the chain test below now walks rather
 #: than asserting as one hop.
-_HEAD_REVISION = "0027_match_weight_setting"
+#: Updated again by ``CBA-IMPORT-CLASSIFY``: ``0028_classification_provenance``
+#: chains to ``0027`` and is the head. Unlike ``0026`` and ``0027`` it does *not*
+#: only add new tables — it adds six columns to ``speaker_profile``, the very
+#: table this file's card shaped, so the composability question this assertion
+#: exists to force is a real one here rather than a formality. It composes:
+#: every added column is nullable, every existing column, constraint and key is
+#: untouched, and ``0028``'s two new ``CHECK``s constrain only the columns it
+#: added together with the two classification codes ``0024`` added. The one
+#: interaction worth naming is that ``0028`` backfills a ``human`` provenance
+#: onto rows that already carry a code, which changes no value this file asserts.
+#: Updated again by ``CBA-INVITATIONS``: ``0029_cba_speaker_invitation`` chains
+#: to ``0028`` and is the head. It composes for ``0026``'s reason — two new
+#: tables, ``cba_invitation_batch`` and ``cba_invitation``, and nothing an
+#: earlier revision wrote is touched. It does *reference* the surface this file's
+#: card shaped, but only outward: ``cba_invitation.professional_id`` deliberately
+#: carries no foreign key to ``speaker_profile`` (``not_on_roster`` is a storable
+#: outcome, so a reference would make the one skip reason about a mistake the one
+#: skip reason that cannot be recorded), and the ``contact_channel`` reference it
+#: does declare is ``ON DELETE RESTRICT``, so no row this file writes can be
+#: removed by anything ``0029`` added.
+_HEAD_REVISION = "0029_cba_speaker_invitation"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
-_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = ("0026_event_registration",)
+_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0028_classification_provenance",
+    "0027_match_weight_setting",
+    "0026_event_registration",
+)
 
 
 def _script_directory():

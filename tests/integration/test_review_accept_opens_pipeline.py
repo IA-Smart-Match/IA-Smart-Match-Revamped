@@ -89,7 +89,7 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 
 @pytest.fixture(autouse=True)
 def _clean_provisioned_rows(engine: Engine, tenant_id: uuid.UUID) -> Iterator[None]:
-    """Delete this file's `pipeline_record` / `professional_unit_relationship` rows.
+    """Delete this file's `speaker_profile` / `pipeline_record` / link rows.
 
     Both carry `ON DELETE RESTRICT` foreign keys back to `org_unit` and (for
     `pipeline_record`) `user_account`. Neither table is in `conftest.py`'s
@@ -100,9 +100,16 @@ def _clean_provisioned_rows(engine: Engine, tenant_id: uuid.UUID) -> Iterator[No
     need no cleanup of their own: both cascade from `job`, which `tenant_id`'s
     teardown already deletes (`test_import_review_constraints.py::_make_job`'s
     own docstring).
+
+    ``speaker_profile`` joined the list when accepting a ``professionals`` row
+    started writing one (customer §19's second step). It holds ``RESTRICT``
+    references to ``user_account`` and ``org_unit`` and is deleted **first**,
+    before the link table: child before parent, the ordering
+    ``test_cba_classification_schema.py``'s own cleanup states.
     """
     yield
     with engine.begin() as conn:
+        conn.execute(text("DELETE FROM speaker_profile WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(text("DELETE FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(
             text("DELETE FROM professional_unit_relationship WHERE tenant_id = :tid"),
@@ -131,6 +138,11 @@ def other_tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
     yield tid
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tid})
+        # Before `user_account` below, which it references under RESTRICT. This
+        # tenant provisions nothing today — it exists for the cross-tenant 404 —
+        # and the sweep is listed anyway, because the next test to reach for a
+        # second tenant should not have to rediscover the ordering.
+        conn.execute(text("DELETE FROM speaker_profile WHERE tenant_id = :tid"), {"tid": tid})
         conn.execute(
             text("DELETE FROM professional_unit_relationship WHERE tenant_id = :tid"), {"tid": tid}
         )

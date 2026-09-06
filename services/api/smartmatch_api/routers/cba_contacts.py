@@ -288,6 +288,30 @@ class ClassificationCorrectionRequest(BaseModel):
     )
 
 
+class SpeakerContactClassificationSource(BaseModel):
+    """How each axis's current value was set (OQ-CBA-008).
+
+    Two fields and not six: the timestamps and the actor id are on the row, and
+    a §13 roster screen does not need them to answer the question this surface
+    exists to answer — *has anybody looked at this?* Exposing
+    ``classified_by_user_id`` would put one Connector's account id in front of
+    another with no screen asking for it, and OQ-CBA-008 recorded provenance for
+    accountability rather than for display.
+
+    ``null`` on an axis means unclassified, which is a real state: §19 imports a
+    contact first and classifies it afterwards.
+    """
+
+    industry: str | None = Field(
+        default=None,
+        description="'inferred', 'human', or null when the industry is unclassified.",
+    )
+    role: str | None = Field(
+        default=None,
+        description="'inferred', 'human', or null when the role is unclassified.",
+    )
+
+
 class SpeakerContactResponse(BaseModel):
     """One stored contact, as §13's screens render it.
 
@@ -310,6 +334,26 @@ class SpeakerContactResponse(BaseModel):
     industry_taxonomy_version: str | None
     primary_role_code: str | None
     role_taxonomy_version: str | None
+    classification_source: SpeakerContactClassificationSource
+    match_eligible: bool = Field(
+        description=(
+            "Whether customer §19's review step has been satisfied on both axes, "
+            "and therefore whether this contact may enter matching. False for an "
+            "unclassified contact and for one carrying a classifier's proposal "
+            "nobody has reviewed."
+        )
+    )
+    match_ineligibility_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why this contact may not enter matching yet, or null when it may. A "
+            "stable token rather than a sentence, and a reason rather than a bare "
+            "false, so a screen can tell 'the classifier proposed Finance and "
+            "nobody has checked' from 'we have no idea where this person works' — "
+            "two states that call for different actions and would otherwise be one "
+            "greyed-out row."
+        ),
+    )
     created_at: str
     updated_at: str
     withheld_fields: list[str] = Field(
@@ -403,6 +447,15 @@ def _view(row: SpeakerContactRow, *, withheld: list[str] | None = None) -> Speak
         industry_taxonomy_version=row.industry_taxonomy_version,
         primary_role_code=row.primary_role_code,
         role_taxonomy_version=row.role_taxonomy_version,
+        classification_source=SpeakerContactClassificationSource(
+            industry=row.industry_classification_source,
+            role=row.role_classification_source,
+        ),
+        # Read off the row rather than recomputed here, so the roster screen and
+        # the eligibility filter a matching pool is built from cannot disagree
+        # about whether one contact is ready.
+        match_eligible=row.match_eligible,
+        match_ineligibility_reason=row.match_ineligibility_reason,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
         withheld_fields=withheld or [],
@@ -519,6 +572,11 @@ def create_speaker_contact(
             tenant_id=principal.tenant_id,
             owning_unit_id=owning_unit_id,
             draft=draft,
+            # §19's step five, satisfied at the moment the value is set: a code
+            # typed into §13's form is this Connector's judgment, so it is stored
+            # as `human` with them named rather than left for a review that has
+            # already happened.
+            actor_id=principal.user_id,
         )
     except SpeakerContactAlreadyExists as exc:
         # 409 rather than 200-with-the-existing-row. The caller asked to add
@@ -651,6 +709,7 @@ def update_speaker_contact(
         owning_unit_id=owning_unit_id,
         professional_id=professional_id,
         draft=draft,
+        actor_id=principal.user_id,
     )
     if row is None:
         raise _not_found()
@@ -690,9 +749,14 @@ def correct_speaker_contact_classification(
     ``outreach_contacts``' transitions are a POST: this is an act performed on the
     contact, not a field being set on it.
 
-    The write is a current-value ``UPDATE`` that bumps ``updated_at``. Nothing
-    records who corrected what or what the value was before — OQ-CBA-008's
-    interim ruling, stated in the persistence module and in migration ``0024``.
+    The write is a current-value ``UPDATE`` that bumps ``updated_at``, and it
+    records **who** corrected each axis and when — OQ-CBA-008, decided on
+    6 September 2026 as *provenance, no history*. What the value was before is
+    still not recorded anywhere, and deliberately: see migration ``0028``.
+
+    A corrected axis becomes ``human``, which is what §19's step five gates
+    matching on, so this route is how an inferred contact becomes matchable. An
+    axis this body does not name is left exactly as it was, provenance included.
 
     Raises:
         ApiError: 400 when the correction names neither axis, or names a code
@@ -733,6 +797,8 @@ def correct_speaker_contact_classification(
         owning_unit_id=owning_unit_id,
         professional_id=professional_id,
         correction=correction,
+        # A correction wins over a proposal and takes its author's name with it.
+        actor_id=principal.user_id,
     )
     if row is None:
         raise _not_found()

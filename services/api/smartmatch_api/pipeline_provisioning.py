@@ -187,7 +187,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 
+from smartmatch_domain.cba_classification import (
+    ContactClassificationProposal,
+    ProposedClassification,
+)
+from smartmatch_domain.cba_contacts import SpeakerContactDraft
+from smartmatch_domain.cba_role_categories import (
+    ClassifiedRoleCategory,
+    resolve_role_category,
+)
 from smartmatch_domain.metrics import OpportunityCategoryShape, shape_opportunity_category
+from smartmatch_domain.naics_sectors import ClassifiedSector, resolve_sector
 from smartmatch_domain.synthetic_pilot import (
     MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
     SYNTHETIC_BOARD_ROLE,
@@ -197,13 +207,18 @@ from smartmatch_domain.synthetic_pilot import (
     synthetic_professional_external_subject,
     synthetic_professional_subject_id,
 )
+from smartmatch_persistence.cba_contacts import SpeakerContactRepository
 from smartmatch_persistence.pipeline import PipelineRepository
 from smartmatch_persistence.professionals import ProfessionalIdentityRepository
+from smartmatch_providers.cba_classification import build_contact_classifier
 from sqlalchemy.orm import Session
+
+from smartmatch_api.config import get_settings
 
 __all__ = [
     "EVENTS_DATASET",
     "EVENT_CATEGORY_KEY",
+    "IMPORT_COLUMN_CLASSIFIER",
     "PROFESSIONALS_DATASET",
     "PROFESSIONAL_NAME_KEY",
     "ProvisionOutcome",
@@ -214,6 +229,7 @@ logger = logging.getLogger(__name__)
 
 _professionals = ProfessionalIdentityRepository()
 _pipeline = PipelineRepository()
+_contacts = SpeakerContactRepository()
 
 #: ``import_batch.dataset`` values this module knows how to provision. Any
 #: other value is not an error here — see :func:`provision_on_accept`'s
@@ -229,6 +245,50 @@ EVENTS_DATASET: Final[str] = "events"
 #: ``"Category"`` land here as ``"name"`` and ``"category"`` respectively.
 PROFESSIONAL_NAME_KEY: Final[str] = "name"
 EVENT_CATEGORY_KEY: Final[str] = "category"
+
+#: The remaining ``professionals`` columns a §13 speaker record is built from,
+#: mapped to the ``speaker_profile`` field each one lands in. Every one is
+#: optional in ``docs/pilot-data/columns.yaml`` — customer §18 opens by saying
+#: the data "is scattered across multiple people and systems" with "no single
+#: authoritative export", so a record missing any of them is ordinary rather
+#: than defective.
+#:
+#: ``expertise_tags`` maps to ``topic_text`` because the contract ratified that
+#: spelling for §18's "Topic/interests/expertise text" on 28 August 2026 and
+#: declines to declare the field twice; ``docs/pilot-data/cba-field-mapping.md``
+#: is the table this line implements.
+#:
+#: ``contact_email`` is deliberately absent, and its absence is the point: it is
+#: withheld at the import gate (CBA Gate C, OQ-CBA-011) and never reaches
+#: ``review_item.row_data``, so there is nothing here to read even if this
+#: mapping wanted it. Nothing in this module writes ``contact_channel``, records
+#: consent, or makes anybody sendable.
+_PROFESSIONAL_PROFILE_KEYS: Final[Mapping[str, str]] = {
+    "company": "company",
+    "title": "title",
+    "expertise_tags": "topic_text",
+    "prior_talk": "prior_talk",
+    "location_city": "location_city",
+    "location_postal_code": "location_postal_code",
+}
+
+#: ``row_data`` keys carrying a classification code the coordinator's own export
+#: stated, per axis. ``docs/pilot-data/columns.yaml`` declares both and says in
+#: as many words that it "does NOT validate them against those taxonomies,
+#: resolve a display name to a code, or infer either one from company or title.
+#: That is CBA-IMPORT-CLASSIFY's work" — this module is that work.
+_PROFESSIONAL_CODE_KEYS: Final[Mapping[str, str]] = {
+    "industry": "primary_industry_code",
+    "role": "primary_role_code",
+}
+
+#: Stamped on a proposal drawn from a code the export stated rather than from
+#: the classifier's reading of company and title text. Not stored on
+#: ``speaker_profile`` — migration ``0028`` records *whether* a value was
+#: inferred and not by which reader — so this exists to keep the two
+#: distinguishable in a log, which is why ``ProposedClassification`` carries the
+#: field at all.
+IMPORT_COLUMN_CLASSIFIER: Final[str] = "import-column"
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +402,7 @@ def provision_on_accept(
             owning_unit_id=owning_unit_id,
             review_item_id=review_item_id,
             row_data=row_data,
+            accepted_at=accepted_at,
         )
 
     if dataset == EVENTS_DATASET:
@@ -364,10 +425,32 @@ def _provision_professional(
     owning_unit_id: uuid.UUID,
     review_item_id: uuid.UUID,
     row_data: Mapping[str, Any],
+    accepted_at: datetime,
 ) -> ProvisionOutcome:
-    """Ensure a synthetic identity exists for an accepted ``professionals`` row.
+    """Provision the identity and the §19 speaker record for an accepted row.
+
+    Two things, in one transaction. The identity — ``user_account`` and the
+    unit link — is what this function has always done. The
+    ``speaker_profile`` is customer §19's second step: an accepted import row
+    becomes a speaker record carrying the classifier's **proposal**, stored as
+    ``inferred`` and awaiting the Connector's review.
+
+    **Accepting the row is not reviewing the classification.** The coordinator
+    who accepted this review item looked at a spreadsheet row; §19 asks a
+    Speaker Connector to review "Industry/Role classifications" as a separate,
+    later step, and says why — "Human correction is required because
+    classification may involve judgment calls". So nothing written here is
+    ``human`` and nothing names an actor, and the contact stays out of matching
+    until somebody corrects or confirms it through
+    ``POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/classification``.
+    Treating the accept as both would be the review bypass the ordering exists
+    to prevent.
 
     Opens no journey — see :func:`provision_on_accept`'s docstring.
+
+    A row whose ``name`` is unusable provisions nothing, as before: without a
+    name there is no identity to derive and therefore no row a profile could
+    point at.
     """
     name = row_data.get(PROFESSIONAL_NAME_KEY)
     if not isinstance(name, str) or not name.strip():
@@ -397,7 +480,187 @@ def _provision_professional(
         unit_id=owning_unit_id,
         board_role=SYNTHETIC_BOARD_ROLE,
     )
+
+    _provision_speaker_profile(
+        session,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        review_item_id=review_item_id,
+        professional_id=subject_id,
+        name=name,
+        row_data=row_data,
+        accepted_at=accepted_at,
+    )
+
     return ProvisionOutcome(professional_subject_id=subject_id)
+
+
+def _provision_speaker_profile(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    review_item_id: uuid.UUID,
+    professional_id: uuid.UUID,
+    name: str,
+    row_data: Mapping[str, Any],
+    accepted_at: datetime,
+) -> None:
+    """Write the §19 speaker record and its unreviewed classification proposal.
+
+    Separated from the identity provisioning above so a failure here is
+    attributable: the account and the link are this unit's roster membership,
+    and the profile is what that member's record says.
+
+    A row this function cannot turn into a valid draft — a blank field that
+    ``SpeakerContactDraft.create`` refuses — is logged and skipped rather than
+    raised. The identity has already been provisioned and the accept has already
+    been recorded; failing the whole request over an unusable optional field
+    would roll back a decision a coordinator legitimately made, and the row is
+    still in ``review_item.row_data`` for anybody investigating. The silent-zero
+    rule is honoured by the WARNING, not by pretending the profile exists.
+    """
+    try:
+        draft = SpeakerContactDraft.create(
+            full_name=name,
+            # The classification codes are deliberately not passed. A draft
+            # carrying them would store them as `human` attributed to whoever
+            # accepted the row — see `_draft_values` — and the whole point of
+            # this path is that nobody has reviewed them yet. They reach the row
+            # through the proposal below instead.
+            **_profile_fields(row_data),
+        )
+    except ValueError:
+        logger.warning(
+            "accepted professionals review_item %s in unit %s could not be turned "
+            "into a speaker record; the synthetic identity was provisioned and no "
+            "speaker_profile was written",
+            review_item_id,
+            owning_unit_id,
+        )
+        return
+
+    proposal = _classify(row_data, draft=draft)
+
+    _contacts.create_from_import(
+        session,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        professional_id=professional_id,
+        draft=draft,
+        proposal=proposal,
+        at=accepted_at,
+    )
+
+
+def _profile_fields(row_data: Mapping[str, Any]) -> dict[str, str | None]:
+    """The optional ``speaker_profile`` fields this row states, blanks removed.
+
+    A cell a coordinator left empty arrives as ``""`` or as a whitespace string
+    rather than as an absence, and ``ck_speaker_profile_text_present`` refuses a
+    blank in every one of these columns. Normalizing to ``None`` here makes the
+    absence a stated one — the same distinction §13's create surface draws — so
+    an empty Company reads as "this person has none", not as a company whose
+    name is nothing.
+
+    Non-string values are dropped rather than coerced. ``str()`` on a number a
+    coordinator typed into the wrong column would store it as though it were a
+    company name, which is worse than the field being absent.
+    """
+    fields: dict[str, str | None] = {}
+    for row_key, profile_field in _PROFESSIONAL_PROFILE_KEYS.items():
+        value = row_data.get(row_key)
+        fields[profile_field] = value.strip() if isinstance(value, str) and value.strip() else None
+    return fields
+
+
+def _classify(
+    row_data: Mapping[str, Any], *, draft: SpeakerContactDraft
+) -> ContactClassificationProposal:
+    """Propose both axes: the export's own code first, then the classifier.
+
+    Two readers, tried in that order, and both produce a **proposal**. Neither
+    is a fact and neither is stored as one.
+
+    The export's stated code goes first because it is the coordinator's own
+    answer about their own person, and discarding it in favour of a guess from
+    the company name would throw away better evidence for worse. It is still
+    only a proposal: it arrived on a spreadsheet, nobody in this system has
+    reviewed it, and ``docs/pilot-data/columns.yaml`` says explicitly that the
+    import contract does not validate it, "resolve a display name to a code, or
+    infer either one from company or title. That is CBA-IMPORT-CLASSIFY's work".
+
+    All three of those are here. ``resolve_sector`` / ``resolve_role_category``
+    accept §7's and §8's **names** as well as their codes, in any casing, so a
+    coordinator who exported ``"Finance and Insurance"`` under a column named
+    ``primary_industry_code`` is understood rather than silently dropped — the
+    display-name resolution that sentence assigns to this card. They accept
+    nothing else: a misspelling, or a code from some other vocabulary, resolves
+    to nothing rather than being stored because a coordinator typed it.
+
+    The classifier reads company and title when the export stated no usable
+    code. It is the deterministic fixture and makes no network call — see
+    :func:`smartmatch_providers.cba_classification.build_contact_classifier`,
+    which refuses a live adapter under every edition (OQ-CBA-039).
+
+    An axis neither reader resolves is left **undetermined**, which stores as
+    NULL. Nothing here falls back to a most-common sector, a nearest match, or a
+    token overlap: the raw company and title text is stored on the same row
+    where a reviewer reads it, so a guess would add nothing but the appearance
+    of an answer (OQ-CBA-010, ADR-0011).
+    """
+    settings = get_settings()
+    classifier = build_contact_classifier(
+        settings.edition,
+        use_fixture=settings.use_fixture_providers,
+    )
+    proposed = classifier.propose(company=draft.company, title=draft.title)
+
+    return ContactClassificationProposal(
+        industry=_stated_code(row_data, axis="industry") or proposed.industry,
+        role=_stated_code(row_data, axis="role") or proposed.role,
+    )
+
+
+def _stated_code(row_data: Mapping[str, Any], *, axis: str) -> ProposedClassification | None:
+    """The export's own code for one axis, if it resolves; otherwise ``None``.
+
+    ``None`` rather than an :class:`UndeterminedClassification`, because "this
+    export stated nothing usable" is not yet an answer about the axis — the
+    classifier has not been consulted. Returning an undetermined outcome here
+    would end the search at the first reader and make the classifier
+    unreachable for exactly the rows it exists to help.
+    """
+    value = row_data.get(_PROFESSIONAL_CODE_KEYS[axis])
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    stated = value.strip()
+    if axis == "industry":
+        sector = resolve_sector(stated)
+        if not isinstance(sector, ClassifiedSector):
+            # Not an import failure and not a finding: the contract already said
+            # an unrecognized value here is a review item's problem rather than
+            # the batch's. The raw text stays in `review_item.row_data` where it
+            # can be read, the axis stays unclassified, and a Connector decides.
+            return None
+        code, version = sector.sector.code, sector.taxonomy_version
+    else:
+        role = resolve_role_category(stated)
+        if not isinstance(role, ClassifiedRoleCategory):
+            return None
+        code, version = role.category.code, role.taxonomy_version
+
+    return ProposedClassification(
+        code=code,
+        taxonomy_version=version,
+        # The text as the export wrote it, not the code it resolved to. A
+        # reviewer looking at a proposal needs to see what the sheet actually
+        # said — `"Finance and Insurance"` and `"52"` are the same proposal and
+        # not the same evidence.
+        evidence=stated,
+        classifier=IMPORT_COLUMN_CLASSIFIER,
+    )
 
 
 def _provision_event(

@@ -90,6 +90,211 @@
         "title": "AttendanceSummaryResponse",
         "type": "object"
       },
+      "BatchCreateRequest": {
+        "description": "Compose invitations for a reviewed shortlist.\n\nNote what cannot be supplied: **a template**, **a body**, **a recipient\naddress**, and **a response link**. The template is\n:data:`~smartmatch_domain.cba_invitations.INVITATION_TEMPLATE_ID`, because\nwhich words an institution uses is a copy decision recorded in the closed\nregistry rather than one a caller makes per batch. The address is resolved\nfrom the recipient's own stored channels. The response link is composed\nserver-side from the configured origin and a freshly minted token \u2014 a caller\nsupplying one would be putting an arbitrary link into an institutional email\nover an already-consented address, which is a phishing primitive rather than\na parameter.\n\nWhat a caller does supply is who to invite and what the event is.",
+        "properties": {
+          "coordinator_name": {
+            "description": "How the Connector signs the message. A display name, not an identity: who *submitted* the batch is the authenticated caller and is recorded separately, so this cannot be used to attribute a batch to somebody else.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Coordinator Name",
+            "type": "string"
+          },
+          "event_date": {
+            "description": "The date as it should appear in the message. Stored and rendered verbatim, never parsed: this string's only job is to be read by a person, and parsing it would mean guessing a timezone for it.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Date",
+            "type": "string"
+          },
+          "event_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Name",
+            "type": "string"
+          },
+          "match_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The match run whose shortlist this batch came from, when it came from one. Optional because a Connector may pick people by hand, and requiring a run id would make the honest case unrepresentable.",
+            "title": "Match Run Id"
+          },
+          "professional_ids": {
+            "description": "The shortlisted people to invite, as \u00a713 roster ids. Every one of them produces an outcome in the response \u2014 an invitation, or a skip with a reason. \u00a76 puts a shortlist at 2-3 candidates; the ceiling is far above that and exists so a mistake stays reviewable.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "title": "Professional Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "professional_ids",
+          "event_name",
+          "event_date",
+          "coordinator_name"
+        ],
+        "title": "BatchCreateRequest",
+        "type": "object"
+      },
+      "BatchListResponse": {
+        "description": "A page of batches, and how many were asked for.",
+        "properties": {
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/BatchSummaryView"
+            },
+            "title": "Batches",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batches",
+          "limit",
+          "offset"
+        ],
+        "title": "BatchListResponse",
+        "type": "object"
+      },
+      "BatchResponse": {
+        "description": "One batch and every outcome in it.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_date": {
+            "title": "Event Date",
+            "type": "string"
+          },
+          "event_name": {
+            "title": "Event Name",
+            "type": "string"
+          },
+          "invitations": {
+            "description": "Every professional_id the request named, invited or skipped. A shorter list than the request would be a batch reporting the good news and burying the decisions.",
+            "items": {
+              "$ref": "#/components/schemas/InvitationOutcomeView"
+            },
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited_count": {
+            "title": "Invited Count",
+            "type": "integer"
+          },
+          "match_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Run Id"
+          },
+          "replayed": {
+            "description": "True when this request replayed an idempotency key already used in this unit. Nothing was composed and nobody was invited a second time; the outcomes are the first submission's.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id",
+          "match_run_id",
+          "template_id",
+          "event_name",
+          "event_date",
+          "created_at",
+          "replayed",
+          "invited_count",
+          "skipped_count",
+          "invitations"
+        ],
+        "title": "BatchResponse",
+        "type": "object"
+      },
+      "BatchSummaryView": {
+        "description": "One batch in a listing, without its outcomes.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_date": {
+            "title": "Event Date",
+            "type": "string"
+          },
+          "event_name": {
+            "title": "Event Name",
+            "type": "string"
+          },
+          "match_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Run Id"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id",
+          "match_run_id",
+          "template_id",
+          "event_name",
+          "event_date",
+          "created_at"
+        ],
+        "title": "BatchSummaryView",
+        "type": "object"
+      },
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
@@ -712,6 +917,133 @@
         "title": "DeliveryEventView",
         "type": "object"
       },
+      "DeliveryView": {
+        "description": "What a **mail provider** did with the message. Never what a Speaker said.\n\n``null`` at the top level when no send has been submitted for this\ninvitation. A non-null object whose ``disposition`` is ``null`` is an attempt\nin flight \u2014 a third state, to be rendered as in-progress and never as a\nfailure.",
+        "properties": {
+          "concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concluded At"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'accepted', 'blocked', 'failed', or null while the attempt is still in flight. 'accepted' means a provider took custody of the message. It does **not** mean the message was delivered, and it emphatically does not mean the Speaker agreed to anything \u2014 that is `speaker_response`, which shares no value with this field.",
+            "title": "Disposition"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "send_id": {
+            "format": "uuid",
+            "title": "Send Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "send_id",
+          "disposition",
+          "provider",
+          "failure_reason",
+          "concluded_at"
+        ],
+        "title": "DeliveryView",
+        "type": "object"
+      },
+      "DispatchResponse": {
+        "description": "What a dispatch submitted, and what it refused to.\n\n**No status field, and no count of messages sent.** When this returns nothing\nhas been sent: each entry of ``dispatched`` is a command the dispatcher has\nnot moved yet. Follow ``events_url``, then read the batch.",
+        "properties": {
+          "batch_id": {
+            "format": "uuid",
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "dispatched": {
+            "items": {
+              "$ref": "#/components/schemas/DispatchedView"
+            },
+            "title": "Dispatched",
+            "type": "array"
+          },
+          "not_dispatched": {
+            "items": {
+              "$ref": "#/components/schemas/NotDispatchedView"
+            },
+            "title": "Not Dispatched",
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch_id",
+          "dispatched",
+          "not_dispatched"
+        ],
+        "title": "DispatchResponse",
+        "type": "object"
+      },
+      "DispatchedView": {
+        "description": "One invitation whose send command was accepted. **Nothing has been sent.**",
+        "properties": {
+          "events_url": {
+            "title": "Events Url",
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "title": "Invitation Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "replayed": {
+            "description": "True when this exact command had already been accepted under the same key.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "job_id",
+          "events_url",
+          "replayed"
+        ],
+        "title": "DispatchedView",
+        "type": "object"
+      },
       "DraftListResponse": {
         "description": "A page of drafts, and how many were asked for.",
         "properties": {
@@ -757,6 +1089,7 @@
           "template_id": {
             "description": "A key of the closed outreach template registry.",
             "examples": [
+              "cba.speaker_invitation.v1",
               "pilot.event_invitation.v1",
               "pilot.schedule_change.v1",
               "pilot.visit_confirmation.v1"
@@ -1265,6 +1598,75 @@
           "dataset"
         ],
         "title": "ImportRequest",
+        "type": "object"
+      },
+      "InvitationOutcomeView": {
+        "description": "One named recipient's outcome, and the two facts about it, kept apart.",
+        "properties": {
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the provider did, or null when no send has been submitted."
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "title": "Invitation Id",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "recipient_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The address the invitation was composed for, or null for a skip.",
+            "title": "Recipient Address"
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why nobody was written to, present exactly when status is 'skipped'.",
+            "title": "Skip Reason"
+          },
+          "speaker_response": {
+            "$ref": "#/components/schemas/SpeakerResponseView"
+          },
+          "status": {
+            "description": "'pending', 'dispatched' or 'skipped'. What this platform did. Says nothing about what the recipient did.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "professional_id",
+          "status",
+          "skip_reason",
+          "recipient_address",
+          "delivery",
+          "speaker_response"
+        ],
+        "title": "InvitationOutcomeView",
         "type": "object"
       },
       "JobState": {
@@ -2112,6 +2514,27 @@
         "title": "MyPortalsResponse",
         "type": "object"
       },
+      "NotDispatchedView": {
+        "description": "One pending invitation this dispatch declined to submit, and why.",
+        "properties": {
+          "invitation_id": {
+            "format": "uuid",
+            "title": "Invitation Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "A consent fact read *now*, not at batch creation: a channel can be suppressed, de-activated, or removed between composing a batch and sending it. The invitation stays pending and can be dispatched later if the reason is resolved.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "reason"
+        ],
+        "title": "NotDispatchedView",
+        "type": "object"
+      },
       "PipelineRecordResponse": {
         "description": "One journey, with every stage timestamp it actually has.\n\nThe four optional ``*_at`` fields are ``null`` when the stage has not been\nreached \u2014 never ``0``, never an epoch, and never the row's ``created_at``\nstanding in for a moment nobody recorded. ``current_stage`` is derived from\nthose same timestamps rather than stored, so it cannot drift from them.",
         "properties": {
@@ -2406,6 +2829,51 @@
           "truncated"
         ],
         "title": "QuarantinedTagListResponse",
+        "type": "object"
+      },
+      "RecordResponseRequest": {
+        "description": "What a Speaker told a Connector, as the Connector enters it.",
+        "properties": {
+          "response": {
+            "description": "The Speaker's answer, in verbs so that neither value can be pasted from a delivery disposition. Stored as 'accepted_invitation' or 'declined_invitation'.",
+            "enum": [
+              "accept",
+              "decline"
+            ],
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response"
+        ],
+        "title": "RecordResponseRequest",
+        "type": "object"
+      },
+      "RecordResponseResponse": {
+        "description": "The invitation's answer after this call, and whether this call wrote it.",
+        "properties": {
+          "invitation_id": {
+            "format": "uuid",
+            "title": "Invitation Id",
+            "type": "string"
+          },
+          "recorded": {
+            "description": "False when the invitation already carried this exact answer. That is a success: somebody clicking twice has not made an error, and the recorded time stays the time of the first answer rather than being redated by a repeat.",
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "response": {
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "response",
+          "recorded"
+        ],
+        "title": "RecordResponseResponse",
         "type": "object"
       },
       "RedemptionDecisionRequest": {
@@ -3175,6 +3643,37 @@
         "title": "SendSummaryView",
         "type": "object"
       },
+      "SpeakerContactClassificationSource": {
+        "description": "How each axis's current value was set (OQ-CBA-008).\n\nTwo fields and not six: the timestamps and the actor id are on the row, and\na \u00a713 roster screen does not need them to answer the question this surface\nexists to answer \u2014 *has anybody looked at this?* Exposing\n``classified_by_user_id`` would put one Connector's account id in front of\nanother with no screen asking for it, and OQ-CBA-008 recorded provenance for\naccountability rather than for display.\n\n``null`` on an axis means unclassified, which is a real state: \u00a719 imports a\ncontact first and classifies it afterwards.",
+        "properties": {
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'inferred', 'human', or null when the industry is unclassified.",
+            "title": "Industry"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'inferred', 'human', or null when the role is unclassified.",
+            "title": "Role"
+          }
+        },
+        "title": "SpeakerContactClassificationSource",
+        "type": "object"
+      },
       "SpeakerContactCreate": {
         "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis derived from the name rather than supplied, so a caller cannot choose\nsomebody else's identity (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
         "properties": {
@@ -3339,6 +3838,9 @@
       "SpeakerContactResponse": {
         "description": "One stored contact, as \u00a713's screens render it.\n\nCarries **no email of any kind** \u2014 neither the address the create discarded\nnor the ``.invalid`` placeholder ``user_account`` holds. A response field\nholding an address is the first thing a later card would try to send to, and\nthere is nothing here to send to.",
         "properties": {
+          "classification_source": {
+            "$ref": "#/components/schemas/SpeakerContactClassificationSource"
+          },
           "company": {
             "anyOf": [
               {
@@ -3390,6 +3892,23 @@
               }
             ],
             "title": "Location Postal Code"
+          },
+          "match_eligible": {
+            "description": "Whether customer \u00a719's review step has been satisfied on both axes, and therefore whether this contact may enter matching. False for an unclassified contact and for one carrying a classifier's proposal nobody has reviewed.",
+            "title": "Match Eligible",
+            "type": "boolean"
+          },
+          "match_ineligibility_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this contact may not enter matching yet, or null when it may. A stable token rather than a sentence, and a reason rather than a bare false, so a screen can tell 'the classifier proposed Finance and nobody has checked' from 'we have no idea where this person works' \u2014 two states that call for different actions and would otherwise be one greyed-out row.",
+            "title": "Match Ineligibility Reason"
           },
           "owning_unit_id": {
             "format": "uuid",
@@ -3494,6 +4013,8 @@
           "industry_taxonomy_version",
           "primary_role_code",
           "role_taxonomy_version",
+          "classification_source",
+          "match_eligible",
           "created_at",
           "updated_at"
         ],
@@ -3961,6 +4482,100 @@
           "precision"
         ],
         "title": "SpeakerRequestTimeView",
+        "type": "object"
+      },
+      "SpeakerRespondRequest": {
+        "description": "The Speaker's own answer, from the link in their invitation.",
+        "properties": {
+          "response": {
+            "enum": [
+              "accept",
+              "decline"
+            ],
+            "title": "Response",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 256,
+            "minLength": 16,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "response"
+        ],
+        "title": "SpeakerRespondRequest",
+        "type": "object"
+      },
+      "SpeakerRespondResponse": {
+        "description": "The answer to a Speaker's response, which is the same for every token.\n\nSee :func:`speaker_respond`: a response that distinguished a real token from\nan invented one would let anyone holding a guess confirm whether a given\nperson was invited to speak.",
+        "properties": {
+          "recorded": {
+            "description": "Always true. The request was accepted; nothing is confirmed about the token.",
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "SpeakerRespondResponse",
+        "type": "object"
+      },
+      "SpeakerResponseView": {
+        "description": "What the **Speaker** said. Never what a mail provider did.",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'speaker_link' when the Speaker followed the link in their own invitation, 'connector_recorded' when a coordinator entered what they were told. Reported because the second is a weaker evidentiary claim than the first, and a screen that showed them alike would assert a directness nobody has.",
+            "title": "Channel"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The coordinator who entered it, or null for a Speaker's own answer.",
+            "title": "Recorded By User Id"
+          },
+          "response": {
+            "description": "'awaiting_response', 'accepted_invitation' or 'declined_invitation'. Every value names the invitation, so none of them can be confused with a delivery disposition. 'awaiting_response' is a real state \u2014 the ordinary condition of every invitation until somebody reads their mail \u2014 and is not a failure.",
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response",
+          "recorded_at",
+          "channel",
+          "recorded_by_user_id"
+        ],
+        "title": "SpeakerResponseView",
         "type": "object"
       },
       "StageAdvanceRequest": {
@@ -4656,6 +5271,118 @@
         "summary": "Liveness probe",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/i/{token}": {
+      "get": {
+        "description": "Render the accept-or-decline page. **Never changes state.**\n\nThe link an invitation actually carries, and a GET for the reason\n:func:`unsubscribe_page` is one: a link in an email is fetched by scanners,\nprefetchers and security proxies, so a GET that recorded an answer would\nhave Speakers accepting engagements they never read about. The answer is the\nPOST to ``/v1/speaker-invitations/respond``, which this page submits.\n\nThe token is deliberately not echoed into the HTML \u2014 reflecting it invites\nboth leakage and injection \u2014 and the page says nothing about whether the\ntoken is real, for the same anti-oracle reason the POST answers identically\nto every token.",
+        "operationId": "invitation_response_page_i__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/html": {}
+            },
+            "description": "Response page"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Speaker invitation response page",
+        "tags": [
+          "speaker-invitations"
         ]
       }
     },
@@ -5988,6 +6715,118 @@
         "summary": "Accept or reject a pending review item",
         "tags": [
           "review"
+        ]
+      }
+    },
+    "/v1/speaker-invitations/respond": {
+      "post": {
+        "description": "Record the Speaker's own answer. **Unauthenticated by design.**\n\nA Speaker on a \u00a713 roster is a *contact*, not an account \u2014 nothing in this\nplatform issues them a credential \u2014 so requiring a session would make the\nroute unreachable by the only person it exists for, and \u00a714's \"Speakers\nshould be able to view invitations\" would have to be satisfied by a\ncoordinator retyping what they were told. The token is the entire\nauthorization: 256 bits minted when the invitation was composed and stored\nonly as a SHA-256 hash, so possession of the database confers no ability to\nanswer on anybody's behalf.\n\n## The response is identical for every token\n\nA real token and an invented one both return ``{\"recorded\": true}``, and a\ntoken that matches nothing writes nothing. This is\n``routers/outreach.py::unsubscribe``'s posture and it is here for the same\nreason: a ``404`` for an unknown token would turn this route into an oracle,\nletting anyone holding a guess confirm whether a given person was invited to\nspeak \u2014 which is a fact about a relationship between two institutions and a\nperson. Reporting success for an invented token is not a fake success either,\nbecause the claim is about the *request* (\"we have accepted this\"), not about\nan invitation we cannot identify.\n\nAnswering twice with the same answer is a no-op and also returns true.\nAnswering with a *different* one writes nothing, for\n:func:`record_invitation_response`'s reason \u2014 and still answers identically,\nbecause telling a stranger that a token has already been used is telling them\nthe token is real.\n\n## What this route cannot do\n\nIt cannot create an answer for an invitation that was never dispatched\n(``record_response`` requires ``status='dispatched'``), and it cannot touch\nconsent. A Speaker declining is not a suppression and accepting is not an\nescalation \u2014 the two lifecycles are separate, and somebody who declines one\ninvitation is still a consented contact who may be invited to a different\nevent. A Speaker who wants no more mail at all uses the unsubscribe link,\nwhich is in the same message.",
+        "operationId": "speaker_respond_v1_speaker_invitations_respond_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerRespondRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRespondResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Accept or decline an invitation using its link token",
+        "tags": [
+          "speaker-invitations"
         ]
       }
     },
@@ -10723,7 +11562,7 @@
     },
     "/v1/units/{unit_id}/speaker-contacts/{professional_id}/classification": {
       "post": {
-        "description": "Replace one or both classification axes (customer \u00a7\u00a77-8, \u00a719).\n\nIts own route rather than a corner of the edit, because it is its own act: a\nConnector correcting an inferred classification is doing something they can\ndescribe, and folding it into the general edit would make \"I fixed the\nindustry\" and \"I retyped the whole record\" the same event in every log.\n\nA ``POST`` rather than a ``PATCH`` on a sub-resource, for the reason\n``outreach_contacts``' transitions are a POST: this is an act performed on the\ncontact, not a field being set on it.\n\nThe write is a current-value ``UPDATE`` that bumps ``updated_at``. Nothing\nrecords who corrected what or what the value was before \u2014 OQ-CBA-008's\ninterim ruling, stated in the persistence module and in migration ``0024``.\n\nRaises:\n    ApiError: 400 when the correction names neither axis, or names a code\n        outside its closed taxonomy; 404 when the contact is not in this\n        unit.",
+        "description": "Replace one or both classification axes (customer \u00a7\u00a77-8, \u00a719).\n\nIts own route rather than a corner of the edit, because it is its own act: a\nConnector correcting an inferred classification is doing something they can\ndescribe, and folding it into the general edit would make \"I fixed the\nindustry\" and \"I retyped the whole record\" the same event in every log.\n\nA ``POST`` rather than a ``PATCH`` on a sub-resource, for the reason\n``outreach_contacts``' transitions are a POST: this is an act performed on the\ncontact, not a field being set on it.\n\nThe write is a current-value ``UPDATE`` that bumps ``updated_at``, and it\nrecords **who** corrected each axis and when \u2014 OQ-CBA-008, decided on\n6 September 2026 as *provenance, no history*. What the value was before is\nstill not recorded anywhere, and deliberately: see migration ``0028``.\n\nA corrected axis becomes ``human``, which is what \u00a719's step five gates\nmatching on, so this route is how an inferred contact becomes matchable. An\naxis this body does not name is left exactly as it was, provenance included.\n\nRaises:\n    ApiError: 400 when the correction names neither axis, or names a code\n        outside its closed taxonomy; 404 when the contact is not in this\n        unit.",
         "operationId": "correct_speaker_contact_classification_v1_units__unit_id__speaker_contacts__professional_id__classification_post",
         "parameters": [
           {
@@ -10868,6 +11707,745 @@
         "summary": "Correct a speaker contact's classification",
         "tags": [
           "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-invitations/batches": {
+      "get": {
+        "description": "One unit's batches, newest first, without their outcomes.\n\nThe outcomes are deliberately absent rather than summarised. Folding a\nbatch's twelve outcomes into one word would require choosing which fact to\nforget \u2014 three skipped, two declined, one still awaiting \u2014 and making that\nchoice once per row in a list would bury it where nobody reviews it. A reader\nwho needs to know what happened to a batch reads that batch.",
+        "operationId": "list_invitation_batches_v1_units__unit_id__speaker_invitations_batches_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's speaker-invitation batches",
+        "tags": [
+          "speaker-invitations"
+        ]
+      },
+      "post": {
+        "description": "Compose one invitation per eligible recipient. **Nothing is sent.**\n\n``201`` rather than ``202``: unlike the dispatch, this has completed when it\nreturns \u2014 the batch and every outcome in it are rows a Connector can read\nback. Reserving ``202`` for the operation that genuinely defers work is what\nkeeps the distinction meaningful.\n\nEach named recipient is resolved in three steps, and each step's failure is a\n*skip with a reason* rather than an error, because a batch that refused\nwholesale on one bad name would make a Connector fix their list by bisection:\n\n1. They must be on **this unit's** \u00a713 roster \u2014 otherwise ``not_on_roster``.\n2. They must hold a channel an invitation may address \u2014 otherwise the reason\n   ``choose_invitation_channel`` gives, which names the condition that failed\n   rather than saying \"ineligible\".\n3. The message must compose \u2014 which, having passed step 2, it does.\n\nSending an invitation does not advance anybody's consent, and there is no\npath here that could: the eligibility question is asked of stored state and\nnothing writes back to ``contact_channel``. A contact who is not already an\n``active_candidate`` is skipped and stays exactly where they were.\n\nRaises:\n    ApiError: 404 when the unit does not exist in this tenant; 400 when the\n        idempotency key is missing, or when the same person is named twice\n        (see :func:`_require_distinct_recipients` \u2014 a repeat has no second\n        outcome to report, and dropping it would shorten the answer).",
+        "operationId": "create_invitation_batch_v1_units__unit_id__speaker_invitations_batches_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required. Makes retries safe.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required. Makes retries safe.",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Compose a batch of speaker invitations",
+        "tags": [
+          "speaker-invitations"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-invitations/batches/{batch_id}": {
+      "get": {
+        "description": "\u00a713's tracking view: every outcome, with both facts about each kept apart.\n\n``delivery`` is what a mail provider did. ``speaker_response`` is what a\nperson said. They are separate objects with disjoint vocabularies, and a\nclient must not derive either from the other: a message a provider accepted\nmay never be read, and a Speaker who accepted may have done so by phone\nagainst a message that bounced.\n\nRaises:\n    ApiError: 404 when no such batch exists in this unit.",
+        "operationId": "read_invitation_batch_v1_units__unit_id__speaker_invitations_batches__batch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read one invitation batch, its delivery, and its Speaker responses",
+        "tags": [
+          "speaker-invitations"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-invitations/batches/{batch_id}/dispatch": {
+      "post": {
+        "description": "Submit one ``outreach.send`` per pending invitation. **Nothing is sent.**\n\n``202`` and no status field, for ``send_draft``'s reason: each command is\nrecorded and the dispatcher has not moved it. Follow each ``events_url``,\nthen read the batch.\n\n**Consent is rechecked here**, per invitation, against state read now \u2014 not\nagainst what was true when the batch was composed. A channel can be\nsuppressed, moved back down the lifecycle, or removed in between, and an\ninvitation composed before that must not go out after it. A refused\ninvitation appears in ``not_dispatched`` with the reason and **stays\npending**, so resolving the reason and dispatching again works, and so the\nbatch never silently loses a recipient. The worker rechecks a third time at\ndelivery, which is the only check that closes the window after this returns.\n\nDispatching twice is safe in three independent ways, which is deliberate on a\nroute that puts mail in inboxes: only ``pending`` invitations are considered,\n``mark_dispatched`` is guarded on that same status, and each command carries a\nkey derived from the invitation id so ``submit_command`` replays rather than\nqueues a second send.\n\nRaises:\n    ApiError: 404 when no such batch exists in this unit.",
+        "operationId": "dispatch_invitation_batch_v1_units__unit_id__speaker_invitations_batches__batch_id__dispatch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit send commands for a batch's pending invitations",
+        "tags": [
+          "speaker-invitations"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-invitations/{invitation_id}/response": {
+      "post": {
+        "description": "Record what a Speaker told a Connector \u2014 on the phone, in a reply, in person.\n\nStored with ``channel='connector_recorded'`` and the coordinator's own id, so\nit is never mistaken for an answer the Speaker gave through their own link.\nBoth are real answers; one has a weaker chain of evidence, and a system that\nrendered them identically would be asserting a directness nobody has.\n\nRepeating the same answer succeeds and writes nothing \u2014 the recorded time\nstays the time of the first answer rather than being redated by a repeat. A\n*different* answer is refused with ``409``: overwriting an acceptance erases a\nfact an Event Host may already have booked a room on, and whether a Speaker\nmay change their mind is OQ-CBA-044.\n\nRaises:\n    ApiError: 404 when no such invitation exists in this unit; 409 when the\n        invitation was never dispatched, or already carries a different\n        answer.",
+        "operationId": "record_invitation_response_v1_units__unit_id__speaker_invitations__invitation_id__response_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordResponseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordResponseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record a Speaker's answer received out of band",
+        "tags": [
+          "speaker-invitations"
         ]
       }
     },

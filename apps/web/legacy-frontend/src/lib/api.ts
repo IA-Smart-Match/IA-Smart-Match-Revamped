@@ -2397,6 +2397,237 @@ export async function fetchOutreachSend(unitId: string, sendId: string): Promise
 }
 
 // ---------------------------------------------------------------------------
+// Speaker invitations (CBA-INVITATIONS, customer §6 steps 7-8, §13, §14)
+//
+// Five calls, all on the consented `/v1` path. Nothing here touches
+// `/api/data/*`, `fetchSpecialists`, or the legacy cold flow — an invitation is
+// an `outreach_draft` addressed to an already-consented contact channel, sent by
+// the same `outreach.send` command every other message on this surface uses.
+//
+// **The types below keep two facts in two objects, and that is the whole point
+// of this section.** `SpeakerInvitationOutcome.delivery` is what a *mail
+// provider* did; `SpeakerInvitationOutcome.speaker_response` is what a *person*
+// said. They share no field and no value: a provider's "accepted" means custody
+// of some bytes, while a Speaker's acceptance is spelled `accepted_invitation`.
+// Flattening them into one status in the browser would reintroduce here exactly
+// the confusion the server's schema, its CHECK constraints and its tests are all
+// arranged to prevent — and it would reintroduce it at the boundary where it
+// actually reaches an Event Host's eyes.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a mail provider did with one invitation's message.
+ *
+ * `null` at the top level of an outcome when no send has been submitted at all.
+ * A non-null object whose `disposition` is `null` is an attempt in flight — a
+ * third state, to be rendered as in-progress and never as a failure.
+ */
+export interface SpeakerInvitationDelivery {
+  send_id: string;
+  /**
+   * `"accepted"`, `"blocked"`, `"failed"`, or `null` while in flight.
+   * `"accepted"` means a provider took custody. It does **not** mean delivered,
+   * and it says nothing whatever about whether the Speaker agreed to come.
+   */
+  disposition: string | null;
+  provider: string | null;
+  failure_reason: string | null;
+  concluded_at: string | null;
+}
+
+/**
+ * What the Speaker said. Never what a provider did.
+ *
+ * `response` is `"awaiting_response"`, `"accepted_invitation"` or
+ * `"declined_invitation"` — every value names the invitation, so none of them
+ * can be confused with a delivery disposition. `"awaiting_response"` is a real
+ * state and the ordinary condition of every invitation until somebody reads
+ * their mail; it is not a failure.
+ */
+export interface SpeakerInvitationResponse {
+  response: string;
+  recorded_at: string | null;
+  /**
+   * `"speaker_link"` when the Speaker followed the link in their own
+   * invitation, `"connector_recorded"` when a coordinator entered what they
+   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
+   * screen that showed them alike would assert a directness nobody has.
+   */
+  channel: string | null;
+  recorded_by_user_id: string | null;
+}
+
+/** One named recipient's outcome, with the two facts kept apart. */
+export interface SpeakerInvitationOutcome {
+  invitation_id: string;
+  professional_id: string;
+  /** `"pending"`, `"dispatched"` or `"skipped"`. What the platform did. */
+  status: string;
+  /** Why nobody was written to, present exactly when `status` is `"skipped"`. */
+  skip_reason: string | null;
+  recipient_address: string | null;
+  delivery: SpeakerInvitationDelivery | null;
+  speaker_response: SpeakerInvitationResponse;
+}
+
+/** One batch and every outcome in it. */
+export interface SpeakerInvitationBatch {
+  batch_id: string;
+  match_run_id: string | null;
+  template_id: string;
+  event_name: string;
+  /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
+  event_date: string;
+  created_at: string;
+  /** True when this response replayed a key already used; nobody was invited twice. */
+  replayed: boolean;
+  invited_count: number;
+  skipped_count: number;
+  invitations: SpeakerInvitationOutcome[];
+}
+
+/** One batch in a listing, deliberately without its outcomes. */
+export interface SpeakerInvitationBatchSummary {
+  batch_id: string;
+  match_run_id: string | null;
+  template_id: string;
+  event_name: string;
+  event_date: string;
+  created_at: string;
+}
+
+export interface SpeakerInvitationBatchListResponse {
+  batches: SpeakerInvitationBatchSummary[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * What a dispatch submitted, and what it refused to submit.
+ *
+ * Note the absent field: there is no count of messages sent, because when this
+ * resolves nothing has been sent. Each `dispatched` entry is a command the
+ * dispatcher has not moved yet.
+ */
+export interface SpeakerInvitationDispatchResponse {
+  batch_id: string;
+  dispatched: Array<{
+    invitation_id: string;
+    job_id: string;
+    events_url: string;
+    replayed: boolean;
+  }>;
+  /** Refused at dispatch on a consent fact read *now*, with the reason. */
+  not_dispatched: Array<{ invitation_id: string; reason: string }>;
+}
+
+/** `GET /v1/units/{unit_id}/speaker-invitations/batches` — a Connector's list. */
+export async function fetchSpeakerInvitationBatches(
+  unitId: string,
+): Promise<SpeakerInvitationBatchListResponse> {
+  return requestJson<SpeakerInvitationBatchListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/units/{unit_id}/speaker-invitations/batches/{batch_id}` — the tracking view. */
+export async function fetchSpeakerInvitationBatch(
+  unitId: string,
+  batchId: string,
+): Promise<SpeakerInvitationBatch> {
+  return requestJson<SpeakerInvitationBatch>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches/${encodeURIComponent(batchId)}`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/speaker-invitations/batches` — compose a batch.
+ *
+ * There is deliberately no `template_id`, no `body`, no recipient address and no
+ * response link in this payload, and there must never be one. The template is
+ * the server's closed registry; the address comes from the recipient's own
+ * stored channels; and a browser-supplied link would put an arbitrary URL into
+ * an institutional email to an already-consented address.
+ *
+ * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID` rather
+ * than a timestamp, for `submitOutreachSend`'s reason: two clicks in the same
+ * millisecond are two attempts, and a colliding key would silently merge them.
+ * The server treats a repeat of one key as a replay and invites nobody twice.
+ */
+export async function createSpeakerInvitationBatch(
+  unitId: string,
+  input: {
+    professionalIds: string[];
+    eventName: string;
+    eventDate: string;
+    coordinatorName: string;
+    matchRunId?: string | null;
+  },
+): Promise<SpeakerInvitationBatch> {
+  return requestJson<SpeakerInvitationBatch>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({
+        professional_ids: input.professionalIds,
+        event_name: input.eventName,
+        event_date: input.eventDate,
+        coordinator_name: input.coordinatorName,
+        match_run_id: input.matchRunId ?? null,
+      }),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST .../batches/{batch_id}/dispatch` — submit the send commands.
+ *
+ * Resolves when the server answers `202`. **Nothing has been sent at that
+ * point**, and the response has no field that could be rendered otherwise. No
+ * `Idempotency-Key` header: each command's key is derived server-side from the
+ * invitation id, which is a stronger promise than a per-attempt key — a second
+ * dispatch replays rather than queueing a second message to the same person.
+ */
+export async function dispatchSpeakerInvitationBatch(
+  unitId: string,
+  batchId: string,
+): Promise<SpeakerInvitationDispatchResponse> {
+  return requestJson<SpeakerInvitationDispatchResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches/${encodeURIComponent(batchId)}/dispatch`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST .../speaker-invitations/{invitation_id}/response` — record an answer a
+ * Speaker gave the Connector out of band.
+ *
+ * The verb is `"accept"` or `"decline"`, deliberately not a status value: a
+ * vocabulary a browser could paste a delivery disposition into is a vocabulary
+ * that will eventually receive one. The server stores it as
+ * `accepted_invitation` / `declined_invitation` and records that a coordinator,
+ * rather than the Speaker themselves, is the one who entered it.
+ */
+export async function recordSpeakerInvitationResponse(
+  unitId: string,
+  invitationId: string,
+  response: "accept" | "decline",
+): Promise<{ invitation_id: string; response: string; recorded: boolean }> {
+  return requestJson<{ invitation_id: string; response: string; recorded: boolean }>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/${encodeURIComponent(invitationId)}/response`,
+    { method: "POST", body: JSON.stringify({ response }) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Speaker Requests (CBA-EVENT-REQUEST, customer §12)
 //
 // One call, and the shape that matters runs through it: **the response is the

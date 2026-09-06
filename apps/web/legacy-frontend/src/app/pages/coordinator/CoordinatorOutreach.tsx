@@ -40,12 +40,14 @@
  * {@link useOutreach} waiting for it.
  */
 
-import { AlertCircle, Clock, Mail, Send } from "lucide-react";
+import { AlertCircle, Clock, Mail, Send, UserCheck } from "lucide-react";
 
+import type { SpeakerInvitationOutcome } from "../../../lib/api";
 import { PortalDatasetUnavailable } from "../../components/PortalContent";
 import { grantedPortal } from "../../components/PortalGate";
 import { useOutreach, type QueuedSend } from "../../hooks/useOutreach";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { useSpeakerInvitations } from "../../hooks/useSpeakerInvitations";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 
 /**
@@ -118,6 +120,268 @@ function QueuedSendPanel({ queued }: { queued: QueuedSend }) {
             </ul>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * How a skip reads to a Connector, in terms of what they can do about it.
+ *
+ * Every case names an action, because that is what a skip is for: a batch that
+ * said "3 skipped" would be answering a question nobody asked.
+ */
+function describeSkip(reason: string): string {
+  switch (reason) {
+    case "not_on_roster":
+      return "Not on this unit's speaker list. Add them first, then invite.";
+    case "no_contact_channel":
+      return "On the list, but this unit holds no address for them.";
+    case "channel_suppressed":
+      return "This person asked us to stop writing to them. That outranks everything.";
+    case "channel_not_active_candidate":
+      return "Their address has not been activated. Someone has to do that deliberately.";
+    case "consent_source_not_approved":
+      return "The consent behind this address cannot authorize a send.";
+    default:
+      // Reported verbatim rather than mapped to anything reassuring: a reason
+      // this build does not recognise is not thereby a small problem.
+      return `The server reported "${reason}".`;
+  }
+}
+
+/**
+ * How a **Speaker's** answer reads. Never how a provider's disposition reads.
+ *
+ * Deliberately a separate function from {@link describeDisposition}, taking a
+ * separate field, and there is no code path in this file that could route one
+ * value into the other. Two functions rather than one with a mode flag: a shared
+ * renderer is a place where a caller can eventually pass the wrong fact.
+ */
+function describeSpeakerResponse(response: string): string {
+  switch (response) {
+    case "awaiting_response":
+      return "No answer yet.";
+    case "accepted_invitation":
+      return "Agreed to speak.";
+    case "declined_invitation":
+      return "Declined this invitation.";
+    default:
+      return `The server reported "${response}".`;
+  }
+}
+
+/**
+ * One recipient's outcome, with the two facts on two separate lines.
+ *
+ * The layout is the argument. "The provider took custody" and "the professional
+ * agreed to come" are rendered as different sentences under different labels,
+ * because a single status column is where an Event Host reads the first as the
+ * second and books a room for nobody.
+ */
+function InvitationOutcomeRow({
+  outcome,
+  onRecord,
+}: {
+  outcome: SpeakerInvitationOutcome;
+  onRecord: (invitationId: string, response: "accept" | "decline") => void;
+}) {
+  const answered = outcome.speaker_response.response !== "awaiting_response";
+
+  return (
+    <li className="rounded-xl border border-border p-3 text-sm">
+      <p className="font-medium text-foreground">
+        {outcome.recipient_address ?? "(no address — nobody was written to)"}
+      </p>
+
+      {outcome.status === "skipped" && outcome.skip_reason !== null ? (
+        <p className="mt-1 text-muted-foreground">
+          Not invited. {describeSkip(outcome.skip_reason)}
+        </p>
+      ) : (
+        <dl className="mt-2 space-y-1 text-xs">
+          <div>
+            <dt className="font-medium text-foreground">Message</dt>
+            <dd className="text-muted-foreground">
+              {outcome.status === "pending"
+                ? "Composed. No send has been submitted."
+                : outcome.delivery === null
+                  ? // Two different unknowns, and this is the second: a command
+                    // was submitted and the worker has not written a send yet.
+                    "Send command submitted. The worker has not reported yet."
+                  : describeDisposition(outcome.delivery.disposition)}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-foreground">Speaker</dt>
+            <dd className="text-muted-foreground">
+              {describeSpeakerResponse(outcome.speaker_response.response)}
+              {outcome.speaker_response.channel === "connector_recorded" && (
+                // Surfaced rather than hidden: an answer a coordinator typed in
+                // is a weaker claim than one the Speaker made themselves, and a
+                // screen showing them alike would assert a directness nobody
+                // has.
+                <span> (recorded by a coordinator, not by the Speaker.)</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      {outcome.status === "dispatched" && !answered && (
+        <div className="mt-2 flex gap-2">
+          {(["accept", "decline"] as const).map((verb) => (
+            <button
+              key={verb}
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs font-medium"
+              onClick={() => onRecord(outcome.invitation_id, verb)}
+            >
+              <UserCheck className="h-3 w-3" aria-hidden />
+              {/* "They told me they …", not "mark as …". The button records
+                  something a person said, and its label says whose words. */}
+              They {verb}ed
+            </button>
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * §13's invitation tracking, on the consented `/v1` path.
+ *
+ * There is no compose form here, for the reason this module's docstring gives
+ * about outreach drafts and then some: composing a batch needs the roster ids a
+ * Connector picked off a shortlist, which is the match-run screen's output
+ * rather than something to retype. So this renders the batches the server has,
+ * dispatches them, and tracks what came back.
+ */
+function InvitationBatches() {
+  const invitations = useSpeakerInvitations();
+  const batch = invitations.openBatch;
+
+  return (
+    <section className="space-y-3" aria-label="Speaker invitations">
+      <h2 className="text-lg font-medium text-foreground">Speaker invitations</h2>
+
+      {invitations.status === "loading" && (
+        <p className="text-sm text-muted-foreground">Loading invitation batches…</p>
+      )}
+
+      {invitations.status === "unavailable" && (
+        // Not an empty list, for the drafts section's reason: a read that failed
+        // says nothing about how many batches exist.
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{invitations.loadError}</span>
+        </p>
+      )}
+
+      {invitations.status === "ready" && invitations.batches.length === 0 && (
+        <p className="text-sm text-muted-foreground">No invitation batches in this unit.</p>
+      )}
+
+      {invitations.status === "ready" &&
+        invitations.batches.map((summary) => (
+          <article key={summary.batch_id} className="rounded-2xl border border-border p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium text-foreground">{summary.event_name}</p>
+                {/* Rendered exactly as the Connector typed it. The server does
+                    not parse this string and neither does the browser. */}
+                <p className="text-xs text-muted-foreground">{summary.event_date}</p>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium"
+                onClick={() => {
+                  void invitations.openBatchById(summary.batch_id);
+                }}
+              >
+                Open
+              </button>
+            </div>
+          </article>
+        ))}
+
+      {invitations.openBatchError !== null && (
+        <p className="flex items-start gap-2 text-sm text-destructive" role="alert">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{invitations.openBatchError}</span>
+        </p>
+      )}
+
+      {batch !== null && (
+        <section className="rounded-2xl border border-border p-4" aria-label="Batch outcomes">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-foreground">{batch.event_name}</p>
+              <p className="text-xs text-muted-foreground">
+                {batch.invited_count} invited · {batch.skipped_count} not invited
+              </p>
+            </div>
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              disabled={invitations.dispatchState === "submitting"}
+              onClick={() => {
+                void invitations.dispatchBatch(batch.batch_id);
+              }}
+            >
+              <Send className="h-4 w-4" aria-hidden />
+              {/* "Send invitations", and the panel below says "queued" — never
+                  "sent", which is B17's whole lesson applied to a batch. */}
+              {invitations.dispatchState === "submitting" ? "Submitting…" : "Send invitations"}
+            </button>
+          </div>
+
+          {invitations.dispatchState === "failed" && invitations.dispatchError !== null && (
+            <p className="mt-2 flex items-start gap-2 text-sm text-destructive" role="alert">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span>The dispatch was not accepted: {invitations.dispatchError}</span>
+            </p>
+          )}
+
+          {invitations.lastDispatch !== null && (
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3 text-sm">
+              <p className="flex items-center gap-2 font-medium text-foreground">
+                <Clock className="h-4 w-4" aria-hidden />
+                {/* Queued. The server answered 202 per command and the
+                    dispatcher has not moved any of them. */}
+                {invitations.lastDispatch.dispatched.length} queued
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                The send commands were accepted and recorded. Nothing has been delivered yet.
+              </p>
+              {invitations.lastDispatch.not_dispatched.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                  {invitations.lastDispatch.not_dispatched.map((refused) => (
+                    <li key={refused.invitation_id}>
+                      {/* Refused *now*, on state read at dispatch time — a
+                          channel can be suppressed between composing a batch
+                          and sending it. The invitation stays pending. */}
+                      Not sent — {describeSkip(refused.reason)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <ul className="mt-3 space-y-2">
+            {batch.invitations.map((outcome) => (
+              <InvitationOutcomeRow
+                key={outcome.invitation_id}
+                outcome={outcome}
+                onRecord={(invitationId, verb) => {
+                  void invitations.recordResponse(invitationId, verb);
+                }}
+              />
+            ))}
+          </ul>
+        </section>
       )}
     </section>
   );
@@ -231,6 +495,8 @@ export function CoordinatorOutreach() {
 
         {outreach.queued !== null && <QueuedSendPanel queued={outreach.queued} />}
       </section>
+
+      <InvitationBatches />
 
       <div className="space-y-4">
         {/* Still true, and unchanged by R4: threads are a legacy dataset this

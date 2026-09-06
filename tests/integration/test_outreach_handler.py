@@ -191,6 +191,68 @@ class _Fixtures:
                 {"i": uuid.uuid4(), "t": self.tenant_id, "a": _ADDRESS, "at": _NOW},
             )
 
+    def link_invitation(self) -> uuid.UUID:
+        """File this job's draft under a dispatched ``cba_invitation``.
+
+        Set up exactly as ``routers/cba_invitations.py`` leaves it after a
+        dispatch: the invitation is ``dispatched``, it names this job, and its
+        ``response_status`` is ``awaiting_response`` because nobody has answered
+        anything. What the tests below then assert is what the *handler* does to
+        that row, which is nothing.
+        """
+        batch_id = uuid.uuid4()
+        invitation_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO cba_invitation_batch (id, tenant_id, owning_unit_id, "
+                    "idempotency_key, template_id, event_name, event_date, "
+                    "created_by_user_id) VALUES (:id, :t, :u, :k, "
+                    "'cba.speaker_invitation.v1', 'Spring Showcase', "
+                    "'Friday, 12 June', :by)"
+                ),
+                {
+                    "id": batch_id,
+                    "t": self.tenant_id,
+                    "u": self.unit_id,
+                    "k": f"handler-test-{uuid.uuid4().hex}",
+                    "by": self.actor_id,
+                },
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO cba_invitation (id, tenant_id, owning_unit_id, batch_id, "
+                    "professional_id, status, contact_channel_id, recipient_address, "
+                    "outreach_draft_id, outreach_send_job_id, dispatched_at, "
+                    "response_status) VALUES (:id, :t, :u, :b, :p, 'dispatched', :c, :a, "
+                    ":d, :j, :at, 'awaiting_response')"
+                ),
+                {
+                    "id": invitation_id,
+                    "t": self.tenant_id,
+                    "u": self.unit_id,
+                    "b": batch_id,
+                    "p": uuid.uuid4(),
+                    "c": self.contact_id,
+                    "a": _ADDRESS,
+                    "d": self.draft_id,
+                    "j": self.job_id,
+                    "at": _NOW,
+                },
+            )
+        return invitation_id
+
+    def invitation_response(self, invitation_id: uuid.UUID) -> Any:
+        """The stored answer row, read fresh from the database."""
+        with self.engine.begin() as conn:
+            return conn.execute(
+                text(
+                    "SELECT response_status, response_recorded_at, response_channel, "
+                    "response_recorded_by_user_id, status FROM cba_invitation WHERE id = :i"
+                ),
+                {"i": invitation_id},
+            ).one()
+
     def context(self, session: Session, payload: dict[str, Any] | None = None) -> CommandContext:
         return CommandContext(
             job=JobRecord(
@@ -600,3 +662,156 @@ class TestPayloadAndConfiguration:
         """
         with pytest.raises(ValueError, match="SMARTMATCH_UNSUBSCRIBE_SECRET"):
             _handler(session_factory, FixtureEmailProvider(), live_mode=True)
+
+
+# ---------------------------------------------------------------------------
+# Delivery is not a Speaker's answer (card CBA-INVITATIONS)
+# ---------------------------------------------------------------------------
+
+
+class TestDeliveryIsNotASpeakerResponse:
+    """The handler moves a message. It never moves a person's mind.
+
+    ``outreach.send`` is the command a speaker invitation is dispatched as, so
+    this handler is the piece of the system that could most plausibly acquire
+    the bug this card exists to prevent: a provider's ``accepted`` written into
+    the invitation as though the Speaker had agreed to come. The tests here are
+    negative and deliberately so — every one of them asserts that a row the
+    handler can reach is *unchanged* after it runs, on the accepted path and on
+    the blocked path alike.
+
+    They are here rather than in the invitation suite because this is where the
+    conflation would be introduced. A test in the router's own file would prove
+    the router does not do it, and the router is not the module that would.
+    """
+
+    def test_a_provider_acceptance_leaves_the_speaker_still_unasked(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+    ):
+        """The sharpest assertion in this file.
+
+        The provider took custody — ``disposition`` is ``accepted`` and the send
+        row says so. The Speaker has done nothing at all: they have not opened
+        the message, and may never. If ``response_status`` moved here, an Event
+        Host reading the tracking screen would see an acceptance and book a room
+        for somebody who has not agreed to come.
+        """
+        rows.build()
+        invitation_id = rows.link_invitation()
+
+        result = _handler(session_factory, FixtureEmailProvider())(rows.context(session))
+
+        assert result.summary["disposition"] == "accepted"
+
+        answer = rows.invitation_response(invitation_id)
+        assert answer.response_status == "awaiting_response"
+        assert answer.response_recorded_at is None
+        assert answer.response_channel is None
+        assert answer.response_recorded_by_user_id is None
+
+    def test_a_blocked_send_is_not_recorded_as_a_decline(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+    ):
+        """The mirror image, and the one that would be tempting to "fix".
+
+        The recipient unsubscribed between approval and delivery, so the send is
+        refused at the gate. It would be easy to call that a decline — the
+        invitation is not going to be answered, after all — and it would be a
+        fabrication: the person never saw the invitation, and "declined" is a
+        claim about a decision they did not make. The honest state is the one
+        they are actually in, which is that nobody has asked them.
+        """
+        rows.build()
+        rows.suppress()
+        invitation_id = rows.link_invitation()
+
+        with pytest.raises(PolicyFailure, match="refused at delivery time"):
+            _handler(session_factory, FixtureEmailProvider())(rows.context(session))
+
+        answer = rows.invitation_response(invitation_id)
+        assert answer.response_status == "awaiting_response"
+        assert answer.response_recorded_at is None
+        # And the invitation is still dispatched: a refusal at the gate is a fact
+        # about the *message*, recorded on `outreach_send.disposition`, and
+        # rewriting the invitation's own status from it would be the same
+        # conflation running the other way.
+        assert answer.status == "dispatched"
+
+    def test_a_provider_failure_is_not_recorded_as_an_answer_either(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+    ):
+        """A provider outage says nothing about a Speaker, in either direction."""
+        rows.build()
+        invitation_id = rows.link_invitation()
+
+        with pytest.raises(ProviderFailure):
+            _handler(session_factory, _RecordingProvider())(rows.context(session))
+
+        answer = rows.invitation_response(invitation_id)
+        assert answer.response_status == "awaiting_response"
+        assert answer.response_recorded_at is None
+
+    def test_the_handler_writes_nothing_at_all_to_the_invitation(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+        tenant_id: uuid.UUID,
+        engine: Engine,
+    ):
+        """Stronger than the three above, and the one worth keeping if any is.
+
+        Those assert particular columns are unchanged, which a future edit could
+        satisfy while writing a different one. This asserts ``updated_at`` — the
+        column every write to this table sets — is byte-identical after the
+        handler has run to success. The handler has no business touching an
+        invitation row, and this is what says so about the whole row rather than
+        about the fields somebody thought to list.
+        """
+        rows.build()
+        invitation_id = rows.link_invitation()
+
+        with engine.begin() as conn:
+            before = conn.execute(
+                text("SELECT updated_at FROM cba_invitation WHERE id = :i"),
+                {"i": invitation_id},
+            ).one()
+
+        _handler(session_factory, FixtureEmailProvider())(rows.context(session))
+
+        with engine.begin() as conn:
+            after = conn.execute(
+                text("SELECT updated_at FROM cba_invitation WHERE id = :i"),
+                {"i": invitation_id},
+            ).one()
+
+        assert after.updated_at == before.updated_at
+
+    def test_the_two_vocabularies_cannot_be_spelled_alike(self):
+        """Held over the live enums, not over a list transcribed here.
+
+        A test that compared two literal lists would pass on the day somebody
+        added ``accepted`` to the response enum and forgot to update the list.
+        This reads both enums, so the assertion is about the code that ships.
+        """
+        from smartmatch_domain.cba_invitations import (
+            DELIVERY_VOCABULARY,
+            SPEAKER_RESPONSE_VALUES,
+            assert_response_vocabulary_is_disjoint_from_delivery,
+        )
+
+        assert_response_vocabulary_is_disjoint_from_delivery()
+        assert not (SPEAKER_RESPONSE_VALUES & DELIVERY_VOCABULARY)
+        # And the specific collision that would matter most, named so the test
+        # says what it is protecting rather than only that something is disjoint.
+        assert "accepted" in DELIVERY_VOCABULARY
+        assert "accepted" not in SPEAKER_RESPONSE_VALUES
