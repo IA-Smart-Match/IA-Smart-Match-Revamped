@@ -62,7 +62,7 @@ It does not touch a stored run. A ``match_run`` row carries the weights it was
 scored with (migration ``0018``) and is immutable; nothing in this module writes
 that table, and no foreign key runs from a run to a setting. A run recorded
 yesterday reports yesterday's weights after a change made today, and
-``tests/integration/test_cba_weight_settings.py`` proves that against the table
+``tests/integration/test_cba_weight_settings_persistence.py`` proves that against the table
 rather than against a response.
 
 It also does not re-run anything. A new weighting applies to the next run

@@ -34,9 +34,9 @@ Like every other repository here, this takes a :class:`~sqlalchemy.orm.Session`
 per call and **never commits**. The API's ``get_session`` rolls back
 unconditionally, so a route that calls :meth:`MatchWeightSettingRepository.put`
 and forgets to commit returns a clean 2xx and stores nothing — a failure two
-earlier tracks in this repository shipped. ``tests/integration/test_cba_weight_settings.py``
-asserts against the tables rather than against the response for exactly that
-reason.
+earlier tracks in this repository shipped.
+``tests/integration/test_cba_weight_settings_persistence.py`` asserts against the
+tables rather than against the response for exactly that reason.
 
 ## What this module never does
 
