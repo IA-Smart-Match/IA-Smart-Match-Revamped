@@ -282,11 +282,37 @@ class TestTheMigrationIsTheHeadAndFollowsItsParent:
     exactly the condition that produces one.
     """
 
-    def test_the_registration_revision_is_the_single_head(self) -> None:
-        heads = _script_directory().get_heads()
+    def test_the_registration_revision_is_on_the_single_head_chain(self) -> None:
+        """One head, and ``0026`` is reachable from it.
 
-        assert heads == [_THIS_REVISION], (
-            f"expected {_THIS_REVISION} to be the single Alembic head, got {heads}"
+        This asserted that ``0026`` *was* the head until ``CBA-MATCH-WEIGHTS``
+        chained ``0027`` onto it. The count is the part worth keeping here — one
+        head, so ``upgrade head`` is unambiguous — while the *identity* of the
+        head belongs to whichever card wrote it last, and now lives in that
+        card's own file (``test_cba_weight_settings_persistence.py``) rather than
+        being restated here where every subsequent migration would have to edit
+        it.
+
+        What this file still owns is that ``0026`` is on the chain rather than
+        stranded on a branch of its own, which is what the walk below checks.
+        """
+        script_directory = _script_directory()
+        heads = script_directory.get_heads()
+
+        assert len(heads) == 1, (
+            f"expected exactly one Alembic head, got {heads}. More than one means "
+            "`alembic upgrade head` is ambiguous."
+        )
+
+        reachable = set()
+        current: str | None = heads[0]
+        while current is not None:
+            reachable.add(current)
+            current = script_directory.get_revision(current).down_revision
+
+        assert _THIS_REVISION in reachable, (
+            f"{_THIS_REVISION} is not reachable from head {heads[0]}; it has been "
+            "stranded on a branch rather than chained."
         )
 
     def test_it_chains_to_the_contact_identity_revision(self) -> None:

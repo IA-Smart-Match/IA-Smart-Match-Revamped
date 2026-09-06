@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartmatch.local/schemas/cba-approved-golden-case-v1.json",
+  "title": "CBA approved golden case (ADR-0016)",
+  "description": "Structure schema for the CBA four-factor golden set. A separate contract from approved_case.schema.json because the CBA cases assert a different registry (2.0.0-approved-oq-cba-004), a three-state evidence discriminator the G1 cases had no vocabulary for, and a scoring mode that did not exist when the G1 set was ratified. Every case names the ADR-0016 proposals it asserts, so a case can never be added for a behaviour nobody approved.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "asserts", "adr_proposals", "registry_version", "scoring_mode", "request", "candidates", "expected"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^G-CBA-[0-9]{2}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "asserts": {
+      "description": "What this case pins, in the words of the ADR's own golden-case table.",
+      "type": "string",
+      "minLength": 1
+    },
+    "adr_proposals": {
+      "description": "The ADR-0016 proposals this case asserts. Non-empty: a golden case with no approved decision behind it is a behaviour nobody sanctioned being frozen into the suite.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer", "minimum": 1, "maximum": 10 }
+    },
+    "registry_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scoring_mode": {
+      "description": "The mode the case is scored under. null means the superseded pre-ADR-0016 model and is legitimate only for the supersession case.",
+      "type": ["string", "null"],
+      "enum": ["cba-physical-1", "cba-virtual-1", null]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description"],
+      "properties": {
+        "description": { "type": "string" },
+        "sectors": { "type": "array", "items": { "type": "string" } },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_id"],
+        "properties": {
+          "subject_id": { "type": "string", "minLength": 1 },
+          "sector": {
+            "description": "The speaker's one primary sector code (customer §7 cardinality), or null for none on file.",
+            "type": ["string", "null"]
+          },
+          "role": {
+            "description": "The speaker's one primary role category code, or null for none on file.",
+            "type": ["string", "null"]
+          },
+          "profile_present": {
+            "description": "Whether a speaker profile row was read at all. false is a genuine unknown; true with no text is the observed absence §9 states a policy for.",
+            "type": "boolean"
+          },
+          "topic_text": { "type": ["string", "null"] },
+          "prior_talk": { "type": ["string", "null"] },
+          "topic_score": {
+            "description": "The comparison the fixture provider replays for this candidate's evidence. Absent means no recording, which the factor turns into an unknown.",
+            "type": ["number", "null"],
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "topic_rationale": { "type": ["string", "null"] },
+          "city": { "type": ["string", "null"] },
+          "postal_code": { "type": ["string", "null"] },
+          "distance_miles": {
+            "description": "The already-resolved distance from the CPP campus. Never resolved by the domain (OQ-CBA-024); a case that omits it is asserting an unresolved address, not a far one.",
+            "type": ["number", "null"],
+            "minimum": 0.0
+          }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "applied_weights": {
+          "description": "The normalized weights the model must apply, keyed by factor, to six places.",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "scored_factor_keys": {
+          "description": "Exactly the factors the model may produce. Listing them is how a case asserts that proximity is absent under cba-virtual-1 rather than present-and-unknown.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ranking": {
+          "description": "Subject ids in the order rank_cba_candidates must return them.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "candidates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "composite_state": { "type": "string", "enum": ["measured", "policy_neutral", "unknown"] },
+              "heuristic_score": { "type": ["number", "null"] },
+              "is_shortlistable": { "type": "boolean" },
+              "unknown_factor_keys": { "type": "array", "items": { "type": "string" } },
+              "policy_neutral_factor_keys": { "type": "array", "items": { "type": "string" } },
+              "ui_caption": { "type": ["string", "null"] },
+              "factors": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "state": { "type": "string", "enum": ["measured", "policy_neutral", "unknown"] },
+                    "value": { "type": ["number", "null"] },
+                    "zero_classification": { "type": ["string", "null"], "enum": ["measured_zero", "unknown", null] },
+                    "policy_id": { "type": ["string", "null"] },
+                    "policy_version": { "type": ["string", "null"] },
+                    "band": { "type": ["string", "null"], "enum": ["near", "mid", "far", null] },
+                    "ui_label": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

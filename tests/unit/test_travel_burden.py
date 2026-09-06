@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 
 import pytest
-from smartmatch_domain.factor_registry import factor_keys
+from smartmatch_domain.factor_registry import PROPOSED_FACTORS, factor_keys
 from smartmatch_domain.factors import FACTOR_SCORE_PRECISION, ZeroClassification
 from smartmatch_domain.factors.proximity import (
     CBA_PROXIMITY_FACTOR_KEY,
@@ -319,11 +319,27 @@ def test_both_factors_agree_that_a_missing_location_is_unknown_and_not_zero():
     assert new.score.zero_classification is ZeroClassification.UNKNOWN
 
 
-def test_the_cba_factor_is_not_registered_and_travel_burden_still_is():
-    """Registry wiring is the registry track's deliverable, not this one.
+def test_both_factors_are_registered_and_only_the_cba_one_scores():
+    """Updated deliberately when the registry track landed (CBA-MATCH-REGISTRY).
 
-    When that track lands, this test is the one that should be updated
-    deliberately rather than the one that quietly starts passing differently.
+    The predecessor of this test asserted that ``proximity`` was *absent* from
+    the registry, and said in terms that the registry track should update it
+    rather than let it quietly start passing differently. This is that update.
+
+    ADR-0016 registers ``proximity`` and retires ``travel_burden``, and
+    OQ-CBA-025 decided *coexist*: the retired factor stays declared and stays
+    implemented so a run pinned to ``1.1.1-approved-g1-m6j`` remains
+    reproducible. So both keys are present, and exactly one of them carries
+    active weight.
     """
+    by_key = {spec.key: spec for spec in PROPOSED_FACTORS}
+
     assert "travel_burden" in factor_keys()
-    assert CBA_PROXIMITY_FACTOR_KEY not in factor_keys()
+    assert CBA_PROXIMITY_FACTOR_KEY in factor_keys()
+
+    assert by_key["travel_burden"].implemented is True
+    assert by_key["travel_burden"].is_retired is True
+    assert by_key["travel_burden"].active_weight == 0.0
+
+    assert by_key[CBA_PROXIMITY_FACTOR_KEY].is_retired is False
+    assert by_key[CBA_PROXIMITY_FACTOR_KEY].active_weight > 0.0

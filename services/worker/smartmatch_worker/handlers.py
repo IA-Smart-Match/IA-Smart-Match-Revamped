@@ -76,12 +76,16 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
 from smartmatch_domain.factor_registry import (
-    REGISTRY_VERSION,
+    SUPERSEDED_G1_MODEL,
     RegistryNotApprovedError,
     RegistryNotReadyError,
     assert_registry_approved,
     assert_scoring_ready,
-    normalize_weights,
+    resolve_scoring_model,
+)
+from smartmatch_domain.factors.proximity import (
+    CBA_PROXIMITY_FORMULA_VERSION,
+    UnknownScoringModeError,
 )
 from smartmatch_domain.factors.travel_burden import TRAVEL_BURDEN_FORMULA_VERSION
 from smartmatch_domain.ingest import QualityFinding, Severity, validate_columns
@@ -95,8 +99,10 @@ from smartmatch_domain.match_run import (
 )
 from smartmatch_domain.optimizer import PortfolioCandidate, PortfolioRequest, solve_portfolio
 from smartmatch_domain.public_url import StaticUrlShapeRefusal, validate_static_url_shape
+from smartmatch_domain.weight_settings import applied_weights
 from smartmatch_persistence.jobs import JobRecord
 from smartmatch_persistence.match_runs import MatchRunRepository
+from smartmatch_persistence.match_weight_settings import MatchWeightSettingRepository
 from smartmatch_persistence.review import ReviewRepository
 from sqlalchemy.orm import Session
 
@@ -952,12 +958,25 @@ class MatchRunCommand:
             :class:`~smartmatch_domain.optimizer.PortfolioCandidate` and never
             coerced to ``0.0`` (ADR-0011), so the decision about how to present
             an unscorable candidate belongs to whoever assembled the pool.
+        scoring_mode: The scoring mode the pool's utilities were produced
+            under — ``"cba-physical-1"``, ``"cba-virtual-1"``, or ``None``.
+            Written by whoever scored the pool, never chosen here and never
+            defaulted: this handler does not score, so inventing a mode would
+            pin the run to a model nothing actually applied.
+
+            ``None`` means the utilities came from the superseded
+            pre-ADR-0016 composition, and the run is pinned to
+            ``1.1.1-approved-g1-m6j`` accordingly (ADR-0016 Proposal 7: a
+            payload lacking the field is read as a pre-ADR-0016 run, not as
+            ``cba-physical-1``). Every payload written before this field
+            existed therefore keeps pinning exactly what it pinned before.
     """
 
     event_need_id: str
     portfolio_size: int
     random_seed: int
     candidates: tuple[PortfolioCandidate, ...]
+    scoring_mode: str | None = None
 
 
 def _read_candidate_pool(raw_candidates: object, problems: list[str]) -> list[PortfolioCandidate]:
@@ -1046,6 +1065,24 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
 
     pool = _read_candidate_pool(payload.get("candidates"), problems)
 
+    # Absent is a fact, not a gap: a payload with no mode was written by a
+    # release that had none, and reading it as cba-physical-1 would pin the run
+    # to a rulebook it never saw. Present-but-unrecognised is a different thing
+    # and is refused, because a typo that fell through to a default would pin a
+    # virtual event's run to the physical model.
+    scoring_mode: str | None = None
+    raw_mode = payload.get("scoring_mode")
+    if raw_mode is not None:
+        if not isinstance(raw_mode, str) or not raw_mode.strip():
+            problems.append(f"scoring_mode must be a non-blank string or absent, got {raw_mode!r}")
+        else:
+            try:
+                resolve_scoring_model(raw_mode.strip())
+            except UnknownScoringModeError as exc:
+                problems.append(str(exc))
+            else:
+                scoring_mode = raw_mode.strip()
+
     subject_ids = [candidate.subject_id for candidate in pool]
     if len(set(subject_ids)) != len(subject_ids):
         # PortfolioRequest refuses a duplicate subject_id too. Caught here so
@@ -1065,6 +1102,7 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
         portfolio_size=portfolio_size,
         random_seed=random_seed,
         candidates=tuple(pool),
+        scoring_mode=scoring_mode,
     )
 
 
@@ -1151,12 +1189,40 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
             reason="registry_not_ready",
         ) from exc
 
-    # Normalized over the implemented scoring factors only — the corrected form
-    # of the legacy `_normalize_weights`, whose denominator ranged over nine
-    # declared factors while its numerator summed seven, capping every score at
-    # 0.90. These are the weights the run is pinned to, so the stored copy is the
+    # The model the *pool* was scored under, resolved from the command rather
+    # than assumed. Pinning today's default while the utilities came from an
+    # older composition would produce a run whose recorded weights never
+    # touched its recorded numbers — a reproducible-looking record of something
+    # that did not happen, which is precisely what this snapshot exists to
+    # prevent.
+    model = resolve_scoring_model(command.scoring_mode)
+
+    # This unit's stored weight overrides, or an empty map when it has never
+    # configured any (customer §5, migration 0027). Read from the *job's own*
+    # tenant and owning unit, never from the payload, for the reason every other
+    # scoping decision in this handler gives: the payload is what a caller sent,
+    # and the job row is what was authorized.
+    #
+    # A unit with no settings behaves exactly as it did before this existed —
+    # `applied_weights` with no overrides *is* `normalize_weights` — so the
+    # approved goldens are untouched by the mere existence of the feature.
+    overrides = _weight_settings.overrides_for(
+        context.session,
+        tenant_id=context.job.tenant_id,
+        owning_unit_id=context.job.owning_unit_id,
+    )
+
+    # Normalized over that model's factors only — the corrected form of the
+    # legacy `_normalize_weights`, whose denominator ranged over nine declared
+    # factors while its numerator summed seven, capping every score at 0.90.
+    # These are the weights the run is pinned to, so the stored copy is the
     # normalized set that actually applied and not the proposed one.
-    weights = normalize_weights()
+    #
+    # Read here, at execution, and *snapshotted* into the row below. That is what
+    # makes a later settings change unable to reach this run: the row carries the
+    # numbers themselves, not a reference to the settings that produced them, and
+    # 0018's trigger refuses to let the row change afterwards.
+    weights = applied_weights(overrides, model=model)
 
     context.emit(
         {
@@ -1164,7 +1230,8 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
             "detail": "solving the portfolio",
             "candidates": len(command.candidates),
             "portfolio_size": command.portfolio_size,
-            "registry_version": REGISTRY_VERSION,
+            "registry_version": model.registry_version,
+            "scoring_mode": model.scoring_mode,
         }
     )
 
@@ -1178,19 +1245,33 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
     )
 
     pins = MatchRunPins(
-        registry_version=REGISTRY_VERSION,
+        registry_version=model.registry_version,
+        # `weights_fingerprint` over the weights *actually applied*, so a
+        # virtual run fingerprints three weights and a physical run four. Two
+        # runs of the same registry in different modes therefore carry the same
+        # registry_version and different registry_hash values — same rulebook,
+        # different model (ADR-0016 Proposal 9).
         registry_hash=weights_fingerprint(weights),
         optimizer_model_version=result.model_version,
         solver_name=result.solver_name,
         # From the result, not from this module's own import of ortools: the
         # recorded build is the one that solved.
         solver_version=result.solver_version,
-        # Straight-line today, and said so rather than implied: the D3 route
-        # matrix is deferred and `factors/travel_burden.py` computes a haversine
-        # estimate. When D3 lands, these older rows must keep saying what they
-        # actually used.
+        # Straight-line in both models, and said so rather than implied: the D3
+        # route matrix is deferred, and both the superseded `travel_burden` and
+        # the CBA band table measure a haversine distance. When D3 lands, these
+        # older rows must keep saying what they actually used.
         route_estimate_source="straight_line",
-        route_estimate_version=TRAVEL_BURDEN_FORMULA_VERSION,
+        # Whichever distance formula the pinned model's proximity factor uses.
+        # A CBA run that recorded the travel_burden version would name a
+        # formula it never ran.
+        route_estimate_version=(
+            TRAVEL_BURDEN_FORMULA_VERSION
+            if model is SUPERSEDED_G1_MODEL
+            else CBA_PROXIMITY_FORMULA_VERSION
+        ),
+        scoring_mode=model.scoring_mode,
+        scoring_mode_version=model.scoring_mode_version,
     )
 
     record = _match_runs.record(
@@ -1227,6 +1308,11 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
             "solver_version": pins.solver_version,
             "route_estimate_source": pins.route_estimate_source,
             "route_estimate_version": pins.route_estimate_version,
+            # The mode is reported here because `match_run` has no column for
+            # it (OQ-CBA-028) and this event is where a follower of the job can
+            # read it. `null` is a pre-ADR-0016 run, not the physical model.
+            "scoring_mode": pins.scoring_mode,
+            "scoring_mode_version": pins.scoring_mode_version,
             "portfolio_status": result.status.value,
             "candidates_considered": len(command.candidates),
             # The count, not the ids: the shortlist is card M10's surface and a
@@ -1246,6 +1332,12 @@ _reviews: Final[ReviewRepository] = ReviewRepository()
 
 #: Same reasoning as ``_reviews`` above.
 _match_runs: Final[MatchRunRepository] = MatchRunRepository()
+
+#: Same reasoning again. Read-only on this path: ``handle_match_run_create``
+#: asks it what a unit's weights are and never writes one — a worker that could
+#: change a unit's configuration while executing a run would make the run's own
+#: inputs a moving target.
+_weight_settings: Final[MatchWeightSettingRepository] = MatchWeightSettingRepository()
 
 
 # Built by a function rather than exposed as a module-level constant, so that no

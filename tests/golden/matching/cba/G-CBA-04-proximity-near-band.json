@@ -1,0 +1,85 @@
+{
+  "id": "G-CBA-04",
+  "title": "d = 24.9 miles",
+  "asserts": "Near band, proximity 1.00, burden 0.00. Inside the band, not at its edge.",
+  "adr_proposals": [
+    3
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-04-NEAR",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 24.9
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-04-NEAR"
+    ],
+    "candidates": {
+      "SYNTH-CBA-04-NEAR": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "is_shortlistable": true,
+        "unknown_factor_keys": [],
+        "policy_neutral_factor_keys": [],
+        "factors": {
+          "industry_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "role_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "cba_semantic_topic": {
+            "state": "measured",
+            "value": 0.8,
+            "zero_classification": null,
+            "policy_id": null,
+            "policy_version": null
+          },
+          "proximity": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null,
+            "band": "near",
+            "ui_label": "Near"
+          }
+        }
+      }
+    }
+  }
+}

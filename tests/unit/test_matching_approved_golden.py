@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from smartmatch_domain.factor_registry import factor_keys
+from smartmatch_domain.factor_registry import (
+    REGISTRY_VERSION,
+    SUPERSEDED_REGISTRY_VERSION,
+    factor_keys,
+)
 from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs
 from smartmatch_domain.factors.travel_burden import GeoPoint, TravelInputs
 from smartmatch_domain.match_depth import EngagementHistoryEvidence, derive_match_depth
@@ -251,3 +255,77 @@ def test_symptom_fixtures_are_untouched():
 
     golden_case_schema = _load_case(GOLDEN_CASE_SCHEMA_PATH)
     assert "not" in golden_case_schema["properties"]["expected"]
+
+
+# ---------------------------------------------------------------------------
+# Supersession (ADR-0016 Proposal 9, OQ-CBA-025)
+#
+# The registry moved to 2.0.0-approved-oq-cba-004 and these seven cases did not
+# move with it. That is the point of a major bump: the G1 cases assert the G1
+# rulebook, they must keep reproducing under it, and they must never be read as
+# though they asserted the CBA one.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.golden
+@pytest.mark.parametrize("case_id", ["G1-GC-002", "G1-GC-005", "G1-GC-006"])
+def test_a_g1_case_still_reproduces_at_its_own_pin_after_the_2x_bump(case_id: str):
+    """The reproducibility half of OQ-CBA-025's *coexist* decision.
+
+    ``topic_relevance`` and ``travel_burden`` are retired — they carry no active
+    weight in the current model — but they are still declared and still
+    implemented, precisely so this keeps working. If retirement had meant
+    deletion, every run a coordinator has already seen would have become
+    unreproducible on the day the CBA factors landed.
+    """
+    case = _load_case(_case_path(case_id))
+    inputs = case["inputs"]
+    result = score_candidate(
+        _candidate_from_inputs(
+            inputs["candidate"]["subject_id"], inputs["professional"], inputs["event_need"]
+        )
+    )
+
+    assert result.registry_version == SUPERSEDED_REGISTRY_VERSION
+    assert result.registry_version != REGISTRY_VERSION
+    # The G1 factor set, unchanged and undiluted by the four CBA factors.
+    assert {score.factor_key for score in result.factor_scores} == {
+        "topic_relevance",
+        "travel_burden",
+    }
+    assert set(result.applied_weights) == {"topic_relevance", "travel_burden"}
+    assert sum(result.applied_weights.values()) == pytest.approx(1.0)
+    # No mode, because the vocabulary postdates this rulebook entirely.
+    assert result.scoring_mode is None
+    assert result.scoring_mode_version is None
+
+
+@pytest.mark.golden
+def test_the_g1_cases_never_claim_the_cba_registry():
+    """A 1.x case that drifted onto the 2.x pin would be silently comparable.
+
+    Two scores under two rulebooks must never be averaged, ranked, or charted
+    together, and the version string is the only thing keeping them apart. This
+    asserts the separation from the fixture side as well as the code side.
+    """
+    for path in _case_paths():
+        case_text = json.dumps(_load_case(path))
+        assert REGISTRY_VERSION not in case_text, (
+            f"{path.name} names the CBA registry version; the G1 approved set asserts "
+            "the superseded rulebook and must not borrow the 2.x pin"
+        )
+
+
+@pytest.mark.golden
+def test_the_cba_golden_set_is_a_separate_directory():
+    """The two sets are separate contracts and stay in separate directories.
+
+    Not a filesystem nicety: a CBA case dropped into ``approved/`` would be run
+    by *this* module's parametrization against the superseded composition, which
+    would either error confusingly or — worse — pass while asserting the wrong
+    rulebook.
+    """
+    cba_dir = GOLDEN_DIR / "cba"
+    assert cba_dir.is_dir(), "the CBA golden set must live in its own directory"
+    assert not list(APPROVED_DIR.glob("G-CBA-*.json"))
+    assert not list(cba_dir.glob("G1-GC-*.json"))

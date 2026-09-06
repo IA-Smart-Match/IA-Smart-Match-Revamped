@@ -47,12 +47,14 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_respo
 from smartmatch_api.routers import (
     auth,
     calendar,
+    cba_contact_channels,
     cba_contacts,
     engagement,
     events,
     imports,
     jobs,
     match_runs,
+    matching_weights,
     me,
     metrics,
     outreach,
@@ -349,6 +351,16 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # no external lookup.
     (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
     (match_runs.router, Capability.MATCH_RUNS),
+    # The weights a match run is scored under (customer §5, §13's "manage
+    # matching weights"). `MATCH_RUNS` rather than a capability of its own, and
+    # that is the whole argument: configuring the weighting of a matching engine
+    # a deployment does not offer is not a smaller product, it is a settings
+    # screen for nothing. The two are enabled together or neither is.
+    #
+    # Not `OPERATOR_RECORD_IMPORT` and not an admin capability: this is a
+    # Connector adjusting how their own unit's shortlist is composed, scoped to
+    # that unit, and it authorizes exactly as the match-run routes do.
+    (matching_weights.router, Capability.MATCH_RUNS),
     (rewards.router, Capability.REWARDS_LEDGER),
     # The S12 funnel's coordinator-driven write path. Classified with `metrics`,
     # which reads the same table: `routers/pipeline.py` is what makes the last
@@ -377,6 +389,20 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # names. A product without consented outreach has no contact channels to
     # administer.
     (outreach_contacts.router, Capability.CONSENTED_OUTREACH),
+    # The §13 roster's channels — the one place a Speaker Connector's contact
+    # *record* can acquire a contact *channel*. `CONSENTED_OUTREACH` rather than
+    # `SPEAKER_CONTACT_MANAGEMENT`, and the split is the same one the
+    # `cba_contacts` note above draws, applied honestly in the other direction:
+    # a deployment that offers the roster with outreach switched off should get
+    # the roster and no way to make anybody writable-to, which is precisely what
+    # gating these three here produces. Classifying them with the roster would
+    # have handed a consent surface to every deployment that wanted a directory.
+    #
+    # They still authorize through `cba_contacts._authorize_speaker_contacts`,
+    # so the capability flag and the role gate answer two different questions:
+    # whether this product includes consent management at all, and whether this
+    # caller may exercise it on this unit.
+    (cba_contact_channels.router, Capability.CONSENTED_OUTREACH),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:

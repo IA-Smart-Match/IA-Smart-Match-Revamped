@@ -1,0 +1,88 @@
+{
+  "id": "G-CBA-02",
+  "title": "No speaker profile row exists for the candidate",
+  "asserts": "Topic state unknown, value None, composite unknown, weights not re-spread. The record was never reached, so there is nothing to have a policy about and ADR-0011 rule 1 applies unchanged.",
+  "adr_proposals": [
+    1,
+    4,
+    7
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-02-NO-PROFILE",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": false,
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-02-NO-PROFILE"
+    ],
+    "candidates": {
+      "SYNTH-CBA-02-NO-PROFILE": {
+        "composite_state": "unknown",
+        "heuristic_score": null,
+        "is_shortlistable": false,
+        "unknown_factor_keys": [
+          "cba_semantic_topic"
+        ],
+        "policy_neutral_factor_keys": [],
+        "ui_caption": null,
+        "factors": {
+          "industry_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "role_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "cba_semantic_topic": {
+            "state": "unknown",
+            "value": null,
+            "zero_classification": "unknown",
+            "policy_id": null,
+            "policy_version": null,
+            "ui_label": "Unknown"
+          },
+          "proximity": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null,
+            "band": "near",
+            "ui_label": "Near"
+          }
+        }
+      }
+    }
+  }
+}
