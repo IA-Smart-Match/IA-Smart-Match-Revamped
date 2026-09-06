@@ -30,7 +30,13 @@ import pytest
 pytest.importorskip("sqlalchemy")
 
 from conftest import ensure_owning_unit
-from smartmatch_domain.factor_registry import REGISTRY_VERSION, normalize_weights
+from smartmatch_domain.factor_registry import (
+    CBA_PHYSICAL_MODEL,
+    REGISTRY_VERSION,
+    SUPERSEDED_G1_MODEL,
+    SUPERSEDED_REGISTRY_VERSION,
+    normalize_weights,
+)
 from smartmatch_domain.jobs import JobState
 from smartmatch_domain.match_run import (
     MATCH_RUN_COMMAND_TYPE,
@@ -146,11 +152,50 @@ def test_the_snapshot_pins_the_registry_the_run_actually_used(session_factory, t
     Both halves: the version string, and a digest of the weights that were
     actually in force. A version alone is a label somebody types; a digest alone
     cannot be traced back to the decision that approved it.
+
+    ``_payload()`` names no ``scoring_mode``, which under ADR-0016 Proposal 7
+    makes it a **pre-ADR-0016 run** — so the pin here is the superseded
+    rulebook's, not today's ``REGISTRY_VERSION``. That is the point of the
+    title: *the registry the run actually used*. Pinning 2.0.0 over utilities
+    that no CBA factor produced would be a reproducible-looking record of
+    something that did not happen.
     """
     job_id = _accept(session_factory, tenant_id, _payload())
     _run(session_factory, tenant_id, job_id)
 
-    weights = normalize_weights()
+    weights = normalize_weights(model=SUPERSEDED_G1_MODEL)
+    with engine.connect() as conn:
+        stored = conn.execute(
+            text(
+                "SELECT registry_version, registry_hash, weights FROM match_run WHERE job_id = :job"
+            ),
+            {"job": job_id},
+        ).one()
+
+    assert stored.registry_version == SUPERSEDED_REGISTRY_VERSION
+    assert stored.registry_version != REGISTRY_VERSION
+    assert stored.registry_hash == weights_fingerprint(weights)
+    # Readable as well as hashed, and it is the *normalized* set: the weights
+    # that applied, not the proposed ones that include unimplemented factors.
+    assert stored.weights == dict(weights)
+    assert set(stored.weights) == {"topic_relevance", "travel_burden"}
+
+
+def test_a_run_naming_a_cba_mode_pins_the_cba_registry(session_factory, tenant_id, engine):
+    """The other arm: a payload that names a mode pins the rulebook that has one.
+
+    The worker chooses no mode of its own — it does not score — so this is the
+    only way a run reaches ``2.0.0-approved-oq-cba-004``, and it is worth an
+    integration test rather than a unit one because the pin has to survive the
+    whole durable path: payload written, job dispatched, handler executed, row
+    read back out of PostgreSQL.
+    """
+    job_id = _accept(
+        session_factory, tenant_id, _payload(scoring_mode=CBA_PHYSICAL_MODEL.scoring_mode)
+    )
+    _run(session_factory, tenant_id, job_id)
+
+    weights = normalize_weights(model=CBA_PHYSICAL_MODEL)
     with engine.connect() as conn:
         stored = conn.execute(
             text(
@@ -161,9 +206,44 @@ def test_the_snapshot_pins_the_registry_the_run_actually_used(session_factory, t
 
     assert stored.registry_version == REGISTRY_VERSION
     assert stored.registry_hash == weights_fingerprint(weights)
-    # Readable as well as hashed, and it is the *normalized* set: the weights
-    # that applied, not the proposed ones that include unimplemented factors.
     assert stored.weights == dict(weights)
+    assert set(stored.weights) == {
+        "industry_match",
+        "role_match",
+        "cba_semantic_topic",
+        "proximity",
+    }
+
+
+def test_two_modes_of_one_registry_share_a_version_and_differ_in_hash(
+    session_factory, tenant_id, engine
+):
+    """ADR-0016 Proposal 9, end to end: same rulebook, different model.
+
+    The property golden case G-CBA-09 asserts in the domain, asserted again
+    here against two rows that actually reached the database — because a
+    fingerprint that collided would make two runs scoring different factor sets
+    indistinguishable in storage, and that is a storage claim.
+    """
+    physical_job = _accept(session_factory, tenant_id, _payload(scoring_mode="cba-physical-1"))
+    _run(session_factory, tenant_id, physical_job)
+    virtual_job = _accept(session_factory, tenant_id, _payload(scoring_mode="cba-virtual-1"))
+    _run(session_factory, tenant_id, virtual_job)
+
+    with engine.connect() as conn:
+        rows = {
+            str(job): conn.execute(
+                text("SELECT registry_version, registry_hash FROM match_run WHERE job_id = :job"),
+                {"job": job},
+            ).one()
+            for job in (physical_job, virtual_job)
+        }
+
+    physical = rows[str(physical_job)]
+    virtual = rows[str(virtual_job)]
+
+    assert physical.registry_version == virtual.registry_version == REGISTRY_VERSION
+    assert physical.registry_hash != virtual.registry_hash
 
 
 def test_the_snapshot_pins_the_optimizer_and_the_route_estimate(session_factory, tenant_id, engine):
@@ -211,7 +291,11 @@ def test_the_inputs_hash_is_the_one_the_domain_derives(session_factory, tenant_i
         candidate_utilities=[candidate["utility"] for candidate in POOL],
         portfolio_size=PORTFOLIO_SIZE,
         random_seed=0,
-        weights=normalize_weights(),
+        # The weights the run actually applied. ``_payload()`` names no mode, so
+        # that is the superseded model's set — folding today's default in here
+        # instead would compare the stored digest against weights the run never
+        # saw, and the mismatch would look like a fingerprinting bug.
+        weights=normalize_weights(model=SUPERSEDED_G1_MODEL),
     )
     with engine.connect() as conn:
         stored_hash = conn.execute(
@@ -298,7 +382,12 @@ def test_the_terminal_event_names_the_run_and_its_pins(session_factory, tenant_i
     assert completed["state"] == JobState.SUCCEEDED.value
 
     summary = completed["summary"]
-    assert summary["registry_version"] == REGISTRY_VERSION
+    # No mode on the payload, so the run is pre-ADR-0016 and says so. The
+    # summary is also where a client following the job reads the mode, since
+    # `match_run` has no column for it (OQ-CBA-028).
+    assert summary["registry_version"] == SUPERSEDED_REGISTRY_VERSION
+    assert summary["scoring_mode"] is None
+    assert summary["scoring_mode_version"] is None
     assert summary["route_estimate_source"] == "straight_line"
     assert summary["candidates_considered"] == len(POOL)
     assert summary["selected_count"] == PORTFOLIO_SIZE
