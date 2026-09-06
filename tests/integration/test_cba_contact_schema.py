@@ -60,7 +60,18 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``0025`` rather than branching beside it. The two compose trivially — ``0026``
 #: creates a new table and touches nothing ``0025`` wrote — which is the
 #: composability this assertion exists to make somebody check.
-_HEAD_REVISION = "0026_event_registration"
+#: Updated again by ``CBA-MATCH-WEIGHTS``: ``0027_match_weight_setting`` creates
+#: the matching-weight settings tables and chains to ``0026``. It composes with
+#: everything below it for the reason ``0026`` did — new tables only, and nothing
+#: an earlier revision wrote is touched. ``0025`` is now two links down and still
+#: reachable from ``head``, which is what the chain test below now walks rather
+#: than asserting as one hop.
+_HEAD_REVISION = "0027_match_weight_setting"
+
+#: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
+#: descending order. Listed rather than derived, so extending the chain is a
+#: deliberate edit here — which is the whole point of the assertion.
+_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = ("0026_event_registration",)
 
 
 def _script_directory():
@@ -113,16 +124,31 @@ def test_there_is_exactly_one_head_and_it_is_the_registration_revision():
 
 
 def test_the_head_revision_chains_to_this_cards_revision():
-    """``0026`` follows ``0025``, so ``0025`` stays reachable from ``head``.
+    """``0025`` stays reachable from ``head``, link by link.
 
-    The head test above would pass on a ``0026`` that branched from ``0024`` and
-    left ``0025`` on a second head only if the graph happened to collapse — and
-    it would not. This states the link directly, so the two revisions being in
-    one line is asserted rather than inferred.
+    The head test above would pass on a head that branched from ``0024`` and left
+    ``0025`` on a second head only if the graph happened to collapse — and it
+    would not. This states the links directly, so the revisions being in one line
+    is asserted rather than inferred.
+
+    Walked rather than asserted as a single hop. It *was* one hop while ``0026``
+    was the head; ``0027`` made it two, and a test written as one hop would have
+    had to be rewritten anyway — this shape only needs
+    :data:`_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD` extended, which is the edit a
+    later card should be making consciously.
     """
-    script = _script_directory().get_revision(_HEAD_REVISION)
+    script_directory = _script_directory()
+    expected = [*_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD, _THIS_REVISION]
 
-    assert script.down_revision == _THIS_REVISION
+    current = _HEAD_REVISION
+    for parent in expected:
+        assert script_directory.get_revision(current).down_revision == parent, (
+            f"expected {current} to chain to {parent}. The chain from "
+            f"{_HEAD_REVISION} down to {_THIS_REVISION} is "
+            f"{' -> '.join([_HEAD_REVISION, *expected])}; update "
+            "_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD when a revision joins it."
+        )
+        current = parent
 
 
 def test_zero_zero_two_five_follows_the_classification_revision():

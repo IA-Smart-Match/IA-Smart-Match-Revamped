@@ -421,6 +421,74 @@ def test_the_database_refuses_a_non_object_override_payload(engine, tenant_id, o
         )
 
 
+def test_the_database_refuses_a_version_below_one(engine, tenant_id, owning_unit_id):
+    """``ck_match_weight_setting_version``. Versions start at 1 and only rise.
+
+    A zero or negative version could not have come from an accepted change, and
+    a row carrying one would make ``expected_version`` — the whole
+    lost-update defence — compare against a number nobody wrote.
+    """
+    with engine.begin() as conn:
+        account = _an_account(conn, tenant_id)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_match_weight_setting_version"),
+        engine.begin() as conn,
+    ):
+        conn.execute(
+            text(
+                "INSERT INTO match_weight_setting "
+                "(id, tenant_id, owning_unit_id, overrides, version, updated_by_user_id) "
+                "VALUES (:id, :tid, :uid, '{}'::jsonb, 0, :actor)"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": owning_unit_id, "actor": account},
+        )
+
+
+def test_the_revision_log_refuses_a_non_object_payload(engine, tenant_id, owning_unit_id):
+    """``ck_match_weight_setting_revision_overrides_object``.
+
+    The log gets the same floor the settings row does. A revision recording an
+    array would be an entry nobody could read back as a weighting, in the one
+    table that is supposed to be readable years later.
+    """
+    with engine.begin() as conn:
+        account = _an_account(conn, tenant_id)
+
+    with pytest.raises(IntegrityError, match="revision_overrides_object"), engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO match_weight_setting_revision "
+                "(id, tenant_id, owning_unit_id, overrides, version, changed_by_user_id) "
+                "VALUES (:id, :tid, :uid, '\"nonsense\"'::jsonb, 1, :actor)"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": owning_unit_id, "actor": account},
+        )
+
+
+def test_the_revision_log_refuses_a_version_below_one(engine, tenant_id, owning_unit_id):
+    """``ck_match_weight_setting_revision_version``.
+
+    The log's versions are the settings row's versions; a zero here would be an
+    entry claiming to describe a state that never existed.
+    """
+    with engine.begin() as conn:
+        account = _an_account(conn, tenant_id)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_match_weight_setting_revision_version"),
+        engine.begin() as conn,
+    ):
+        conn.execute(
+            text(
+                "INSERT INTO match_weight_setting_revision "
+                "(id, tenant_id, owning_unit_id, overrides, version, changed_by_user_id) "
+                "VALUES (:id, :tid, :uid, '{}'::jsonb, 0, :actor)"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": owning_unit_id, "actor": account},
+        )
+
+
 # ---------------------------------------------------------------------------
 # The snapshot, and what a later change cannot touch
 # ---------------------------------------------------------------------------

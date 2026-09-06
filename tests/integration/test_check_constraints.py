@@ -494,6 +494,25 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("event_registration", "ck_event_registration_status"): (
         "CHECK ((status = ANY (ARRAY['registered'::text, 'cancelled'::text])))"
     ),
+    # Migration 0027. Both tables get the same pair, and the *weakness* of the
+    # first is the thing worth pinning: it requires a JSON object and says
+    # nothing about which keys or values are acceptable. That is deliberate — a
+    # CHECK cannot see the factor registry, and encoding the factor vocabulary
+    # here would make DDL one more place a factor key is written down, which is
+    # the duplication `CBA-MATCH-WEIGHTS` exists to prevent. The admissible keys,
+    # the refusal of negatives and non-finite values, and the zero-total rule all
+    # live in `smartmatch_domain.weight_settings`. Recording the definition
+    # literally means strengthening it here has to be a deliberate edit.
+    ("match_weight_setting", "ck_match_weight_setting_overrides_object"): (
+        "CHECK ((jsonb_typeof(overrides) = 'object'::text))"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_version"): "CHECK ((version >= 1))",
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_overrides_object"): (
+        "CHECK ((jsonb_typeof(overrides) = 'object'::text))"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_version"): (
+        "CHECK ((version >= 1))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -775,6 +794,30 @@ BEHAVIOURAL_COVERAGE = {
         "::test_the_status_vocabulary_is_exactly_two_values reading the definition "
         "back. The permitted half is every write in TestRegisteringIsIdempotent and "
         "TestCancellingIsATransitionAndNotADelete, which store both admitted values"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_overrides_object"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_database_refuses_a_non_object_override_payload, which inserts a JSON "
+        "array. The permitted half is every write in that file, including "
+        "::test_a_reset_stores_an_empty_map_rather_than_the_registry_values — `{}` is an "
+        "object and is admitted deliberately, because a unit that reset its weights is a "
+        "different history from one that never configured any"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_version"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_database_refuses_a_version_below_one, with the permitted half in "
+        "::test_a_written_setting_is_in_the_table_not_only_in_the_response (version 1) and "
+        "::test_the_current_version_is_accepted_as_expected_version (version 2)"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_overrides_object"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_revision_log_refuses_a_non_object_payload, which inserts a JSON string. "
+        "The permitted half is ::test_each_accepted_change_appends_one_revision"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_version"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_revision_log_refuses_a_version_below_one, with the permitted half in "
+        "::test_each_accepted_change_appends_one_revision, which stores versions 1 and 2"
     ),
 }
 
