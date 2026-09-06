@@ -40,7 +40,7 @@ A waitlist is overflow from a capacity, and no capacity exists anywhere in this
 schema — ``event`` carries no seat count. A status no writer could legitimately
 produce would be a vocabulary invented ahead of the decision that gives it
 meaning, which is what migration ``0012`` refused to do for ``board_role``. It is
-recorded as **OQ-CBA-021** rather than guessed at.
+recorded as **OQ-CBA-029** rather than guessed at.
 
 The two transitions are total, and that is what makes them idempotent
 =======================================================================
@@ -71,7 +71,7 @@ What this module deliberately does not decide
   product rule nobody has stated, and inventing one here would mean a student
   could not record that they had gone to something. If it is ever wanted it is a
   rule about ``event.resolved_date``, argued in the card that wants it.
-* **Capacity.** See above; OQ-CBA-021.
+* **Capacity.** See above; OQ-CBA-029.
 * **Anything about points.** See above; ADR-0013.
 """
 

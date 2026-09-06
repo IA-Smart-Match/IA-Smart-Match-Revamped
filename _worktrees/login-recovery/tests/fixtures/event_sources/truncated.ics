@@ -1,0 +1,7 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
+BEGIN:VEVENT
+UID:synthetic-0018@example.edu
+DTSTART;VALUE=DATE:20260920
+SUMMARY:Feed Cut Off Mid-Event

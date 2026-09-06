@@ -1,0 +1,147 @@
+{
+  "$comment": "RATIFIED 2026-09-03 — aligns with g1-workshop-output-worksheet.md and factor_registry.py (REGISTRY_STATUS approved).",
+  "artifact": "g1-draft-factor-set",
+  "status": "ratified",
+  "registry_version_referenced": "1.1.0-approved-g1",
+  "registry_status_at_authoring": "approved",
+  "ratifier_required": "Danny Tran (@dangt)",
+  "ratified": true,
+  "ratified_on": "2026-09-03",
+  "source_packet": "docs/plans/workshops/g1-factor-registry-workshop-packet.md",
+  "program_direction": "Dr. Wang 2026-09-03: topic relevance (heavier) + proximity; 2-3 speaker shortlist; no % display; match before availability",
+  "factors": [
+    {
+      "key": "topic_relevance",
+      "display_label": "Topic Relevance",
+      "stage": "B",
+      "kind": "suitability",
+      "proposed_weight": 0.30,
+      "final_weight": 0.70,
+      "implemented_today": false,
+      "workshop_decision": "SURVIVES — final weight 0.70 (heavier per program direction)"
+    },
+    {
+      "key": "role_fit",
+      "display_label": "Role Fit",
+      "stage": "B",
+      "kind": "suitability",
+      "proposed_weight": 0.25,
+      "final_weight": null,
+      "implemented_today": false,
+      "workshop_decision": "DROPPED — pilot simplicity"
+    },
+    {
+      "key": "travel_burden",
+      "display_label": "Travel Burden (proximity proxy)",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.20,
+      "final_weight": 0.30,
+      "implemented_today": false,
+      "workshop_decision": "SURVIVES — proximity proxy; final weight 0.30; straight-line until D3"
+    },
+    {
+      "key": "engagement_load",
+      "display_label": "Engagement Load Index",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.15,
+      "final_weight": null,
+      "implemented_today": true,
+      "workshop_decision": "DEFERRED — not in Wang two-factor pilot model; ELI remains in domain for post-pilot"
+    },
+    {
+      "key": "repeat_penalty",
+      "display_label": "Repeat Selection Penalty",
+      "stage": "B",
+      "kind": "penalty",
+      "proposed_weight": 0.10,
+      "final_weight": null,
+      "implemented_today": false,
+      "workshop_decision": "DROPPED — pilot simplicity"
+    },
+    {
+      "key": "availability",
+      "display_label": "Availability / Blackout",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "final_weight": 0.0,
+      "implemented_today": false,
+      "workshop_decision": "SURVIVES Stage A — applied after shortlist; match before availability per Wang"
+    },
+    {
+      "key": "credential_check",
+      "display_label": "Credential and Background Check",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "final_weight": null,
+      "implemented_today": false,
+      "workshop_decision": "DEFERRED"
+    },
+    {
+      "key": "contact_status",
+      "display_label": "Contact Confidence State",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "final_weight": null,
+      "implemented_today": false,
+      "workshop_decision": "DEFERRED"
+    },
+    {
+      "key": "declared_cap",
+      "display_label": "Declared Capacity Cap",
+      "stage": "A",
+      "kind": "eligibility",
+      "proposed_weight": 0.0,
+      "final_weight": null,
+      "implemented_today": false,
+      "workshop_decision": "DEFERRED"
+    }
+  ],
+  "invariants": {
+    "final_stage_b_weight_sum": 1.0,
+    "surviving_scoring_factors": ["topic_relevance", "travel_burden"]
+  },
+  "open_questions_resolved": [
+    {
+      "id": "Q6-historical_conversion",
+      "answer": "DROP"
+    },
+    {
+      "id": "Q6-student_interest",
+      "answer": "DROP — separate admin feedback feature"
+    },
+    {
+      "id": "TIEBREAK",
+      "answer": "lexicographic ascending by subject_id; accept G1-GC-004 inputs"
+    },
+    {
+      "id": "ZERO-CLASS-002",
+      "answer": "measured_zero"
+    },
+    {
+      "id": "ZERO-CLASS-003",
+      "answer": "measured_zero"
+    },
+    {
+      "id": "GOV-1",
+      "answer": "Danny Tran (@dangt), program owner"
+    },
+    {
+      "id": "GOV-2",
+      "answer": "Yes — MM-005 shadow-mode required before weight changes ship"
+    },
+    {
+      "id": "GOV-3",
+      "answer": "Yes — registry version pinned on every match_run (M8)"
+    }
+  ],
+  "presentation_rules": {
+    "shortlist_size": "2-3",
+    "show_percentage": false,
+    "match_before_availability": true
+  }
+}

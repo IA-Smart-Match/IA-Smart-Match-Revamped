@@ -1,0 +1,624 @@
+"""HTTP contracts for accountable metrics and same-query drill-downs.
+
+The load-bearing test writes real ``review_item`` rows. It then compares the
+aggregate returned by the collection route with the number of rows returned by
+the drill-down route, exercising the storage query rather than a fake adapter.
+"""
+
+from __future__ import annotations
+
+import os
+import uuid
+from collections.abc import Iterator
+from datetime import UTC, datetime
+
+import pytest
+from fastapi.testclient import TestClient
+from smartmatch_api.main import app
+from smartmatch_persistence.engine import create_session_factory
+from smartmatch_providers import FixtureTokenVerifier
+from sqlalchemy import Engine, create_engine, text
+
+pytestmark = pytest.mark.integration
+
+DATABASE_URL = os.getenv(
+    "SMARTMATCH_DATABASE_URL",
+    "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
+)
+UNIT_PATH = "iawest.metrics"
+#: A second department in the same tenant, sibling to :data:`UNIT_PATH` and
+#: containing none of it. A membership here reaches the metrics unit only if a
+#: rule says roles may reach outside their own subtree — which the ratified
+#: metrics-authorization decision (§4) says of ``admin``, for aggregates.
+SIBLING_UNIT_PATH = "iawest.sibling"
+
+
+@pytest.fixture(scope="module")
+def engine() -> Engine:
+    """Return a live migrated PostgreSQL engine, or skip this contract."""
+    try:
+        eng = create_engine(DATABASE_URL, future=True)
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1 FROM review_item LIMIT 1"))
+    except Exception as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"no migrated PostgreSQL available at {DATABASE_URL}: {exc}")
+    return eng
+
+
+@pytest.fixture
+def metric_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str, uuid.UUID]]:
+    """Create one authorized unit and the minimum import ancestry for rows."""
+    tenant_id = uuid.uuid4()
+    unit_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    batch_id = uuid.uuid4()
+    subject = f"sub-metrics-{uuid.uuid4().hex}"
+    token = f"tok-metrics-{uuid.uuid4().hex}"
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenant (id, slug, display_name) VALUES (:id, :slug, :slug)"),
+            {"id": tenant_id, "slug": f"test-metrics-{tenant_id.hex[:12]}"},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                "VALUES (:id, :tid, CAST(:path AS ltree), 'department', 'Metrics')"
+            ),
+            {"id": unit_id, "tid": tenant_id, "path": UNIT_PATH},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :subject, :email)"
+            ),
+            {
+                "id": user_id,
+                "tid": tenant_id,
+                "subject": subject,
+                "email": f"{subject}@example.edu",
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'coordinator')"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": UNIT_PATH},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO job "
+                "(id, tenant_id, command_type, status, actor_id, owning_unit_id, payload) "
+                "VALUES (:id, :tid, 'import.create', 'succeeded', :actor, :unit, '{}'::jsonb)"
+            ),
+            {
+                "id": job_id,
+                "tid": tenant_id,
+                "actor": user_id,
+                "unit": unit_id,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO import_batch "
+                "(id, tenant_id, owning_unit_id, job_id, dataset, row_count, dry_run) "
+                "VALUES (:id, :tid, :unit, :job, 'professionals', 3, false)"
+            ),
+            {"id": batch_id, "tid": tenant_id, "unit": unit_id, "job": job_id},
+        )
+        for row_index, status in enumerate(("pending", "accepted", "pending")):
+            # migration 0013's ck_review_item_decision_evidence: a non-pending
+            # row must name who decided it and when, in the same INSERT --
+            # this fixture predates that constraint, and this is the minimal
+            # fix to keep seeding a mixed pending/accepted population legal
+            # under it. `user_id` (the coordinator created above) stands in
+            # for the deciding user; nothing in this file is testing *who*
+            # decided.
+            decided = status != "pending"
+            conn.execute(
+                text(
+                    "INSERT INTO review_item "
+                    "(id, tenant_id, import_batch_id, row_index, row_data, status, "
+                    "decided_at, decided_by) "
+                    "VALUES (:id, :tid, :batch, :idx, CAST(:data AS jsonb), :status, "
+                    ":decided_at, :decided_by)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "batch": batch_id,
+                    "idx": row_index,
+                    "data": f'{{"full_name": "Person {row_index}"}}',
+                    "status": status,
+                    "decided_at": datetime.now(UTC) if decided else None,
+                    "decided_by": user_id if decided else None,
+                },
+            )
+
+    verifier = FixtureTokenVerifier()
+    verifier.register(token, subject)
+    client = TestClient(app)
+    client.app.state.session_factory = create_session_factory(
+        engine.url.render_as_string(hide_password=False)
+    )
+    client.app.state.token_verifier = verifier
+
+    yield client, unit_id, token, tenant_id
+
+    with engine.begin() as conn:
+        for table in (
+            "review_item",
+            "import_batch",
+            "job_event",
+            "outbox_record",
+            "redrive_record",
+            "job",
+            "membership",
+            "resource_grant",
+            "user_account",
+            "org_unit",
+            "tenant_budget",
+            "concurrency_lease",
+            "idempotency_record",
+            "rate_limit_counter",
+        ):
+            conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tenant_id})
+        conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tenant_id})
+
+
+def _get(client: TestClient, path: str, token: str):
+    return client.get(path, headers={"Authorization": f"Bearer {token}"})
+
+
+def _register_principal(
+    engine: Engine,
+    client: TestClient,
+    tenant_id: uuid.UUID,
+    *,
+    role: str | None,
+    resource_grant_unit_id: uuid.UUID | None = None,
+    membership_path: str = UNIT_PATH,
+    resource_grant_effect: str = "allow",
+) -> str:
+    """Create one more user in ``tenant_id`` and return a bearer token for it.
+
+    ``role`` is ``None`` for a principal that holds no membership at all — the
+    bare-``resource_grant`` shape the ratified metrics authorization decision
+    (§4) says must be refused for aggregates. ``resource_grant_unit_id`` adds
+    an explicit ``allow`` grant on that unit; the S-007 rule (pinned in
+    ``tests/authz/test_policy_matrix.py``) is that a grant conveys reach, not
+    membership, so it must not substitute for the role check either.
+
+    ``membership_path`` is where the membership hangs. It defaults to the unit
+    under test, and is set to :data:`SIBLING_UNIT_PATH` for the non-rooted
+    admin cases: nothing in the schema requires an ``admin`` membership to be
+    rooted at the tenant root, so "an admin somewhere else in the tenant" is
+    an ordinary, storable shape and not a contrived one.
+    ``resource_grant_effect`` makes the grant a ``deny`` instead of an
+    ``allow``, which is how the precedence of an administrator's explicit
+    carve-out is checked against the tenant-wide rule rather than assumed.
+
+    Registers the new token on the same ``FixtureTokenVerifier`` instance the
+    ``metric_context`` fixture already wired onto ``client.app.state`` — this
+    does not create a second app or a second engine, only a second principal
+    the existing client can authenticate as.
+    """
+    user_id = uuid.uuid4()
+    subject = f"sub-metrics-{uuid.uuid4().hex}"
+    token = f"tok-metrics-{uuid.uuid4().hex}"
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :subject, :email)"
+            ),
+            {
+                "id": user_id,
+                "tid": tenant_id,
+                "subject": subject,
+                "email": f"{subject}@example.edu",
+            },
+        )
+        if role is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                    "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "uid": user_id,
+                    "path": membership_path,
+                    "role": role,
+                },
+            )
+        if resource_grant_unit_id is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO resource_grant "
+                    "(id, tenant_id, user_id, resource_type, resource_id, effect) "
+                    "VALUES (:id, :tid, :uid, 'org_unit', :rid, :effect)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "uid": user_id,
+                    "rid": resource_grant_unit_id,
+                    "effect": resource_grant_effect,
+                },
+            )
+
+    verifier = client.app.state.token_verifier
+    verifier.register(token, subject)
+    return token
+
+
+def test_pending_review_drill_down_count_equals_real_aggregate(metric_context) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    aggregate = by_name["pending_review_items"]["value"]
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        token,
+    )
+    assert drill_response.status_code == 200
+    drill_down = drill_response.json()
+
+    assert aggregate == 2
+    assert drill_down["aggregate_value"] == aggregate
+    assert len(drill_down["rows"]) == aggregate
+    assert {row["status"] for row in drill_down["rows"]} == {"pending"}
+
+
+def test_pipeline_with_no_records_is_a_measured_zero_not_unknown(metric_context) -> None:
+    """P8 card O3: an empty ``pipeline_record`` table is a measured 0.
+
+    ``metric_context`` writes no ``pipeline_record`` rows, so this is exactly
+    the empty-table case the card exists to distinguish from the old
+    honest-unknown stub: ``value`` is ``0``, not ``None``, and
+    ``unknown_reason`` is absent, because the query ran against a real table
+    rather than refusing to answer.
+    """
+    client, unit_id, token, _tenant_id = metric_context
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    matched = by_name["pipeline_matched"]
+
+    assert matched["value"] == 0
+    assert matched["unknown_reason"] is None
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pipeline_matched/drill-down",
+        token,
+    )
+    assert drill_response.status_code == 200
+    drill_down = drill_response.json()
+    assert drill_down["aggregate_value"] == 0
+    assert drill_down["rows"] == []
+    assert drill_down["unknown_reason"] is None
+
+
+def test_a_student_reads_aggregates_but_is_refused_drill_down(
+    metric_context, engine: Engine
+) -> None:
+    """The ratified decision's Option B split (§4), against a live database.
+
+    Any active unit membership with a role reads aggregates — a ``student``
+    role is not special-cased, it is simply *a* role. Drill-down is different:
+    only ``admin``/``coordinator`` may see row-level data (``row_data`` may
+    carry contact fields, P9 Gate B), so the same student is refused there,
+    in the standard error envelope rather than an empty ``rows`` list — an
+    empty list would be indistinguishable from "no pending rows exist",
+    which is exactly the ambiguity ADR-0011 (unknown vs. zero) exists to rule
+    out for aggregates and this task's negative coverage rules out for
+    refusals too.
+    """
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    student_token = _register_principal(engine, client, tenant_id, role="student")
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", student_token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    assert by_name["pending_review_items"]["value"] == 2
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        student_token,
+    )
+    assert drill_response.status_code == 403
+    body = drill_response.json()
+    assert body["error"]["code"] == "forbidden"
+    assert body["error"]["details"]["reason"] == "no_grant"
+    assert "rows" not in body
+
+
+def test_a_bare_resource_grant_is_refused_aggregates(metric_context, engine: Engine) -> None:
+    """The decision's negative, live: a bare `resource_grant` does not read aggregates.
+
+    Mirrors ``tests/authz/test_policy_matrix.py``'s
+    ``test_a_bare_resource_grant_never_satisfies_a_membership_only_operation``
+    against the real HTTP surface and a real database, rather than the
+    in-memory policy call: a principal with an explicit ``allow`` grant on
+    this unit and no membership anywhere gets the standard error envelope
+    naming ``resource_grant_lacks_membership``, not a 200 with metrics in it.
+    """
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    grant_only_token = _register_principal(
+        engine, client, tenant_id, role=None, resource_grant_unit_id=unit_id
+    )
+
+    response = _get(client, f"/v1/units/{unit_id}/metrics", grant_only_token)
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "forbidden"
+    assert body["error"]["details"]["reason"] == "resource_grant_lacks_membership"
+    assert "metrics" not in body
+
+
+def test_a_non_rooted_admin_reads_a_sibling_units_aggregates(
+    metric_context, engine: Engine
+) -> None:
+    """§4's tenant-wide admin rule, over HTTP, on a real membership row.
+
+    "**``admin``:** unrestricted within tenant for aggregates" — and nothing in
+    the schema requires an ``admin`` membership to be rooted at the tenant
+    root, so this principal's membership hangs on :data:`SIBLING_UNIT_PATH`,
+    which contains none of the unit under test. Under ordinary subtree
+    containment that is a 403; under §4 it is a 200, and the wrongful denial
+    is what this test would catch coming back.
+
+    The coordinator half is what makes the permit attributable to the *role*
+    rather than to sibling units having quietly become reachable: the same
+    membership path, an ordinary role, still refused.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    admin_token = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path=SIBLING_UNIT_PATH
+    )
+    response = _get(client, f"/v1/units/{unit_id}/metrics", admin_token)
+    assert response.status_code == 200, response.json()
+    assert {item["name"] for item in response.json()["metrics"]}
+
+    coordinator_token = _register_principal(
+        engine, client, tenant_id, role="coordinator", membership_path=SIBLING_UNIT_PATH
+    )
+    refused = _get(client, f"/v1/units/{unit_id}/metrics", coordinator_token)
+    assert refused.status_code == 403, refused.json()
+    assert refused.json()["error"]["details"]["reason"] == "no_grant"
+
+
+def test_a_non_rooted_admin_is_still_refused_a_sibling_units_drill_down(
+    metric_context, engine: Engine
+) -> None:
+    """The aggregate/row split held where §4 put it, on the same principal.
+
+    §4's scope bullet is "unrestricted within tenant **for aggregates**;
+    drill-down per row above", and the row above is a role rule that says
+    nothing about scope. So the admin who just read this unit's totals is
+    refused its rows: ``row_data`` is §3's **High** sensitivity — the full
+    imported row payload, contact fields included (P9 Gate B) — and widening
+    it across the tenant is a permit the closed decision does not name.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    admin_token = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path=SIBLING_UNIT_PATH
+    )
+    assert _get(client, f"/v1/units/{unit_id}/metrics", admin_token).status_code == 200
+
+    response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        admin_token,
+    )
+    assert response.status_code == 403, response.json()
+    assert response.json()["error"]["details"]["reason"] == "no_grant"
+
+
+def test_an_explicit_deny_still_beats_the_tenant_wide_admin_rule(
+    metric_context, engine: Engine
+) -> None:
+    """The precedence the widening must not disturb, checked rather than assumed.
+
+    An administrator carving one unit out of a broad grant is v1.1 §2.1's
+    explicit deny, and it is evaluated before either grant path. A tenant-wide
+    role that reached past it would make the carve-out unenforceable against
+    exactly the population it is most often aimed at.
+    """
+    client, unit_id, _token, tenant_id = metric_context
+
+    denied_admin_token = _register_principal(
+        engine,
+        client,
+        tenant_id,
+        role="admin",
+        membership_path=SIBLING_UNIT_PATH,
+        resource_grant_unit_id=unit_id,
+        resource_grant_effect="deny",
+    )
+    response = _get(client, f"/v1/units/{unit_id}/metrics", denied_admin_token)
+    assert response.status_code == 403, response.json()
+    assert response.json()["error"]["details"]["reason"] == "explicit_resource_deny"
+
+
+def test_an_authorized_coordinator_keeps_equal_aggregate_and_drill_down_counts(
+    metric_context,
+) -> None:
+    """Option B's admin/coordinator path is unchanged: today's behaviour, preserved.
+
+    The ``metric_context`` fixture's own token already carries a
+    ``coordinator`` membership at the owning unit, so this is the same
+    equality ``test_pending_review_drill_down_count_equals_real_aggregate``
+    already proves, restated here to name explicitly what this task's
+    acceptance list (decision record §6) requires: authorization did not
+    change the count for the population it continues to admit.
+    """
+    client, unit_id, coordinator_token, _tenant_id = metric_context
+
+    aggregate_response = _get(client, f"/v1/units/{unit_id}/metrics", coordinator_token)
+    assert aggregate_response.status_code == 200
+    by_name = {item["name"]: item for item in aggregate_response.json()["metrics"]}
+    aggregate = by_name["pending_review_items"]["value"]
+
+    drill_response = _get(
+        client,
+        f"/v1/units/{unit_id}/metrics/pending_review_items/drill-down",
+        coordinator_token,
+    )
+    assert drill_response.status_code == 200
+    drill_down = drill_response.json()
+
+    assert aggregate == 2
+    assert drill_down["aggregate_value"] == aggregate
+    assert len(drill_down["rows"]) == aggregate
+
+
+def _insert_pending_review_item(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> None:
+    """Add one more pending review row under ``unit_id``'s existing batch."""
+    with engine.begin() as conn:
+        batch_id = conn.execute(
+            text("SELECT id FROM import_batch WHERE tenant_id = :tid AND owning_unit_id = :unit"),
+            {"tid": tenant_id, "unit": unit_id},
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO review_item "
+                "(id, tenant_id, import_batch_id, row_index, row_data, status) "
+                "VALUES (:id, :tid, :batch, :idx, CAST(:data AS jsonb), 'pending')"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "batch": batch_id,
+                "idx": 99,
+                "data": '{"full_name": "Extra Person"}',
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_200_carries_private_revalidation_headers(metric_context, path_suffix: str) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+
+    response = _get(client, f"/v1/units/{unit_id}/{path_suffix}", token)
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, max-age=0, must-revalidate"
+    etag = response.headers["ETag"]
+    assert etag.startswith('W/"')
+    assert etag.endswith('"')
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_matching_if_none_match_yields_304_with_empty_body(
+    metric_context, path_suffix: str
+) -> None:
+    client, unit_id, token, _tenant_id = metric_context
+    path = f"/v1/units/{unit_id}/{path_suffix}"
+
+    first = _get(client, path, token)
+    etag = first.headers["ETag"]
+
+    second = client.get(
+        path,
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": etag},
+    )
+
+    assert second.status_code == 304
+    assert second.content == b""
+    assert second.headers["ETag"] == etag
+    assert second.headers["Cache-Control"] == "private, max-age=0, must-revalidate"
+
+
+@pytest.mark.parametrize(
+    "path_suffix",
+    ["metrics", "metrics/pending_review_items/drill-down"],
+)
+def test_stale_if_none_match_yields_fresh_200_with_new_etag(
+    metric_context, engine: Engine, path_suffix: str
+) -> None:
+    client, unit_id, token, tenant_id = metric_context
+    path = f"/v1/units/{unit_id}/{path_suffix}"
+
+    first = _get(client, path, token)
+    old_etag = first.headers["ETag"]
+
+    _insert_pending_review_item(engine, tenant_id, unit_id)
+
+    second = client.get(
+        path,
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": old_etag},
+    )
+
+    assert second.status_code == 200
+    assert second.headers["ETag"] != old_etag
+    if path_suffix == "metrics":
+        by_name = {item["name"]: item for item in second.json()["metrics"]}
+        assert by_name["pending_review_items"]["value"] == 3
+    else:
+        assert second.json()["aggregate_value"] == 3
+
+
+def test_unauthorized_unit_never_short_circuits_to_304(metric_context) -> None:
+    client, _unit_id, token, _tenant_id = metric_context
+    bogus_unit_id = uuid.uuid4()
+
+    first = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first.status_code == 404
+
+    replay = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": '"anything"'},
+    )
+    assert replay.status_code == 404
+
+    wildcard_replay = client.get(
+        f"/v1/units/{bogus_unit_id}/metrics",
+        headers={"Authorization": f"Bearer {token}", "If-None-Match": "*"},
+    )
+    assert wildcard_replay.status_code == 404
+
+
+def test_measured_zero_metric_stays_zero_through_the_cache_layer(metric_context) -> None:
+    """The ETag/conditional-request path must not corrupt a measured 0.
+
+    Before card O3, this test proved ``None`` survived caching without being
+    coerced to ``0``. Now that Pipeline is bound to storage, the risk runs the
+    other way: a caching bug could as easily coerce a real ``0`` into
+    ``null``. Both are wrong for the same reason -- unknown and zero are
+    different claims -- so this still asserts the exact value ``pipeline_matched``
+    measures (0, ``metric_context`` writes no ``pipeline_record`` rows) comes
+    back unchanged.
+    """
+    client, unit_id, token, _tenant_id = metric_context
+
+    response = _get(client, f"/v1/units/{unit_id}/metrics", token)
+    assert response.status_code == 200
+    by_name = {item["name"]: item for item in response.json()["metrics"]}
+    matched = by_name["pipeline_matched"]
+
+    assert matched["value"] == 0
+    assert matched["unknown_reason"] is None

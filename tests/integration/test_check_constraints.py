@@ -488,7 +488,7 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ),
     # Migration 0026. Two values, and the *absence* of a third is the part worth
     # pinning: `waitlisted` is not here because no capacity exists anywhere in
-    # this schema for it to overflow from (OQ-CBA-021), and a value no writer
+    # this schema for it to overflow from (OQ-CBA-029), and a value no writer
     # could produce would be a vocabulary invented by DDL. Recording the
     # definition literally means adding one has to pass through this file.
     ("event_registration", "ck_event_registration_status"): (
@@ -770,7 +770,7 @@ BEHAVIOURAL_COVERAGE = {
         "0026 added, test_event_registration.py"
         "::TestRegistrationIsScopedToItsTenantAndItsStudent"
         "::test_an_unknown_status_is_refused_by_the_database, which attempts the "
-        "`waitlisted` value this constraint deliberately omits (OQ-CBA-021), plus "
+        "`waitlisted` value this constraint deliberately omits (OQ-CBA-029), plus "
         "::TestTheTableHasTheShapeTheBlockedCardSpecified"
         "::test_the_status_vocabulary_is_exactly_two_values reading the definition "
         "back. The permitted half is every write in TestRegisteringIsIdempotent and "

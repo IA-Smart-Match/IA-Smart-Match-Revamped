@@ -1,0 +1,56 @@
+# Code owners — review routing for this repository.
+#
+# READ THIS BEFORE TRUSTING THIS FILE.
+#
+# A CODEOWNERS entry naming a user or team that does not exist, or that does not
+# have write access to this repository, is IGNORED BY GITHUB SILENTLY. There is
+# no error, no failed check, and no warning on a pull request — the rule simply
+# never matches, and reviews are never requested. A file in that state looks
+# exactly like a working one.
+#
+# This file therefore takes effect only if BOTH of the following are true, and
+# NEITHER HAS BEEN VERIFIED from inside this checkout, because neither is a
+# property of the repository's files:
+#
+#   1. The owner named below exists and has write access to this repository.
+#   2. Branch protection on the default branch actually requires review from
+#      Code Owners. Without that setting, this file suggests reviewers; it does
+#      not require them.
+#
+# Whoever has admin access should confirm both in repository settings and record
+# the result. Until then, treat this as routing convenience, not as a control —
+# a rule the tooling does not enforce is a defect in this project, not a
+# safeguard. See CONTRIBUTING.md, "Documentation is not a control".
+#
+# Placement: GitHub reads CODEOWNERS from the repository root, from .github/, or
+# from docs/. This repository keeps exactly one copy, here at the root. Do not
+# add a second one in another accepted location — a repository with two of these
+# has one file that does nothing and no way to tell which.
+
+# The only identity confirmed to exist for this repository is the GitHub user
+# BrooklynD23, a member of the IA-Smart-Match organization that owns this
+# repository, and the merger of pull request #1 (merge commit c4ae716). No team
+# is named here because no team has been confirmed to exist, and an invented
+# team name would produce precisely the silent no-op described above.
+*       @BrooklynD23
+
+# No per-path owners are declared. Splitting ownership across paths would mean
+# repeating one confirmed identity on every line, which adds no review routing
+# and disguises the fact that there is a single owner.
+#
+# The paths that should get distinct owners once those owners exist, and why:
+#
+#   db/migrations/                        schema changes are irreversible in
+#                                         practice; production rollback never
+#                                         depends on downgrade() (v1.1 §4.2)
+#   docs/architecture/decisions/          ADRs are immutable once accepted
+#   docs/migration/migration-manifest.yaml  the record of what was ported and
+#                                         rejected, including MM-A09
+#   .github/workflows/                    the gates themselves; a workflow edit
+#                                         can disable every other control here
+#   requirements/                         hash-pinned locks (finding S-003)
+#   tools/scan_forbidden.py               the forbidden-behaviour gate and its
+#                                         allowlist
+#
+# Note that release gates G1-G5 in README.md have owners outside engineering.
+# CODEOWNERS cannot express those, and must not be read as if it did.

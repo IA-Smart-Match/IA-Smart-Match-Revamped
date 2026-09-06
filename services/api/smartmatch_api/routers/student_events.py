@@ -314,7 +314,7 @@ class StudentRegistrationView(BaseModel):
         description=(
             "'registered' — you hold a place — or 'cancelled'. There is no "
             "'waitlisted': no capacity exists in this deployment for one to "
-            "overflow from (OQ-CBA-021)."
+            "overflow from (OQ-CBA-029)."
         )
     )
     registered_at: datetime = Field(

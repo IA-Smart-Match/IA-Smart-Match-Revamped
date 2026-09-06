@@ -1,0 +1,15 @@
+{
+  "id": "G1-GC-002",
+  "symptom_class": "zero_or_unknown",
+  "description": "Topic Relevance 0% on an event about AI — stakeholder test log symptom. Workshop must classify the 0% as measured_zero or unknown per ADR-0011 before M1.",
+  "stakeholder_reference": "ADR-0011 Fix #8; MM-002 golden case",
+  "inputs": {
+    "professional": {
+      "note": "PLACEHOLDER — expertise/topics after workshop"
+    },
+    "event_need": {
+      "topic": "AI",
+      "note": "Event is about AI; legacy showed 0% relevance — classification TBD"
+    }
+  }
+}

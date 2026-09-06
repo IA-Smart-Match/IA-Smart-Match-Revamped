@@ -1,0 +1,1008 @@
+# SmartMatch migration manifest
+#
+# One entry per legacy component considered for the target, per §10 of the
+# migration orchestrator contract. No code-port commit is complete until its
+# entry reaches at least `ported_unverified`; no Foundation/R1 gate passes until
+# every included entry is `verified`, `rejected`, or `archived`.
+#
+# Dispositions: REUSE / ADAPT / REPLACE / ARCHIVE
+# Statuses: inventoried, blocked_contract, blocked_provenance, characterized,
+#           porting, ported_unverified, verified, rejected, archived
+
+metadata:
+  legacy_repository: BrooklynD23/Nebiux-Team-IA-West-SmartMatch
+  legacy_sha: bdce024de1a9bf488c6bd9a7c24a3c87e03ffa42
+  legacy_sha_verified: true
+  legacy_sha_verified_by: git cat-file -t + git log -1 (Fri Apr 17 12:00:15 2026 -0700)
+  legacy_worktree_modified: false
+  architecture_contract_version: "1.1"
+  target_repository: BrooklynD23/IA-Smart-Match-Revamped
+  target_branch: claude/smart-match-v1-migration-sp1t49
+  migration_owner: engineering
+  generated: 2026-08-17
+
+# ---------------------------------------------------------------------------
+# Ported
+# ---------------------------------------------------------------------------
+
+entries:
+  - id: MM-001
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/outreach/ics_generator.py"
+    legacy_symbol: "generate_ics, _escape_ics_text, _make_uid, _parse_date"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/ics.py
+    target_symbol: "generate_ics, CalendarInvite, _fold_line, _escape_text"
+    disposition: ADAPT
+    contract_refs: ["v1.1 §3.1", "v1.1 §3.6", "v1.1 §5.5"]
+    behavior_retained: >-
+      Pure RFC 5545 string building with no external library; the VCALENDAR and
+      VEVENT envelope; deterministic UID derivation so a regenerated invite
+      updates rather than duplicates; CRLF line endings; TEXT escaping of
+      backslash, semicolon, comma, and newline; omission of absent optional
+      fields; the one-hour default duration.
+    behavior_rejected: >-
+      Three defects, each now covered by a golden test that fails against the
+      legacy. (1) Unparseable dates silently became "30 days from now",
+      fabricating a meeting slot nobody chose — prohibited by v1.1 §3.6 N1;
+      generate_ics now requires a resolved timezone-aware datetime and raises
+      UnschedulableEventError otherwise. (2) Naive datetimes were formatted with
+      a trailing Z, asserting UTC for a value that had no timezone and shifting
+      the event by the local offset in every consuming calendar. (3) No RFC 5545
+      §3.1 line folding, so long SUMMARY/DESCRIPTION values produced documents
+      strict parsers reject; folding is now octet-based and never splits a
+      multi-byte codepoint.
+    behavior_introduced: >-
+      Recorded here rather than under behavior_retained, so an improvement on
+      the legacy has a truthful home (see schema_note at the foot of this file).
+      (1) DTSTAMP is an injected input: generate_ics takes a required
+      keyword-only `generated_at`, and the module reads no clock at all. This is
+      a breaking API change — `generate_ics(invite)` with no `generated_at` is
+      now a TypeError, not a document stamped with the current time (654e89f,
+      finding F-3). (2) No METHOD property is emitted. The port briefly emitted
+      METHOD:REQUEST, which RFC 5546 3.2.2 makes conditional on ORGANIZER and at
+      least one ATTENDEE, and there is no organizer identity to name while
+      mail-domain registration is open decision 8. Dropping METHOD restores the
+      legacy's behavior in this one respect; it returns in the release that has
+      a real organizer to put in it (654e89f, finding F-1).
+    dependencies_removed: ["logging (module-level logger)", "implicit clock reads"]
+    dependencies_removed_note: >-
+      "implicit clock reads" was aspirational when written and is now literally
+      true. At review time generate_ics still called datetime.now(UTC) when
+      generated_at was omitted (finding F-3); 654e89f made the parameter
+      required, and `grep -n 'datetime.now' ics.py` now matches only the
+      docstring sentence that explains the change.
+    data_provenance: no data; pure string generation
+    characterization_tests: tests/golden/test_ics_golden.py (7 preserved-behavior cases)
+    target_tests: >-
+      tests/golden/test_ics_golden.py — 7 preserved-behavior + 10
+      corrected-behavior = 17 cases. Measured 26 Aug 2026 with
+      `pytest tests/golden/test_ics_golden.py --collect-only -q`, not recalled.
+      Of the 10, the original 8 cover the three legacy defects above plus input
+      validation; 654e89f added two covering properties the port introduced —
+      no iTIP METHOD without an organizer (F-1) and a required, never-clock-read
+      DTSTAMP (F-3).
+    security_review: >-
+      No IO, no network, no secrets. UID namespace uses a .invalid TLD rather
+      than a real domain, since domain registration is open decision 8 and a real
+      domain would imply mail routing that does not exist.
+    migration_owner: engineering
+    reviewer: A4 (independent review agent)
+    status: verified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; see docs/migration/port-verification.md. Verified with findings: all three claimed legacy defects reproduce against the legacy source. Findings F-1, F-2 and F-3 were open at review time and are now closed — F-1 and F-2 in 654e89f (METHOD dropped; the defect-1 golden test rewritten to test parsing behavior rather than a type rejection, proven by mutant), F-3 in 654e89f for the code half and in this entry for the description half. contract_refs remains unverifiable (F-28); see contract_refs_status.
+    contract_refs_status: >-
+      UNVERIFIABLE. Architecture contract v1.1 is not present in this
+      repository, so no section cited above has been read (finding F-28). Per
+      docs/plans/defect-remediation.md §5, the best verdict any review can reach
+      while that holds is "verified except contract_refs".
+    corrections: >-
+      26 Aug 2026 — F-3 (description half). Code half of F-1, F-2, F-3 landed in
+      654e89f. Corrected by the F9 documentation agent, which is not the
+      reviewer and is not authorized to set `status`.
+    completion_commit: 7b5ab9f
+    notes: >-
+      Verified 18 Aug 2026 by a reviewer other than the author, per §6 of the
+      orchestrator contract. The verdict is "verified with findings": the three
+      claimed legacy defects were each reproduced against the legacy source, and
+      three further findings (F-1..F-3) are open against the target. F-1 is the
+      substantive one — METHOD:REQUEST is emitted with no ORGANIZER or ATTENDEE,
+      which RFC 5546 §3.2.2 requires — and is tracked for R2 alongside the
+      delivery path that will actually send these invites. None blocks the entry,
+      because none is a regression against the legacy.
+      Amended 26 August 2026. F-1 was not deferred to R2 after all:
+      docs/plans/defect-remediation.md §4.2 disputed the deferral on the
+      grounds that the cheap truthful state — no METHOD — was available
+      immediately, and 654e89f took that route. This entry's earlier text
+      claiming F-1 "is tracked for R2 alongside the delivery path" is therefore
+      superseded, and is left visible rather than deleted so the change of
+      disposition is on the record. F-2 and F-3 are also closed. Two adjacent
+      observations from the review are still open and belong to the
+      re-reviewer, not to this correction: STATUS:CONFIRMED is emitted
+      unconditionally and is derived from nothing, and
+      test_document_structure_matches_legacy_shape still says the envelope is
+      "unchanged from the legacy output" while PRODID and STATUS did change.
+
+  - id: MM-003
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/matching/factors.py"
+    legacy_symbol: "volunteer_fatigue, volunteer_recovery_details, _recurrence_pressure"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/eli.py
+    target_symbol: "compute_eli, evaluate_cap, load_penalty, LoadInputs, EliSnapshot"
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.3", "v1.1 §2.2", "v1.1 §5.1"]
+    behavior_retained: >-
+      The shape of the computation only: recent assignment pressure and travel
+      burden combined into a single bounded score.
+
+      Corrected 26 Aug 2026 (findings F-4, High, and its softer half). This
+      field previously also claimed "event cadence" and "recency weighting".
+      Neither claim was true. There is no event-cadence input: ELI is computed
+      per professional from that professional's own engagement history, and
+      compute_eli takes no parameter carrying the event under consideration, so
+      it has no way to express that event's cadence. The legacy's
+      _recurrence_pressure mapped a recurrence string to a pressure value at
+      0.20 of the blend; nothing in the target corresponds to it. The
+      CONSECUTIVE_WEEKENDS / BACK_TO_BACK / AT_DECLARED_FREQUENCY modifiers are
+      cadence-flavored but are caller-supplied booleans, not a computed cadence.
+      "Recency weighting" was misfiled rather than false: the legacy's
+      recency_pressure was min(deepest_stage / 4.0, 1.0), derived from a
+      pipeline stage_order column and not a function of time at all, so
+      time-based decay is something the port introduced — see
+      behavior_introduced.
+    behavior_rejected: >-
+      The health framing and its coordinator-facing labels ("Rest Recommended",
+      "Needs Rest"), which implied an assessment SmartMatch has no evidence to
+      make. The inference from a pipeline `stage_order` column to
+      "days_since_last_assignment", which invented a number the data never
+      contained. The single blended score with no separable hard cap — v1.1 §1.3
+      requires the cap (Stage A) and the penalty (Stage B) be applied and
+      reported separately. The pandas DataFrame coupling.
+    behavior_introduced: >-
+      (1) Genuine time-based recency decay — a 45-day half-life applied to each
+      engagement's contribution, in _decay_weight. The legacy had nothing of the
+      kind; its "recency" was a pipeline stage number. This was previously filed
+      under behavior_retained, which is what produced the softer half of F-4.
+
+      (2) A rejection, not a silent drop, of future-dated engagements
+      (654e89f, finding F-9). EngagementRecord is documented as "one completed
+      or committed engagement" and compute_eli formerly skipped any record with
+      occurred_on > as_of, so a caller who passed next week's commitment got a
+      score computed as though it did not exist. The decision recorded here:
+      **EngagementRecord means completed.** A record dated after as_of is now
+      refused at construction with "must not be dated after as_of"; a record
+      dated exactly on as_of has occurred and still counts. Whether committed
+      load should contribute at all is NOT settled by this and stays open under
+      open decision 2 (D2) — counting future commitments needs a forward horizon
+      and a forward weighting rule, and the recency curve only decays backwards.
+      Both are formula parameters owned by the program owner.
+
+      (3) Stage A decides on the unrounded utilization (654e89f, finding F-6).
+      The rounded value is kept in the snapshot for the explanation only.
+      MANUAL_BLACKOUT no longer contributes to modifier_points (F-7); it stays
+      in snapshot.modifiers so the explanation still shows it. Modifiers are
+      normalized to a frozenset once and that one value feeds both the score and
+      the snapshot (F-8).
+    dependencies_removed: ["pandas", "src.config constants", "geographic_proximity"]
+    data_provenance: >-
+      Operational workload facts only. The prohibited-input list
+      (factor_registry.PROHIBITED_INPUTS) is enforced by the closed LoadInputs /
+      EngagementRecord field sets and asserted by
+      tests/unit/test_eli.py::test_prohibited_inputs_cannot_reach_the_computation.
+      Corrected 26 Aug 2026: this field previously read "prohibited-input list
+      enforced by schema", which overstated — at review time nothing in
+      test_eli.py referenced prohibited inputs (finding F-10), and no registry
+      schema validates LoadInputs. What enforces it is the dataclass field set,
+      plus slots=True and frozen=True leaving no route to attach a prohibited
+      name after construction. That is now the claim, and it is now tested.
+    characterization_tests: n/a — REPLACE, not a port; legacy outputs are not a target
+    target_tests: >-
+      tests/unit/test_eli.py — 22 cases. Measured 26 Aug 2026 with
+      `pytest tests/unit/test_eli.py --collect-only -q`, not recalled. This
+      field previously claimed 20 (finding F-5); there were 18 at review time
+      and the claim of 20 was never right at any commit. 654e89f added four.
+    security_review: >-
+      The closed input structure (LoadInputs) means a prohibited **field** —
+      one named in factor_registry.PROHIBITED_INPUTS — cannot reach the
+      computation: the dataclass has a fixed field set, no **kwargs, no
+      dynamic attribute reads in compute_eli, and slots=True + frozen=True leave
+      no __dict__ for a name to be attached to afterwards. Enforced by
+      tests/unit/test_eli.py::test_prohibited_inputs_cannot_reach_the_computation,
+      which checks the field sets, the constructor kwargs, and the
+      after-construction route for every name in the prohibited list.
+
+      Corrected 26 Aug 2026: the previous wording ("a prohibited field cannot
+      reach the computation... Prohibited-input list asserted in
+      tests/unit/test_factor_registry.py") was doing more work than the code
+      did. The structure closes the **field set**, not the field **types** —
+      LoadInputs validates declared_capacity_hours and nothing else, which is
+      what finding F-8 exposed — and test_factor_registry.py asserts things
+      about the registry, not about ELI's inputs. Type closure at untyped
+      boundaries is still only mypy --strict, which does not run on
+      deserialized input; no such boundary exists for this module yet.
+    migration_owner: engineering
+    reviewer: A4 (independent review agent)
+    status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-4 (behavior_retained names an event-cadence input the module does not have), F-5 (test count), F-6 (Stage A cap boundary set by a 4-dp rounding), F-7, F-8, F-9, F-10. Status deliberately left at ported_unverified: the description errors F-4, F-5 and F-10's manifest half are corrected above and the code findings F-6..F-10 landed in 654e89f, but §6 of the orchestrator contract forbids the correcting party from also approving the entry. Setting this to `verified` is the re-reviewer's call and nobody else's.
+    contract_refs_status: >-
+      UNVERIFIABLE. Architecture contract v1.1 is not present in this
+      repository, so §1.3 — the section that justifies the two-stage cap this
+      module implements — has not been read (finding F-28). Per
+      docs/plans/defect-remediation.md §5, the best verdict any review can reach
+      while that holds is "verified except contract_refs".
+    corrections: >-
+      26 Aug 2026 — F-4, F-5, F-10 (manifest/description halves), plus the
+      security_review and data_provenance rewrites F-8 and F-10 implied. Code
+      halves of F-6, F-7, F-8, F-9, F-10 landed in 654e89f. Corrected by the F9
+      documentation agent, which is not the reviewer and is not authorized to
+      set `status`. The corrections to the claims about *legacy* behavior in
+      this entry were derived from the review's published transcripts and line
+      citations, not from a fresh read of the legacy tree: the legacy
+      repository is not present in this checkout. A re-reviewer must re-derive
+      them from bdce024 rather than agree with them here.
+    completion_commit: 7b5ab9f
+    notes: >-
+      Decay half-life (45d), rolling window (90d), and modifier weighting are
+      proposed defaults. Open decision 2 assigns final parameters to the program
+      owner.
+
+      Two observations the review recorded without raising as findings, still
+      true and still unowned: the rolling window includes day 90 exactly
+      (occurred_on < window_start is the exclusion test), so the window is 91
+      days inclusive against a constant named _ROLLING_WINDOW_DAYS = 90; and
+      declared_capacity_hours=1e-9 passes validation and yields
+      utilization = 1000000000.0.
+
+  - id: MM-004
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/data_loader.py"
+    legacy_symbol: "_validate_columns, DataQualityResult, generate_quality_report"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/ingest.py
+    target_symbol: "validate_columns, DatasetQuality, QualityFinding, normalize_header"
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.5", "v1.1 §5.5"]
+    behavior_retained: >-
+      Column validation against a required set, accumulating findings rather than
+      stopping at the first, and reporting data quality separately from the data
+      itself.
+    behavior_rejected: >-
+      All filesystem coupling: `_try_read_csv`, encoding sniffing, the DATA_DIR
+      constants, and the pandas DataFrame return type. Repository-local CSVs are
+      demo persistence; PostgreSQL is the system of record and file parsing
+      belongs in an adapter. Also rejected: returning a partially-populated frame
+      when required columns were missing and letting downstream scoring proceed —
+      the import now fails closed.
+
+      Corrected 26 Aug 2026, finding F-11 (an unrecorded loss). Three legacy
+      capabilities were dropped and none of them was recorded here. The legacy
+      _validate_columns also produced per-column null_counts, per-column dtype
+      validation (str / int / datetime), and a per-column `nullable` check. None
+      survives: the target performs no type checking on imported cells at all,
+      and reports blankness only as an all-or-nothing per-column verdict, not as
+      a count. Dropping behavior is legitimate; not recording it is the thing
+      this manifest exists to prevent.
+
+      **Whether dropping dtype validation was intended is an open decision, not
+      a settled one.** It is recorded as open rather than rationalized after the
+      fact. The argument for dropping it: the domain is handed already-parsed
+      rows and does not know how a cell was produced, so a dtype check here
+      duplicates the adapter's job and would need the same caller-declared
+      schema that blank_sentinels now shows is required for even the much
+      simpler null-marker question. The argument against: nothing downstream
+      performs it either, so between this module and the scoring path there is
+      currently no type gate anywhere. Owner: migration owner, with the adapter
+      that will call validate_columns. No caller exists yet, so nothing depends
+      on the answer today.
+
+      Also removed rather than rejected: the "Added:" sentence that used to end
+      this field has moved to behavior_introduced, where added behavior belongs.
+    behavior_introduced: >-
+      (1) A required column present but blank in every row is an ERROR, and a
+      blank cell is one that is None or whitespace-only, or one whose text
+      matches a **caller-declared** null sentinel.
+
+      Corrected 26 Aug 2026, finding F-12. The previous wording — "a required
+      column present but blank in every row is an error, which the legacy
+      reported as healthy" — was inaccurate about the legacy. The legacy had a
+      nullability check (`if not col_spec["nullable"] and null_count > 0`) and
+      the required columns were declared nullable: False. Re-executed by the
+      reviewer under pandas 3.0.5, the legacy raised a data-quality issue for
+      empty CSV fields (what a real export of a null column contains) and for
+      literal "nan" text, and reported healthy **only** for whitespace-only
+      values. What the port genuinely adds is escalating that issue from a
+      quality warning to a blocking error, and additionally catching the
+      whitespace-only case. That is a good change and a materially smaller one
+      than this entry used to describe.
+
+      The null-sentinel rule is now caller-declared, not built in (8c47c2e,
+      finding F-16). validate_columns takes a `blank_sentinels` argument,
+      empty by default; the previous built-in list of "null" / "none" / "nan"
+      is gone, because "Null" and "None" are real surnames and place names and
+      this module, by its own data_provenance, knows nothing of its rows'
+      source. The adapter that parsed the export does, and declares it. Default
+      off is the fail-safe direction for a name.
+
+      (2) Two new finding codes (8c47c2e). `ragged_rows` — the present-column
+      set is now the union across all rows rather than rows[0] alone, and a
+      column absent from only some rows is reported: ERROR when it is required,
+      WARNING otherwise. Union alone would have hidden the raggedness (finding
+      F-15). `colliding_headers` — two source headers that normalize to the same
+      column are reported rather than silently shadowing one another: ERROR when
+      the column is required, since which value survived is not verifiable
+      (finding F-17). Findings now quote the coordinator's own header rather
+      than the normalized name.
+
+      (3) An API change: validate_columns raises ValueError when `required` and
+      `optional` together declare the same column twice after normalization
+      (8c47c2e). That is a caller contract error rather than coordinator data —
+      the duplicate would collapse silently and the column would be validated
+      under whichever spelling won.
+    dependencies_removed: ["pandas", "pathlib", "src.config", "streamlit caching"]
+    data_provenance: operates on already-parsed rows; knows nothing of their source
+    characterization_tests: >-
+      n/a — none exist, and this field previously claimed they did.
+
+      Corrected 26 Aug 2026, finding F-13 (High). The field read
+      "tests/unit/test_ingest.py (column-validation parity cases)". There are no
+      parity cases: nothing in that file references the legacy, compares against
+      a legacy output, or pins a legacy behavior — every assertion is written
+      against the target's own design. A characterization test establishes what
+      the legacy did so a port can be shown not to have changed it, and none
+      exists for this entry. The same false claim was repeated in
+      docs/testing/scaffold-verification.md and is corrected there.
+
+      Set to n/a rather than satisfied, which is route (b) of the two
+      docs/plans/defect-remediation.md §3.1 offers. **Route (a) remains open and
+      is the better answer**: the review re-executed the legacy _validate_columns
+      null logic under pandas 3.0.5 and published the transcript under F-12, and
+      its three observed outcomes (empty fields -> issue; whitespace-only ->
+      healthy; literal "nan" -> issue) are exactly what a characterization case
+      encodes. Route (a) was not taken here only because the agent making this
+      correction is not authorized to write tests; it is not a judgement that
+      characterization is unnecessary. Unlike MM-005, parity here is expressible.
+    target_tests: >-
+      tests/unit/test_ingest.py — 21 cases. Measured 26 Aug 2026 with
+      `pytest tests/unit/test_ingest.py --collect-only -q`, not recalled. This
+      field previously claimed 14 (finding F-14); there were 13 at review time.
+      8c47c2e added eight, covering row-order independence, ragged required and
+      optional columns, header collisions, caller-declared sentinels, and the
+      duplicate-declaration ValueError.
+    security_review: no IO; no path handling; cannot be induced to read a file
+    migration_owner: engineering
+    reviewer: A4 (independent review agent)
+    status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-13 (characterization_tests names parity cases that do not exist), F-12 (added-behavior claim inaccurate; legacy flagged blank required columns for empty and nan values), F-11, F-14, F-15, F-16, F-17. Status deliberately left at ported_unverified: the description errors F-11, F-12, F-13 and F-14 are corrected above and the code findings F-15, F-16 and F-17 landed in 8c47c2e, but §6 of the orchestrator contract forbids the correcting party from also approving the entry. Setting this to `verified` is the re-reviewer's call.
+    contract_refs_status: >-
+      UNVERIFIABLE. Architecture contract v1.1 is not present in this
+      repository, so §1.5 and §5.5 have not been read (finding F-28). Per
+      docs/plans/defect-remediation.md §5, the best verdict any review can reach
+      while that holds is "verified except contract_refs".
+    corrections: >-
+      26 Aug 2026 — F-11, F-12, F-13, F-14 (all migration-owner findings). Code
+      halves of F-15, F-16, F-17 landed in 8c47c2e. Corrected by the F9
+      documentation agent, which is not the reviewer and is not authorized to
+      set `status`. The corrections to claims about *legacy* behavior rest on
+      the review's published pandas 3.0.5 transcript, not on a fresh
+      re-execution: the legacy repository is not present in this checkout, and
+      re-deriving them from bdce024 is the re-reviewer's job.
+    open_items_for_reviewer: >-
+      Two things this correction records but does not settle. (1) Whether
+      dropping the legacy's dtype validation was intended — see
+      behavior_rejected. (2) The review's note that "the import now fails
+      closed" describes a *caller* obligation: is_usable is a read-only
+      property, nothing in the module prevents a caller ignoring it, and there
+      is still no caller anywhere in the target to honour it. The property is
+      the right shape; the guarantee is not yet enforced by anything.
+    completion_commit: 7b5ab9f
+
+  - id: MM-005
+    legacy_path: >-
+      Category 3 - IA West Smart Match CRM/src/feedback/acceptance.py,
+      Category 3 - IA West Smart Match CRM/src/feedback/service.py,
+      Category 3 - IA West Smart Match CRM/src/config.py:125-129
+    legacy_symbol: >-
+      acceptance.py: DECLINE_REASONS, REASON_TO_FACTOR, aggregate_feedback,
+      generate_weight_suggestions, render_feedback_sidebar.
+      service.py: DECLINE_REASON_TO_FACTOR, the weight-history writer, the
+      per-factor clamp into a band around baseline, and the vector
+      renormalization step.
+      config.py: OPTIMIZER_MAX_FACTOR_DELTA, OPTIMIZER_REASON_WEIGHT_BUMP.
+    legacy_path_note: >-
+      Extended 26 Aug 2026, finding F-20. The entry previously named
+      acceptance.py alone, and the ported constants did not come from it.
+      MAX_FACTOR_DELTA 0.08 and PER_REASON_BUMP 0.03 are src/config.py:125-129,
+      consumed at src/feedback/service.py:216 as
+      min(OPTIMIZER_MAX_FACTOR_DELTA, OPTIMIZER_REASON_WEIGHT_BUMP * count) —
+      the exact expression the target reimplements. acceptance.py, the only file
+      previously named, used a hard-coded weight_bump: float = 0.05 and no
+      maximum at all. service.py also held the parts of this component with the
+      highest review value (file-backed persistence, weight-history writing, and
+      a renormalization step the port drops) and appeared nowhere in the
+      inventory.
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/feedback.py
+    target_symbol: "aggregate, propose_weight_adjustments, DeclineReason, WeightProposal"
+    disposition: ADAPT
+    contract_refs: ["v1.1 Appendix B", "v1.1 §1.2", "v1.1 §5.5"]
+    behavior_retained: >-
+      The *shape* of the loop: aggregation of accept/decline decisions into
+      counts, and a bounded per-factor weight-delta proposal computed as
+      min(MAX_FACTOR_DELTA, PER_REASON_BUMP * count). The two constants are
+      carried forward unchanged — MAX_FACTOR_DELTA 0.08 and PER_REASON_BUMP 0.03
+      — from the legacy env-var defaults in src/config.py:125-129 (see
+      legacy_path_note; this entry previously attributed them to the wrong file).
+
+      Corrected 26 Aug 2026, findings F-18 and F-19, both High. This field
+      previously claimed "the decline-reason vocabulary" and "the reason-to-
+      factor mapping" as retained. **Both were replaced.** See
+      behavior_replaced, which exists so the redesign reads as a decision rather
+      than as a description of continuity that happens to be false.
+    behavior_replaced: >-
+      (1) The decline-reason vocabulary (finding F-18). The legacy
+      DECLINE_REASONS was five prose strings — "Too far (geographic distance)",
+      "Schedule conflict", "Topic mismatch", "Speaker already committed",
+      "Other". The target DeclineReason is a seven-member enum of snake_case
+      codes — wrong_topic, wrong_role, too_far, unavailable, overcommitted,
+      recently_engaged, other. wrong_role, unavailable and recently_engaged have
+      no legacy antecedent; "Schedule conflict" and "Speaker already committed"
+      have no target equivalent. A closed machine-readable enum is better than
+      prose and the redesign is defensible — but it is a replacement, and
+      calling it retention hid the decision.
+
+      (2) The reason-to-factor mapping (finding F-19). Legacy acceptance.py
+      mapped onto calendar_fit, geographic_proximity, historical_conversion,
+      topic_relevance; legacy service.py mapped onto calendar_fit,
+      geographic_proximity, role_fit, topic_relevance, volunteer_fatigue; the
+      target maps onto availability, engagement_load, repeat_penalty, role_fit,
+      topic_relevance, travel_burden. Two names of six survive the overlap with
+      either legacy map.
+
+      **The justification for replacing it, which was previously nowhere in this
+      manifest and is the strongest argument for the redesign: there was no
+      single legacy mapping to carry forward.** The legacy contained two maps
+      that disagree with each other — "Speaker already committed" goes to
+      historical_conversion in acceptance.py and to volunteer_fatigue in
+      service.py. Retaining a mapping that contradicts itself is not an option;
+      choosing one silently would have been worse than replacing both openly.
+    behavior_rejected: >-
+      Streamlit imports and every render_* function (presentation in a domain
+      module). st.session_state as authoritative storage. The CSV append in
+      _persist_to_csv — business writes to repository-local files are prohibited.
+      The demo-fixture fallback in render_feedback_sidebar
+      (src/feedback/acceptance.py:299-311), which served fabricated aggregates
+      when demo_mode was set in session state.
+
+      Corrected 26 Aug 2026, finding F-22. This field previously attributed the
+      fixture fallback to aggregate_feedback. It is not there: aggregate_feedback
+      (acceptance.py:186-242) returns an explicit all-zero dictionary on an empty
+      log and never calls load_fixture. The fallback is in
+      render_feedback_sidebar, a presentation function, and it fires only under
+      demo_mode. The defect is real and rejecting it is right; the function named
+      was wrong, and the same error was repeated in
+      docs/migration/rejected-components.md, corrected there too.
+
+      **Withdrawn 26 Aug 2026, finding F-21 (High).** This field previously also
+      rejected "free-text decline reasons mapped to factors by substring
+      matching, the source of the noisiest suggestions". **That legacy defect
+      does not reproduce and the claim is withdrawn.** Both legacy mappers use an
+      exact dictionary lookup on a closed reason list —
+      src/feedback/acceptance.py:263 (`if count >= min_declines_for_suggestion
+      and reason in REASON_TO_FACTOR:`) and src/feedback/service.py:213
+      (`factor = DECLINE_REASON_TO_FACTOR.get(reason)`). An exhaustive search of
+      the legacy src/ tree for case-folding, startswith, endswith or containment
+      tests against a reason or note field returns only those two exact-lookup
+      lines. The one free-text field that does exist, decline_notes, is never
+      mapped to a factor anywhere; it is stored and displayed only. A claimed
+      legacy defect that does not exist is worse than an unclaimed one, because
+      it credits the port with fixing something it did not fix — and this one was
+      offered as justification for a design change. The closed-enum design is
+      still right; it needs an honest reason, and it has one in
+      behavior_replaced: the legacy's two mappings contradict each other.
+
+      Also rejected and previously unrecorded (finding F-20's other half, and
+      the substance of F-25): the two steps legacy service.py performed after
+      computing deltas — clamping each factor into a band around its baseline,
+      and renormalizing the whole weight vector. The port does neither. Dropping
+      them may well be right; it was not recorded, and it is why the proposal is
+      un-normalized. See open_findings below — F-25 is open, not fixed.
+    behavior_introduced: >-
+      (1) A minimum decline floor (5) **per implicated factor**:
+      MIN_DECLINES_PER_FACTOR. Below five declines implicating one factor, that
+      factor's weight is not proposed to move at all. The legacy had no floor and
+      would adjust weights from a single click.
+
+      Corrected 26 Aug 2026, finding F-23. This was previously described as "a
+      minimum decision floor (5), because the legacy would learn from a single
+      click", and the constant was MIN_DECISIONS_FOR_PROPOSAL. It counted
+      *total decisions*, so four unrelated accepts plus one decline unlocked a
+      weight movement driven by exactly one decline — reproducing the legacy
+      failure the floor exists to prevent, behind something that looked like it
+      prevented it. 8c47c2e renamed the constant to MIN_DECLINES_PER_FACTOR and
+      made it count declines implicating each factor, per factor: a floor met in
+      aggregate no longer moves an individual weight off a single decline. The
+      value 5 is unchanged.
+
+      (2) acceptance_rate returns None rather than 0.0 for an empty set, since
+      empty means unknown and a genuine 0.0 stays distinguishable from it.
+
+      (3) A non-blank match_run_id is required at construction (8c47c2e, finding
+      F-26), consistent with the reason/decision invariants beside it and with
+      data_provenance making the attribution load-bearing.
+
+      (4) WeightProposal is @final and refuses subclassing at runtime via
+      __init_subclass__ (8c47c2e, finding F-27). @final closes the type-checked
+      route; the runtime refusal closes the untyped one, which is the route that
+      matters for a control that is structural everywhere else.
+    dependencies_removed: ["streamlit", "pandas", "pathlib", "json", "src.demo_mode"]
+    data_provenance: >-
+      Coordinator decisions only, attributed to a versioned match_run. The
+      attribution is now enforced rather than assumed: a blank match_run_id is
+      refused at construction (finding F-26, 8c47c2e), which is what the field
+      claimed and the code did not do.
+    characterization_tests: >-
+      n/a — parity is not merely absent here, it is inexpressible.
+
+      Corrected 26 Aug 2026. The field previously read "tests/unit/test_feedback.py
+      (reason-mapping parity cases)". There are none, and per findings F-18 and
+      F-19 there could not be: five prose reasons became seven enum codes with
+      three having no legacy antecedent, and two of six factor names survive, so
+      there is no legacy input/output pair a target case could be written
+      against. This is route (b) of docs/plans/defect-remediation.md §3.1, and
+      unlike MM-004 it is the only available route rather than the cheaper one.
+    target_tests: >-
+      tests/unit/test_feedback.py — 21 cases. Measured 26 Aug 2026 with
+      `pytest tests/unit/test_feedback.py --collect-only -q`, not recalled. The
+      field previously claimed 16, which was correct at review time; 8c47c2e
+      added five, covering the per-factor floor, the approval-control probe
+      suite, the subclass route, the blank match_run_id, and the deliberately
+      unbounded aggregate.
+    security_review: >-
+      Shadow mode is enforced structurally, and the enforcement is now tested by
+      probes that try to defeat it rather than by an assertion that restates it.
+      WeightProposal.requires_approval is a property with no setter, on a class
+      that is frozen (assignment to a field raises FrozenInstanceError),
+      slotted (no __dict__ for a stray attribute to land in), and whose
+      requires_approval is not a constructor field (rejected by both the
+      constructor and dataclasses.replace). It is also **final at runtime**, not
+      only under a type checker: @final plus __init_subclass__, so an untyped
+      caller cannot subclass a proposal that reports requires_approval is False
+      past a consumer typed on WeightProposal (finding F-27, 8c47c2e).
+
+      Strengthened 26 Aug 2026. The previous wording — "a property returning
+      True, not a settable field, so no caller can mark a proposal
+      auto-applicable" — was stated more strongly than the code supported: the
+      subclass route was open (F-27), and the only test of the control asserted
+      `requires_approval is True` against a property whose body is `return True`,
+      which passes against an empty implementation (finding F-24). The control
+      is now covered by
+      tests/unit/test_feedback.py::test_proposal_always_requires_human_approval,
+      which exercises assignment to the property, assignment to a *field*,
+      object.__setattr__, the constructor, dataclasses.replace and
+      `WeightProposal.requires_approval.fset is None`, and by
+      test_the_approval_control_cannot_be_subclassed_away. See finding F-30 in
+      the review document: the field-assignment probe is the one that actually
+      observes `frozen=True`, and it is the one the original review did not
+      perform.
+    migration_owner: engineering
+    reviewer: A4 (independent review agent)
+    status: ported_unverified
+    verification_notes: >-
+      Independently reviewed 18 Aug 2026; NOT approved. See docs/migration/port-verification.md. Findings F-18/F-19 (decline vocabulary and reason-to-factor mapping were replaced, not retained), F-21 (claimed substring-matching defect does not reproduce in the legacy), F-22, F-20, F-23, F-24, F-25, F-26, F-27. Status deliberately left at ported_unverified. The description errors F-18, F-19, F-20, F-21 and F-22 are corrected above and the code findings F-23, F-24, F-26 and F-27 landed in 8c47c2e — but F-25 is open by design (see open_findings), and in any case §6 of the orchestrator contract forbids the correcting party from also approving the entry. Setting this to `verified` is the re-reviewer's call.
+    open_findings: >-
+      **F-25 is open and is not fixed.** Each proposed delta respects
+      MAX_FACTOR_DELTA; their sum does not. Six factors implicated at once
+      propose +0.48 in aggregate against weights that must total 1.0, and the
+      proposal carries no normalization — the two legacy service.py steps the
+      port dropped (see behavior_rejected).
+
+      Recorded rather than fixed, per docs/plans/defect-remediation.md §4.5,
+      which asks specifically that no sum bound be picked now. The defect is not
+      that 0.48 is large. It is that **the number a human approves is not the
+      number that gets applied**, because normalization happens elsewhere
+      (factor_registry.normalize_weights), so after normalization a proposed
+      +0.08 on one factor is not a +0.08 change in effective weight, and the
+      more factors move together the further apart the two numbers get. The
+      entire safety argument for this module is that a human approves the
+      change.
+
+      So this entry records, as the manifest's own statement and not as a
+      deferral note: **the proposal is un-normalized, and its application
+      semantics are unspecified.** Choosing between them — normalize on apply,
+      bound the sum at proposal time, or both — belongs with the consumer that
+      applies weights, which arrives with weight sets in M1/M8 behind gate G1.
+      Picking a sum bound now would manufacture a number with no more provenance
+      than the one it replaces.
+
+      The current behavior is pinned, not merely described, by
+      tests/unit/test_feedback.py::test_aggregate_movement_is_deliberately_unbounded,
+      which asserts six deltas of exactly MAX_FACTOR_DELTA summing to 0.48, so
+      whichever semantics is chosen must change a failing test rather than slide
+      in beside a silent assumption.
+    contract_refs_status: >-
+      UNVERIFIABLE. Architecture contract v1.1 is not present in this
+      repository, so Appendix B — the section that requires the shadow mode this
+      entry's security_review rests on — has not been read (finding F-28). Per
+      docs/plans/defect-remediation.md §5, the best verdict any review can reach
+      while that holds is "verified except contract_refs".
+    corrections: >-
+      26 Aug 2026 — F-18, F-19, F-20, F-21, F-22 (all migration-owner findings),
+      plus the security_review strengthening F-24/F-27 implied and the
+      description half of F-23. Code halves of F-23, F-24, F-26, F-27 landed in
+      8c47c2e; F-25 is open by design. Corrected by the F9 documentation agent,
+      which is not the reviewer and is not authorized to set `status`.
+      **Every claim about legacy behavior corrected here rests on the review's
+      published transcripts and line citations, not on a fresh read.** The
+      legacy repository is not present in this checkout. F-21 in particular is a
+      claim that a defect does *not* exist, and the only acceptable evidence for
+      it is a fresh search of the legacy tree at bdce024 — not agreement with
+      this entry or with the first review.
+    completion_commit: 7b5ab9f
+
+# ---------------------------------------------------------------------------
+# Blocked
+# ---------------------------------------------------------------------------
+
+  - id: MM-002
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/matching/{engine,factors,explanations}.py"
+    legacy_symbol: "compute_match_score, rank_speakers, topic_relevance, role_fit, geographic_proximity, calendar_fit, historical_conversion, student_interest"
+    legacy_license: unlicensed-first-party
+    target_path: python/smartmatch_domain/smartmatch_domain/factor_registry.py (registry proposal only)
+    target_symbol: PROPOSED_FACTORS, normalize_weights, assert_registry_approved
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.2", "v1.1 gate G1", "v1.1 Appendix C item 1"]
+    behavior_retained: none yet — the scoring path is not ported
+    behavior_rejected: >-
+      Deferred pending gate G1. See docs/architecture/review/contract-findings.md
+      finding F-001 for the measured defect.
+    dependencies_removed: []
+    data_provenance: n/a
+    characterization_tests: >-
+      Cannot be written. Characterization requires agreed-correct expected
+      outputs, and the legacy's outputs are provably wrong (systematic ~10%
+      deflation). Pinning them would enshrine the defect.
+    target_tests: >-
+      tests/unit/test_factor_registry.py asserts the corrected normalization
+      invariant and that scoring fails closed while the gate is open.
+    security_review: n/a
+    migration_owner: engineering
+    reviewer: pending
+    status: blocked_contract
+    blocking_owner: program owner (named in v1.1 gate G1)
+    notes: >-
+      The orchestrator contract §Phase 5 states: "Start with pure matching
+      behavior only if factor definitions and golden cases are resolved.
+      Otherwise record it as blocked." Recorded as blocked. The registry
+      proposal is committed so the contradiction is resolved in the open, and
+      assert_registry_approved() fails closed so no scoring path can ship before
+      the gate closes.
+      Amended 25 August 2026 after the stakeholder test-log audit. The seven
+      factors she was shown must be mapped onto the nine proposed, and the
+      mapping recorded rather than left implicit: calendar_fit becomes
+      availability (Stage A), while historical_conversion and student_interest
+      have no target in the proposed registry and no decision either way. That
+      silence is the current state and it is worse than either answer — it is
+      raised as Q6 in docs/plans/stakeholder-audit-integration.md §9, owned by
+      the program owner at gate G1. Her three observed symptoms become required
+      golden cases for G1: the exact 43% tie, "Topic Relevance 0%" on an event
+      about AI, and "Match Depth 0". Per ADR-0011, each of those zeroes is
+      either a real measured zero that needs an explanation or a missing value
+      wearing a zero's clothes, and nothing in the legacy distinguishes them —
+      so the golden case must pin which it is.
+
+# ---------------------------------------------------------------------------
+# Archived — not copied, with the reason recorded
+# ---------------------------------------------------------------------------
+
+  - id: MM-A01
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/api/routers/portals.py:435"
+    legacy_symbol: 'POST /auth/mock-login'
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.11", "v1.1 §2.2"]
+    behavior_rejected: >-
+      Caller-selected identity. The single most dangerous pattern in the
+      baseline. Identity and tenant are derived server-side from a verified
+      token. tests/contract/test_api_health.py asserts the endpoint returns 404,
+      and tools/scan_forbidden.py fails the build if the pattern reappears.
+    status: archived
+
+  - id: MM-A02
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/runtime_state.py, src/coordinator/result_bus.py"
+    legacy_symbol: module-level dictionaries, queues, and result buses
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.6", "v1.1 §2.4"]
+    behavior_rejected: >-
+      Authoritative state in process memory. Incorrect across multiple Cloud Run
+      instances: a job written by one instance is invisible to another, and an
+      instance restart loses it entirely. Replaced by the job/job_event/outbox
+      tables with transactional counters and leases.
+    status: archived
+
+  - id: MM-A03
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/demo_mode.py, cache/demo_fixtures/*.json"
+    legacy_symbol: "load_fixture, DEMO_MODE, populated-screen fallbacks"
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §5.5", "v1.1 §3.6 N3"]
+    behavior_rejected: >-
+      Serving seed content unlabeled so a screen stays populated. v1.1 §5.5 names
+      this the anti-pattern the provenance component family exists to kill.
+      Fixture providers in the target return visibly synthetic results
+      (provider_message_id prefixed "fixture-") and never substitute for a
+      failed call.
+    status: archived
+
+  - id: MM-A04
+    legacy_path: "Category 3 - IA West Smart Match CRM/data/{demo.db,smartmatch.db}, data/feedback/feedback-log.jsonl"
+    legacy_symbol: SQLite and JSONL business persistence
+    disposition: REPLACE
+    contract_refs: ["v1.1 §3.1", "v1.1 §2.2"]
+    behavior_rejected: >-
+      Business records in repository-local files. PostgreSQL is the single system
+      of record. .gitignore blocks these patterns and CI fails if one is tracked.
+    status: archived
+
+  - id: MM-A05
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/app.py, src/ui/**"
+    legacy_symbol: Streamlit application and 20 UI modules
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §5.1"]
+    behavior_rejected: >-
+      Streamlit is not the target frontend; v1.1 §5.1 specifies React + TypeScript
+      + Vite consuming a generated client. The design-system decisions are worth
+      revisiting when apps/web is built (MM-F01), but no Streamlit code carries
+      forward.
+    status: archived
+
+  - id: MM-A06
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/voice/{stt,tts}.py"
+    legacy_symbol: Whisper STT and KittenTTS voice experiments
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §1.1"]
+    behavior_rejected: >-
+      Outside target scope. No accepted contract restores voice as a production
+      capability; per §8 of the orchestrator contract, experiments are archived
+      unless a contract restores them separately.
+    status: archived
+
+  - id: MM-A07
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/coordinator/**"
+    legacy_symbol: "nemoclaw_adapter, intent_parser, in-request agentic stream, tools/*"
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.4", "v1.1 §1.6", "v1.1 gate G3"]
+    behavior_rejected: >-
+      In-request agent orchestration with provider calls in the browser request
+      path. v1.1 §1.6 requires every consequential action be persisted as a
+      command and dispatched through the outbox. Agents ship in R3 behind gate
+      G3 (eval set, tool allowlist, cost controls approved), inside the worker
+      boundary. The useful requirement — a conversational surface over typed
+      capabilities — survives as the Jarvis design in v1.1 §1.4.
+    status: archived
+
+  - id: MM-A08
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/scraping/scraper.py"
+    legacy_symbol: crawl orchestration and extraction
+    disposition: REPLACE
+    contract_refs: ["v1.1 §1.5", "v1.1 gate G3", "ADR-0010", "ADR-0012"]
+    behavior_rejected: >-
+      Deferred to R3 pending the crawler threat model (SSRF, DNS rebinding,
+      redirect escape, decompression bombs, size/type/time limits,
+      prompt-injection isolation of fetched content). Per the expected first port
+      batch, this candidate is "security review first" — that review has not
+      happened, so nothing is ported.
+    status: archived
+    notes: >-
+      Not yet inventoried in depth; revisit at R3 with a security reviewer.
+      Amended 25 August 2026: this disposition archives the legacy crawler's
+      *code*, and said nothing about the shape of its *output*, so a rebuilt
+      crawler could reproduce every data-quality defect in the stakeholder test
+      log honestly. Two invariants are carried here so R3 inherits them rather
+      than rediscovering them after the same bug report. ADR-0010 — extraction
+      maps dates onto a precision enum (exact / date_only / unresolved) instead
+      of producing a datetime unconditionally; an unresolved event cannot become
+      matchable or publishable. ADR-0012 — events resolve by a deterministic key
+      (host org unit, normalized title, resolved date window) so re-crawling
+      updates rather than duplicates; source provenance is a structured field
+      and never part of the title; role and type tags come from a closed
+      versioned vocabulary, with unmapped values quarantined rather than
+      rendered or matched on. Neither alters the gate: R3 still requires the
+      crawler threat model first.
+
+  - id: MM-A09
+    legacy_path: >-
+      Category 3 - IA West Smart Match CRM/data/{data_speaker_profiles.csv,data_cpp_events_contacts.csv,poc_contacts.json,pipeline_sample_data.csv},
+      archived/Categories list/Category 3 IA West Smart Watch/{data_speaker_profiles.csv,data_cpp_events_contacts.csv}
+    legacy_symbol: real-identity datasets tracked in git
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §2.3", "v1.1 §5.5"]
+    behavior_rejected: >-
+      Six tracked paths at legacy_sha bdce024 carry named real people. Verified
+      by header and row count; contents deliberately not reproduced here.
+      (1) data/data_speaker_profiles.csv — 18 data rows; header
+      "Name,Board Role,Metro Region,Company,Title,Expertise Tags".
+      (2) data/data_cpp_events_contacts.csv — 15 data rows, including
+      "Point(s) of Contact (published)" and "Contact Email / Phone (published)".
+      (3) data/poc_contacts.json — five named individuals with @cpp.edu
+      addresses, org and role, each carrying comm_history, last_contact and
+      follow_up_due. This is a communications and follow-up log, not a contact
+      list: it records who was approached, when, and what was said, which is a
+      materially different disclosure from a name and a title.
+      (4) data/pipeline_sample_data.csv — 58 data rows pairing speaker_name with
+      match_score, rank and stage, so it attributes a computed score to a named
+      person.
+      (5) and (6) the two archived/ paths are byte-identical duplicates of (1)
+      and (2) — cmp reports no difference. A remediation that removes four
+      leaves two intact.
+    status: archived
+    migration_owner: engineering
+    blocking_owner: unassigned — see docs/plans/stakeholder-audit-integration.md §9 Q1
+    notes: >-
+      Nothing is ported from these paths; ARCHIVE is the disposition for the
+      target repository and is already satisfied. The finding is about the
+      legacy repository, and archiving does not close it. These files are
+      tracked in git history, so deleting them at HEAD or taking the Vercel
+      deployment down does not remove them — only a history rewrite or a
+      repository replacement does, and both are decisions rather than
+      engineering tasks (Q1). This gates kickoff Q11 (may the repository be
+      open-sourced) and backlog D9: publishing history containing these paths
+      would broaden the exposure rather than preserve it. No write to the legacy
+      repository has been made or is authorized; the orchestrator contract
+      forbids it without authorization. MM-A04 covers data/{demo.db,
+      smartmatch.db} and data/feedback/feedback-log.jsonl, which are business
+      persistence rather than identity data; none of the six paths here appears
+      in that entry or anywhere else in this manifest. Severity 1 in the
+      stakeholder test log of 19-20 August 2026 (Fix #1) — the only severity-1
+      item in it. See docs/architecture/review/stakeholder-test-log-audit.md.
+
+# ---------------------------------------------------------------------------
+# Not yet inventoried — deliberately, with the release that needs them
+# ---------------------------------------------------------------------------
+
+  - id: MM-F01
+    legacy_path: "Category 3 - IA West Smart Match CRM/frontend/src/app/components/ui/**"
+    legacy_symbol: 44 presentational components (shadcn/ui derived)
+    disposition: ADAPT
+    contract_refs: ["v1.1 §5.1"]
+    status: inventoried
+    notes: >-
+      Candidate 6 in the expected first port batch. Not ported: apps/web does not
+      exist yet, and porting components before the generated client exists would
+      recreate the hand-written-API coupling the contract forbids. Blocking
+      review when it happens: accessibility (WCAG 2.2 AA), demo-data coupling
+      (lib/mockData.ts, lib/mockProfilePhotos.ts must not come along), and the
+      generated-client boundary. Upstream shadcn/ui licensing must be confirmed
+      before any component is copied.
+
+  - id: MM-F02
+    legacy_path: "Category 3 - IA West Smart Match CRM/src/qr/service.py"
+    legacy_symbol: QR encoding and rendering helpers
+    disposition: ADAPT
+    contract_refs: ["v1.1 §1.9"]
+    status: inventoried
+    notes: >-
+      Candidate 7. Only the visual encoding helpers are portable; the token
+      consumption and attendance trust model are replaced entirely — v1.1 §1.9
+      makes the event QR a reusable expiring artifact with idempotent check-in,
+      not a single-use nonce. Scheduled for R2 alongside attendance.
+
+  - id: MM-F03
+    legacy_path: "Category 3 - IA West Smart Match CRM/frontend/src/lib/{studentPoints.ts,studentRewardsCatalog.ts}, frontend/src/app/student/**"
+    legacy_symbol: "getStudentTotalPoints, STUDENT_REWARD_CATALOG, getSortedCatalog, StudentRewardItem"
+    disposition: REPLACE
+    contract_refs: ["v1.1 §2.2", "v1.1 §3.6 N1", "ADR-0013"]
+    behavior_rejected: >-
+      A browser-computed points balance is not a balance.
+      getStudentTotalPoints returns attendance_streak * 100 + events_attended *
+      25 from two summary counters in the client, with no server-side record, no
+      history, no reversal path and no audit trail — and its own docstring calls
+      it a "demo formula", so the legacy authors did not believe it was a balance
+      either. It was rendered to students as one. The catalog compounds it: seven
+      pointsCost values of 2,500 / 3,200 / 5,000 / 8,500 / 12,000 / 15,000 /
+      45,000, which against attendance at 25 points per event puts the cheapest
+      item at 100 events attended and the dearest at 1,800. Replaced by the
+      append-only point_ledger_entry of ADR-0013, folded server-side, derived
+      from attendance and nothing else. One property carries forward:
+      getSortedCatalog sorts ascending by cost, so free-to-give items sort first
+      by construction rather than editorially. None of the seven costs is
+      retained; they are content to re-price under D6 and D7.
+    status: inventoried
+    notes: >-
+      Not ported: apps/web does not exist and is ON HOLD behind D-0, and the
+      tables land in R2 alongside attendance and QR check-in (MM-F02). Design in
+      docs/architecture/engagement-model.md; backlog S6-S9. Fix #9 and Fix #15
+      of the stakeholder test log, 19-20 August 2026.
+
+  - id: MM-F04
+    legacy_path: "Category 3 - IA West Smart Match CRM/frontend/src/app/student/StudentConnect.tsx"
+    legacy_symbol: in-app peer chat surface
+    disposition: ARCHIVE
+    contract_refs: ["v1.1 §2.3", "ADR-0014"]
+    behavior_rejected: >-
+      In-app chat is cut — a decision taken by Dr. Ann Wang in the 19-20 August
+      2026 session (Fix #11), not an engineering deferral. It is recorded here
+      and in ADR-0014 so it reads as a decision rather than as an omission. The
+      surface also disclosed peer attendance with no consent record governing
+      who may see that a student was present.
+    status: archived
+    notes: >-
+      One requirement is retained rather than archived with it: "people you met
+      at this event", which ADR-0014 gates on an active disclosure_consent
+      covering the viewer, and whose connect action is an opt-in LinkedIn URL the
+      person supplied themselves. Deeper access is a coordinator-mediated mentor
+      request, not a peer-to-peer channel. Backlog S10; policy is D8, owned by
+      privacy / legal / records, which must also settle what the phrase
+      "FERPA-aware" asserts (test-log kickoff Q35).
+
+# ---------------------------------------------------------------------------
+# Schema notes and correction log
+# ---------------------------------------------------------------------------
+
+schema_note: >-
+  Three fields were added on 26 August 2026, per
+  docs/plans/defect-remediation.md §3.3, and applied only to the entries that
+  need them rather than backfilled across the file.
+
+  `behavior_introduced` — the schema had `behavior_retained` and
+  `behavior_rejected` and no third box, so a port that improves on the legacy
+  had nowhere truthful to say so and the claim migrated to the nearest
+  available field. That is how MM-003's genuine time-based recency decay came
+  to be filed under "retained" (the softer half of finding F-4) and how MM-004's
+  escalation of a warning to an error became an "Added:" sentence inside
+  `behavior_rejected` (finding F-12). This removes a recurring failure mode
+  rather than one instance of it.
+
+  `behavior_replaced` — used on MM-005, where a vocabulary and a mapping were
+  neither retained nor rejected but redesigned. Filing a replacement as
+  retention is what findings F-18 and F-19 are.
+
+  `corrections` — per docs/plans/defect-remediation.md §5 measure 2. The
+  manifest already carries `reviewer`; it did not distinguish *who corrected*
+  from *who verified*, and the correcting author is now part of an entry's
+  provenance. A re-reviewer who cannot see what changed since the rejection has
+  to re-review everything or trust the summary, and neither is what is wanted.
+
+  A fourth change that §3.3 recommends is NOT made here: removing the test
+  counts from `target_tests`. The counts have been corrected to measured values
+  instead, which satisfies the §3.1 conditions ("corrected to N, or counts
+  removed"). Removing them would be the better answer only alongside the
+  machine check §3.3 pairs it with — a test that reads this manifest and asserts
+  that every path named in `characterization_tests` and `target_tests` exists,
+  and that the stated counts match `pytest --collect-only`. That check does not
+  exist, and writing it was outside this correction's authority (tests/).
+  **It is the single change that would have caught F-13, a High finding, on the
+  day it was written**, and it is recommended to whoever owns the schema next.
+  Until it exists, every count in this file is a number someone has to
+  re-measure by hand, which is the defect F-5 and F-14 are two instances of.
+
+manifest_corrections:
+  - date: 2026-08-26
+    author: F9 documentation agent (not the reviewer; not authorized to set `status`)
+    scope: >-
+      The migration-owner findings of docs/migration/port-verification.md —
+      F-3, F-4, F-5, F-11, F-12, F-13, F-14, F-18, F-19, F-20, F-21, F-22, F-28
+      — plus the description staleness introduced by commits 654e89f and
+      8c47c2e, and the description half of F-23.
+    entries_touched: [MM-001, MM-003, MM-004, MM-005]
+    statuses_changed: none
+    statuses_changed_reason: >-
+      §6 of the migration orchestrator contract forbids an agent approving its
+      own port, and docs/plans/defect-remediation.md §5 extends the principle:
+      corrections written by the party whose original claims failed do not
+      themselves establish anything. MM-003, MM-004 and MM-005 remain
+      `ported_unverified` and MM-001 remains `verified` exactly as the reviewer
+      left them. Promoting any entry is the re-reviewer's decision.
+    counts_method: >-
+      Every test count in this file was measured on 26 Aug 2026 with
+      `.venv/bin/pytest <file> --collect-only -q | tail -3` against the working
+      tree at 6a2f0ec, not recalled and not copied from the commit messages that
+      reported them. Measured: test_ics_golden.py 17, test_eli.py 22,
+      test_ingest.py 21, test_feedback.py 21.
+    evidence_limit: >-
+      The legacy repository is not present in this checkout
+      (/home/user/Nebiux-Team-IA-West-SmartMatch does not exist), so no
+      correction to a claim about *legacy* behavior was re-derived from source.
+      Those corrections restate the review's published transcripts and line
+      citations. Per docs/plans/defect-remediation.md §5 measure 3 that is not
+      sufficient for a re-review: each corrected legacy claim must be
+      re-derived from bdce024 *before* reading the corrected text, and F-21 —
+      a claim that a defect does not exist — requires a fresh search of the
+      legacy tree rather than agreement with either document.

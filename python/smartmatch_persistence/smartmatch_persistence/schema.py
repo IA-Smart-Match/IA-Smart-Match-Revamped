@@ -2113,7 +2113,7 @@ event_registration = sa.Table(
     # principal, never from a request field (MM-A01).
     sa.Column("subject_id", _UUID, nullable=False),
     # 'registered' or 'cancelled'. `waitlisted` is absent because no capacity
-    # exists anywhere in this schema for it to overflow from (OQ-CBA-021), and
+    # exists anywhere in this schema for it to overflow from (OQ-CBA-029), and
     # a value no writer could produce is a vocabulary invented by DDL.
     sa.Column("status", sa.Text, nullable=False),
     # When the place was taken. Never moves, including across a

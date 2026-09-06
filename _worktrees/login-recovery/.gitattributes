@@ -1,0 +1,24 @@
+# Normalize line endings.
+#
+# Without this, a checkout on Windows can produce CRLF working-tree copies of
+# LF-committed files. Git then reports every one of them as modified while the
+# content is byte-identical, which buries real edits in noise and can make
+# format checks fail on a fresh clone.
+#
+# `text=auto eol=lf` stores text as LF and checks it out as LF everywhere.
+* text=auto eol=lf
+
+# Binary files must never be normalized -- doing so corrupts them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.db binary

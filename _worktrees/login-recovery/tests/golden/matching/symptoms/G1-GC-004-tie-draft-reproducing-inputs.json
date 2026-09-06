@@ -1,0 +1,64 @@
+{
+  "id": "G1-GC-004",
+  "symptom_class": "tie",
+  "description": "DRAFT PROPOSAL — NOT RATIFIED. Candidate reproducing inputs for the G1-GC-001 exact-tie symptom, offered so the workshop can ratify or replace concrete inputs rather than author them live. Two synthetic candidates are symmetric on every proposed Stage B factor input, so any weight vector over the proposed factor set produces an exact tie. The tie-BREAK rule is NOT proposed here: the packet does not determine it (packet line 74). No expected scores until G1 closes.",
+  "stakeholder_reference": "docs/plans/workshops/g1-factor-registry-workshop-packet.md line 74; docs/plans/stakeholder-audit-integration.md — 43% tie; MM-002 golden case",
+  "inputs": {
+    "_draft_status": "proposed_pending_ratification_by_danny_tran",
+    "_data_provenance": "synthetic; no real professional, student, or event data",
+    "_tie_construction": "Symmetry, not a hard-coded score. Both candidates present identical values for topic_relevance, role_fit, travel_burden, engagement_load and repeat_penalty inputs, and both pass all Stage A eligibility filters. The observed legacy value of 43% is NOT asserted here — it was produced by the defective legacy engine (max attainable 0.90) and characterizing against it is forbidden by MM-002.",
+    "event_need": {
+      "event_need_id": "SYNTH-EN-0001",
+      "required_topics": ["artificial_intelligence"],
+      "preferred_topics": ["machine_learning"],
+      "requested_roles": ["speaker"],
+      "event_date": "2026-11-12",
+      "location_label": "SYNTH-CAMPUS-A"
+    },
+    "candidates": [
+      {
+        "professional_id": "SYNTH-PRO-0001",
+        "expertise_topics": ["artificial_intelligence", "machine_learning"],
+        "roles": ["speaker"],
+        "travel_minutes": 25,
+        "engagement_load_index_inputs": {
+          "assignments_in_window": 1,
+          "window_days": 90
+        },
+        "prior_selections_for_this_unit": 0,
+        "stage_a": {
+          "availability": "available",
+          "credential_check": "current",
+          "contact_status": "self_supplied_verified",
+          "declared_cap_remaining": 2
+        }
+      },
+      {
+        "professional_id": "SYNTH-PRO-0002",
+        "expertise_topics": ["artificial_intelligence", "machine_learning"],
+        "roles": ["speaker"],
+        "travel_minutes": 25,
+        "engagement_load_index_inputs": {
+          "assignments_in_window": 1,
+          "window_days": 90
+        },
+        "prior_selections_for_this_unit": 0,
+        "stage_a": {
+          "availability": "available",
+          "credential_check": "current",
+          "contact_status": "self_supplied_verified",
+          "declared_cap_remaining": 2
+        }
+      }
+    ],
+    "context": {
+      "registry_version_referenced": "1.1.0-proposed",
+      "registry_status_at_authoring": "proposed",
+      "note": "Registry version and the approved weight set are pinned by the workshop at approval time; this fixture records only which proposal it was drafted against."
+    },
+    "workshop_must_decide": [
+      "Ratify or replace these reproducing inputs.",
+      "The tie-break rule itself — NOT DETERMINED BY PACKET (packet line 74)."
+    ]
+  }
+}

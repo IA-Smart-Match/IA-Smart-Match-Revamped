@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartmatch.local/schemas/g1-golden-case-input-v1.json",
+  "title": "G1 golden case input (no expected scores)",
+  "description": "Structure-only schema for gate G1 golden cases. Expected scores are intentionally absent until the program owner approves the registry. See docs/plans/workshops/g1-factor-registry-workshop-packet.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "symptom_class", "description", "inputs"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^G1-GC-[0-9]{3}$"
+    },
+    "symptom_class": {
+      "type": "string",
+      "enum": ["tie", "zero_or_unknown", "depth_zero"]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stakeholder_reference": {
+      "type": "string",
+      "description": "Optional pointer to test-log row or audit finding."
+    },
+    "zero_classification": {
+      "type": "string",
+      "enum": ["measured_zero", "unknown"],
+      "description": "Required once the workshop pins ADR-0011 classification for a zero symptom."
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Professional, event_need, and context inputs. Shape is workshop-owned; no scores here.",
+      "properties": {
+        "professional": { "type": "object" },
+        "event_need": { "type": "object" },
+        "context": { "type": "object" },
+        "candidates": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "For tie cases: at least two candidates that must tie under approved scoring."
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "description": "Forbidden until G1 closes. Present only in post-approval fixtures.",
+      "not": {}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "symptom_class": { "const": "zero_or_unknown" } },
+        "required": ["symptom_class"]
+      },
+      "then": {
+        "description": "Workshop should set zero_classification before M1; not enforced at prep time."
+      }
+    },
+    {
+      "if": {
+        "properties": { "symptom_class": { "const": "depth_zero" } },
+        "required": ["symptom_class"]
+      },
+      "then": {
+        "description": "Workshop should set zero_classification before M1; not enforced at prep time."
+      }
+    }
+  ]
+}

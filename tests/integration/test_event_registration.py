@@ -130,7 +130,7 @@ REQUIRED_REGISTRATION_UNIQUENESS = ("tenant_id", "subject_id", "event_id")
 #: third and migration ``0026`` deliberately left it out: a waitlist is overflow
 #: from a capacity and no capacity exists anywhere in this schema, so the value
 #: would be one no writer could produce — a vocabulary invented by DDL ahead of
-#: the decision that gives it meaning. Recorded as OQ-CBA-021, and asserted below
+#: the decision that gives it meaning. Recorded as OQ-CBA-029, and asserted below
 #: as an absence rather than merely unmentioned.
 _STATUSES = (STATUS_REGISTERED, STATUS_CANCELLED)
 
@@ -350,7 +350,7 @@ class TestTheTableHasTheShapeTheBlockedCardSpecified:
 
         The absence is asserted rather than left unmentioned: a third value added
         without a capacity to justify it should fail here, which is the whole of
-        what OQ-CBA-021 is holding open.
+        what OQ-CBA-029 is holding open.
         """
         with engine.connect() as conn:
             definition = conn.execute(
@@ -364,7 +364,7 @@ class TestTheTableHasTheShapeTheBlockedCardSpecified:
             assert f"'{status}'" in definition
         assert "waitlist" not in definition.lower(), (
             "a waitlist status appeared in the CHECK. No capacity column exists "
-            "for it to overflow from — see OQ-CBA-021."
+            "for it to overflow from — see OQ-CBA-029."
         )
 
     def test_the_domain_vocabulary_agrees_with_the_constraint(self) -> None:
@@ -987,7 +987,7 @@ class TestRegistrationIsScopedToItsTenantAndItsStudent:
 
         Including the value this file's predecessor expected to exist: a
         ``waitlisted`` row is refused, because no capacity exists for it to
-        overflow from (OQ-CBA-021).
+        overflow from (OQ-CBA-029).
         """
         with pytest.raises(IntegrityError):
             session.execute(

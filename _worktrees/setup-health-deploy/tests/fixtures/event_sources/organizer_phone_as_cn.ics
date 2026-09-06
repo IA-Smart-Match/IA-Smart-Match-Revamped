@@ -1,0 +1,10 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Fixture//NONSGML v1.0//EN
+BEGIN:VEVENT
+UID:synthetic-0010@example.edu
+DTSTART;VALUE=DATE:20260920
+SUMMARY:Transfer Student Mixer
+ORGANIZER;CN=(909) 555-0177:mailto:mixer@example.edu
+END:VEVENT
+END:VCALENDAR

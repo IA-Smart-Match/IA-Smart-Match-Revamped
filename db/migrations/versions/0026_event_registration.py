@@ -156,10 +156,10 @@ Open questions this revision leaves open
 * **OQ-CBA-018** is answered by this revision and its status is amended
   accordingly: the table is ``event_registration``, and the column list is the
   one below.
-* **OQ-CBA-021** — capacity and the waitlist. No seat count exists anywhere in
+* **OQ-CBA-029** — capacity and the waitlist. No seat count exists anywhere in
   the schema, so ``waitlisted`` is not in the CHECK. Adding a capacity is a
   product decision about what happens at the boundary, not a column.
-* **OQ-CBA-022** — whether a registration needs a *history* of its transitions
+* **OQ-CBA-030** — whether a registration needs a *history* of its transitions
   rather than the current status plus one ``updated_at``. This revision stores
   the current value only, the same treatment ``0024`` gives a classification
   under OQ-CBA-008; if the answer is yes, the shape is
@@ -265,7 +265,7 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         # Two values, both reachable. `waitlisted` is absent because no capacity
-        # exists for it to overflow from (OQ-CBA-021).
+        # exists for it to overflow from (OQ-CBA-029).
         sa.CheckConstraint(_STATUS_CONDITION, name="ck_event_registration_status"),
     )
 

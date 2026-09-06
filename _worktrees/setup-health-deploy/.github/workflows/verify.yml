@@ -1,0 +1,441 @@
+# Foundation verification gates.
+#
+# Architecture v1.1 §4.1 stages gate adoption as now / before-live / before-scale
+# so Foundation is not blocked on the full matrix. This workflow implements the
+# `now` set. Gates deferred to a later stage are listed at the bottom of this
+# file with the release that introduces them, rather than being silently absent.
+#
+# Actions are pinned to immutable commit SHAs, not tags: a tag can be moved, and
+# a moved tag in a workflow with repository write access is a supply-chain
+# compromise. Permissions default to read-only and are widened per job only
+# where a job genuinely needs more.
+
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  DOMAIN_PATH: python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_providers:python/smartmatch_persistence
+
+jobs:
+  python:
+    name: python — lint, types, boundaries, tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+        env:
+          POSTGRES_USER: smartmatch
+          POSTGRES_PASSWORD: smartmatch
+          POSTGRES_DB: smartmatch
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history: tests/unit/test_agent_memory_check.py checks
+          # the real ledger, and a historical record's provenance can
+          # only be verified against the commits that touched its path.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pinned dependencies
+        # Hash-verified frozen install. A compromised or newly-broken upstream
+        # release cannot be picked up silently, and CI installs exactly what a
+        # developer's `make setup` installs.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements/dev.txt
+          pip install --no-deps -e python/smartmatch_domain -e python/smartmatch_authz \
+                      -e python/smartmatch_providers -e python/smartmatch_persistence
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Static typing (strict)
+        run: mypy python/ services/
+
+      - name: Architecture import boundaries
+        # Domain and authz packages must import no framework, storage, provider,
+        # filesystem, or network module. See pyproject [tool.importlinter].
+        run: PYTHONPATH="$DOMAIN_PATH" lint-imports --config pyproject.toml
+
+      - name: Migrations apply from an empty database
+        run: cd db && alembic upgrade head
+
+      - name: Tests
+        # `not e2e` because tests/e2e talks HTTP to a `docker compose` appliance
+        # this job never brings up. Left in, its session fixture would spend its
+        # whole readiness budget polling 127.0.0.1 for a stack that is not there
+        # before skipping — two minutes of nothing, in the gate everyone waits
+        # on. It is not dropped: the `pilot e2e` job in build.yml runs it behind
+        # a real `docker compose up`, which is the only place it means anything.
+        run: >-
+          pytest tests/ -m "not e2e"
+          --cov=smartmatch_domain --cov=smartmatch_authz --cov=smartmatch_providers
+          --cov=smartmatch_persistence --cov-report=term-missing
+
+      - name: OpenAPI contract is current
+        # Fails if the API surface changed without the committed contract being
+        # regenerated — the property that lets the TypeScript client be generated
+        # rather than hand-maintained.
+        run: |
+          PYTHONPATH="$DOMAIN_PATH:services/api" \
+            python tools/export_openapi.py contracts/openapi/smartmatch.json --check
+
+  isolation:
+    name: isolation — no forbidden legacy behavior, no live providers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history: the agent-memory gate verifies that a
+          # historical record's cited blob really did belong to the
+          # path it names, which a depth-1 checkout cannot answer.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Forbidden legacy behavior scan
+        # Implements §15 of the migration orchestrator contract. Self-tested in
+        # tests/unit/test_forbidden_scanner.py so a green result means something.
+        run: python tools/scan_forbidden.py
+
+      - name: Agent-memory ledger
+        run: python tools/agent_memory_check.py
+
+      - name: Terraform environments share no identifiers
+        # The control behind architecture v1.1 §3.2 and the classroom boundary in
+        # §3.3. A shared project, database, queue, bucket, service account, or
+        # secret is invisible in a diagram and is how a classroom workload
+        # reaches production data, so it is asserted rather than reviewed for.
+        # Also fails on anything applyable — a provider or backend block, a
+        # root module, committed state, a plan, a .tfvars, a lock file — and
+        # on any identifier that is not visibly a placeholder. Since F5 it
+        # covers infra/terraform/modules as well: a module variable that
+        # names a cloud object may declare no default, because a default is
+        # one value every caller shares and is the last way two environments
+        # can still collide once the registry is disjoint.
+        # Stdlib only — no Terraform, no plugins, no network.
+        # Self-tested in tests/unit/test_env_isolation_check.py.
+        run: python tools/env_isolation_check.py
+
+      - name: No committed environment files
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example'; then
+            echo "::error::a .env file is tracked; secrets must never be committed"
+            exit 1
+          fi
+
+      - name: Dependency locks are current
+        # A .in edited without recompiling means CI installs something other than
+        # what the author intended. Cheap to check, expensive to discover later.
+        #
+        # This step reports WHICH lines differ. It used to use `diff -q`, which
+        # prints only "files differ" -- so a red run said a lock was stale
+        # without saying how, and the cause had to be guessed at. It was guessed
+        # at wrongly at least once: PR #2 regenerated the header and the step
+        # stayed red. Print the diff and let the next run answer the question.
+        run: |
+          # Pinned deliberately. This step compares pip-compile's OUTPUT against a
+          # committed file, so the tool's version is part of the comparison: an
+          # unpinned upgrade can change the output and fail the check with no
+          # repository change at all. That is exactly what happened -- 7.6.1 began
+          # recording --no-index in the header that older versions omitted.
+          python -m pip install --upgrade pip 'pip-tools==7.6.1'
+          pip-compile --version
+          cp requirements/runtime.txt /tmp/runtime.expected
+          cp requirements/dev.txt /tmp/dev.expected
+          pip-compile --generate-hashes --strip-extras --quiet \
+            --output-file=requirements/runtime.txt requirements/runtime.in
+          pip-compile --generate-hashes --strip-extras --quiet \
+            --output-file=requirements/dev.txt requirements/dev.in
+          stale=0
+          for f in runtime dev; do
+            if ! diff -u "/tmp/$f.expected" "requirements/$f.txt"; then
+              echo "::error::requirements/$f.txt is stale; run 'make lock'"
+              stale=1
+            fi
+          done
+          exit "$stale"
+
+      - name: No local databases or archives committed
+        # The legacy tracked demo.db, smartmatch.db, and archive bundles. Business
+        # persistence belongs in PostgreSQL, and binaries do not belong in git.
+        run: |
+          if git ls-files | grep -E '\.(db|sqlite3?|zip|tar\.gz|jsonl)$'; then
+            echo "::error::a local database, archive, or JSONL data file is tracked"
+            exit 1
+          fi
+
+  audit:
+    name: security — dependency vulnerabilities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Audit pinned dependencies
+        # Audits the lock, not a fresh resolve, so the result describes exactly
+        # what gets installed. This was blocked on the locks existing
+        # (security finding S-004 depended on S-003).
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit --requirement requirements/runtime.txt --strict
+
+  web:
+    name: web — install, types, build, audit
+    runs-on: ubuntu-24.04
+    # Raised from 10: on run 33850100717 `npm ci` alone took 5m against a slow
+    # registry, leaving the audit step no room to retry. Still bounded.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web/legacy-frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/legacy-frontend/package-lock.json
+
+      - name: Install locked dependencies
+        # --no-audit because `npm ci` otherwise runs an implicit audit of its
+        # own: on run 33850100717 that implicit audit emitted `npm notice This
+        # endpoint is being retired` at 07:49:45, twenty seconds before the
+        # audit step below even started. Installing is this step's job;
+        # auditing is the audit step's, where the result is actually gated on.
+        # --no-fund drops a second unrelated registry round trip.
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Audit dependency vulnerabilities
+        # Three observed failures of this step were registry-side, none a real
+        # advisory: on PR #14 npm fell back to the retired quick-audit endpoint
+        # and got `400 Bad Request ... Invalid package tree, run npm install to
+        # rebuild your package-lock.json`; on PR #21 the same call hung for
+        # 10m17s until the runner killed it (`Terminate orphan process: pid
+        # (2230) (npm audit)`); on PR #24 all three bounded attempts silently
+        # burned their 60s budget on a runner whose `npm ci` had itself just
+        # taken 5m to add 292 packages — i.e. a degraded path to the registry,
+        # not a broken command.
+        #
+        # The gate is kept at full strength — no `|| true` on the verdict, no
+        # continue-on-error. How it runs:
+        #   * --package-lock-only audits the tree resolved from this
+        #     directory's lockfileVersion 3 lock, which carries the integrity
+        #     metadata the bulk advisory endpoint wants, instead of the
+        #     installed node_modules npm rejected as an invalid package tree.
+        #     `npm ci` above still runs first, so the lock is proven
+        #     installable either way.
+        #   * `timeout 120` bounds each attempt and timeout-minutes bounds the
+        #     step, so a wedged npm cannot run away with the job. The budget is
+        #     sized for the slow-registry runs seen above, not for a hang.
+        #   * stdout and stderr are captured separately and BOTH are printed on
+        #     every failed attempt, with npm's exit status (124 means the
+        #     timeout killed it) and --loglevel=http request tracing. A failure
+        #     here must be diagnosable from the log alone.
+        #   * The verdict is read from --json counts, not from npm's exit code,
+        #     because npm exits 1 both for "found an advisory" and for "the
+        #     registry errored" — conflating those is what made this gate
+        #     untrustworthy. A genuine advisory still fails the step: high +
+        #     critical > 0 exits 1 below.
+        # --omit=dev scopes the gate to what ships; dev-only build tooling is
+        # covered by keeping it pinned in the lock.
+        timeout-minutes: 9
+        env:
+          REPORT: ${{ runner.temp }}/npm-audit.json
+          AUDIT_STDERR: ${{ runner.temp }}/npm-audit.stderr
+        run: |
+          set -euo pipefail
+          reported=
+          for attempt in 1 2 3; do
+            set +e
+            timeout 120 npm audit --audit-level=high --omit=dev \
+              --package-lock-only --json --loglevel=http \
+              > "$REPORT" 2> "$AUDIT_STDERR"
+            status=$?
+            set -e
+            if node -e 'const r=require(process.env.REPORT);
+              process.exit(r.metadata && r.metadata.vulnerabilities ? 0 : 1)'; then
+              reported=yes
+              break
+            fi
+            echo "attempt ${attempt}: npm exited ${status} (124 = killed by timeout), \
+              report is $(wc -c < "$REPORT") bytes"
+            echo "--- npm stderr (tail) ---"
+            tail -n 60 "$AUDIT_STDERR" || true
+            echo "--- npm stdout ---"
+            cat "$REPORT" || true
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::npm audit attempt ${attempt} produced no usable report; retrying"
+              sleep "$((attempt * 10))"
+            fi
+          done
+          if [ -z "$reported" ]; then
+            echo "::error::npm audit could not obtain an advisory report after 3 attempts"
+            exit 1
+          fi
+          node -e 'const v = require(process.env.REPORT).metadata.vulnerabilities;
+            console.log(JSON.stringify(v));
+            if ((v.high || 0) + (v.critical || 0) > 0) {
+              console.log("::error::high or critical advisory in production dependencies");
+              process.exit(1);
+            }'
+
+  supply-chain:
+    name: security — dependency licenses and SBOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pinned dependencies
+        # This job installs the locks and NOTHING ELSE, deliberately. The license
+        # gate compares each installed version against the version the lock pins
+        # and fails on a mismatch; installing an unpinned tool alongside them
+        # could upgrade a shared transitive dependency and turn that real check
+        # into noise. It is also why this is a separate job from `audit`, which
+        # installs pip-audit.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements/dev.txt
+
+      - name: Dependency license policy
+        # Fails on a license outside the allowlist in tools/supply_chain.py, and
+        # on a license that cannot be determined — an undeterminable license is a
+        # finding, not a pass. Recorded exceptions print on every run, green or
+        # not, so an exception nobody re-reads cannot hide behind a green check.
+        # Self-tested in tests/unit/test_supply_chain.py.
+        run: python tools/supply_chain.py licenses
+
+      - name: Generate the CycloneDX 1.5 SBOM
+        # Built from the lock files, carrying the --hash=sha256 digests they
+        # already pin, which is what makes it more than a package list. Written
+        # with the standard library because adding a dependency (cyclonedx-py,
+        # syft) was out of scope for the branch that introduced it; the module
+        # docstring states the trade and what this therefore does not do.
+        #
+        # Not yet uploaded or retained as a release artifact: that needs an
+        # actions/upload-artifact pin, and this repository pins actions to
+        # immutable commit SHAs, not tags. Generating it here proves it builds
+        # against the real locks on every pull request.
+        run: |
+          python tools/supply_chain.py sbom --output sbom.cyclonedx.json
+          python -c "import json; d=json.load(open('sbom.cyclonedx.json')); \
+            print(d['bomFormat'], d['specVersion'], len(d['components']), 'components')"
+
+  secrets:
+    name: security — secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history: a secret that was committed and later removed is still
+          # disclosed, so scanning only the diff would miss the case that matters.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # gitleaks-action refuses to start on an organisation-owned repository
+        # without a paid GITLEAKS_LICENSE, so it scanned nothing here. The tool
+        # itself is Apache-2.0 and has no such restriction.
+        #
+        # Installed from the Go module proxy rather than a release tarball: the
+        # version is pinned, and the module is verified against the public
+        # checksum transparency log (sum.golang.org) automatically. That is a
+        # stronger supply-chain guarantee than a tarball SHA in this file, and it
+        # keeps the "pin to something immutable" rule this workflow follows.
+        #
+        # The module path is the canonical one declared in gitleaks' own go.mod;
+        # the repository moved to gitleaks/gitleaks but the module did not.
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      - name: Gitleaks
+        # --redact so a true positive is not reprinted in the build log.
+        # Configuration, including the one allowlisted synthetic literal, is in
+        # .gitleaks.toml at the repository root.
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" git --redact --exit-code 1 .
+
+# ---------------------------------------------------------------------------
+# Gates deferred, with the release that introduces each (v1.1 §4.1 staging).
+# Listed rather than omitted so the matrix is honest about what is not yet run.
+#
+#   before-live (R1+):
+#     - web: npm ci, tsc, vitest, a11y smoke, bundle budget   (needs apps/web)
+#     - generated TypeScript client drift check               (needs clients/)
+#     - Playwright critical-flow E2E                          (needs real flows)
+#     - CodeQL, Trivy
+#
+#   Implemented since this list was written, and no longer deferred:
+#     - outbox dispatcher integration (crash between commit and task creation;
+#       duplicate delivery) — tests/integration/test_outbox_dispatcher.py
+#     - dependency vulnerability audit — the `audit` job below, unblocked once
+#       the locks landed
+#     - SBOM generation and the dependency license policy — the `supply-chain`
+#       job below. Publishing the SBOM as a retained artifact is still deferred;
+#       generating and checking it is not.
+#     - Terraform environment isolation — the `isolation` job asserts that no two
+#       environments share an identifier. This is configuration validation, not
+#       the IaC *scan* still listed under before-scale; that one needs real
+#       Terraform resources to scan, and there are none.
+#
+#   before-scale (R3+):
+#     - IaC scan (needs real Terraform beyond the skeleton)
+#     - container image scan and signing, provenance attestation
+#     - agent evaluation dataset gate
+# ---------------------------------------------------------------------------

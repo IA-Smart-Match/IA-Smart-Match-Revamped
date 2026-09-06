@@ -1,0 +1,28 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Festival",
+  "name": "Bronco Innovation Week",
+  "startDate": "2026-03-02",
+  "superEvent": {
+    "@type": "Event",
+    "name": "Parent Series That Must Not Be Emitted",
+    "startDate": "2026-01-01"
+  },
+  "subEvent": [
+    {
+      "@type": "EducationEvent",
+      "name": "Data Storytelling Workshop",
+      "startDate": "2026-03-03T13:00:00-08:00"
+    },
+    {
+      "@type": "SocialEvent",
+      "name": "Innovation Week Closing Social",
+      "startDate": "2026-03-06T17:30:00-08:00",
+      "subEvent": {
+        "@type": "Event",
+        "name": "Awards Announcement",
+        "startDate": "2026-03-06T19:00:00-08:00"
+      }
+    }
+  ]
+}
