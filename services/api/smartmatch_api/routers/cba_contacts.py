@@ -519,6 +519,11 @@ def create_speaker_contact(
             tenant_id=principal.tenant_id,
             owning_unit_id=owning_unit_id,
             draft=draft,
+            # §19's step five, satisfied at the moment the value is set: a code
+            # typed into §13's form is this Connector's judgment, so it is stored
+            # as `human` with them named rather than left for a review that has
+            # already happened.
+            actor_id=principal.user_id,
         )
     except SpeakerContactAlreadyExists as exc:
         # 409 rather than 200-with-the-existing-row. The caller asked to add
@@ -651,6 +656,7 @@ def update_speaker_contact(
         owning_unit_id=owning_unit_id,
         professional_id=professional_id,
         draft=draft,
+        actor_id=principal.user_id,
     )
     if row is None:
         raise _not_found()
@@ -690,9 +696,14 @@ def correct_speaker_contact_classification(
     ``outreach_contacts``' transitions are a POST: this is an act performed on the
     contact, not a field being set on it.
 
-    The write is a current-value ``UPDATE`` that bumps ``updated_at``. Nothing
-    records who corrected what or what the value was before — OQ-CBA-008's
-    interim ruling, stated in the persistence module and in migration ``0024``.
+    The write is a current-value ``UPDATE`` that bumps ``updated_at``, and it
+    records **who** corrected each axis and when — OQ-CBA-008, decided on
+    6 September 2026 as *provenance, no history*. What the value was before is
+    still not recorded anywhere, and deliberately: see migration ``0028``.
+
+    A corrected axis becomes ``human``, which is what §19's step five gates
+    matching on, so this route is how an inferred contact becomes matchable. An
+    axis this body does not name is left exactly as it was, provenance included.
 
     Raises:
         ApiError: 400 when the correction names neither axis, or names a code
@@ -733,6 +744,8 @@ def correct_speaker_contact_classification(
         owning_unit_id=owning_unit_id,
         professional_id=professional_id,
         correction=correction,
+        # A correction wins over a proposal and takes its author's name with it.
+        actor_id=principal.user_id,
     )
     if row is None:
         raise _not_found()

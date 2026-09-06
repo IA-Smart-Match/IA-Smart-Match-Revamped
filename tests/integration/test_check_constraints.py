@@ -459,6 +459,36 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("speaker_profile", "ck_speaker_profile_role_versioned"): (
         "CHECK (((primary_role_code IS NULL) = (role_taxonomy_version IS NULL)))"
     ),
+    # Migration 0028. Three enumerated arms per axis rather than four
+    # independent couplings — pinned in full here because the weakening this
+    # constraint is most exposed to cannot be reached by any *permitted* write:
+    # dropping the `AND (..._classified_by_user_id IS NULL)` conjunct from the
+    # `inferred` arm leaves every accepted row still accepted, and only widens
+    # the one row that matters — a machine's proposal recorded as somebody's
+    # judgment. The behavioural half covers it too, by attempting exactly that
+    # row; the pin is what catches the constraint being re-added weakened while
+    # nobody re-reads the test.
+    ("speaker_profile", "ck_speaker_profile_industry_provenance"): (
+        "CHECK ((((industry_classification_source IS NULL) "
+        "AND (primary_industry_code IS NULL) AND (industry_classified_at IS NULL) "
+        "AND (industry_classified_by_user_id IS NULL)) "
+        "OR ((industry_classification_source = 'inferred'::text) "
+        "AND (primary_industry_code IS NOT NULL) AND (industry_classified_at IS NOT NULL) "
+        "AND (industry_classified_by_user_id IS NULL)) "
+        "OR ((industry_classification_source = 'human'::text) "
+        "AND (primary_industry_code IS NOT NULL) "
+        "AND (industry_classified_at IS NOT NULL))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_provenance"): (
+        "CHECK ((((role_classification_source IS NULL) "
+        "AND (primary_role_code IS NULL) AND (role_classified_at IS NULL) "
+        "AND (role_classified_by_user_id IS NULL)) "
+        "OR ((role_classification_source = 'inferred'::text) "
+        "AND (primary_role_code IS NOT NULL) AND (role_classified_at IS NOT NULL) "
+        "AND (role_classified_by_user_id IS NULL)) "
+        "OR ((role_classification_source = 'human'::text) "
+        "AND (primary_role_code IS NOT NULL) AND (role_classified_at IS NOT NULL))))"
+    ),
     # Widened by migration 0025: `full_name` leads (NOT NULL, so no NULL arm —
     # the clause exists to refuse '   ') and `company`/`title` join the tail.
     ("speaker_profile", "ck_speaker_profile_text_present"): (
@@ -761,6 +791,30 @@ BEHAVIOURAL_COVERAGE = {
     ("speaker_profile", "ck_speaker_profile_role_versioned"): (
         "test_cba_classification_schema.py"
         "::test_a_stored_classification_must_name_the_taxonomy_it_was_resolved_against"
+    ),
+    # Migration 0028. Every one of the three arms is exercised in both
+    # directions, per axis, because this constraint's arms are not
+    # interchangeable: the forbidden case that matters most —
+    # ::test_an_inferred_classification_cannot_name_an_actor — is the one no
+    # other test in the repository could reach, since nothing in the application
+    # can construct it (`inferred_classification` offers no actor parameter).
+    # Asserting it here is what makes the rule a property of the database rather
+    # than of the domain module's shape.
+    ("speaker_profile", "ck_speaker_profile_industry_provenance"): (
+        "test_cba_import_classification.py"
+        "::test_an_inferred_classification_cannot_name_an_actor, "
+        "::test_a_classified_axis_must_state_its_provenance, "
+        "::test_an_unclassified_axis_cannot_carry_provenance and "
+        "::test_a_classification_source_outside_the_vocabulary_is_refused, with the "
+        "permitted half in ::test_an_inferred_proposal_is_storable_without_an_actor, "
+        "::test_a_human_classification_is_storable_with_its_actor and "
+        "::test_an_unclassified_contact_is_storable — both axes throughout, "
+        "parametrized rather than written twice so an arm tightened on one axis "
+        "cannot be left slack on the other"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_provenance"): (
+        "test_cba_import_classification.py — the same seven, parametrized over "
+        "both axes; see the industry entry above"
     ),
     ("speaker_profile", "ck_speaker_profile_text_present"): (
         "test_cba_classification_schema.py"

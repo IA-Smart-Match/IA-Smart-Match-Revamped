@@ -54,18 +54,28 @@ A correction updates; it does not accumulate
 ===============================================
 
 :meth:`SpeakerContactRepository.correct_classification` is a current-value
-``UPDATE`` that bumps ``updated_at``. No history table, no ``corrected_by``, no
-``industry_source`` vocabulary saying whether the replaced value was inferred or
-human-assigned.
+``UPDATE`` that bumps ``updated_at``. It records **how the current value was
+set** — the source, the acting Connector, the moment — and nothing about what
+the value was before: no history table, no revision rows, no ``industry_source``
+free-text vocabulary.
 
-That is OQ-CBA-008's interim ruling, and it is a ruling rather than an
-oversight. Migration ``0024``'s docstring gives the reasoning: nobody has stated
-an audit requirement for classification provenance, and answering an unasked
-question by adding a column is what ``0012``'s refusal to invent a
-``board_role`` vocabulary is the local precedent against. If the answer turns
-out to be that history is required, the shape is
-``contact_channel_transition``'s and it is a later revision — not a column
-quietly added here.
+That is OQ-CBA-008, decided on 6 September 2026 by the program owner of record
+as *add provenance, no history*, and migration ``0028`` is where the reasoning
+is written out at length. The short form: the question provenance answers is
+"can I trust this?", not "what changed?". A code the pipeline proposed and a
+code a Connector chose after reading the person's own account of their work are
+the same four characters in the same column, and customer §19's review gate
+between them is invisible without a source column. The **previous** value, by
+contrast, is not evidence about the current one — a revision table would invite
+exactly the audit surface nobody asked for, which is what ``0024``'s docstring
+declined to build and this decision confirms.
+
+Every write on every path in this module supplies an actor, and each of the
+three takes one as a required argument rather than an optional one. A code set
+through §13's form or §19's correction is a person's judgment, so it is stored
+as ``human`` with them named; only the import path's proposals are ``inferred``,
+and ``ck_speaker_profile_{axis}_provenance`` refuses an actor beside those
+outright.
 
 What this module does not do
 ===============================
@@ -88,8 +98,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import sqlalchemy as sa
+from smartmatch_domain.cba_classification import CLASSIFICATION_SOURCE_HUMAN
 from smartmatch_domain.cba_contacts import (
     CONTACT_BOARD_ROLE,
     ClassificationCorrection,
@@ -137,8 +149,20 @@ class SpeakerContactRow:
         primary_industry_code: §7's single primary sector, or ``None`` when the
             contact is not yet classified.
         industry_taxonomy_version: Present exactly when the code is.
+        industry_classification_source: ``'inferred'`` or ``'human'``, present
+            exactly when the code is. §19's review gate, read back rather than
+            assumed — a caller deciding match eligibility must answer *has
+            anybody looked at this* from the row, and cannot if the row does not
+            carry it.
+        industry_classified_by_user_id: Whose judgment the industry value is.
+            ``None`` beside ``'inferred'`` always, and beside ``'human'`` only
+            for rows written before migration ``0028``.
+        industry_classified_at: When the industry value was set.
         primary_role_code: §8's single primary role category, or ``None``.
         role_taxonomy_version: Present exactly when the code is.
+        role_classification_source: The role axis's half of the same three.
+        role_classified_by_user_id: Whose judgment the role value is.
+        role_classified_at: When the role value was set.
         created_at: When the contact was added.
         updated_at: When it was last edited or corrected.
     """
@@ -154,8 +178,14 @@ class SpeakerContactRow:
     location_postal_code: str | None
     primary_industry_code: str | None
     industry_taxonomy_version: str | None
+    industry_classification_source: str | None
+    industry_classified_by_user_id: uuid.UUID | None
+    industry_classified_at: datetime | None
     primary_role_code: str | None
     role_taxonomy_version: str | None
+    role_classification_source: str | None
+    role_classified_by_user_id: uuid.UUID | None
+    role_classified_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -202,8 +232,14 @@ _PROFILE_COLUMNS = (
     schema.speaker_profile.c.location_postal_code,
     schema.speaker_profile.c.primary_industry_code,
     schema.speaker_profile.c.industry_taxonomy_version,
+    schema.speaker_profile.c.industry_classification_source,
+    schema.speaker_profile.c.industry_classified_by_user_id,
+    schema.speaker_profile.c.industry_classified_at,
     schema.speaker_profile.c.primary_role_code,
     schema.speaker_profile.c.role_taxonomy_version,
+    schema.speaker_profile.c.role_classification_source,
+    schema.speaker_profile.c.role_classified_by_user_id,
+    schema.speaker_profile.c.role_classified_at,
     schema.speaker_profile.c.created_at,
     schema.speaker_profile.c.updated_at,
 )
@@ -233,6 +269,7 @@ class SpeakerContactRepository:
         tenant_id: uuid.UUID,
         owning_unit_id: uuid.UUID,
         draft: SpeakerContactDraft,
+        actor_id: uuid.UUID,
     ) -> SpeakerContactRow:
         """Add one contact to ``owning_unit_id``, across all three tables.
 
@@ -240,6 +277,20 @@ class SpeakerContactRepository:
         the same unit resolves to the same ``professional_id``, so a
         double-clicked form does not mint a second person. The second submission
         is therefore a conflict rather than an insert.
+
+        ``actor_id`` is the Speaker Connector performing the create, and it is
+        required rather than optional. A classification typed into §13's form is
+        a person's judgment, and it is stored as one — ``human``, with them
+        named. An optional actor would make the unattributed write the one a
+        hurried caller reaches for, and migration ``0028`` permits a NULL actor
+        beside ``human`` only to describe rows written before the column
+        existed.
+
+        Args:
+            actor_id: The ``user_account`` id of the acting Connector, in
+                ``tenant_id``. Recorded only on the axes this draft classifies;
+                an unclassified draft records no actor, because there is no
+                judgment to attribute.
 
         Raises:
             SpeakerContactAlreadyExists: this unit already holds a contact under
@@ -292,7 +343,7 @@ class SpeakerContactRepository:
                 tenant_id=tenant_id,
                 professional_id=professional_id,
                 owning_unit_id=owning_unit_id,
-                **_draft_values(draft),
+                **_draft_values(draft, actor_id=actor_id),
             )
         )
 
@@ -388,6 +439,7 @@ class SpeakerContactRepository:
         owning_unit_id: uuid.UUID,
         professional_id: uuid.UUID,
         draft: SpeakerContactDraft,
+        actor_id: uuid.UUID,
     ) -> SpeakerContactRow | None:
         """Replace this contact's stated fields, or ``None`` if the unit lacks it.
 
@@ -410,6 +462,15 @@ class SpeakerContactRepository:
         re-deriving the key: re-deriving would rewrite a primary key other rows
         reference, which is a data-bearing migration and not a side effect of an
         edit.
+
+        **An edit re-states the provenance, and this is where a Connector
+        correction beats a proposal.** The draft carries the whole record, so a
+        code it names becomes ``human`` attributed to ``actor_id`` whether the
+        stored value was inferred, human, or absent — an edit over a classifier's
+        proposal is a person adopting or replacing it, which is exactly what
+        §19's step five is. A code the draft omits clears the axis and its
+        provenance together; see :func:`_human_provenance` on why leaving the
+        three columns alone is not an option the ``CHECK`` allows.
         """
         # RETURNING rather than `rowcount`, the shape `jobs.py`, `outbox.py`,
         # `pilot_auth.py` and `outreach.py` all state a reason for: `rowcount`
@@ -425,7 +486,7 @@ class SpeakerContactRepository:
                 schema.speaker_profile.c.professional_id == professional_id,
             )
             .values(
-                **_draft_values(draft),
+                **_draft_values(draft, actor_id=actor_id),
                 # Bumped explicitly. The server default fills this column on
                 # INSERT only; without this line an edited contact would go on
                 # claiming it was last touched when it was created.
@@ -443,6 +504,7 @@ class SpeakerContactRepository:
         owning_unit_id: uuid.UUID,
         professional_id: uuid.UUID,
         correction: ClassificationCorrection,
+        actor_id: uuid.UUID,
     ) -> SpeakerContactRow | None:
         """Replace one or both classification axes, or ``None`` if the unit lacks it.
 
@@ -458,17 +520,42 @@ class SpeakerContactRepository:
         require: a code with no version is uninterpretable after the next
         taxonomy revision, and a version with no code is a claim about nothing.
 
-        Current value only. Nothing here records who corrected what, or what the
-        value was before — OQ-CBA-008's interim ruling, and the module docstring
-        says why that is a ruling rather than a gap.
+        **Current value only, and now attributed.** OQ-CBA-008 was decided on
+        6 September 2026 as *provenance, no history*: this write records that a
+        person set the value, which person, and when. It still records nothing
+        about what the value was before, and there is still no revision table —
+        the previous code is not evidence about the current one.
+
+        This is the write the card's "a Connector correction wins" is made of. A
+        corrected axis becomes ``human`` with ``actor_id`` named, and an inferred
+        proposal it replaces leaves no trace, because the row now states a
+        person's judgment and a proposal's provenance beside it would be a claim
+        about a value that is gone. An axis the correction does not name keeps
+        whatever provenance it had, inferred included — correcting the industry
+        must not silently mark an unreviewed role as reviewed.
+
+        Args:
+            actor_id: The ``user_account`` id of the correcting Connector, in
+                ``tenant_id``. Required: "a human decided this" is worth storing
+                only if somebody can be asked which human.
         """
-        values: dict[str, str | None] = {}
+        values: dict[str, Any] = {}
         if correction.primary_industry_code is not None:
             values["primary_industry_code"] = correction.primary_industry_code
             values["industry_taxonomy_version"] = correction.industry_taxonomy_version
+            values.update(
+                _human_provenance(
+                    "industry",
+                    code=correction.primary_industry_code,
+                    actor_id=actor_id,
+                )
+            )
         if correction.primary_role_code is not None:
             values["primary_role_code"] = correction.primary_role_code
             values["role_taxonomy_version"] = correction.role_taxonomy_version
+            values.update(
+                _human_provenance("role", code=correction.primary_role_code, actor_id=actor_id)
+            )
 
         # `ClassificationCorrection.create` refuses a correction naming neither
         # axis, so this is unreachable through that constructor. Checked anyway
@@ -497,7 +584,7 @@ class SpeakerContactRepository:
         return None if row is None else SpeakerContactRow(*row)
 
 
-def _draft_values(draft: SpeakerContactDraft) -> dict[str, str | None]:
+def _draft_values(draft: SpeakerContactDraft, *, actor_id: uuid.UUID) -> dict[str, Any]:
     """The ``speaker_profile`` columns a draft states, for an INSERT or an UPDATE.
 
     One helper for both, so a field added to the draft cannot reach the create
@@ -506,6 +593,16 @@ def _draft_values(draft: SpeakerContactDraft) -> dict[str, str | None]:
 
     The taxonomy versions come from the draft's own properties rather than from
     arguments, so a code and its version cannot disagree.
+
+    **Provenance travels with the code, on the same principle.** A draft is a
+    §13 form a Speaker Connector filled in, so a code it carries is that
+    person's judgment and is written as ``human`` with them named — customer
+    §19's step five, satisfied at the moment the value is set rather than
+    afterwards. The two are emitted by :func:`_human_provenance` from one place
+    for ``ck_speaker_profile_industry_provenance``'s reason: the code, its
+    version, its source, its actor and its timestamp are five columns that are
+    present or absent together, and a caller able to set them separately could
+    write the combination the ``CHECK`` refuses.
     """
     return {
         "full_name": draft.full_name,
@@ -517,6 +614,38 @@ def _draft_values(draft: SpeakerContactDraft) -> dict[str, str | None]:
         "location_postal_code": draft.location_postal_code,
         "primary_industry_code": draft.primary_industry_code,
         "industry_taxonomy_version": draft.industry_taxonomy_version,
+        **_human_provenance("industry", code=draft.primary_industry_code, actor_id=actor_id),
         "primary_role_code": draft.primary_role_code,
         "role_taxonomy_version": draft.role_taxonomy_version,
+        **_human_provenance("role", code=draft.primary_role_code, actor_id=actor_id),
+    }
+
+
+def _human_provenance(axis: str, *, code: str | None, actor_id: uuid.UUID) -> dict[str, Any]:
+    """One axis's three provenance columns for a value a person just set.
+
+    A present code produces the ``human`` arm of
+    ``ck_speaker_profile_{axis}_provenance``: the source, the acting Connector,
+    and the moment. An absent code produces the ``unclassified`` arm — all three
+    NULL — rather than leaving them alone, because the ``CHECK`` is written per
+    row and not per statement: an edit that clears a code while leaving a stale
+    ``classified_at`` behind lands outside every arm and is refused, and an edit
+    that cleared the code while leaving a stale *source* behind would, if the
+    constraint permitted it, claim a person vouched for a value that is gone.
+
+    ``now()`` rather than a Python ``datetime``, matching ``updated_at``: the
+    timestamp on the row should come from the clock the row's other timestamps
+    come from, so two columns written by one statement cannot disagree about
+    when the statement ran.
+    """
+    if code is None:
+        return {
+            f"{axis}_classification_source": None,
+            f"{axis}_classified_by_user_id": None,
+            f"{axis}_classified_at": None,
+        }
+    return {
+        f"{axis}_classification_source": CLASSIFICATION_SOURCE_HUMAN,
+        f"{axis}_classified_by_user_id": actor_id,
+        f"{axis}_classified_at": sa.func.now(),
     }
