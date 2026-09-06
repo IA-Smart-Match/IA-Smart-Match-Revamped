@@ -17,6 +17,34 @@ unknown (``value=None``) result, never a guessed distance and never
 coincident points — carries :data:`TRAVEL_ESTIMATE_LABEL` so downstream
 consumers cannot mistake this for a real-world route estimate. Coordinates
 scored by this module are synthetic pilot data.
+
+**Coexistence with the CBA proximity factor — this module is not superseded.**
+:mod:`smartmatch_domain.factors.proximity` implements the CBA reading of
+customer §10 under ADR-0016: a *step function* on raw **miles** from a single
+fixed CPP campus origin (Near ``1.00`` / Mid ``0.60`` / Far ``0.20``), on the
+suitability scale. This module is the pre-CBA notion: a *continuous* haversine
+**kilometer** penalty with a free radius and a saturation point, on the penalty
+scale, approved at gate G1 and registered under ``REGISTRY_VERSION``
+``1.1.1-approved-g1-m6j``.
+
+They are not two implementations of one idea, and neither is a refactor of the
+other. They disagree on purpose — this factor calls a 200-mile speaker
+maximally burdened (``1.0``), the CBA one deliberately keeps them rankable
+(``0.20`` proximity, ``0.80`` burden) — which is exactly why ADR-0016
+Proposal 9 makes the registry bump a **major** one and says runs stored under
+the 1.x pin are read at that pin and never re-scored under the 2.x rulebook.
+The two formula versions (``1.0.0-straight-line`` here, ``1.0.0-cba-bands``
+there) are independent, so a bump to one cannot be mistaken for the other's,
+and ``proximity`` deliberately duplicates the few lines of haversine rather
+than importing this module's, so a change to one arithmetic cannot silently
+move the other. ``tests/unit/test_travel_burden.py`` asserts each of those
+distinctions.
+
+**When this module retires is not decided here.** It is a question about
+stored runs, the registry's declared factor set, and whether any consumer
+still reads a kilometer penalty — recorded as **OQ-CBA-025** rather than
+answered by deletion. Nothing in the CBA proximity work removes, rewrites, or
+re-scales this factor.
 """
 
 from __future__ import annotations
