@@ -845,6 +845,55 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two matching-weight operations share one authorizer,
+    # ``_authorize_matching_weights`` in ``routers/matching_weights.py``, for the
+    # reason the two match-run operations share theirs: both ask the identical
+    # question — may this caller work with this unit's matching weights — against
+    # the identical ``org_unit`` resource, so a widening applies to both or to
+    # neither and cannot reach one by accident.
+    #
+    # ``admin``/``coordinator``, and no third role — the Speaker Connector
+    # persona as customer §13 draws it ("manage matching weights") and as every
+    # other Connector surface in this package spells it. A ``student`` and a
+    # ``volunteer`` are refused **both**, the read included: these weights are
+    # the rulebook the shortlist is produced under, and a screen that rendered
+    # them to a student would be showing how candidates are ranked to somebody
+    # the match-run rows already refuse the ranking to.
+    #
+    # The read is role-gated rather than membership-gated for that same reason.
+    # It is not an aggregate: the metrics decision's §4 is the only artifact that
+    # makes anything readable on bare membership, and it says so of aggregates
+    # specifically.
+    #
+    # No ``require_membership`` and no ``tenant_wide_roles``, for the reasons the
+    # match-run rows above give — ``_MATCHING_WEIGHTS_ROLES`` is non-empty, so
+    # ``evaluate`` refuses a bare ``resource_grant`` on the required-roles check
+    # before the membership question is reached, and no committed artifact makes
+    # a unit's configuration tenant-wide.
+    Operation(
+        key="matching_weights.read",
+        method="GET",
+        path="/v1/units/{unit_id}/matching-weights",
+        module="smartmatch_api.routers.matching_weights",
+        authorizer="_authorize_matching_weights",
+        roles_constant="_MATCHING_WEIGHTS_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="matching_weights.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/matching-weights",
+        module="smartmatch_api.routers.matching_weights",
+        authorizer="_authorize_matching_weights",
+        roles_constant="_MATCHING_WEIGHTS_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The four outreach operations share one authorizer,
     # ``_authorize_outreach`` in ``routers/outreach.py``, for the reason the two
     # match-run operations share theirs: all four ask the identical question —
@@ -2821,6 +2870,167 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why=(
                 "the actor half of the shape is inert here; what is left is a deny "
                 "on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "matching_weights.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the Speaker Connector who runs the unit reads the weighting "
+                "their own shortlists are produced under — customer §13's "
+                "'manage matching weights', of which reading is the first half"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the configuration is filed under the loaded unit's own path, "
+                "never under anything in the request, so a sibling department's "
+                "coordinator does not cover it — the same containment rule "
+                "import.create and match_run.create are held to"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the only "
+                "thing refusing this principal is the path. No committed "
+                "artifact makes a unit's matching configuration tenant-wide the "
+                "way the metrics decision's §4 makes aggregates tenant-wide, so "
+                "`_authorize_matching_weights` passes no `tenant_wide_roles` and "
+                "ordinary containment refuses"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "reading the weights is reading how candidates are ranked. A "
+                "student is refused the shortlist itself by `match_run.read`; "
+                "refusing them the rulebook behind it is the same decision, not "
+                "a second one"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the role "
+                "is the only thing left that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "no job is involved in reading a unit's configuration, so the "
+                "actor half of the shape is inert and what remains is a "
+                "role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "matching_weights.update": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "customer §13 names managing the matching weights as a Speaker "
+                "Connector capability, and this is the shape it is written for: "
+                "the coordinator who runs the unit adjusts how its shortlists "
+                "are composed"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the settings row is filed under the loaded unit's own id, "
+                "taken from the loaded row rather than from the body, and a "
+                "sibling department's coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is required and the membership is active, so the path "
+                "is what refuses. Being an admin somewhere is not authority "
+                "everywhere, and changing a weighting is the most consequential "
+                "thing on this surface: it changes every future shortlist the "
+                "unit produces"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "changing a weight is changing the ranking policy. It is "
+                "role-gated for the reason submitting a run is, and more so — "
+                "a run affects one shortlist, a weight affects all of them"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "no job is involved in changing a unit's configuration — the "
+                "change is immediate and durable rather than queued — so the "
+                "actor half of the shape is inert and a role-less member remains"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert here for the reason above; what is "
+                "left is a deny on the unit, which beats inheritance"
             ),
         ),
     },
@@ -5052,6 +5262,17 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # could not be one; it is asserted over HTTP in
         # `tests/contract/test_student_events_api.py`.
         "_authorize_student_registration_write",
+        # The sixteenth (`routers/matching_weights.py`), on the same terms with
+        # `_MATCHING_WEIGHTS_ROLES`. One name for the read and the write, the
+        # `_authorize_match_run` arrangement: both ask whether this caller may
+        # work with this unit's matching weights, against the same `org_unit`
+        # row, so a widening reaches both or neither.
+        #
+        # There is no self-scope half to assert elsewhere and no second decision
+        # hiding behind the response: the settings row is filed under the loaded
+        # unit's own id, so what this call permits is exactly what the route
+        # reads or writes.
+        "_authorize_matching_weights",
     ):
         assert_allowed(
             resolved.principal,

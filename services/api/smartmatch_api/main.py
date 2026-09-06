@@ -53,6 +53,7 @@ from smartmatch_api.routers import (
     imports,
     jobs,
     match_runs,
+    matching_weights,
     me,
     metrics,
     outreach,
@@ -349,6 +350,16 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # no external lookup.
     (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
     (match_runs.router, Capability.MATCH_RUNS),
+    # The weights a match run is scored under (customer §5, §13's "manage
+    # matching weights"). `MATCH_RUNS` rather than a capability of its own, and
+    # that is the whole argument: configuring the weighting of a matching engine
+    # a deployment does not offer is not a smaller product, it is a settings
+    # screen for nothing. The two are enabled together or neither is.
+    #
+    # Not `OPERATOR_RECORD_IMPORT` and not an admin capability: this is a
+    # Connector adjusting how their own unit's shortlist is composed, scoped to
+    # that unit, and it authorizes exactly as the match-run routes do.
+    (matching_weights.router, Capability.MATCH_RUNS),
     (rewards.router, Capability.REWARDS_LEDGER),
     # The S12 funnel's coordinator-driven write path. Classified with `metrics`,
     # which reads the same table: `routers/pipeline.py` is what makes the last

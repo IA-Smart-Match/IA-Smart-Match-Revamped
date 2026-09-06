@@ -1459,6 +1459,130 @@
         "title": "MatchRunResponse",
         "type": "object"
       },
+      "MatchingWeightsResponse": {
+        "description": "One unit's weight configuration, and what it currently amounts to.",
+        "properties": {
+          "configurable_factors": {
+            "description": "Every factor key a weight may be set for. Derived from the registry's approved scoring set, so it moves when the registry does.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Configurable Factors",
+            "type": "array"
+          },
+          "ignored_factor_keys": {
+            "description": "Stored keys no current registry model admits \u2014 reported rather than silently dropped. Normally empty; non-empty means a factor was retired after this unit configured it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Factor Keys",
+            "type": "array"
+          },
+          "modes": {
+            "description": "The effective weights per scoring mode, computed for this response.",
+            "items": {
+              "$ref": "#/components/schemas/ScoringModeWeightsView"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "The weights this unit has deliberately set. A factor absent here has no stored weight anywhere and reads the registry's.",
+            "title": "Overrides",
+            "type": "object"
+          },
+          "registry_version": {
+            "description": "The factor registry release in force for this response.",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When they were last changed, or null if never.",
+            "title": "Updated At"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who last changed these settings, or null if nobody has.",
+            "title": "Updated By User Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stored settings version, or null for a unit that has never configured anything. Echo it back as expected_version to avoid a lost update.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "unit_id",
+          "registry_version",
+          "configurable_factors",
+          "overrides",
+          "modes"
+        ],
+        "title": "MatchingWeightsResponse",
+        "type": "object"
+      },
+      "MatchingWeightsUpdateRequest": {
+        "description": "A proposed weighting for one unit.\n\n``overrides`` is the **complete** override set after the change, not a patch\nof a patch: sending ``{}`` resets the unit to the registry's weights, and\nomitting a factor that was previously overridden clears that override.\nMerge-with-existing semantics would have made \"clear this one\" unexpressible\nwithout a second field, and would leave a Connector unable to tell what they\nwere about to save from what they had typed.",
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version this change is based on, from a prior read. When it no longer matches, the change is refused with 409 rather than overwriting whatever arrived in between. Null writes without an opinion.",
+            "title": "Expected Version"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "The complete set of factor weights this unit overrides. Send {} to return the unit to the registry's approved weights. No default: a factor omitted here has no stored weight at all.",
+            "title": "Overrides",
+            "type": "object"
+          }
+        },
+        "required": [
+          "overrides"
+        ],
+        "title": "MatchingWeightsUpdateRequest",
+        "type": "object"
+      },
       "MeResponse": {
         "description": "The caller's own identity, tenant, and server-assigned memberships.\n\nNothing here is caller-supplied (MM-A01): every field is either the\nverified subject itself or a database row keyed by that subject.",
         "properties": {
@@ -2450,6 +2574,36 @@
           "items"
         ],
         "title": "RewardCatalogResponse",
+        "type": "object"
+      },
+      "ScoringModeWeightsView": {
+        "description": "What one scoring mode would actually score with, right now.\n\nDerived on every read from the registry and this unit's overrides. Not\nstored, and deliberately so \u2014 see the module docstring.",
+        "properties": {
+          "registry_version": {
+            "description": "The registry release the weights are normalized under.",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "scoring_mode": {
+            "description": "The scoring mode these weights apply to.",
+            "title": "Scoring Mode",
+            "type": "string"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Normalized weights over this mode's factors, summing to 1.0. A factor the unit has not overridden carries the registry's own weight.",
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scoring_mode",
+          "registry_version",
+          "weights"
+        ],
+        "title": "ScoringModeWeightsView",
         "type": "object"
       },
       "SendAcceptedResponse": {
@@ -6356,6 +6510,274 @@
         "summary": "Read one match run, its shortlist, and its per-factor explanations",
         "tags": [
           "match-runs"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/matching-weights": {
+      "get": {
+        "description": "Return this unit's overrides and the effective weights per scoring mode.\n\nA unit that has never configured anything is a 200 with empty overrides and a\nnull version \u2014 not a 404. There is nothing missing: the unit scores on the\nregistry's approved weights, which is what ``modes`` reports.\n\nQuota is charged first (ADR-0015), ahead of the load and the authorization,\nso a caller producing 404s against invented unit ids spends what a caller\nreading real ones spends.",
+        "operationId": "read_matching_weights_v1_units__unit_id__matching_weights_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchingWeightsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read a unit's matching weights and what they currently amount to",
+        "tags": [
+          "matching-weights"
+        ]
+      },
+      "patch": {
+        "description": "Validate the proposal, record it, and log the change.\n\nThe write commits explicitly. ``get_session`` rolls back unconditionally on\nexit, so a handler that returned without committing would answer 200 and\nstore nothing \u2014 which is why the integration test asserts against the tables\nand not against this response.\n\nRaises:\n    ApiError: 422 when the proposal is inadmissible, naming every offending\n        field; 409 when ``expected_version`` is no longer current.",
+        "operationId": "update_matching_weights_v1_units__unit_id__matching_weights_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchingWeightsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchingWeightsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Change a unit's matching weights",
+        "tags": [
+          "matching-weights"
         ]
       }
     },
