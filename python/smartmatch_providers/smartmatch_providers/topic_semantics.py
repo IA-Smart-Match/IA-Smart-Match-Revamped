@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from smartmatch_domain.one_sentence import assert_one_sentence
+
 from smartmatch_providers.base import Edition, ProviderConfigurationError
 
 __all__ = [

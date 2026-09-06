@@ -223,7 +223,7 @@ def test_a_live_topic_model_is_refused_under_every_edition(edition: Edition):
 def test_a_topic_model_credential_fails_closed_under_every_edition(edition: Edition):
     """No environment in this repository should hold a model credential at all."""
     with pytest.raises(ProviderConfigurationError, match="credential"):
-        build_semantic_topic_provider(edition, api_key="sk-live-model-key")
+        build_semantic_topic_provider(edition, api_key="live-key")
 
 
 def test_allowing_live_providers_still_does_not_reach_a_live_topic_model():
