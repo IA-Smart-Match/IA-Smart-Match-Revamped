@@ -716,6 +716,172 @@
         "title": "CommandAcceptedResponse",
         "type": "object"
       },
+      "ConfirmedSpeakerListResponse": {
+        "description": "The confirmed speakers a unit can hand its Event Hosts.",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event this list was filtered to, or null when it covers the unit.",
+            "title": "Event Id"
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/ConfirmedSpeakerView"
+            },
+            "title": "Speakers",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "event_id",
+          "speakers"
+        ],
+        "title": "ConfirmedSpeakerListResponse",
+        "type": "object"
+      },
+      "ConfirmedSpeakerView": {
+        "description": "One confirmed speaker, as an Event Host is handed them.\n\nCarries **no** ``member_inquiry_at`` field. Not filtered, not nulled -- the\nfield does not exist, so no client rendering this model can show a CBA\nmember-inquiry outcome even by accident.\n\nThe three identity fields are ``null`` when this tenant holds no\n``speaker_profile`` for the id: an honest unknown, never a blank name\nstanding in for one. The speaker is identified by ``professional_id``, and\nthe name is for display only -- nothing about this record is derived from\nit.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record the Attended stage cites, once it is reached.",
+            "title": "Attendance Id"
+          },
+          "attended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attended At"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "confirmed_at": {
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "contacted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacted At"
+          },
+          "current_stage": {
+            "description": "The furthest CBA stage reached, derived from the timestamps below.",
+            "title": "Current Stage",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "matched_at": {
+            "format": "date-time",
+            "title": "Matched At",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "stages": {
+            "description": "The stage-to-evidence map for this journey. Empty on the list surface, which reads stored rows rather than re-deriving the plan behind them.",
+            "items": {
+              "$ref": "#/components/schemas/StageEvidenceView"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "record_id",
+          "professional_id",
+          "event_id",
+          "full_name",
+          "company",
+          "title",
+          "current_stage",
+          "matched_at",
+          "contacted_at",
+          "confirmed_at",
+          "attended_at",
+          "attendance_id"
+        ],
+        "title": "ConfirmedSpeakerView",
+        "type": "object"
+      },
       "ConsentSource": {
         "description": "Where a consent record originated.",
         "enum": [
@@ -4159,6 +4325,57 @@
         "title": "SpeakerContactUpdate",
         "type": "object"
       },
+      "SpeakerHandoffRequest": {
+        "description": "Which invitation to reconcile, and optionally which attendance it cites.\n\nNo ``stage`` field and no ``reached_at`` field, and their absence is the\ndesign rather than an omission: every stage and every timestamp this request\ncan cause to be written is read out of the invitation or the attendance row.\nA request cannot assert that something happened, only name the record that\nalready says so.",
+        "properties": {
+          "attendance_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The attendance_record the Attended stage cites. Optional -- a speaker who has confirmed but not yet presented is the ordinary state. Must belong to this speaker and to this event.",
+            "title": "Attendance Id"
+          },
+          "invitation_id": {
+            "description": "The cba_invitation whose stored answer supplies the Confirmed stage. Must belong to this unit, and must record an accepted invitation.",
+            "format": "uuid",
+            "title": "Invitation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id"
+        ],
+        "title": "SpeakerHandoffRequest",
+        "type": "object"
+      },
+      "SpeakerHandoffResponse": {
+        "description": "What the reconciliation wrote, and the speaker it leaves behind.\n\n``applied`` is only the stages *this request's own statements* reached, so a\nreplay comes back with an empty list beside an unchanged speaker -- \"they are\nconfirmed\" and \"this request confirmed them\" stay separable, the distinction\n``PipelineStageOutcome`` draws between ``transitioned`` and\n``already_reached``.",
+        "properties": {
+          "applied": {
+            "description": "Stages this request itself wrote. Empty when the evidence was already applied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/ConfirmedSpeakerView"
+          }
+        },
+        "required": [
+          "applied",
+          "speaker"
+        ],
+        "title": "SpeakerHandoffResponse",
+        "type": "object"
+      },
       "SpeakerRequestCreate": {
         "description": "One Speaker Request, as an Event Host fills it in (customer \u00a712).\n\nNote what is **not** here: no tenant, no host org unit, no actor, no source\nURL, no publication status. The first three come from the verified principal\nand the path; the fourth does not exist for a request a person typed; the\nfifth is not a host's to set.\n\nThe temporal fields are ADR-0010's, not a single nullable timestamp. A host\nwho knows the date but not yet the hour sends ``on_date`` and gets a\n``date_only`` request, which is the honest description of what they said \u2014\nrather than midnight in some zone, which is the fabrication ADR-0010 exists\nto stop. ``time_zone`` is required at both precisions and is the event's own\nzone, never the browser's.",
         "properties": {
@@ -4641,6 +4858,33 @@
           "record"
         ],
         "title": "StageAdvanceResponse",
+        "type": "object"
+      },
+      "StageEvidenceView": {
+        "description": "One stage, and the stored fact that makes it true.",
+        "properties": {
+          "evidence": {
+            "description": "Which kind of stored row supports this stage: invitation_composed, invitation_dispatched, invitation_accepted, or attendance_record.",
+            "title": "Evidence",
+            "type": "string"
+          },
+          "occurred_at": {
+            "description": "The evidencing row's own timestamp, not a server clock reading.",
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "evidence",
+          "occurred_at"
+        ],
+        "title": "StageEvidenceView",
         "type": "object"
       },
       "StudentAgendaResponse": {
@@ -6830,6 +7074,303 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/cba/confirmed-speakers": {
+      "get": {
+        "description": "The speakers whose ``confirmed_at`` is set, in this unit.\n\nWith no ``event_id`` this is the *same set* the ``pipeline_confirmed``\naggregate counts -- the same predicate against the same table, scoped by the\nsame tenant and unit. It is not a second count of that metric: it reports no\ntotal, only which speakers and who they are, which the aggregate cannot say\nand the register does not publish.\n\nOrdered by ``confirmed_at`` then ``id``, so the Host reads them in the order\nthey said yes.",
+        "operationId": "list_confirmed_speakers_v1_units__unit_id__cba_confirmed_speakers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmedSpeakerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the confirmed speakers this unit can hand an Event Host",
+        "tags": [
+          "cba-handoff"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff": {
+      "post": {
+        "description": "Bring one speaker's journey up to whatever the stored evidence supports.\n\nWrites ``matched`` from the invitation's ``created_at``, ``contacted`` from\nits ``dispatched_at``, ``confirmed`` from its ``response_recorded_at`` -- and\nonly when the Speaker accepted -- and, when ``attendance_id`` is given,\n``attended`` from that attendance row's own timestamp. Nothing is inferred\nand nothing is defaulted: a stage whose evidence is absent is not written.\n\nA repeat is a ``200`` with an empty ``applied``, not a ``409``: a coordinator\nre-running a handoff has asked for nothing illegal, and the speaker they get\nback is the one that was already there.\n\nRaises:\n    ApiError: 404 when the invitation is not in this unit or the event is\n        not in this tenant; 409 when the invitation records no acceptance,\n        when the cited attendance is not this journey's, or when the stored\n        timestamps cannot be ordered into the funnel.",
+        "operationId": "reconcile_speaker_handoff_v1_units__unit_id__cba_events__event_id__speaker_handoff_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerHandoffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerHandoffResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record the funnel stages an invitation and attendance already evidence",
+        "tags": [
+          "cba-handoff"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/engagement/attendance-summary": {
       "get": {
         "description": "Return how much attendance evidence this unit holds, by mechanism.\n\nAuthorization runs before any attendance row is read\n(:func:`_authorize_engagement_read`), and the unit it authorizes against is\nthe unit the counts are scoped to.\n\nA unit with nothing recorded answers ``total: 0``, all three methods at\n``0``, and two null instants \u2014 a measured zero, because the query ran and\nfound none, which is a different claim from \"we did not look\" (ADR-0011).\nThe route cannot be reached for a unit that does not exist: that is a 404\nfrom ``load_unit_or_404``, decided before any counting.\n\nQuota is not charged. ADR-0015 governs command routes, where a refusal still\ncost something to attempt; this route reads rows the caller is already\nauthorized for, exactly as the two event reads and the rewards catalog do.",
@@ -7950,7 +8491,7 @@
     },
     "/v1/units/{unit_id}/metrics": {
       "get": {
-        "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.",
+        "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.\n\n``surface`` selects which product's view of the register to return and\nchanges nothing else: the same owning query measures each metric either\nway, so a metric present in both views reports the identical number. See\n:data:`MetricSurface` for why the narrower view is a parameter rather than\nthe default.",
         "operationId": "list_metrics_v1_units__unit_id__metrics_get",
         "parameters": [
           {
@@ -7960,6 +8501,20 @@
             "schema": {
               "format": "uuid",
               "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "surface",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "cba"
+              ],
+              "title": "Surface",
               "type": "string"
             }
           },
@@ -8083,7 +8638,7 @@
     },
     "/v1/units/{unit_id}/metrics/{metric_name}/drill-down": {
       "get": {
-        "description": "Return exactly the rows the named metric's aggregate counted.\n\nAuthorization and the metric-not-found check both run before any\nconditional-request handling, for the same reason as ``list_metrics``: a\n404 must never be short-circuited into a 304 by a caller replaying an\nETag it never legitimately received. Only ``admin`` and ``coordinator``\nmay drill into rows \u2014 see :func:`_authorize_drill_down_read`.",
+        "description": "Return exactly the rows the named metric's aggregate counted.\n\nAuthorization and the metric-not-found check both run before any\nconditional-request handling, for the same reason as ``list_metrics``: a\n404 must never be short-circuited into a 304 by a caller replaying an\nETag it never legitimately received. Only ``admin`` and ``coordinator``\nmay drill into rows \u2014 see :func:`_authorize_drill_down_read`.\n\nA metric the requested ``surface`` does not present is a **404**, the same\nanswer an unregistered name gets, and the same one ``list_metrics`` implies\nby not offering a link to it. That keeps one surface self-consistent: a CBA\nclient cannot list six metrics and then successfully drill into a seventh it\nwas never shown. The default ``all`` surface still serves every registered\nmetric, ``pipeline_member_inquiry`` included, because its rows and its\ndefinition are both preserved.",
         "operationId": "metric_drill_down_v1_units__unit_id__metrics__metric_name__drill_down_get",
         "parameters": [
           {
@@ -8103,6 +8658,20 @@
             "schema": {
               "minLength": 1,
               "title": "Metric Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "surface",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "cba"
+              ],
+              "title": "Surface",
               "type": "string"
             }
           },

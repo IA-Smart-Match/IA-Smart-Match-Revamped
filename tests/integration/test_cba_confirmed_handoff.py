@@ -184,18 +184,12 @@ def _make_send_job(
     job_id = uuid.uuid4()
     conn.execute(
         text(
-            "INSERT INTO job (id, tenant_id, owning_unit_id, job_type, status, "
-            "idempotency_key, actor_id, payload) "
-            "VALUES (:id, :tid, :unit, 'outreach.send', 'succeeded', :key, :actor, "
+            "INSERT INTO job (id, tenant_id, owning_unit_id, command_type, status, "
+            "actor_id, payload) "
+            "VALUES (:id, :tid, :unit, 'outreach.send', 'succeeded', :actor, "
             "CAST('{}' AS jsonb))"
         ),
-        {
-            "id": job_id,
-            "tid": tenant_id,
-            "unit": unit_id,
-            "key": f"handoff-send-{job_id.hex}",
-            "actor": actor_id,
-        },
+        {"id": job_id, "tid": tenant_id, "unit": unit_id, "actor": actor_id},
     )
     return job_id
 
@@ -529,28 +523,27 @@ def test_a_skipped_invitation_plans_no_stage_at_all() -> None:
 
     @dataclass(frozen=True, slots=True)
     class _Skipped:
+        created_at: datetime
         status: str = "skipped"
         response_status: str = "awaiting_response"
-        created_at: datetime = datetime.now(UTC)
         dispatched_at: datetime | None = None
         response_recorded_at: datetime | None = None
 
-    assert plan_cba_stages(_Skipped()) == ()
+    assert plan_cba_stages(_Skipped(created_at=datetime.now(UTC))) == ()
 
 
 def test_the_handoff_refuses_an_event_this_tenant_does_not_have(
     engine: Engine, context: _Context, repo: CbaHandoffRepository
 ) -> None:
     handoff = _accepted_invitation(engine, context)
-    with context.session_factory() as session:
-        with pytest.raises(UnknownOpportunityEventError):
-            repo.reconcile_invitation(
-                session,
-                tenant_id=context.tenant_id,
-                owning_unit_id=context.unit_id,
-                opportunity_event_id=uuid.uuid4(),
-                invitation_id=handoff.invitation_id,
-            )
+    with context.session_factory() as session, pytest.raises(UnknownOpportunityEventError):
+        repo.reconcile_invitation(
+            session,
+            tenant_id=context.tenant_id,
+            owning_unit_id=context.unit_id,
+            opportunity_event_id=uuid.uuid4(),
+            invitation_id=handoff.invitation_id,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -598,16 +591,15 @@ def test_attendance_at_another_event_cannot_evidence_this_journey(
             conn, context.tenant_id, context.unit_id, handoff.professional_id, other_event
         )
 
-    with context.session_factory() as session:
-        with pytest.raises(CbaAttendanceMismatchError):
-            repo.reconcile_invitation(
-                session,
-                tenant_id=context.tenant_id,
-                owning_unit_id=context.unit_id,
-                opportunity_event_id=context.event_id,
-                invitation_id=handoff.invitation_id,
-                attendance_id=wrong,
-            )
+    with context.session_factory() as session, pytest.raises(CbaAttendanceMismatchError):
+        repo.reconcile_invitation(
+            session,
+            tenant_id=context.tenant_id,
+            owning_unit_id=context.unit_id,
+            opportunity_event_id=context.event_id,
+            invitation_id=handoff.invitation_id,
+            attendance_id=wrong,
+        )
 
     stored = _stored_record(engine, context.tenant_id, handoff.professional_id)
     assert stored is not None and stored.attended_at is None
@@ -624,16 +616,15 @@ def test_attendance_by_somebody_else_cannot_evidence_this_journey(
             conn, context.tenant_id, context.unit_id, stranger, context.event_id
         )
 
-    with context.session_factory() as session:
-        with pytest.raises(CbaAttendanceMismatchError):
-            repo.reconcile_invitation(
-                session,
-                tenant_id=context.tenant_id,
-                owning_unit_id=context.unit_id,
-                opportunity_event_id=context.event_id,
-                invitation_id=handoff.invitation_id,
-                attendance_id=wrong,
-            )
+    with context.session_factory() as session, pytest.raises(CbaAttendanceMismatchError):
+        repo.reconcile_invitation(
+            session,
+            tenant_id=context.tenant_id,
+            owning_unit_id=context.unit_id,
+            opportunity_event_id=context.event_id,
+            invitation_id=handoff.invitation_id,
+            attendance_id=wrong,
+        )
 
 
 def test_attendance_cannot_be_recorded_before_the_speaker_is_confirmed(
@@ -646,16 +637,15 @@ def test_attendance_cannot_be_recorded_before_the_speaker_is_confirmed(
             conn, context.tenant_id, context.unit_id, handoff.professional_id, context.event_id
         )
 
-    with context.session_factory() as session:
-        with pytest.raises(CbaInvitationNotConfirmedError):
-            repo.reconcile_invitation(
-                session,
-                tenant_id=context.tenant_id,
-                owning_unit_id=context.unit_id,
-                opportunity_event_id=context.event_id,
-                invitation_id=handoff.invitation_id,
-                attendance_id=attendance_id,
-            )
+    with context.session_factory() as session, pytest.raises(CbaInvitationNotConfirmedError):
+        repo.reconcile_invitation(
+            session,
+            tenant_id=context.tenant_id,
+            owning_unit_id=context.unit_id,
+            opportunity_event_id=context.event_id,
+            invitation_id=handoff.invitation_id,
+            attendance_id=attendance_id,
+        )
 
     assert _stored_record(engine, context.tenant_id, handoff.professional_id) is None
 
@@ -666,7 +656,7 @@ def test_attendance_cannot_be_recorded_before_the_speaker_is_confirmed(
 
 
 def test_member_inquiry_is_excluded_from_the_cba_funnel() -> None:
-    assert CBA_EXCLUDED_STAGES == frozenset({PipelineStage.MEMBER_INQUIRY})
+    assert frozenset({PipelineStage.MEMBER_INQUIRY}) == CBA_EXCLUDED_STAGES
     assert PipelineStage.MEMBER_INQUIRY not in CBA_STAGE_SEQUENCE
     assert CBA_STAGE_SEQUENCE == (
         PipelineStage.MATCHED,
@@ -684,15 +674,14 @@ def test_the_cba_writer_refuses_member_inquiry_outright(
     handoff = _accepted_invitation(engine, context)
     record_id = uuid.UUID(_post_handoff(context, handoff).json()["speaker"]["record_id"])
 
-    with context.session_factory() as session:
-        with pytest.raises(MemberInquiryExcludedError):
-            repo.advance_cba_stage(
-                session,
-                tenant_id=context.tenant_id,
-                record_id=record_id,
-                stage=PipelineStage.MEMBER_INQUIRY,
-                reached_at=datetime.now(UTC),
-            )
+    with context.session_factory() as session, pytest.raises(MemberInquiryExcludedError):
+        repo.advance_cba_stage(
+            session,
+            tenant_id=context.tenant_id,
+            record_id=record_id,
+            stage=PipelineStage.MEMBER_INQUIRY,
+            reached_at=datetime.now(UTC),
+        )
 
 
 def test_a_fully_attended_cba_journey_still_has_no_member_inquiry(
@@ -736,12 +725,10 @@ def test_the_cba_metric_surface_offers_no_member_inquiry_tile(
 
 
 def test_the_cba_surface_refuses_to_drill_into_member_inquiry(context: _Context) -> None:
-    refused = _get(
-        context, f"/v1/units/{context.unit_id}/metrics/pipeline_member_inquiry?surface=cba"
-    )
-    assert refused.status_code == 404
-    allowed = _get(context, f"/v1/units/{context.unit_id}/metrics/pipeline_member_inquiry")
-    assert allowed.status_code == 200
+    drill_down = f"/v1/units/{context.unit_id}/metrics/pipeline_member_inquiry/drill-down"
+
+    assert _get(context, f"{drill_down}?surface=cba").status_code == 404
+    assert _get(context, drill_down).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +796,7 @@ def test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list(
     aggregate = _get(context, f"/v1/units/{context.unit_id}/metrics?surface=cba").json()
     confirmed = next(m for m in aggregate["metrics"] if m["name"] == "pipeline_confirmed")
     drill_down = _get(
-        context, f"/v1/units/{context.unit_id}/metrics/pipeline_confirmed?surface=cba"
+        context, f"/v1/units/{context.unit_id}/metrics/pipeline_confirmed/drill-down?surface=cba"
     ).json()
     host_list = _get(context, f"/v1/units/{context.unit_id}/cba/confirmed-speakers").json()
 

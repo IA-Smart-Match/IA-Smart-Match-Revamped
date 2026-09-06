@@ -13,16 +13,17 @@ import json
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Path, Request, Response, status
+from fastapi import APIRouter, Path, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.metrics import (
     METRIC_REGISTER,
     MetricDefinition,
     OpportunityCategoryShape,
+    cba_metric_register,
     get_metric,
     shape_opportunity_category,
 )
@@ -499,18 +500,47 @@ def _evidence_for(
     return query(session, tenant_id, unit_id, metric)
 
 
+#: Which product's view of the register a request is asking for.
+#:
+#: ``all`` is the register itself -- every entry, with the names it has always
+#: had -- and is the default, so no existing caller's payload changes. ``cba``
+#: is the view ``smartmatch_domain.metrics.cba_metric_register`` returns:
+#: ``pipeline_member_inquiry`` omitted, the four funnel metrics relabelled for a
+#: surface whose subject is a speaker.
+#:
+#: A parameter rather than a server-wide switch, because the two views answer
+#: different questions and both are legitimate at once.
+#: ``Capability.MEMBER_INQUIRY_NARRATIVE`` says CBA does not *offer* the
+#: member-inquiry tile; it does not say the number stopped existing, and an
+#: operator auditing a unit's stored history still needs to read it. Dropping
+#: the entry from the default payload would make a preserved history unreadable
+#: through the only surface that publishes it.
+MetricSurface = Literal["all", "cba"]
+
+
+def _register_for(surface: MetricSurface) -> tuple[MetricDefinition, ...]:
+    """The register this request is asking for. Neither view is mutated."""
+    return cba_metric_register() if surface == "cba" else METRIC_REGISTER
+
+
 def _summary(
     unit_id: uuid.UUID,
     metric: MetricDefinition,
     evidence: _MetricEvidence,
+    surface: MetricSurface,
 ) -> MetricSummary:
+    # The drill-down link carries the surface it was produced under: a client
+    # following a link from the CBA list must land on the CBA drill-down, or the
+    # two surfaces would disagree about which metrics exist depending on how the
+    # caller happened to arrive.
+    query = "" if surface == "all" else f"?surface={surface}"
     return MetricSummary(
         name=metric.canonical_name,
         display_name=metric.display_name,
         definition=metric.definition,
         value=evidence.value,
         unknown_reason=evidence.unknown_reason,
-        drill_down_url=f"/v1/units/{unit_id}/metrics/{metric.canonical_name}/drill-down",
+        drill_down_url=f"/v1/units/{unit_id}/metrics/{metric.canonical_name}/drill-down{query}",
     )
 
 
@@ -589,6 +619,7 @@ def list_metrics(
     session: DbSession,
     request: Request,
     unit_id: Annotated[uuid.UUID, Path()],
+    surface: Annotated[MetricSurface, Query()] = "all",
 ) -> Response:
     """Return registered metrics, preserving unknown values as null.
 
@@ -597,6 +628,12 @@ def list_metrics(
     learn that a 304-eligible representation exists. Any active unit
     membership with a role may read aggregates (a bare ``resource_grant`` is
     refused) — see :func:`_authorize_aggregate_read`.
+
+    ``surface`` selects which product's view of the register to return and
+    changes nothing else: the same owning query measures each metric either
+    way, so a metric present in both views reports the identical number. See
+    :data:`MetricSurface` for why the narrower view is a parameter rather than
+    the default.
     """
     _authorize_aggregate_read(session, principal, unit_id)
     metrics = [
@@ -604,8 +641,9 @@ def list_metrics(
             unit_id,
             metric,
             _evidence_for(session, principal.tenant_id, unit_id, metric),
+            surface,
         )
-        for metric in METRIC_REGISTER
+        for metric in _register_for(surface)
     ]
     response_model = MetricsResponse(unit_id=unit_id, metrics=metrics)
     return _conditional_json_response(response_model, request)
@@ -623,6 +661,7 @@ def metric_drill_down(
     request: Request,
     unit_id: Annotated[uuid.UUID, Path()],
     metric_name: Annotated[str, Path(min_length=1)],
+    surface: Annotated[MetricSurface, Query()] = "all",
 ) -> Response:
     """Return exactly the rows the named metric's aggregate counted.
 
@@ -631,10 +670,20 @@ def metric_drill_down(
     404 must never be short-circuited into a 304 by a caller replaying an
     ETag it never legitimately received. Only ``admin`` and ``coordinator``
     may drill into rows — see :func:`_authorize_drill_down_read`.
+
+    A metric the requested ``surface`` does not present is a **404**, the same
+    answer an unregistered name gets, and the same one ``list_metrics`` implies
+    by not offering a link to it. That keeps one surface self-consistent: a CBA
+    client cannot list six metrics and then successfully drill into a seventh it
+    was never shown. The default ``all`` surface still serves every registered
+    metric, ``pipeline_member_inquiry`` included, because its rows and its
+    definition are both preserved.
     """
     _authorize_drill_down_read(session, principal, unit_id)
     metric = get_metric(metric_name)
-    if metric is None:
+    if metric is None or metric.canonical_name not in {
+        entry.canonical_name for entry in _register_for(surface)
+    }:
         raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="metric_not_found",
