@@ -1466,6 +1466,66 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The three operations that give a §13 roster contact a *channel* — the
+    # bridge OQ-CBA-011 deliberately left unbuilt. The five rows above manage a
+    # contact **record**; these manage the permission to write to the person it
+    # names, which is a different assertion and the reason they are a separate
+    # module rather than three more routes in `cba_contacts.py`.
+    #
+    # They authorize through ``cba_contacts._authorize_speaker_contacts`` — the
+    # *same* function and the *same* constant as the five, imported rather than
+    # re-declared — for the reason that module gives about its own five, and it
+    # matters more here: reaching a channel through the roster path must not be
+    # a way of reaching a channel the roster path's own authorizer would refuse.
+    # One question, one answer, and a widening applies to all eight or to none.
+    #
+    # Not ``_OUTREACH_ROLES``, even though ``routers/outreach_contacts.py``
+    # writes the same table. The two constants happen to hold the same two
+    # roles today, and binding these rows to the outreach one would mean a
+    # widening argued for the outreach surface silently arrived on the §13
+    # roster. They are the same set by coincidence, not by derivation.
+    Operation(
+        key="speaker_contact.channel.create",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels",
+        module="smartmatch_api.routers.cba_contact_channels",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module="smartmatch_api.routers.cba_contacts",
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    # The read is not given a looser role set than the write, following the S12
+    # funnel rows: a channel's trail names who granted a permission over a real
+    # person, and reading that is not less consequential than recording it.
+    Operation(
+        key="speaker_contact.channel.list",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels",
+        module="smartmatch_api.routers.cba_contact_channels",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module="smartmatch_api.routers.cba_contacts",
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.channel.transition",
+        method="POST",
+        path=(
+            "/v1/units/{unit_id}/speaker-contacts/{professional_id}"
+            "/channels/{contact_channel_id}/transitions"
+        ),
+        module="smartmatch_api.routers.cba_contact_channels",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module="smartmatch_api.routers.cba_contacts",
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
