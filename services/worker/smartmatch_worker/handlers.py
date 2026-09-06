@@ -1073,9 +1073,7 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
     raw_mode = payload.get("scoring_mode")
     if raw_mode is not None:
         if not isinstance(raw_mode, str) or not raw_mode.strip():
-            problems.append(
-                f"scoring_mode must be a non-blank string or absent, got {raw_mode!r}"
-            )
+            problems.append(f"scoring_mode must be a non-blank string or absent, got {raw_mode!r}")
         else:
             try:
                 resolve_scoring_model(raw_mode.strip())

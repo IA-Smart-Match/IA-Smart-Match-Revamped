@@ -114,9 +114,7 @@ MAX_SHORTLIST_SIZE: Final[int] = 3
 #: live beside the factor that produces them, in
 #: :mod:`smartmatch_domain.cba_topic_explanation`; this one is the composite's,
 #: so it lives with the composite.
-COMPOSITE_NEUTRAL_CAPTION: Final[str] = (
-    "Includes a neutral default for missing topic information."
-)
+COMPOSITE_NEUTRAL_CAPTION: Final[str] = "Includes a neutral default for missing topic information."
 
 #: ADR-0016 Proposal 8, verbatim. Customer §11: for a virtual event proximity
 #: is not scored at all, and the surface must say so. Never a proximity row
