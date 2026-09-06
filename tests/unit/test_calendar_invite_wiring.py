@@ -345,6 +345,15 @@ class TestTheStudentSurfaceLinksToTheRouteRatherThanReimplementingIt:
         it had they been named otherwise. Stated here too, against the paths
         directly, so the reason they pass that test is recorded rather than
         incidental.
+
+        The registration path joined them in ``CBA-STUDENT-REGISTRATION``, and it
+        belongs in this list for the same reason the other two do rather than as
+        an exception to it: it writes ``event_registration`` and produces no
+        calendar document. What it *does* do is change the answer the ``.ics``
+        route gives — a registered student is now attached to the event and may
+        download it — which is a change to that route's *input*, not a second
+        implementation of it. The one ``.ics`` surface is still the one
+        :data:`INVITE_PATH` names.
         """
         from smartmatch_api.main import app
 
@@ -353,6 +362,7 @@ class TestTheStudentSurfaceLinksToTheRouteRatherThanReimplementingIt:
         assert sorted(student_paths) == [
             "/v1/units/{unit_id}/student/agenda",
             "/v1/units/{unit_id}/student/events",
+            "/v1/units/{unit_id}/student/events/{event_id}/registration",
         ]
         for path in student_paths:
             assert not any(marker in str(path).lower() for marker in _CALENDAR_MARKERS)
