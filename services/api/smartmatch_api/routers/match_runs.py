@@ -30,12 +30,43 @@ that command through :func:`~smartmatch_api.commands.submit_command` and
 returns ``202``: nothing has been solved when it returns, and saying ``200``
 would report success for work that has not started (v1.1 §3.6 N2).
 
+## The caller names who to consider. It does not supply their evidence.
+
+OQ-CBA-031, approved. This route once took each candidate's expertise and
+coordinates **on the request body**, which forced it onto
+``smartmatch_domain.scoring.rank_candidates`` — the superseded two-factor
+composition — and so every run any client could obtain was pinned to
+``1.1.1-approved-g1-m6j`` with ``scoring_mode: null``, while registry
+``2.0.0-approved-oq-cba-004`` sat approved and unreachable.
+
+The body now carries a Speaker Request id, a shortlist size, a seed and a list
+of subject ids. Everything scored is read server-side by
+:mod:`smartmatch_api.match_run_evidence` — the run's description, targets and
+physical/virtual switch off the filed request, each speaker's industry, role,
+topic text and place off ``speaker_profile``. That is correctness under 2.0.0,
+and it is also what makes a run *trustworthy*: a caller can no longer assert a
+speaker's evidence and have the immutable snapshot record the assertion as fact.
+
+## Virtual events ship first, and physical is refused rather than degraded
+
+``cba-virtual-1`` scores three factors and does not score proximity (customer
+§11), so a virtual run goes end to end under 2.0.0 with no coordinate table at
+all. ``cba-physical-1`` needs a distance in miles from the CPP campus, and
+resolving a city or a ZIP to a coordinate needs OQ-CBA-024's static offline
+ZIP-centroid table, which does not exist here.
+
+So a physical request is **refused** with
+:data:`_PHYSICAL_UNAVAILABLE_CODE`, naming the missing capability. It is not
+degraded: an unknown proximity makes the composite unknown (ADR-0011), every
+physical candidate would be unscorable and sort last, and a shortlist assembled
+from that would be a confident-looking lie about people nobody measured.
+
 ## Why the API scores and the worker solves
 
-The split is not arbitrary. **Scoring** is a pure function of evidence the
-caller submits — ``smartmatch_domain.scoring.rank_candidates`` reads two factor
-modules and the registry's normalized weights, touches no network, no provider
-and no clock — and it has to happen here because
+The split is not arbitrary. **Scoring** is a pure function of evidence read from
+this tenant's own rows — ``smartmatch_domain.scoring.rank_cba_candidates`` reads
+the model's factor modules and the registry's normalized weights, touches no
+network and no clock — and it has to happen here because
 :class:`~smartmatch_domain.optimizer.PortfolioCandidate` refuses an unknown
 utility rather than coercing it to ``0.0`` (ADR-0011). Somebody has to decide
 what an unscorable candidate means before the pool reaches the solver, and the
@@ -44,6 +75,14 @@ That is this route, and its answer is in :func:`_partition_pool`: a candidate
 whose evidence is incomplete is **excluded from the pool and reported**, never
 entered at zero where it would sit below every measured candidate as though it
 had been measured and found wanting.
+
+The one provider this path constructs is the semantic topic comparator, and
+under ``ALLOW_LIVE_PROVIDERS=false`` it is always
+``FixtureSemanticTopicProvider``, which replays recorded comparisons, opens no
+socket and reads no credential. A pair it has no recording for is an *unknown*
+topic factor, never a guess — the honest consequence of OQ-CBA-026 being open,
+and the reason a speaker with topic text on file may be reported unscorable
+while one with none scores under §9's neutral policy.
 
 **Solving** is the durable, possibly slow work whose result a coordinator acts
 on, and v1.1 §1.6 puts every such write on the command path. So the request
@@ -100,7 +139,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Header, Path, status
@@ -122,23 +161,32 @@ from smartmatch_domain.factor_registry import (
     assert_registry_approved,
     assert_scoring_ready,
 )
-from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs
-from smartmatch_domain.factors.travel_burden import GeoPoint, TravelInputs
+from smartmatch_domain.factors.cba_semantic_topic import SemanticTopicProvider
+from smartmatch_domain.factors.proximity import CBA_VIRTUAL_SCORING_MODE
 from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE, inputs_fingerprint
 from smartmatch_domain.optimizer import (
     PortfolioCandidate,
     PortfolioRequest,
     solve_portfolio,
 )
-from smartmatch_domain.scoring import CandidateEvidence, rank_candidates
+from smartmatch_domain.scoring import rank_cba_candidates
 from smartmatch_persistence import schema
 from smartmatch_persistence.match_runs import MatchRunRepository
+from smartmatch_persistence.match_weight_settings import MatchWeightSettingRepository
 from smartmatch_persistence.rate_limit import RateLimit
+from smartmatch_providers.topic_semantics import build_semantic_topic_provider
 from sqlalchemy.orm import Session
 
 from smartmatch_api.commands import submit_command
+from smartmatch_api.config import get_settings
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
+from smartmatch_api.match_run_evidence import (
+    ExcludedCandidate,
+    SpeakerRequestEvidence,
+    assemble_cba_pool,
+    load_speaker_request,
+)
 from smartmatch_api.units import load_unit_or_404
 from smartmatch_api.utils import utc_now
 
@@ -173,82 +221,41 @@ MATCH_RUN_RATE_LIMIT = RateLimit(
 #: number for the same reason — rather than a second limit invented here.
 MAX_CANDIDATES: Final[int] = 200
 
+#: The error code a physical Speaker Request is refused with. A named constant
+#: rather than a literal at the raise site because it is a contract: a client
+#: distinguishing "this capability is not built yet" from "the registry is not
+#: approved" matches on this string, and the two 503s mean different things and
+#: call for different actions.
+_PHYSICAL_UNAVAILABLE_CODE: Final[str] = "match_run_physical_scoring_unavailable"
+
 
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
 
 
-class GeoPointRequest(BaseModel):
-    """A synthetic pilot coordinate pair.
-
-    Optional wherever it appears, and its absence is meaningful: no coordinate
-    is *unknown* travel evidence, which
-    :func:`~smartmatch_domain.factors.travel_burden.score_travel_burden`
-    reports as ``None`` and never as a distance of zero. Synthetic fixtures
-    only — nothing here geocodes, and no provider is consulted.
-    """
-
-    latitude: float = Field(ge=-90.0, le=90.0)
-    longitude: float = Field(ge=-180.0, le=180.0)
-
-
-class MatchCandidateRequest(BaseModel):
-    """One professional's evidence, as the caller submits it.
-
-    Carries evidence, never a score. A caller-supplied score would be a caller
-    choosing their own shortlist, and the registry would be decoration.
-
-    ``expertise_topics`` is nullable **and** that is different from ``[]``:
-    ``null`` means no expertise record exists for this professional (unknown),
-    an empty list means the record exists and is empty (measurable, and
-    measurably zero against any declared topic). ADR-0011 lives in that
-    distinction, and
-    :class:`~smartmatch_domain.factors.topic_relevance.TopicRelevanceInputs`
-    draws it the same way, so the field is passed through rather than
-    normalized.
-    """
-
-    subject_id: str = Field(min_length=1, max_length=200)
-    expertise_topics: list[str] | None = Field(
-        default=None,
-        description=(
-            "Recorded expertise topics. null means no expertise record exists "
-            "(unknown); [] means the record exists and is empty (a measured "
-            "zero against any declared topic). The two are not interchangeable."
-        ),
-    )
-    location: GeoPointRequest | None = Field(
-        default=None,
-        description="The professional's synthetic coordinates, or null when none are on file.",
-    )
-
-
 class MatchRunRequest(BaseModel):
-    """One match-run submission.
+    """One match-run submission: who to consider, and against which request.
 
     Carries no tenant, actor, or unit: all three are derived server-side. The
     unit comes from the authorized path parameter, never from the body — a
     caller naming the unit their run is filed under would be naming who may
     later read it (MM-A01, and ``submit_command``'s ``owning_unit_id``
     contract).
+
+    It also carries **no evidence**, and that is OQ-CBA-031's point. There is no
+    field here for a speaker's industry, role, topic text or location, and none
+    for the event's description or its physical/virtual switch: every one of
+    those is read from this tenant's own rows by
+    :mod:`smartmatch_api.match_run_evidence`. A request body that could state a
+    speaker's expertise is a request body that can decide its own shortlist.
     """
 
-    event_need_id: str = Field(min_length=1, max_length=200)
-    required_topics: list[str] = Field(
-        default_factory=list,
-        description="Topics the event_need declares as required.",
-    )
-    preferred_topics: list[str] = Field(
-        default_factory=list,
-        description="Topics the event_need declares as preferred.",
-    )
-    event_location: GeoPointRequest | None = Field(
-        default=None,
+    speaker_request_id: uuid.UUID = Field(
         description=(
-            "The event_need's synthetic coordinates, or null when none are on "
-            "file — in which case travel burden is unknown for every candidate "
-            "and no distance is guessed."
+            "The filed Speaker Request (customer §12) this run is for. Its "
+            "description, its industry and role targets and its virtual/physical "
+            "switch are read from the stored row, not from this body."
         ),
     )
     portfolio_size: int = Field(
@@ -269,9 +276,15 @@ class MatchRunRequest(BaseModel):
             "the same pool, size and seed always produce the same selection."
         ),
     )
-    candidates: list[MatchCandidateRequest] = Field(
+    candidate_subject_ids: list[uuid.UUID] = Field(
         min_length=1,
-        description=f"The candidate pool, at most {MAX_CANDIDATES} entries.",
+        description=(
+            f"The professionals to consider, at most {MAX_CANDIDATES}. Each is "
+            "a speaker_profile.professional_id as the §13 contact listing "
+            "reports it — an identifier the caller was given, never one derived "
+            "from a name. Their evidence is read from that row; naming somebody "
+            "here does not assert anything about them."
+        ),
         json_schema_extra={"maxItems": MAX_CANDIDATES},
     )
 
@@ -281,14 +294,40 @@ class MatchRunRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ExcludedCandidateView(BaseModel):
+    """One named subject that never entered the pool, and why.
+
+    Distinct from ``unscorable_candidates`` and deliberately so. An unscorable
+    candidate *was* evaluated and some factor had no evidence; an excluded one
+    was never evaluated at all — no profile row, or a classification §19 says a
+    person must review first. Collapsing the two would tell a Speaker Connector
+    that somebody scored poorly when in fact nobody has looked at their record.
+    """
+
+    subject_id: str
+    reason: str = Field(
+        description=(
+            "A stable token: speaker_profile_not_found, "
+            "industry_classification_awaiting_review, "
+            "role_classification_awaiting_review, "
+            "industry_classification_missing, role_classification_missing, "
+            "industry_classification_provenance_unknown, "
+            "role_classification_provenance_unknown, "
+            "industry_taxonomy_version_superseded, "
+            "role_taxonomy_version_superseded, industry_code_unrecognised, or "
+            "role_code_unrecognised."
+        )
+    )
+
+
 class MatchRunAcceptedResponse(BaseModel):
     """Acknowledgement for an accepted match-run command.
 
-    ``scored_candidates`` and ``unscorable_candidates`` are reported at
-    submission rather than only on the read, because they are the one thing a
-    caller cannot infer from a job id: a pool of forty that produced eleven
-    scorable candidates is a different submission from one that produced forty,
-    and both are accepted.
+    ``scored_candidates``, ``unscorable_candidates`` and ``excluded_candidates``
+    are reported at submission rather than only on the read, because they are
+    the one thing a caller cannot infer from a job id: a pool of forty that
+    produced eleven scorable candidates is a different submission from one that
+    produced forty, and both are accepted.
     """
 
     job_id: uuid.UUID
@@ -301,6 +340,16 @@ class MatchRunAcceptedResponse(BaseModel):
     registry_version: str = Field(
         description="The factor registry version the pool was scored under."
     )
+    scoring_mode: str = Field(
+        description=(
+            "The model within that registry the pool was scored under, resolved "
+            "from the Speaker Request's virtual/physical switch and never from "
+            "this body. Today always cba-virtual-1 — see the physical refusal."
+        )
+    )
+    scoring_mode_version: str = Field(
+        description="The mode vocabulary's version. Set exactly when scoring_mode is."
+    )
     score_label: str = Field(
         default=SCORE_PROVENANCE_LABEL,
         description="The only label these scores may be displayed under. Never a percentage.",
@@ -310,9 +359,19 @@ class MatchRunAcceptedResponse(BaseModel):
     )
     unscorable_candidates: int = Field(
         description=(
-            "Candidates excluded because at least one factor's evidence was "
-            "absent. Reported, never entered at zero (ADR-0011)."
+            "Candidates evaluated whose composite was unknown because at least "
+            "one factor's evidence was absent. Reported, never entered at zero "
+            "(ADR-0011)."
         )
+    )
+    excluded_candidates: list[ExcludedCandidateView] = Field(
+        default_factory=list,
+        description=(
+            "Named subjects that were never evaluated — no profile row, or a "
+            "classification awaiting the review customer §19 requires before a "
+            "speaker becomes available for matching. Absent from the pool, not "
+            "ranked last in it."
+        ),
     )
 
 
@@ -323,12 +382,18 @@ class FactorExplanationView(BaseModel):
     display_label: str
     kind: str = Field(description="suitability or penalty — the two read in opposite directions.")
     weight: float = Field(description="The normalized Stage B weight actually applied.")
-    state: str = Field(description="measured or unknown. Read this before reading value.")
+    state: str = Field(
+        description=(
+            "measured, policy_neutral, or unknown (ADR-0016's three states). "
+            "Read this before reading value."
+        )
+    )
     value: float | None = Field(
         default=None,
         description=(
             "The factor value in [0.0, 1.0], or null when state is unknown. "
-            "A null is an absence of evidence and is never a zero."
+            "A null is an absence of evidence and is never a zero. A "
+            "policy_neutral value is a stated customer policy, not a measurement."
         ),
     )
     zero_classification: str | None = Field(
@@ -339,6 +404,18 @@ class FactorExplanationView(BaseModel):
     estimate_label: str | None = Field(
         default=None,
         description="Set when the value is an explicitly coarse estimate.",
+    )
+    policy_id: str | None = Field(
+        default=None,
+        description=(
+            "The customer policy behind a policy_neutral value, null otherwise. "
+            "Carried so a neutral default is attributable rather than "
+            "indistinguishable from a measurement that happened to land there."
+        ),
+    )
+    policy_version: str | None = Field(
+        default=None,
+        description="The policy's version. Set exactly when policy_id is.",
     )
 
 
@@ -353,12 +430,42 @@ class CandidateExplanationView(BaseModel):
             "was absent. Not a percentage and never rendered as one."
         ),
     )
-    state: str = Field(description="measured or unknown.")
+    state: str = Field(description="measured, policy_neutral, or unknown.")
     score_label: str = Field(description='Always "heuristic score".')
     registry_version: str = Field(description="The registry version this score was produced under.")
     formula_version: str
+    scoring_mode: str | None = Field(
+        default=None,
+        description=(
+            "The model this score was produced under — cba-virtual-1, "
+            "cba-physical-1, or null for a run stored before the vocabulary "
+            "existed. null is not cba-physical-1: a pre-ADR-0016 run never "
+            "asked the question, and reading it as physical would claim a "
+            "proximity factor was scored."
+        ),
+    )
+    scoring_mode_version: str | None = Field(
+        default=None,
+        description="The mode vocabulary's version. Set exactly when scoring_mode is.",
+    )
     unknown_factor_keys: list[str] = Field(
         description="The factors that had no evidence, in registry order."
+    )
+    policy_neutral_factor_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The factors whose value came from a stated customer policy rather "
+            "than a measurement, in registry order. These participate in the "
+            "composite; they are listed so a consumer can say which parts of a "
+            "score were policy without comparing floats to a constant."
+        ),
+    )
+    caption: str | None = Field(
+        default=None,
+        description=(
+            "The approved caption a surface must show beside this score, "
+            "verbatim, or null when none applies (ADR-0016 Proposal 8)."
+        ),
     )
     factors: list[FactorExplanationView] = Field(
         description="Every implemented Stage B factor, unknown ones included."
@@ -439,6 +546,11 @@ class MatchRunResponse(BaseModel):
 #: Module-level, like every other repository instance in this codebase:
 #: stateless, so one instance safely serves every call.
 _match_runs: Final[MatchRunRepository] = MatchRunRepository()
+
+#: Same reasoning. Read-only on this path: the route reads the unit's weight
+#: overrides so the utilities it computes were produced by the same weights the
+#: worker will fingerprint the run with.
+_weight_settings: Final[MatchWeightSettingRepository] = MatchWeightSettingRepository()
 
 
 def _authorize_match_run(
@@ -532,7 +644,14 @@ def _to_view(explanation: CandidateExplanation) -> CandidateExplanationView:
         score_label=explanation.score_label,
         registry_version=explanation.registry_version,
         formula_version=explanation.formula_version,
+        scoring_mode=explanation.scoring_mode,
+        scoring_mode_version=explanation.scoring_mode_version,
         unknown_factor_keys=list(explanation.unknown_factor_keys),
+        policy_neutral_factor_keys=list(explanation.policy_neutral_factor_keys),
+        # The domain's own words, not this router's. ADR-0016 Proposal 8
+        # approved the exact sentence, and a paraphrase composed here would be a
+        # different decision wearing the same name.
+        caption=explanation.caption,
         factors=[
             FactorExplanationView(
                 factor_key=factor.factor_key,
@@ -544,6 +663,8 @@ def _to_view(explanation: CandidateExplanation) -> CandidateExplanationView:
                 zero_classification=factor.zero_classification,
                 basis=factor.basis,
                 estimate_label=factor.estimate_label,
+                policy_id=factor.policy_id,
+                policy_version=factor.policy_version,
             )
             for factor in explanation.factors
         ],
@@ -577,47 +698,99 @@ def _partition_pool(
     return scorable, unscorable
 
 
-def _build_evidence(body: MatchRunRequest) -> list[CandidateEvidence]:
-    """Turn the validated request body into domain evidence, unchanged.
+def _load_request_or_404(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    speaker_request_id: uuid.UUID,
+) -> SpeakerRequestEvidence:
+    """The filed Speaker Request this run scores against, or a 404.
 
-    Nothing is normalized on the way through. ``expertise_topics`` keeps the
-    ``None``/``[]`` distinction the request model documents, and a missing
-    coordinate stays missing rather than becoming an origin — both are the
-    ADR-0011 boundary, and this is where a well-meaning default would cross it.
+    A 404 rather than a 403 or a 422 for the reason ``load_unit_or_404`` gives:
+    the lookup is already scoped to the caller's tenant and authorized unit, so
+    an id outside that scope must not be answered in a way that confirms it
+    names something real elsewhere.
     """
-    destination = (
-        None
-        if body.event_location is None
-        else GeoPoint(
-            latitude=body.event_location.latitude,
-            longitude=body.event_location.longitude,
-        )
+    request = load_speaker_request(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=owning_unit_id,
+        event_id=speaker_request_id,
     )
-    return [
-        CandidateEvidence(
-            subject_id=candidate.subject_id,
-            topic=TopicRelevanceInputs(
-                expertise_topics=(
-                    None
-                    if candidate.expertise_topics is None
-                    else tuple(candidate.expertise_topics)
-                ),
-                required_topics=tuple(body.required_topics),
-                preferred_topics=tuple(body.preferred_topics),
-            ),
-            travel=TravelInputs(
-                origin=(
-                    None
-                    if candidate.location is None
-                    else GeoPoint(
-                        latitude=candidate.location.latitude,
-                        longitude=candidate.location.longitude,
-                    )
-                ),
-                destination=destination,
-            ),
+    if request is None:
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="speaker_request_not_found",
+            message="No such Speaker Request in this unit.",
         )
-        for candidate in body.candidates
+    return request
+
+
+def _assert_mode_available(request: SpeakerRequestEvidence) -> str:
+    """Return the run's scoring mode, refusing the one that cannot be scored yet.
+
+    ``cba-virtual-1`` is scored. ``cba-physical-1`` is refused, and the refusal
+    names the capability rather than the request: nothing about a physical
+    Speaker Request is wrong, and a 400 would tell a host to change a correct
+    entry. See the module docstring for why this is a refusal and not a
+    degraded run.
+
+    Raises:
+        ApiError: 503 :data:`_PHYSICAL_UNAVAILABLE_CODE` for a physical request.
+    """
+    mode = request.scoring_mode
+    if mode != CBA_VIRTUAL_SCORING_MODE:
+        raise ApiError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code=_PHYSICAL_UNAVAILABLE_CODE,
+            message=(
+                "Match scoring for a physical Speaker Request is not available "
+                "in this deployment. Customer §10 measures Proximity in miles "
+                "from the CPP campus and it carries the largest single weight, "
+                "but resolving a city or ZIP code to a coordinate needs the "
+                "static offline ZIP-centroid table of OQ-CBA-024, which is not "
+                "built. Without it every candidate's distance is unknown, which "
+                "makes every composite unknown and would sort every speaker "
+                "last — so the run is refused rather than returned as a "
+                "shortlist nobody measured. Virtual Speaker Requests score "
+                "normally: customer §11 removes Proximity from that model "
+                "entirely."
+            ),
+            details={
+                "scoring_mode": mode,
+                "missing_capability": "zip_centroid_table",
+                "owner_question": "OQ-CBA-024",
+            },
+        )
+    return mode
+
+
+def _topic_provider() -> SemanticTopicProvider:
+    """The §9 comparison adapter for one run.
+
+    Constructed per request rather than held on module state:
+    ``build_semantic_topic_provider`` refuses a live adapter under **every**
+    edition and refuses to run at all if a model credential is present, so this
+    is the place a misconfigured deployment fails loudly instead of scoring
+    against something nobody approved (OQ-CBA-026). What it returns is always
+    ``FixtureSemanticTopicProvider``, which opens no socket.
+
+    The ``cast`` is a typing accommodation and not a claim about behaviour.
+    ``TopicSimilarity`` carries every member ``TopicComparison`` declares, and
+    ``isinstance`` agrees at runtime — but the protocol declares them
+    *settable*, and ``TopicSimilarity`` is a frozen dataclass, so mypy reads its
+    fields as read-only and refuses the structural match. Making the protocol's
+    members read-only is a change to :mod:`smartmatch_domain`, which this card
+    does not own; it is recorded as OQ-CBA-062 rather than reached for.
+    """
+    return cast(SemanticTopicProvider, build_semantic_topic_provider(get_settings().edition))
+
+
+def _excluded_views(excluded: tuple[ExcludedCandidate, ...]) -> list[ExcludedCandidateView]:
+    """Render the absences onto the wire, reason token included."""
+    return [
+        ExcludedCandidateView(subject_id=item.subject_id, reason=item.reason) for item in excluded
     ]
 
 
@@ -640,7 +813,7 @@ def create_match_run(
         ),
     ] = None,
 ) -> MatchRunAcceptedResponse:
-    """Score the submitted pool and enqueue ``match-run.create``.
+    """Score this unit's named speakers against a filed Speaker Request.
 
     Returns ``202``: nothing has been solved and no ``match_run`` row exists
     when this returns. The command is recorded and will be dispatched; follow
@@ -655,7 +828,12 @@ def create_match_run(
     * ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``
       — the four keys ``smartmatch_worker.handlers._read_match_run_command``
       reads back. Renaming one here changes what the worker is given, so the two
-      ends move together.
+      ends move together. ``event_need_id`` is the Speaker Request's own id,
+      which is what makes a stored run traceable to the request it answered.
+    * ``scoring_mode`` — resolved from that request's virtual/physical switch.
+      The worker pins the registry, the weights and the route-estimate version
+      off it, so this is the value that decides which rulebook the snapshot
+      records.
     * ``explanations`` — the per-factor account of every candidate, scorable and
       unscorable alike. The worker ignores this key (it reads its four with
       ``.get``), and the read route renders it. Recomputing the explanation on
@@ -664,10 +842,11 @@ def create_match_run(
       was actually scored, under the registry version recorded on it.
 
     Raises:
-        ApiError: 503 when the registry is not ready; 400 when the pool is over
-            :data:`MAX_CANDIDATES` or names a duplicate ``subject_id``; 422 when
-            fewer candidates have complete evidence than the requested shortlist
-            needs.
+        ApiError: 503 when the registry is not ready or the request is physical
+            (see :func:`_assert_mode_available`); 404 when no such Speaker
+            Request exists in this unit; 400 when the pool is over
+            :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer
+            candidates can be scored than the requested shortlist needs.
     """
     charge = charge_quota(session, principal, MATCH_RUN_RATE_LIMIT)
 
@@ -675,39 +854,70 @@ def create_match_run(
 
     _assert_scoring_permitted()
 
-    if len(body.candidates) > MAX_CANDIDATES:
+    if len(body.candidate_subject_ids) > MAX_CANDIDATES:
         raise ApiError(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="match_run_pool_too_large",
             message=(
-                f"candidates must contain at most {MAX_CANDIDATES} entries; "
-                f"got {len(body.candidates)}."
+                f"candidate_subject_ids must contain at most {MAX_CANDIDATES} "
+                f"entries; got {len(body.candidate_subject_ids)}."
             ),
         )
 
-    subject_ids = [candidate.subject_id for candidate in body.candidates]
+    subject_ids = body.candidate_subject_ids
     if len(set(subject_ids)) != len(subject_ids):
-        # Refused here rather than left to `rank_candidates` so the caller is
-        # told which field is wrong in this API's own error envelope, instead of
-        # meeting a domain ValueError as a 500.
+        # Refused here rather than left to `rank_cba_candidates` so the caller
+        # is told which field is wrong in this API's own error envelope, instead
+        # of meeting a domain ValueError as a 500.
         raise ApiError(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="match_run_duplicate_candidate",
-            message="candidates contains a duplicate subject_id.",
+            message="candidate_subject_ids contains a duplicate subject_id.",
         )
 
+    request = _load_request_or_404(
+        session,
+        tenant_id=principal.tenant_id,
+        owning_unit_id=owning_unit_id,
+        speaker_request_id=body.speaker_request_id,
+    )
+    scoring_mode = _assert_mode_available(request)
+
+    pool = assemble_cba_pool(
+        session,
+        tenant_id=principal.tenant_id,
+        owning_unit_id=owning_unit_id,
+        subject_ids=subject_ids,
+        request=request,
+    )
+
+    # This unit's stored overrides, read from the *authorized* unit and never
+    # from the body — the same read `handle_match_run_create` makes before it
+    # fingerprints the run. Both ends must use one set of weights or the
+    # snapshot records weights that never touched its own utilities, which is
+    # the exact defect the immutable snapshot exists to make impossible.
+    overrides = _weight_settings.overrides_for(
+        session, tenant_id=principal.tenant_id, owning_unit_id=owning_unit_id
+    )
+
     try:
-        # `rank_candidates` calls `assert_registry_approved` and
+        # `rank_cba_candidates` calls `assert_registry_approved` and
         # `assert_scoring_ready` again, per candidate, before reading any
         # evidence. The check above is not redundant with it: it turns the gate
         # into this API's own 503 rather than an unhandled domain error, and it
         # runs before any evidence is even assembled.
-        ranked = rank_candidates(_build_evidence(body))
+        ranked = rank_cba_candidates(
+            pool.evidence,
+            request_description=request.description,
+            topic_provider=_topic_provider(),
+            scoring_mode=scoring_mode,
+            weight_overrides=overrides or None,
+        )
     except ValueError as exc:
         raise ApiError(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="match_run_invalid_evidence",
-            message=f"The submitted candidate evidence could not be scored: {exc}",
+            message=f"The stored candidate evidence could not be scored: {exc}",
         ) from exc
 
     explanations = explain_candidates(ranked)
@@ -719,16 +929,20 @@ def create_match_run(
             code="match_run_insufficient_scorable_candidates",
             message=(
                 f"A shortlist of {body.portfolio_size} was requested but only "
-                f"{len(scorable)} of {len(body.candidates)} candidates have "
-                "complete evidence. The remainder are not scored at zero — "
-                "their evidence is absent, which is a different fact — so there "
-                "is no honest way to fill the shortlist. Supply the missing "
-                "expertise or coordinates, or request a smaller shortlist."
+                f"{len(scorable)} of {len(subject_ids)} named speakers could be "
+                f"scored: {len(unscorable)} were evaluated with a factor whose "
+                f"evidence was absent, and {len(pool.excluded)} never entered "
+                "the pool at all. Neither group is scored at zero — an absent "
+                "record is a different fact from a poor one — so there is no "
+                "honest way to fill the shortlist. Review the classifications "
+                "customer §19 requires, add the missing profile evidence, or "
+                "request a smaller shortlist."
             ),
             details={
                 "requested_portfolio_size": str(body.portfolio_size),
                 "scorable_candidates": str(len(scorable)),
                 "unscorable_candidates": str(len(unscorable)),
+                "excluded_candidates": str(len(pool.excluded)),
             },
         )
 
@@ -742,7 +956,10 @@ def create_match_run(
         owning_unit_id=owning_unit_id,
         payload={
             "unit_id": str(unit_id),
-            "event_need_id": body.event_need_id,
+            # The Speaker Request's own id. `match_run.event_need_id` is Text,
+            # so this needs no migration, and a run now names the filed request
+            # it answered rather than a string the caller invented.
+            "event_need_id": str(request.event_id),
             "portfolio_size": body.portfolio_size,
             "random_seed": body.random_seed,
             "candidates": [
@@ -752,19 +969,12 @@ def create_match_run(
                 {"subject_id": item.subject_id, "utility": item.heuristic_score}
                 for item in scorable
             ],
-            # The mode the pool was *actually* scored under, read off the
-            # scores rather than chosen here. This route calls
-            # `rank_candidates`, the superseded two-factor composition, so the
-            # value is `None` — a pre-ADR-0016 run — and the worker pins it to
-            # `1.1.1-approved-g1-m6j` accordingly. Writing `cba-physical-1`
-            # here would pin the run to a rulebook whose four factors this
-            # route does not compute, and the stored weights would then never
-            # have touched the stored utilities.
-            #
-            # Migrating this surface to `rank_cba_candidates` needs industry,
-            # role, topic-evidence and location on the request body, which is a
-            # request-schema change and therefore its own card: OQ-CBA-031.
-            "scoring_mode": ranked[0].scoring_mode if ranked else None,
+            # The mode the pool was *actually* scored under, read off the scores
+            # rather than restated here, so the payload cannot disagree with the
+            # arithmetic that produced its utilities. `ranked` is non-empty
+            # whenever `scorable` is, and the 422 above already returned when it
+            # was not.
+            "scoring_mode": ranked[0].scoring_mode,
             "explanations": [explanation_to_payload(item) for item in explanations],
         },
         idempotency_key=idempotency_key,
@@ -776,9 +986,39 @@ def create_match_run(
         events_url=f"/v1/jobs/{accepted.job_id}/events",
         replayed=accepted.is_replay,
         registry_version=explanations[0].registry_version,
+        # From the score, for the reason the payload's copy is: a mode reported
+        # from the request while the utilities came from another composition
+        # would be a caption over the wrong picture.
+        scoring_mode=_mode_of(ranked[0].scoring_mode),
+        scoring_mode_version=_mode_of(ranked[0].scoring_mode_version),
         scored_candidates=len(scorable),
         unscorable_candidates=len(unscorable),
+        excluded_candidates=_excluded_views(pool.excluded),
     )
+
+
+def _mode_of(value: str | None) -> str:
+    """Narrow a scored run's mode to the non-null string the response promises.
+
+    :class:`~smartmatch_domain.scoring.StageBScore` types both mode fields as
+    nullable because the superseded model produces neither, and this route can
+    no longer produce that model — ``_assert_mode_available`` refused every
+    scoring mode but ``cba-virtual-1`` before any candidate was scored. A
+    ``None`` arriving here would mean the CBA scorer returned a pre-ADR-0016
+    score, which is a defect and not a state to render, so it is raised rather
+    than coerced to a plausible string.
+    """
+    if value is None:  # pragma: no cover - unreachable via the CBA scorer
+        raise ApiError(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="match_run_scoring_mode_missing",
+            message=(
+                "The CBA scorer returned a score with no scoring mode. A stored "
+                "run must say which model produced it; none is recorded rather "
+                "than one guessed at."
+            ),
+        )
+    return value
 
 
 # ---------------------------------------------------------------------------
