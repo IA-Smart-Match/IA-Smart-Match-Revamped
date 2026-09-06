@@ -1,20 +1,25 @@
 # ADR-0016 — CBA scoring policy: neutral Topic, proximity bands, and virtual redistribution
 
-**Status:** Proposed
-**Date:** Drafted 5 September 2026 — proposal only, no decision date
+**Status:** Accepted
+**Date:** Drafted 5 September 2026; accepted 5 September 2026
 **Owner of record:** Danny Tran, Development Lead / program owner of record, with the matching-domain reviewer
-**Decides (once accepted):** OQ-CBA-001, OQ-CBA-002, OQ-CBA-004
+**Decided:** 5 September 2026 — Danny Tran, Development Lead / program owner of record. All ten proposals approved as drafted, no amendments.
+**Decides:** OQ-CBA-001, OQ-CBA-002, OQ-CBA-004 — all three closed by this acceptance
 **Contract:** `docs/product/cba-smart-match-customer-requirements.md` §§5, 9, 10, 11, 26; ADR-0011
 **Register:** `docs/plans/open-questions/cba-phase-deferred.md`
 
-> **This ADR is a proposal. It is not approved, and it must not be implemented.**
-> Every value below — the neutral Topic score, the three
-> proximity sub-scores, the boundary rule, the virtual redistribution weights —
-> is a *named, numbered proposal awaiting the owner's decision*, not a default,
-> not a fallback, and not a value engineering may adopt because a document
-> contains it. `REGISTRY_VERSION` stays at `1.1.1-approved-g1-m6j` and
-> `factor_registry.py` stays as it is until the owner of record records a
-> decision here. OQ-CBA-001, OQ-CBA-002 and OQ-CBA-004 remain open.
+> **Accepted 5 September 2026 by Danny Tran, Development Lead / program owner of
+> record.** All ten proposals below were put to the owner as numbered questions and
+> approved as drafted, with no amendments. The values here are now the approved
+> policy: engineering may implement them, and `REGISTRY_VERSION` moves to
+> `2.0.0-approved-oq-cba-004` as Proposal 9 specifies. OQ-CBA-001, OQ-CBA-002 and
+> OQ-CBA-004 are closed.
+>
+> What acceptance does **not** license: these values are approved because an owner
+> chose them, not because they appear in a document. A later card that wants a
+> different neutral value, a different band edge, or a different redistribution
+> must amend this ADR and re-approve it — it may not adopt a new number because the
+> old one proved inconvenient.
 
 ## Context
 
@@ -65,11 +70,14 @@ and 2. Proposals 3–4 do the same job for proximity, Proposals 5–6 for virtua
 events, and Proposals 7–9 make all of it serializable, labelled, and pinned so
 a stored run can still be read a year later.
 
-## Decision (proposed — not approved)
+## Decision (accepted 5 September 2026)
 
-Nine proposals. Each is separately approvable, separately rejectable, and
-separately amendable by the owner of record. Approving a subset is a valid
-outcome; the ones not approved stay open in the register.
+Ten proposals, each separately approvable, rejectable, and amendable by the owner
+of record. Approving a subset would have been a valid outcome; in the event the
+owner approved every one as drafted, with no amendments, so all ten are in force
+and OQ-CBA-001, OQ-CBA-002 and OQ-CBA-004 are closed. A later change to any single
+proposal amends this ADR and needs its own approval — it does not follow from this
+one.
 
 ### Proposal 1 — A neutral Topic score is a third evidence state, not an unknown and not a measurement
 
