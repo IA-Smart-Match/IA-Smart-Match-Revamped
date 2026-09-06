@@ -32,6 +32,7 @@ Requires a live database, and is skipped when none is reachable.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -72,6 +73,13 @@ def _clean_classification_tables(engine: Engine, tenant_id):
 # Row builders. Each defaults to a row every constraint accepts, so a test body
 # holds only the value under test.
 # ---------------------------------------------------------------------------
+
+
+#: What ``_insert_profile`` stamps into ``{axis}_classified_at`` when the row it
+#: builds carries a code. A fixed instant rather than ``now()``: nothing in this
+#: module reads it, and a literal keeps the insert's parameters a plain dict
+#: instead of a mix of values and SQL expressions.
+_CLASSIFIED_AT = datetime(2026, 9, 6, tzinfo=UTC)
 
 
 def _make_professional(conn, tenant_id: uuid.UUID) -> uuid.UUID:
@@ -128,9 +136,11 @@ def _insert_profile(
             "INSERT INTO speaker_profile (tenant_id, professional_id, owning_unit_id, "
             "full_name, primary_industry_code, industry_taxonomy_version, primary_role_code, "
             "role_taxonomy_version, topic_text, prior_talk, location_city, "
-            "location_postal_code) "
+            "location_postal_code, industry_classification_source, industry_classified_at, "
+            "role_classification_source, role_classified_at) "
             "VALUES (:tid, :pid, :unit, :full_name, :industry, :industry_version, :role, "
-            ":role_version, :topic, :prior_talk, :city, :postal)"
+            ":role_version, :topic, :prior_talk, :city, :postal, "
+            ":industry_source, :industry_at, :role_source, :role_at)"
         ),
         {
             "tid": tenant_id,
@@ -145,6 +155,22 @@ def _insert_profile(
             "prior_talk": prior_talk,
             "city": location_city,
             "postal": location_postal_code,
+            # Provenance is derived from the code rather than accepted as an
+            # argument, for the reason this module defaults `full_name` at all:
+            # no test here is about provenance — that is
+            # test_cba_import_classification.py — and every one of them is about
+            # what 0024's two code columns refuse. Deriving it keeps 0028's
+            # three-arm CHECK satisfied without handing thirty-odd call sites a
+            # parameter none of them mean anything by.
+            #
+            # `inferred` rather than `human`, and no actor: it is the arm that
+            # needs no `user_account` row to point at, so this stays a
+            # single-table insert. A row written here asserts nothing about who
+            # classified it, which is true — nobody did.
+            "industry_source": None if primary_industry_code is None else "inferred",
+            "industry_at": None if primary_industry_code is None else _CLASSIFIED_AT,
+            "role_source": None if primary_role_code is None else "inferred",
+            "role_at": None if primary_role_code is None else _CLASSIFIED_AT,
         },
     )
     return professional_id

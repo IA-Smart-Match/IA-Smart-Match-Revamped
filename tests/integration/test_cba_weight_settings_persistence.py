@@ -83,6 +83,31 @@ _THIS_REVISION = "0027_match_weight_setting"
 #: attached to the wrong link.
 _PREVIOUS_REVISION = "0026_event_registration"
 
+#: The head, which is no longer this card's revision. ``CBA-IMPORT-CLASSIFY``
+#: added ``0028_classification_provenance`` on top of ``0027``, so the head
+#: assertion below moved off :data:`_THIS_REVISION` rather than being deleted —
+#: an assertion softened to "some head exists" would still pass on the day two
+#: of them do, which is the failure it exists to catch.
+#:
+#: The two constants are now genuinely different things and are kept apart on
+#: purpose: :data:`_THIS_REVISION` is what this card added and what the chain
+#: test below pins, and this is where the graph currently ends. Collapsing them
+#: back into one name is what would let the next card's bump silently rewrite
+#: this file's claim about its own revision.
+#:
+#: ``0028`` composes with ``0027``: it touches ``speaker_profile`` only, adding
+#: six nullable columns and two ``CHECK``s over them, and neither
+#: ``match_weight_setting`` nor its revision log is read or written by it.
+#:
+#: Moved again by ``CBA-INVITATIONS``: ``0029_cba_speaker_invitation`` is now the
+#: head. It composes with ``0027`` more simply than ``0028`` did — two new tables
+#: and nothing altered — and it touches this card's surface only in that a batch
+#: may record the ``match_run`` its shortlist came from, through a nullable
+#: ``ON DELETE RESTRICT`` reference. Neither ``match_weight_setting`` nor its
+#: revision log is read or written, and a unit with no weighting configured
+#: invites exactly as a unit with one does.
+_HEAD_REVISION = "0029_cba_speaker_invitation"
+
 NEED = "need-weight-settings-1"
 
 #: A synthetic pool. The utilities are invented for this file and stand for
@@ -235,19 +260,25 @@ def _execute(session_factory, tenant_id, job_id):
 # ---------------------------------------------------------------------------
 
 
-def test_there_is_exactly_one_head_and_it_is_this_cards_revision():
-    """One head, and it is :data:`_THIS_REVISION`.
+def test_there_is_exactly_one_head_and_it_is_the_provenance_revision():
+    """One head, and it is :data:`_HEAD_REVISION`.
 
     Two heads is the failure mode of parallel migration work and it is quiet:
     Alembic refuses ``upgrade head`` with an ambiguity error only at deploy time,
     on a branch that has already merged. Asserting the *name* as well as the
     count means a later card extending the chain has to come here and say so,
     which is the point at which somebody checks that the two revisions compose.
+
+    ``CBA-IMPORT-CLASSIFY`` is the first card to do that here. This card's own
+    revision is now a link rather than the end, so the assertion moved to
+    :data:`_HEAD_REVISION` — and the chain test below still pins
+    :data:`_THIS_REVISION` to its parent, so nothing about this card's place in
+    the graph stopped being asserted.
     """
     heads = _script_directory().get_heads()
 
-    assert heads == [_THIS_REVISION], (
-        f"expected {_THIS_REVISION} to be the single Alembic head, got {heads}. "
+    assert heads == [_HEAD_REVISION], (
+        f"expected {_HEAD_REVISION} to be the single Alembic head, got {heads}. "
         "More than one head means `alembic upgrade head` is ambiguous; a "
         "different single head means a revision was added without this "
         "assertion being updated."

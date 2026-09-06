@@ -98,13 +98,21 @@ def _clean_provisioning_tables(engine: Engine, tenant_id: uuid.UUID):
     """Delete this file's rows for the test tenant, in dependency order.
 
     ``pipeline_record`` first (cites ``user_account`` via ``ON DELETE
-    RESTRICT``), then ``professional_unit_relationship``, then
-    ``user_account`` itself — the same order and the same reason
-    ``test_professional_identity_writers.py`` uses.
+    RESTRICT``), then ``speaker_profile``, then
+    ``professional_unit_relationship``, then ``user_account`` itself — the same
+    order and the same reason ``test_professional_identity_writers.py`` uses.
+
+    ``speaker_profile`` joined the list when accepting a ``professionals`` row
+    started writing one (customer §19's second step). It must be swept **here**
+    rather than left to ``conftest.py``'s tuple, which also lists it: this
+    fixture deletes ``user_account`` itself and finalizes first, so a profile
+    left standing makes that delete fail on ``speaker_profile``'s ``RESTRICT``
+    reference before the shared teardown ever runs.
     """
     yield
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM pipeline_record WHERE tenant_id = :tid"), {"tid": tenant_id})
+        conn.execute(text("DELETE FROM speaker_profile WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(
             text("DELETE FROM professional_unit_relationship WHERE tenant_id = :tid"),
             {"tid": tenant_id},
