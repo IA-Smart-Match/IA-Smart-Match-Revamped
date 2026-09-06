@@ -3704,9 +3704,20 @@
             "title": "Location Postal Code"
           },
           "on_my_agenda": {
-            "description": "True when an attendance record ties this caller to this event. Named for what it is rather than 'registered': this deployment has no registration (OQ-CBA-018), and a field called 'registered' would claim one.",
+            "description": "True when this caller holds an active registration for this event OR is recorded at it. Still named for what it is rather than 'registered': the narrower name would exclude the attended-but-never-registered rows that made up the whole agenda before registration existed. Use the `registration` field below to ask the narrower question.",
             "title": "On My Agenda",
             "type": "boolean"
+          },
+          "registration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentRegistrationView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Your registration for this event, or null when you have never registered. A registration you cancelled is an object reading 'cancelled', not a null \u2014 the two are different facts."
           },
           "tags": {
             "description": "Mapped vocabulary terms. Never a quarantined value.",
@@ -3800,6 +3811,67 @@
           "precision"
         ],
         "title": "StudentEventTimeView",
+        "type": "object"
+      },
+      "StudentRegistrationResponse": {
+        "description": "What a register or cancel left behind, read back out of the database.\n\nDeliberately not an acknowledgement. Both write routes re-read the row they\nwrote and return *that*, so a client rendering this response is rendering\nserver state rather than its own optimism \u2014 the \"no toast-only success\" rule\n``docs/plans/frontend-broken-buttons.md`` states, applied to the two routes\nthat would most easily break it.\n\nThat the response carries the state rather than a message is also what makes\nthe idempotent cases legible: a second Register returns the same object the\nfirst one did, with ``updated_at`` unmoved, which is a client-visible way of\nsaying nothing happened because nothing needed to.",
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "registration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentRegistrationView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Your registration after this call. Null only from a cancel by a student who had never registered \u2014 which writes no row, because a registration nobody made is not a thing to record the cancellation of."
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "event_id"
+        ],
+        "title": "StudentRegistrationResponse",
+        "type": "object"
+      },
+      "StudentRegistrationView": {
+        "description": "This student's registration for one event, or the absence of one.\n\nRendered as ``null`` on an item where no registration row exists, and as an\nobject reading ``cancelled`` where one does. Those are different facts and\nmigration ``0026`` keeps them different on purpose: a ``DELETE`` on cancel\nwould have made \"they cancelled\" and \"they never registered\" the same\nabsence, and a client that could not tell them apart would have no way to\nshow a student that their cancellation had registered at all.",
+        "properties": {
+          "registered_at": {
+            "description": "When the place was first taken. Does not move when you cancel and register again, so it stays able to say how late a cancellation was.",
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "status": {
+            "description": "'registered' \u2014 you hold a place \u2014 or 'cancelled'. There is no 'waitlisted': no capacity exists in this deployment for one to overflow from (OQ-CBA-029).",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the status last moved. Equal to registered_at on a registration that has never changed \u2014 and a repeated Register does not advance it, because nothing moved.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "registered_at",
+          "updated_at"
+        ],
+        "title": "StudentRegistrationView",
         "type": "object"
       },
       "TransitionRequest": {
@@ -9851,7 +9923,7 @@
     },
     "/v1/units/{unit_id}/student/agenda": {
       "get": {
-        "description": "Return the caller's own events in this unit (customer \u00a715, fix #10).\n\n\"Own\" means ``attendance_record`` names them and the event, because that is\nthe only link between a student and an event this schema has. It is\ndeliberately not called *registered*: there is no registration table, and\nwriting an attendance row when somebody registers would credit them under\nADR-0013 for an event they have not been to. The gap is **OQ-CBA-018**, and\n:class:`StudentEventSummary`'s ``on_my_agenda`` is named for what the data\nsupports rather than for the button a page would like to draw.\n\nSelf-scoping is in the query. ``subject_id`` comes from the verified\nprincipal and appears in the ``WHERE`` clause, so there is no request field\nnaming a subject and no post-filter a later edit could drop \u2014 the\ncaller-selected identity shape (MM-A01) has nowhere to enter.\n\nUnlike the browse route this does **not** filter on ``publication_status``:\nan event a student actually attended is theirs to see on their own agenda\nwhether or not the unit still publishes it, and withholding it would make\ntheir own history disagree with itself. Unresolved-date rows are still\nexcluded \u2014 they have no position on a time-ordered list \u2014 and counted.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any row is read.",
+        "description": "Return the caller's own events in this unit (customer \u00a715, fix #10).\n\n\"Own\" means either link: an active ``event_registration`` naming them and the\nevent, or an ``attendance_record`` doing the same. Before migration ``0026``\nonly the second existed, which is why this list was documented as \"events you\nare recorded at\" and why ``on_my_agenda`` is still not called ``registered``\n\u2014 the narrower name would drop every event a student attended without ever\nclicking anything, which a coordinator entry or an imported roster produces.\n\nThe two links stay two tables. Registering writes no ``attendance_record``:\nADR-0013 makes attendance the only input to points, so a row written when\nsomebody signs up would credit them for an event they have not been to. That\nis the refusal ``CBA-STUDENT-EVENTS`` made and migration ``0026`` ended\nproperly rather than cheaply.\n\nSelf-scoping is in the query, and now in both halves of it. ``subject_id``\ncomes from the verified principal and appears in the ``WHERE`` clause of the\nattendance select *and* of the registration select, so there is no request\nfield naming a subject and no post-filter a later edit could drop \u2014 the\ncaller-selected identity shape (MM-A01) has nowhere to enter.\n\nUnlike the browse route this does **not** filter on ``publication_status``:\nan event a student attended or holds a place at is theirs to see on their own\nagenda whether or not the unit still publishes it, and withholding it would\nmake their own history disagree with itself. Unresolved-date rows are still\nexcluded \u2014 they have no position on a time-ordered list \u2014 and counted.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any row is read.",
         "operationId": "list_student_agenda_v1_units__unit_id__student_agenda_get",
         "parameters": [
           {
@@ -10104,6 +10176,287 @@
           }
         },
         "summary": "Browse a unit's published events as a student",
+        "tags": [
+          "student-events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events/{event_id}/registration": {
+      "delete": {
+        "description": "Give up this student's place at this event (customer \u00a715).\n\n``DELETE`` addresses the *registration* \u2014 the caller's claim on the event \u2014\nand after this call they hold none, which is what the verb promises them.\nWhat the database does is narrower and deliberate: the row survives and its\n``status`` moves to ``cancelled``. Migration ``0026`` argues that at length,\nand the short version is that deleting would make \"they cancelled\" and \"they\nnever registered\" the same absence, and would discard the ``registered_at``\nthat says how late the cancellation was. The response says so rather than\nhiding it: a cancelled registration comes back as an object, not as a null.\n\nIdempotent in both directions a caller can reach it. Cancelling an\nalready-cancelled registration writes nothing and answers ``200``; cancelling\none that never existed writes **no row at all** and answers ``200`` with a\n``null`` registration. Neither is an error, because in both the caller ends up\nexactly where they were asking to be \u2014 and manufacturing a pre-cancelled row\nfor the second would put a row in the table for every stray click.\n\nSelf-scoped identically to the register route: no body, ``subject_id`` from\nthe principal, so this can only ever cancel the caller's own registration.\n\nRaises:\n    ApiError: 403 when the caller may not manage registrations in this unit;\n        404 when the unit is not this tenant's, or the event is not a\n        published event of this unit; 429 when the minute's quota is spent.",
+        "operationId": "cancel_registration_v1_units__unit_id__student_events__event_id__registration_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentRegistrationResponse"
+                }
+              }
+            },
+            "description": "You are not registered for this event. Returned whether this call cancelled an active registration, found one already cancelled, or found none at all \u2014 the outcome the caller asked for in each case."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Cancel this student's registration for an event",
+        "tags": [
+          "student-events"
+        ]
+      },
+      "post": {
+        "description": "Take this student's place at this event (customer \u00a715).\n\n``201``: this has completed when it returns. The row exists, it is committed,\nand the response is read back out of it rather than echoed. ``200``: the\nregistration was already there, or a cancelled one was moved back \u2014 a second\nclick is the same registration, not a conflict, and the status code is how a\ncaller learns which happened.\n\n**No request body.** There is nothing to send: the event is in the path, and\n``subject_id`` comes from the verified principal. That absence is the\nself-scope \u2014 with no field naming a subject, MM-A01's caller-selected\nidentity has nowhere to enter, and no future edit can drop a filter that was\nnever a filter.\n\n**No ``Idempotency-Key``.** Idempotency is\n``uq_event_registration_subject_event``, the data's own identity, which is\nthe rule ``routers/speaker_requests.py`` states: a header key recognises only\na repeat of an identical body, and a body-less request has no identity to\nrepeat. Two clicks are the same registration under any phrasing.\n\n**Nothing is written to ``attendance_record``.** ADR-0013 makes attendance\nthe only input to points; a registration is a claim about the future, and\ncrediting it would pay a student for an event they had not attended.\n\nQuota is charged first, before the unit is loaded and before authorization\nruns (ADR-0015).\n\nRaises:\n    ApiError: 403 when the caller may not register into this unit; 404 when\n        the unit is not this tenant's, or the event is not a published event\n        of this unit; 429 when the minute's quota is spent.",
+        "operationId": "register_for_event_v1_units__unit_id__student_events__event_id__registration_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "You were already registered, or were returning after cancelling. Uniqueness on (tenant, subject, event) makes a second Register the same registration rather than a second one."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentRegistrationResponse"
+                }
+              }
+            },
+            "description": "A new registration was recorded."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Register this student for an event",
         "tags": [
           "student-events"
         ]

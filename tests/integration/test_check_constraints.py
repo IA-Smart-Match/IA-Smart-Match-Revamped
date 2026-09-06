@@ -486,6 +486,14 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("speaker_request_classification", "ck_speaker_request_classification_kind"): (
         "CHECK ((kind = ANY (ARRAY['industry'::text, 'role'::text])))"
     ),
+    # Migration 0026. Two values, and the *absence* of a third is the part worth
+    # pinning: `waitlisted` is not here because no capacity exists anywhere in
+    # this schema for it to overflow from (OQ-CBA-029), and a value no writer
+    # could produce would be a vocabulary invented by DDL. Recording the
+    # definition literally means adding one has to pass through this file.
+    ("event_registration", "ck_event_registration_status"): (
+        "CHECK ((status = ANY (ARRAY['registered'::text, 'cancelled'::text])))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -757,6 +765,16 @@ BEHAVIOURAL_COVERAGE = {
         "with the permitted half in "
         "::test_a_speaker_request_targets_many_industries_and_many_roles, which writes both "
         "kinds"
+    ),
+    ("event_registration", "ck_event_registration_status"): (
+        "0026 added, test_event_registration.py"
+        "::TestRegistrationIsScopedToItsTenantAndItsStudent"
+        "::test_an_unknown_status_is_refused_by_the_database, which attempts the "
+        "`waitlisted` value this constraint deliberately omits (OQ-CBA-029), plus "
+        "::TestTheTableHasTheShapeTheBlockedCardSpecified"
+        "::test_the_status_vocabulary_is_exactly_two_values reading the definition "
+        "back. The permitted half is every write in TestRegisteringIsIdempotent and "
+        "TestCancellingIsATransitionAndNotADelete, which store both admitted values"
     ),
 }
 

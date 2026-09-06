@@ -1255,6 +1255,67 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The two registration writes (card ``CBA-STUDENT-REGISTRATION``, customer
+    # §15's "register for events"). They are the first *writes* on the student
+    # surface: until migration ``0026`` there was no registration table, the two
+    # rows above were the whole of it, and
+    # ``tests/integration/test_event_registration.py`` failed the day a route
+    # like these appeared.
+    #
+    # They share **one** authorizer with each other and **not** with the two
+    # reads above, and both halves of that are deliberate.
+    #
+    # Sharing between themselves: registering and cancelling are one persona
+    # asking one question — may this student manage their own place at this
+    # unit's events — and every cell of the rectangle agrees. That is the
+    # arrangement the five `speaker_contact.*` operations use, and the contrast
+    # is the two `speaker_request.*` rows, which are split because the
+    # `volunteer` cell genuinely differs between them.
+    #
+    # Not sharing with the reads: `_authorize_student_event_read` is named for
+    # what it authorizes, and routing a write through a function called `read`
+    # would make this file's own `authorizer` column say something false about
+    # the route. The role sets are equal today, and
+    # `_STUDENT_REGISTRATION_ROLES` is a separate literal for the reason
+    # `tests/authz/test_route_roles.py` gives about its own ledger: two role
+    # sets agreeing today is not a reason a widening of one should silently
+    # widen the other. Widening a *read* to let a Connector preview the student
+    # portal (OQ-CBA-019) must not also hand them the ability to register a
+    # student for something.
+    #
+    # What the matrix cannot see, and is therefore not encoded here: both routes
+    # write `event_registration.subject_id` from the verified principal and
+    # never from the request, so a student admitted here can only ever register
+    # *themselves*. That is a self-scope the policy engine has no concept of, and
+    # it is asserted over HTTP in `tests/contract/test_student_events_api.py` —
+    # the same division of labour the agenda row above describes.
+    #
+    # No `require_membership` and no `tenant_wide_roles`, for the reasons the two
+    # read rows give.
+    Operation(
+        key="student_event.register",
+        method="POST",
+        path="/v1/units/{unit_id}/student/events/{event_id}/registration",
+        module="smartmatch_api.routers.student_events",
+        authorizer="_authorize_student_registration_write",
+        roles_constant="_STUDENT_REGISTRATION_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="student_event.cancel",
+        method="DELETE",
+        path="/v1/units/{unit_id}/student/events/{event_id}/registration",
+        module="smartmatch_api.routers.student_events",
+        authorizer="_authorize_student_registration_write",
+        roles_constant="_STUDENT_REGISTRATION_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"student"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The five contact-management operations (card ``CBA-CONTACT-MANAGEMENT``,
     # customer §13). They share **one** authorizer, and the contrast with the
     # two Speaker Request rows directly above is the thing to read, because a
@@ -2579,6 +2640,187 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why=(
                 "the actor half of the shape is inert here; what is left is a "
                 "deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    # The two registration writes. Cell for cell they agree with the two reads
+    # above, because the role set is the same one — and they are written out in
+    # full rather than aliased for the reason the agenda row gives about the
+    # browse row: a copy is what makes the day they stop agreeing a visible diff
+    # on this file.
+    #
+    # The `admin_at_org_root` deny is the cell worth reading twice here. On a
+    # read it means "an admin sees these events through `events.read` instead".
+    # On a write it means something stronger: there is no route in this
+    # deployment by which anybody registers anybody else. A Connector who needs a
+    # student on a roster records an `attendance_record` after the fact through
+    # the engagement surface, which is a claim about the past that the student
+    # was actually part of — not a claim about their intent that they never made.
+    "student_event.register": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set, and on a write that "
+                "is a stronger statement than on the reads above: registering is "
+                "something a student does for themselves, and no route here lets "
+                "one person state another person's intent. The root grant covers "
+                "the unit, so containment is satisfied and the role is the only "
+                "thing refusing — which is the shape a widening of "
+                "`_STUDENT_REGISTRATION_ROLES` would flip"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "same reason as the admin above, at the unit that owns the "
+                "resource. A Connector who needs to record that a student was at "
+                "an event writes an `attendance_record` through the engagement "
+                "surface — a fact about the past — rather than a registration, "
+                "which is the student's own statement about the future"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "refused twice over — wrong role and, independently, a sibling "
+                "department does not contain the owning unit. The role check is "
+                "what `evaluate` reaches first, so `no_grant` is the code either way"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the column this file keeps to make `tenant_wide_roles` visible. "
+                "`_authorize_student_registration_write` passes none, and the role "
+                "is wrong here besides"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "customer §15: the Student registers for their unit's events. "
+                "Containment is inclusive, so a membership at exactly the owning "
+                "unit covers it. This is the permit the card rests on, and it is "
+                "narrower than it looks — the row written names "
+                "`principal.user_id` as its `subject_id`, so the permit is to "
+                "register *yourself* and there is no request field that could name "
+                "somebody else (MM-A01)"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host (customer §4), who files Speaker "
+                "Requests. An active membership at exactly the owning unit leaves "
+                "the role as the only thing that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance. The "
+                "cell asserts the *code*, and the deny is what wins even though the "
+                "role would have refused this principal regardless"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "registering has no actor path — the shape degenerates to a "
+                "role-less member, which is correct: this operation is not "
+                "reachable through job submission at all"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here; what is left is a deny "
+                "on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    # Identical to the row above, cell for cell, and written out rather than
+    # aliased for the same reason. The one thing a reader should not conclude
+    # from the identity is that cancel is a weaker permission than register: it
+    # is the same permission over the same row, which is why an admin cannot
+    # cancel a student's registration any more than they could create one.
+    "student_event.cancel": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "`admin` is not in this operation's role set. Cancelling somebody "
+                "else's registration is withdrawing a statement they made, which "
+                "is not an administrative act this deployment offers — see "
+                "`student_event.register`"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why="`coordinator` is not the role §15 names; see `student_event.register`",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role, and a sibling department does not contain the owning unit",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "no `tenant_wide_roles` is passed, and the role is wrong besides — "
+                "see `student_event.register`"
+            ),
+        ),
+        "student_at_owning_unit": permit(
+            why=(
+                "customer §15. The permit is to the *route*; which row it touches "
+                "is decided by `subject_id = principal.user_id`, so a student "
+                "admitted here can cancel only their own registration and there is "
+                "no request field that could name somebody else's"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is the Event Host; the role is the only thing left to refuse it",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="cancelling has no actor path — the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half of the shape is inert here; what is left is a deny "
+                "on the unit, which beats inheritance"
             ),
         ),
     },
@@ -4796,6 +5038,20 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # `tests/contract/test_student_events_api.py`, the same division of
         # labour `_authorize_invite_read` already uses.
         "_authorize_student_event_read",
+        # The fifteenth (`routers/student_events.py` again), on the same terms
+        # with `_STUDENT_REGISTRATION_ROLES`. One name for the two registration
+        # writes, the `_authorize_speaker_contacts` arrangement: registering and
+        # cancelling are one persona managing one thing.
+        #
+        # It is a *separate* name from the read authorizer directly above even
+        # though both sets read `{student}` today, because the read function is
+        # named for what it authorizes and a write routed through it would make
+        # this file's own `authorizer` column say something false. The self-scope
+        # — both routes take `subject_id` from the principal, so a student can
+        # only ever register themselves — is again not a policy decision and
+        # could not be one; it is asserted over HTTP in
+        # `tests/contract/test_student_events_api.py`.
+        "_authorize_student_registration_write",
     ):
         assert_allowed(
             resolved.principal,
