@@ -84,3 +84,6 @@ apps/web/.vite/
 # it is a transcript of a tool run rather than anything about this project.
 # Ignored rather than deleted-and-forgotten so a future run cannot stage it.
 error.log
+
+# Local git worktrees for parallel agent work; never part of the repository.
+_worktrees/

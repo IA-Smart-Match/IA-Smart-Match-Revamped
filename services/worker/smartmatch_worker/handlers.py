@@ -81,7 +81,6 @@ from smartmatch_domain.factor_registry import (
     RegistryNotReadyError,
     assert_registry_approved,
     assert_scoring_ready,
-    normalize_weights,
     resolve_scoring_model,
 )
 from smartmatch_domain.factors.proximity import (
@@ -100,8 +99,10 @@ from smartmatch_domain.match_run import (
 )
 from smartmatch_domain.optimizer import PortfolioCandidate, PortfolioRequest, solve_portfolio
 from smartmatch_domain.public_url import StaticUrlShapeRefusal, validate_static_url_shape
+from smartmatch_domain.weight_settings import applied_weights
 from smartmatch_persistence.jobs import JobRecord
 from smartmatch_persistence.match_runs import MatchRunRepository
+from smartmatch_persistence.match_weight_settings import MatchWeightSettingRepository
 from smartmatch_persistence.review import ReviewRepository
 from sqlalchemy.orm import Session
 
@@ -1196,12 +1197,32 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
     # prevent.
     model = resolve_scoring_model(command.scoring_mode)
 
+    # This unit's stored weight overrides, or an empty map when it has never
+    # configured any (customer §5, migration 0027). Read from the *job's own*
+    # tenant and owning unit, never from the payload, for the reason every other
+    # scoping decision in this handler gives: the payload is what a caller sent,
+    # and the job row is what was authorized.
+    #
+    # A unit with no settings behaves exactly as it did before this existed —
+    # `applied_weights` with no overrides *is* `normalize_weights` — so the
+    # approved goldens are untouched by the mere existence of the feature.
+    overrides = _weight_settings.overrides_for(
+        context.session,
+        tenant_id=context.job.tenant_id,
+        owning_unit_id=context.job.owning_unit_id,
+    )
+
     # Normalized over that model's factors only — the corrected form of the
     # legacy `_normalize_weights`, whose denominator ranged over nine declared
     # factors while its numerator summed seven, capping every score at 0.90.
     # These are the weights the run is pinned to, so the stored copy is the
     # normalized set that actually applied and not the proposed one.
-    weights = normalize_weights(model=model)
+    #
+    # Read here, at execution, and *snapshotted* into the row below. That is what
+    # makes a later settings change unable to reach this run: the row carries the
+    # numbers themselves, not a reference to the settings that produced them, and
+    # 0018's trigger refuses to let the row change afterwards.
+    weights = applied_weights(overrides, model=model)
 
     context.emit(
         {
@@ -1311,6 +1332,12 @@ _reviews: Final[ReviewRepository] = ReviewRepository()
 
 #: Same reasoning as ``_reviews`` above.
 _match_runs: Final[MatchRunRepository] = MatchRunRepository()
+
+#: Same reasoning again. Read-only on this path: ``handle_match_run_create``
+#: asks it what a unit's weights are and never writes one — a worker that could
+#: change a unit's configuration while executing a run would make the run's own
+#: inputs a moving target.
+_weight_settings: Final[MatchWeightSettingRepository] = MatchWeightSettingRepository()
 
 
 # Built by a function rather than exposed as a module-level constant, so that no

@@ -2635,13 +2635,24 @@ export async function correctSpeakerContactClassification(
 // Student events (customer §15, card `CBA-STUDENT-EVENTS`)
 // ---------------------------------------------------------------------------
 //
-// Two reads, no write. §15 also asks that a student be able to *register* for
-// an event, and there is no `registerForEvent` here because there is no route
-// to call: `attendance_record` is attendance, ADR-0013 makes it the only input
-// to points, and a row written at registration time would credit somebody for
-// an event they had not attended. See
-// `tests/integration/test_event_registration.py` and OQ-CBA-018. Do not add a
-// client function that posts to a path the server does not serve.
+// Two reads and two writes. The writes arrived with card
+// `CBA-STUDENT-REGISTRATION` and migration `0026`, which gave a registration
+// its own `event_registration` table. Before that there was no route to call:
+// the only table that looked like it would serve, `attendance_record`, is
+// attendance, and ADR-0013 makes it the sole input to points — so a row written
+// at registration time would have credited somebody for an event they had not
+// attended.
+//
+// Neither write takes a body. The event is in the path and the student is the
+// caller, so there is no field naming a subject and there must never be one
+// (MM-A01). Idempotency is the server's uniqueness on
+// (tenant, subject, event) rather than an `Idempotency-Key` header: a body-less
+// request has no identical body for a header key to recognise a repeat of.
+//
+// Do not add a client-side set of "registered" event ids. The server reports
+// whether a place is held on every read, in `StudentEvent.registration`; a
+// browser-held set is a claim the next page load cannot confirm, which is
+// exactly `docs/plans/frontend-broken-buttons.md` B06's defect.
 
 /** An event's time at whichever precision is actually known (ADR-0010). */
 export interface StudentEventTime {
@@ -2681,6 +2692,31 @@ export interface StudentEventCalendar {
   unavailable_reason: string | null;
 }
 
+/**
+ * This caller's registration for one event, or `null` where there has never
+ * been one.
+ *
+ * A registration you cancelled comes back as an object reading `cancelled`, not
+ * as `null`. The two are different facts and the server keeps them apart
+ * deliberately — a `DELETE` on cancel would have made "you cancelled" and "you
+ * never registered" the same absence, and a client that could not tell them
+ * apart would have no way to show that a cancellation had taken effect.
+ */
+export interface StudentEventRegistration {
+  /** `registered` — you hold a place — or `cancelled`. There is no waitlist. */
+  status: string;
+  /**
+   * When the place was first taken. Does not move when you cancel and register
+   * again.
+   */
+  registered_at: string;
+  /**
+   * When the status last moved. Equal to `registered_at` on a registration that
+   * has never changed, and a repeated Register does not advance it.
+   */
+  updated_at: string;
+}
+
 /** One event as a student sees it. No review status and no extraction provenance. */
 export interface StudentEvent {
   id: string;
@@ -2692,12 +2728,28 @@ export interface StudentEvent {
   location_postal_code: string | null;
   tags: string[];
   /**
-   * True when an attendance record ties this caller to this event. Named for
-   * what it is rather than "registered": there is no registration in this
-   * deployment, and a field called `registered` would claim one.
+   * True when you hold an active registration for this event **or** are
+   * recorded at it. Still named for what it is rather than "registered": the
+   * narrower name would exclude every event a department recorded you at
+   * without you clicking anything — a coordinator entry or an imported roster.
+   * Ask `registration` below for the narrower question.
    */
   on_my_agenda: boolean;
+  /** Your registration, or null if you have never registered for this event. */
+  registration: StudentEventRegistration | null;
   calendar: StudentEventCalendar;
+}
+
+/** What a register or cancel left behind, read back out of the server's own row. */
+export interface StudentRegistrationResult {
+  unit_id: string;
+  event_id: string;
+  /**
+   * Null only from a cancel by a student who had never registered, which writes
+   * no row — a registration nobody made is not a thing to record the
+   * cancellation of.
+   */
+  registration: StudentEventRegistration | null;
 }
 
 /** The unit's published events, and an honest count of what is not shown. */
@@ -2747,6 +2799,58 @@ export async function fetchStudentAgenda(unitId: string): Promise<StudentAgenda>
   return requestJson<StudentAgenda>(
     `/v1/units/${encodeURIComponent(unitId)}/student/agenda`,
     { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/student/events/{event_id}/registration` — take a
+ * place at an event (customer §15).
+ *
+ * No body, and that absence is the self-scope: the server takes the student
+ * from the verified principal, so there is no field through which a caller
+ * could name somebody else (MM-A01).
+ *
+ * Safe to call twice. The server's uniqueness on (tenant, subject, event) makes
+ * a second call the same registration rather than a second one — it answers
+ * `201` the first time and `200` afterwards, and this function returns the same
+ * stored row either way. A caller does **not** need to check first, and should
+ * not disable the control on the strength of its own memory of having clicked.
+ */
+export async function registerForEvent(
+  unitId: string,
+  eventId: string,
+): Promise<StudentRegistrationResult> {
+  return requestJson<StudentRegistrationResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events/` +
+      `${encodeURIComponent(eventId)}/registration`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `DELETE /v1/units/{unit_id}/student/events/{event_id}/registration` — give up
+ * your place.
+ *
+ * Addresses your claim on the event: after it you hold none. The server keeps
+ * the row and moves its status to `cancelled` rather than deleting it, and says
+ * so in the response — so render what comes back rather than assuming an
+ * absence.
+ *
+ * Idempotent in both directions a caller can reach it: cancelling an
+ * already-cancelled registration, and cancelling one that never existed, are
+ * both `200` and neither is an error. The second returns `registration: null`,
+ * because a registration nobody made leaves nothing to cancel.
+ */
+export async function cancelEventRegistration(
+  unitId: string,
+  eventId: string,
+): Promise<StudentRegistrationResult> {
+  return requestJson<StudentRegistrationResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events/` +
+      `${encodeURIComponent(eventId)}/registration`,
+    { method: "DELETE" },
     { authenticated: true },
   );
 }

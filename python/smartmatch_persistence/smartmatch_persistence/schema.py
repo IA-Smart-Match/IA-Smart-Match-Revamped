@@ -47,12 +47,15 @@ __all__ = [
     "delivery_event",
     "discovery_review_item",
     "event",
+    "event_registration",
     "event_tag",
     "idempotency_record",
     "import_batch",
     "job",
     "job_event",
     "match_run",
+    "match_weight_setting",
+    "match_weight_setting_revision",
     "membership",
     "org_unit",
     "outbox_record",
@@ -2084,4 +2087,177 @@ speaker_request_classification = sa.Table(
         "'entrepreneurship_founder','sales_business_development'))",
         name="ck_speaker_request_classification_code",
     ),
+)
+
+
+event_registration = sa.Table(
+    "event_registration",
+    METADATA,
+    # Migration 0026, closing OQ-CBA-018. A student's intent to attend, which
+    # is a different fact from having attended -- and the reason it is not a
+    # fourth `attendance_record.method` is that ADR-0013 makes attendance the
+    # only input to points, so a row written at sign-up time would be credited
+    # as a row written at check-in time with nothing able to tell them apart.
+    #
+    # There is deliberately NO relationship from this table to
+    # `point_ledger_entry`, in either direction: no source column, no foreign
+    # key, and no `uq_event_registration_tenant_id` for one to reference. That
+    # absence is the guarantee; adding the constraint "just in case" is how the
+    # separation would erode.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as attendance_record.owning_unit_id: the unit whose
+    # student surface the registration was made through, stored at write time
+    # rather than joined back through event.host_org_unit_id later.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # The student. Every read of this table filters on it from the verified
+    # principal, never from a request field (MM-A01).
+    sa.Column("subject_id", _UUID, nullable=False),
+    # 'registered' or 'cancelled'. `waitlisted` is absent because no capacity
+    # exists anywhere in this schema for it to overflow from (OQ-CBA-029), and
+    # a value no writer could produce is a vocabulary invented by DDL.
+    sa.Column("status", sa.Text, nullable=False),
+    # When the place was taken. Never moves, including across a
+    # cancel-then-re-register, so it stays able to say how late a cancellation
+    # was.
+    sa.Column("registered_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # When `status` last moved. This is what makes cancellation-as-a-transition
+    # legible rather than a row that says only that it is cancelled.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_registration_pkey"),
+    # The natural key, and the whole of this table's idempotency: one row per
+    # student per event whatever its status, so a second sign-up is the same
+    # registration rather than a second one. The same triple
+    # uq_attendance_record_subject_event uses, for a neighbouring reason.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_id", "event_id", name="uq_event_registration_subject_event"
+    ),
+    # RESTRICT: an event must not be deleted out from under a student holding a
+    # place at it. Contrast speaker_request_classification's CASCADE onto the
+    # same parent -- that is part of the event; this is a second party's
+    # statement about it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('registered','cancelled')",
+        name="ck_event_registration_status",
+    ),
+)
+
+
+match_weight_setting = sa.Table(
+    "match_weight_setting",
+    METADATA,
+    # Migration 0027, customer §5's "one configurable location". What this row
+    # holds is *overrides* and nothing else: a factor key absent from
+    # `overrides` has no stored weight anywhere in this database, and its value
+    # is read from `smartmatch_domain.factor_registry` at scoring time.
+    #
+    # That absence is the design, not an omission. A row seeded with all four
+    # approved weights would be a second copy of ADR-0016's figures, and the two
+    # copies would disagree the first time either changed with nothing able to
+    # say which one scored a run. So there is no server default naming a weight
+    # here, and clearing an override deletes the entry rather than writing the
+    # registry value back.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as import_batch.owning_unit_id and event_registration's are:
+    # the unit whose matching this configures.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # A JSON object, possibly empty. `{}` is a unit that configured something
+    # and then reset it -- which has an author and a timestamp that a unit with
+    # no row at all does not, so the two states stay distinguishable.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    # Monotonic from 1. What a client echoes back to say which version it meant
+    # to modify, so two Connectors editing one unit's weights cannot silently
+    # overwrite each other.
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("updated_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_pkey"),
+    # One weighting per unit, not a most-recent one.
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", name="uq_match_weight_setting_unit"),
+    # RESTRICT: reorganizing a unit must not silently delete its configuration.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: deleting an account must not erase the authorship of a change
+    # it made.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "updated_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # An object, so `{}` is admissible and a bare array or scalar is not. It
+    # says nothing about which keys or values are acceptable: a CHECK cannot see
+    # the registry, and encoding the factor vocabulary in DDL would make this
+    # one more place a factor key is written down.
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_version"),
+)
+
+
+match_weight_setting_revision = sa.Table(
+    "match_weight_setting_revision",
+    METADATA,
+    # Migration 0027. One insert-only row per accepted change, so "what is in
+    # force and who set it" (the table above) is joined by "and what was it
+    # before". Held immutable by the `match_weight_setting_revision_is_immutable`
+    # trigger, which is 0018's device for 0018's reason: a CHECK cannot express
+    # "this row may not change", and a log that survives a hand-written UPDATE
+    # is the only kind worth keeping.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The state this change put the unit into, in full rather than as a diff: a
+    # diff is only readable next to the row it applies to, and the row it
+    # applies to is the one that moved.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("changed_by_user_id", _UUID, nullable=False),
+    sa.Column("changed_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_revision_pkey"),
+    # One row per version per unit -- also this log's idempotency, so a re-driven
+    # write cannot append a second entry claiming a change that happened once.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "version",
+        name="uq_match_weight_setting_revision_version",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "changed_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_revision_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_revision_version"),
 )

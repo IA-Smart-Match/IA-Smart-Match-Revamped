@@ -104,6 +104,27 @@ _TENANT_SCOPED_TABLES = (
     # for the reason `event_tag` above is: this tuple is read as the full set of
     # tenant-scoped tables, not as the minimum a cascade would miss.
     "speaker_request_classification",
+    # Migration 0026. Holds ON DELETE RESTRICT references to `event`,
+    # `user_account` *and* `org_unit`, so it goes above all three — the ordering
+    # failure PR #26 had to fix for `match_run`/`job`.
+    #
+    # Unlike `attendance_record`, which the note below records as deliberately
+    # absent, this one is listed. Attendance is written by a handful of modules
+    # that already delete it in their own fixtures; a registration can be left
+    # behind by any test that exercises the student write routes, and one row
+    # nobody remembered to clean makes the whole tenant undeletable.
+    "event_registration",
+    # Migration 0027. Both hold ON DELETE RESTRICT references to `org_unit`
+    # *and* `user_account`, so they go above both — the ordering failure PR #26
+    # had to fix for `match_run`/`job`. The revision log is listed first because
+    # nothing references it and it is the more surprising of the two to forget.
+    #
+    # Listed even though its rows are immutable, for `match_run`'s reason: 0027
+    # blocks UPDATE only, because retention (OQ-CBA-034) is a question that card
+    # does not decide, and a table nothing could delete from would make its
+    # tenant undeletable.
+    "match_weight_setting_revision",
+    "match_weight_setting",
     # Before `user_account` and `org_unit`, both of which `event` and
     # `discovery_review_item` hold ON DELETE RESTRICT references to.
     # `attendance_record` is deliberately still not in this tuple: it also
