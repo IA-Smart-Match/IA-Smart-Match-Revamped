@@ -2096,6 +2096,31 @@ speaker_profile = sa.Table(
         "AND role_classified_at IS NOT NULL)",
         name="ck_speaker_profile_role_provenance",
     ),
+    # Migration 0030's one piece of DDL. It backs the duplicate hint the §13
+    # create returns beside a successful 201 — "this unit already holds
+    # somebody by this name, here they are" — which replaced the
+    # `409 speaker_contact_name_already_used` that OQ-CBA-017's decision
+    # removed. The hint runs on every create, so the read is indexed rather
+    # than a scan of the tenant's profiles.
+    #
+    # **NOT unique, and it must never become unique — OQ-CBA-021.** A unique
+    # index over a unit's folded names makes the name identifying again, which
+    # is exactly the property opaque identity exists to remove; it would also
+    # fail harder than the 409 did, because a constraint violation cannot name
+    # the person it collided with or let a Connector proceed once they have
+    # confirmed these are two different people. 0025 declined this constraint
+    # and 0030 declines it again.
+    #
+    # `lower(btrim(...))` is the SQL spelling of `full_name.strip().casefold()`.
+    # `smartmatch_persistence.cba_contacts` folds identically in the query, so
+    # the index is usable rather than decorative.
+    sa.Index(
+        "ix_speaker_profile_unit_folded_name",
+        "tenant_id",
+        "owning_unit_id",
+        sa.text("lower(btrim(full_name))"),
+        unique=False,
+    ),
 )
 
 

@@ -86,12 +86,26 @@ _PARENT_REVISION = "0024_cba_classification"
 #: skip reason that cannot be recorded), and the ``contact_channel`` reference it
 #: does declare is ``ON DELETE RESTRICT``, so no row this file writes can be
 #: removed by anything ``0029`` added.
-_HEAD_REVISION = "0029_cba_speaker_invitation"
+#: Updated again by ``CBA-OPAQUE-SPEAKER-IDENTITY``:
+#: ``0030_cba_opaque_speaker_identity`` chains to ``0029`` and is the head. This
+#: is the least trivially composable bump so far, and the assertion earns its
+#: keep here: ``0030`` **re-keys** the ``speaker_profile`` rows this file's card
+#: created, because OQ-CBA-017 was decided as *identity becomes opaque* and the
+#: ``uuid5`` over ``(tenant, unit, folded name)`` that ``0025``'s docstring
+#: described is gone. It still composes with everything this file asserts, and
+#: the reason is precise: ``0030`` changes the **value** in ``professional_id``
+#: and no column, constraint, key or nullability anywhere — every claim below is
+#: about shape, and shape is untouched. Its one piece of DDL is the *non-unique*
+#: ``ix_speaker_profile_unit_folded_name``; the uniqueness on
+#: ``(tenant_id, owning_unit_id, full_name)`` that ``0025`` declined is still
+#: declined, now under OQ-CBA-021.
+_HEAD_REVISION = "0030_cba_opaque_speaker_identity"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0029_cba_speaker_invitation",
     "0028_classification_provenance",
     "0027_match_weight_setting",
     "0026_event_registration",
