@@ -119,7 +119,7 @@ CBA_SEMANTIC_TOPIC_FACTOR_VERSION: Final[str] = "1.0.0"
 #: This factor's own key. Deliberately **not** ``topic_relevance``: that key
 #: belongs to the pre-CBA lexical set-overlap factor, which still exists and
 #: still means what it meant. Which of the two the CBA registry binds to its
-#: Topic slot is a registry decision (OQ-CBA-025), and taking the existing key
+#: Topic slot is a registry decision (OQ-CBA-027), and taking the existing key
 #: here would have made that decision silently by collision.
 CBA_SEMANTIC_TOPIC_FACTOR_KEY: Final[str] = "cba_semantic_topic"
 

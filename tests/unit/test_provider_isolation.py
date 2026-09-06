@@ -201,7 +201,7 @@ def test_classroom_isolation_holds_under_every_product_scope():
 def test_every_edition_gets_the_fixture_topic_semantics_provider(edition: Edition):
     """Customer §9 asks for an AI comparison; no approved model exists yet.
 
-    ``ALLOW_LIVE_PROVIDERS=false`` is the standing default, and OQ-CBA-024
+    ``ALLOW_LIVE_PROVIDERS=false`` is the standing default, and OQ-CBA-026
     (which model, whose credentials, under whose terms) is unanswered, so the
     safe outcome is what a caller gets by writing nothing — in every edition,
     not only the classroom one.
@@ -215,7 +215,7 @@ def test_every_edition_gets_the_fixture_topic_semantics_provider(edition: Editio
 @pytest.mark.parametrize("edition", list(Edition))
 def test_a_live_topic_model_is_refused_under_every_edition(edition: Edition):
     """Asking for a live model is the only way to request one, and it is refused."""
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-024"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
         build_semantic_topic_provider(edition, use_fixture=False)
 
 
@@ -228,7 +228,7 @@ def test_a_topic_model_credential_fails_closed_under_every_edition(edition: Edit
 
 def test_allowing_live_providers_still_does_not_reach_a_live_topic_model():
     """The env gate is necessary, not sufficient: the adapter does not exist."""
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-024"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
         build_semantic_topic_provider(
             Edition.PRODUCTION, use_fixture=False, allow_live_providers=True
         )

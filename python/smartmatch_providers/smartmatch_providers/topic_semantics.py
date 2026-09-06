@@ -10,7 +10,7 @@ Choosing a model is not an implementation detail that can be settled at a
 keyboard. It commits the project to a vendor, a set of terms, a per-run cost,
 and — because the input is a named person's professional profile — a decision
 about sending CBA contact data to a third party. None of those has an owner's
-answer, which is **OQ-CBA-024**. So :func:`build_semantic_topic_provider`
+answer, which is **OQ-CBA-026**. So :func:`build_semantic_topic_provider`
 refuses a live client under *every* edition rather than only the classroom one,
 on the pattern ``registry.build_paid_extraction_provider`` established: the
 refusal is a property of what has been approved, not of where the code happens
@@ -231,7 +231,7 @@ def build_semantic_topic_provider(
         allow_live_providers: Mirrors the ``ALLOW_LIVE_PROVIDERS`` environment
             gate. Accepted so a caller can pass the real value rather than
             assume it, and deliberately **not** sufficient: the gate being open
-            does not conjure an adapter or answer OQ-CBA-024.
+            does not conjure an adapter or answer OQ-CBA-026.
 
     Returns:
         A :class:`FixtureSemanticTopicProvider`, which makes no network call
@@ -246,7 +246,7 @@ def build_semantic_topic_provider(
             f"a topic-model credential is present under edition {edition.value!r}. "
             "No environment in this repository should hold one: the model, the vendor "
             "terms, and whether a speaker's profile text may be sent to a third party "
-            "at all are unanswered (OQ-CBA-024). Failing closed; check the environment "
+            "at all are unanswered (OQ-CBA-026). Failing closed; check the environment "
             "configuration and secret bindings, and rotate anything actually bound."
         )
 
@@ -254,7 +254,7 @@ def build_semantic_topic_provider(
         raise ProviderConfigurationError(
             f"no live semantic topic model may be constructed under edition "
             f"{edition.value!r} — or any other. Which model, on whose credentials, "
-            "under which terms, and with what per-run cost is OQ-CBA-024, and it is "
+            "under which terms, and with what per-run cost is OQ-CBA-026, and it is "
             "open. ALLOW_LIVE_PROVIDERS is a necessary gate, not a sufficient one: "
             f"it was passed as {allow_live_providers!r} here and there is still no "
             "adapter behind it. Customer §9's semantic comparison ships when the "
