@@ -298,6 +298,18 @@
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The approved caption a surface must show beside this score, verbatim, or null when none applies (ADR-0016 Proposal 8).",
+            "title": "Caption"
+          },
           "factors": {
             "description": "Every implemented Stage B factor, unknown ones included.",
             "items": {
@@ -322,6 +334,14 @@
             "description": "The composite in [0.0, 1.0], or null when any factor's evidence was absent. Not a percentage and never rendered as one.",
             "title": "Heuristic Score"
           },
+          "policy_neutral_factor_keys": {
+            "description": "The factors whose value came from a stated customer policy rather than a measurement, in registry order. These participate in the composite; they are listed so a consumer can say which parts of a score were policy without comparing floats to a constant.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Policy Neutral Factor Keys",
+            "type": "array"
+          },
           "registry_version": {
             "description": "The registry version this score was produced under.",
             "title": "Registry Version",
@@ -332,8 +352,32 @@
             "title": "Score Label",
             "type": "string"
           },
+          "scoring_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The model this score was produced under \u2014 cba-virtual-1, cba-physical-1, or null for a run stored before the vocabulary existed. null is not cba-physical-1: a pre-ADR-0016 run never asked the question, and reading it as physical would claim a proximity factor was scored.",
+            "title": "Scoring Mode"
+          },
+          "scoring_mode_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The mode vocabulary's version. Set exactly when scoring_mode is.",
+            "title": "Scoring Mode Version"
+          },
           "state": {
-            "description": "measured or unknown.",
+            "description": "measured, policy_neutral, or unknown.",
             "title": "State",
             "type": "string"
           },
@@ -1432,6 +1476,26 @@
         "title": "EventTimeView",
         "type": "object"
       },
+      "ExcludedCandidateView": {
+        "description": "One named subject that never entered the pool, and why.\n\nDistinct from ``unscorable_candidates`` and deliberately so. An unscorable\ncandidate *was* evaluated and some factor had no evidence; an excluded one\nwas never evaluated at all \u2014 no profile row, or a classification \u00a719 says a\nperson must review first. Collapsing the two would tell a Speaker Connector\nthat somebody scored poorly when in fact nobody has looked at their record.",
+        "properties": {
+          "reason": {
+            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, or role_code_unrecognised.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id",
+          "reason"
+        ],
+        "title": "ExcludedCandidateView",
+        "type": "object"
+      },
       "FactorExplanationView": {
         "description": "One factor's contribution to one candidate's score, or its absence.",
         "properties": {
@@ -1465,8 +1529,32 @@
             "title": "Kind",
             "type": "string"
           },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The customer policy behind a policy_neutral value, null otherwise. Carried so a neutral default is attributable rather than indistinguishable from a measurement that happened to land there.",
+            "title": "Policy Id"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The policy's version. Set exactly when policy_id is.",
+            "title": "Policy Version"
+          },
           "state": {
-            "description": "measured or unknown. Read this before reading value.",
+            "description": "measured, policy_neutral, or unknown (ADR-0016's three states). Read this before reading value.",
             "title": "State",
             "type": "string"
           },
@@ -1479,7 +1567,7 @@
                 "type": "null"
               }
             ],
-            "description": "The factor value in [0.0, 1.0], or null when state is unknown. A null is an absence of evidence and is never a zero.",
+            "description": "The factor value in [0.0, 1.0], or null when state is unknown. A null is an absence of evidence and is never a zero. A policy_neutral value is a stated customer policy, not a measurement.",
             "title": "Value"
           },
           "weight": {
@@ -1509,29 +1597,6 @@
           "basis"
         ],
         "title": "FactorExplanationView",
-        "type": "object"
-      },
-      "GeoPointRequest": {
-        "description": "A synthetic pilot coordinate pair.\n\nOptional wherever it appears, and its absence is meaningful: no coordinate\nis *unknown* travel evidence, which\n:func:`~smartmatch_domain.factors.travel_burden.score_travel_burden`\nreports as ``None`` and never as a distance of zero. Synthetic fixtures\nonly \u2014 nothing here geocodes, and no provider is consulted.",
-        "properties": {
-          "latitude": {
-            "maximum": 90.0,
-            "minimum": -90.0,
-            "title": "Latitude",
-            "type": "number"
-          },
-          "longitude": {
-            "maximum": 180.0,
-            "minimum": -180.0,
-            "title": "Longitude",
-            "type": "number"
-          }
-        },
-        "required": [
-          "latitude",
-          "longitude"
-        ],
-        "title": "GeoPointRequest",
         "type": "object"
       },
       "ImportRequest": {
@@ -1796,55 +1861,21 @@
         "title": "LogoutResponse",
         "type": "object"
       },
-      "MatchCandidateRequest": {
-        "description": "One professional's evidence, as the caller submits it.\n\nCarries evidence, never a score. A caller-supplied score would be a caller\nchoosing their own shortlist, and the registry would be decoration.\n\n``expertise_topics`` is nullable **and** that is different from ``[]``:\n``null`` means no expertise record exists for this professional (unknown),\nan empty list means the record exists and is empty (measurable, and\nmeasurably zero against any declared topic). ADR-0011 lives in that\ndistinction, and\n:class:`~smartmatch_domain.factors.topic_relevance.TopicRelevanceInputs`\ndraws it the same way, so the field is passed through rather than\nnormalized.",
-        "properties": {
-          "expertise_topics": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Recorded expertise topics. null means no expertise record exists (unknown); [] means the record exists and is empty (a measured zero against any declared topic). The two are not interchangeable.",
-            "title": "Expertise Topics"
-          },
-          "location": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GeoPointRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The professional's synthetic coordinates, or null when none are on file."
-          },
-          "subject_id": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Subject Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "subject_id"
-        ],
-        "title": "MatchCandidateRequest",
-        "type": "object"
-      },
       "MatchRunAcceptedResponse": {
-        "description": "Acknowledgement for an accepted match-run command.\n\n``scored_candidates`` and ``unscorable_candidates`` are reported at\nsubmission rather than only on the read, because they are the one thing a\ncaller cannot infer from a job id: a pool of forty that produced eleven\nscorable candidates is a different submission from one that produced forty,\nand both are accepted.",
+        "description": "Acknowledgement for an accepted match-run command.\n\n``scored_candidates``, ``unscorable_candidates`` and ``excluded_candidates``\nare reported at submission rather than only on the read, because they are\nthe one thing a caller cannot infer from a job id: a pool of forty that\nproduced eleven scorable candidates is a different submission from one that\nproduced forty, and both are accepted.",
         "properties": {
           "events_url": {
             "description": "Where to follow the work.",
             "title": "Events Url",
             "type": "string"
+          },
+          "excluded_candidates": {
+            "description": "Named subjects that were never evaluated \u2014 no profile row, or a classification awaiting the review customer \u00a719 requires before a speaker becomes available for matching. Absent from the pool, not ranked last in it.",
+            "items": {
+              "$ref": "#/components/schemas/ExcludedCandidateView"
+            },
+            "title": "Excluded Candidates",
+            "type": "array"
           },
           "job_id": {
             "format": "uuid",
@@ -1873,13 +1904,23 @@
             "title": "Scored Candidates",
             "type": "integer"
           },
+          "scoring_mode": {
+            "description": "The model within that registry the pool was scored under, resolved from the Speaker Request's virtual/physical switch and never from this body. Today always cba-virtual-1 \u2014 see the physical refusal.",
+            "title": "Scoring Mode",
+            "type": "string"
+          },
+          "scoring_mode_version": {
+            "description": "The mode vocabulary's version. Set exactly when scoring_mode is.",
+            "title": "Scoring Mode Version",
+            "type": "string"
+          },
           "status": {
             "default": "accepted",
             "title": "Status",
             "type": "string"
           },
           "unscorable_candidates": {
-            "description": "Candidates excluded because at least one factor's evidence was absent. Reported, never entered at zero (ADR-0011).",
+            "description": "Candidates evaluated whose composite was unknown because at least one factor's evidence was absent. Reported, never entered at zero (ADR-0011).",
             "title": "Unscorable Candidates",
             "type": "integer"
           }
@@ -1888,6 +1929,8 @@
           "job_id",
           "events_url",
           "registry_version",
+          "scoring_mode",
+          "scoring_mode_version",
           "scored_candidates",
           "unscorable_candidates"
         ],
@@ -1895,34 +1938,18 @@
         "type": "object"
       },
       "MatchRunRequest": {
-        "description": "One match-run submission.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).",
+        "description": "One match-run submission: who to consider, and against which request.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).\n\nIt also carries **no evidence**, and that is OQ-CBA-031's point. There is no\nfield here for a speaker's industry, role, topic text or location, and none\nfor the event's description or its physical/virtual switch: every one of\nthose is read from this tenant's own rows by\n:mod:`smartmatch_api.match_run_evidence`. A request body that could state a\nspeaker's expertise is a request body that can decide its own shortlist.",
         "properties": {
-          "candidates": {
-            "description": "The candidate pool, at most 200 entries.",
+          "candidate_subject_ids": {
+            "description": "The professionals to consider, at most 200. Each is a speaker_profile.professional_id as the \u00a713 contact listing reports it \u2014 an identifier the caller was given, never one derived from a name. Their evidence is read from that row; naming somebody here does not assert anything about them.",
             "items": {
-              "$ref": "#/components/schemas/MatchCandidateRequest"
+              "format": "uuid",
+              "type": "string"
             },
             "maxItems": 200,
             "minItems": 1,
-            "title": "Candidates",
+            "title": "Candidate Subject Ids",
             "type": "array"
-          },
-          "event_location": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GeoPointRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The event_need's synthetic coordinates, or null when none are on file \u2014 in which case travel burden is unknown for every candidate and no distance is guessed."
-          },
-          "event_need_id": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Event Need Id",
-            "type": "string"
           },
           "portfolio_size": {
             "default": 2,
@@ -1932,14 +1959,6 @@
             "title": "Portfolio Size",
             "type": "integer"
           },
-          "preferred_topics": {
-            "description": "Topics the event_need declares as preferred.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Preferred Topics",
-            "type": "array"
-          },
           "random_seed": {
             "default": 0,
             "description": "Seed handed to the solver. Part of the reproducibility contract: the same pool, size and seed always produce the same selection.",
@@ -1947,18 +1966,16 @@
             "title": "Random Seed",
             "type": "integer"
           },
-          "required_topics": {
-            "description": "Topics the event_need declares as required.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Required Topics",
-            "type": "array"
+          "speaker_request_id": {
+            "description": "The filed Speaker Request (customer \u00a712) this run is for. Its description, its industry and role targets and its virtual/physical switch are read from the stored row, not from this body.",
+            "format": "uuid",
+            "title": "Speaker Request Id",
+            "type": "string"
           }
         },
         "required": [
-          "event_need_id",
-          "candidates"
+          "speaker_request_id",
+          "candidate_subject_ids"
         ],
         "title": "MatchRunRequest",
         "type": "object"
@@ -7384,7 +7401,7 @@
     },
     "/v1/units/{unit_id}/match-runs": {
       "post": {
-        "description": "Score the submitted pool and enqueue ``match-run.create``.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate ``subject_id``; 422 when\n        fewer candidates have complete evidence than the requested shortlist\n        needs.",
+        "description": "Score this unit's named speakers against a filed Speaker Request.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together. ``event_need_id`` is the Speaker Request's own id,\n  which is what makes a stored run traceable to the request it answered.\n* ``scoring_mode`` \u2014 resolved from that request's virtual/physical switch.\n  The worker pins the registry, the weights and the route-estimate version\n  off it, so this is the value that decides which rulebook the snapshot\n  records.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready or the request is physical\n        (see :func:`_assert_mode_available`); 404 when no such Speaker\n        Request exists in this unit; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer\n        candidates can be scored than the requested shortlist needs.",
         "operationId": "create_match_run_v1_units__unit_id__match_runs_post",
         "parameters": [
           {
