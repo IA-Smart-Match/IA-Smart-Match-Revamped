@@ -28,27 +28,58 @@ repository in this package, and here that is not merely a style rule: a contact
 whose ``speaker_profile`` landed and whose ``user_account`` did not is not a
 partial contact, it is a state the foreign key would have refused outright.
 
-Why a repeat create is a conflict rather than an upsert
-=========================================================
+A create always makes a new person, and says who else has the name
+====================================================================
 
-``speaker_requests.py`` treats a re-filed request as the *same* request and
-updates it, because ADR-0012 gives an event a deterministic natural key and says
-in as many words that two extractions producing that key are one event.
+**OQ-CBA-017, decided 2026-09-05: identity becomes opaque.** This module used to
+derive ``professional_id`` from ``(tenant, unit, folded name)``, which had two
+consequences it treated as one. Two genuinely different people sharing a name in
+one unit derived a single id, so the second create had to be refused — there was
+no second row for them to live in. And an edit that corrected a name did not
+move the derived key, so the refusal *stopped firing* for exactly the case it
+was needed in: rename ``"Dana Ryes"`` to ``"Dana Reyes"``, create
+``"Dana Reyes"``, and the guard compared a derived id that no longer had
+anything to do with the stored name. One person, two records, silence.
 
-A contact has no such ruling, and the analogous behaviour would be wrong. The
-identity here is derived from ``(tenant, unit, folded name)``
-(:func:`smartmatch_domain.cba_contacts.speaker_contact_subject_id`), so two
-genuinely different people who share a name in one unit derive one id. Upserting
-would silently overwrite the first person's company, title and classification
-with the second's — a data-loss bug that looks like a successful save. Inserting
-a duplicate is not available either: the derived id is the primary key.
+Both consequences are gone because the cause is. :meth:`SpeakerContactRepository.create`
+generates an opaque ``uuid4`` — the ``xxx_id or uuid.uuid4()`` shape ``jobs.py``,
+``outreach.py``, ``contacts.py`` and ``cba_invitations.py`` all use — so a
+second create is an ordinary insert of a second person, and nothing about a
+person can change and leave their id stale.
 
-So :meth:`SpeakerContactRepository.create` raises
-:class:`SpeakerContactAlreadyExists` carrying the stored contact, and the route
-answers ``409`` naming who is already there. Silently merging and silently
-duplicating are both worse than making the caller say which they meant. See
-**OQ-CBA-017**, which is where the question of what the caller should then be
-able to *do* about it is recorded rather than guessed.
+``speaker_requests.py`` still treats a re-filed request as the *same* request,
+and the contrast is worth keeping straight rather than reading as an
+inconsistency: ADR-0012 gives an **event** a deterministic natural key and says
+two extractions producing it are one event. No comparable ruling was ever made
+about a person, and the difference is that an event's identifying facts are
+stated once by whoever filed it, while a person's name is typed by hand and
+routinely corrected.
+
+What the removed 409 was doing, and what replaced it
+=======================================================
+
+That refusal was doing two jobs. The first — enforcing a key that could not hold
+two same-named people — is gone with the key. The second was crude duplicate
+prevention, and removing the refusal would have left it unowned, so
+:meth:`SpeakerContactRepository.create` takes it over explicitly: it reads the
+unit's contacts whose folded name matches the draft's
+(:meth:`SpeakerContactRepository.list_same_name`) **before** inserting, and
+returns them beside the new contact in a :class:`SpeakerContactCreated`.
+
+That is a hint and never a block. The create succeeds; the caller is told that
+somebody else in this unit carries the name, and who they are, so a Connector
+can recognize them and stop — which is the one thing the ``409`` did well and
+the only part worth keeping. Read *before* the insert rather than afterwards and
+filtered, so the new row cannot appear in its own hint by construction.
+
+**No uniqueness constraint may ever be added on
+``(tenant_id, owning_unit_id, full_name)``** — OQ-CBA-021, argued in migration
+``0030``. It would make the name identifying again, which is precisely what
+opaque identity exists to prevent, and it would fail harder than the ``409``
+did: a constraint violation cannot name the person it collided with, and cannot
+let a Connector proceed once they have confirmed these are two different people.
+The index migration ``0030`` does add, ``ix_speaker_profile_unit_folded_name``,
+is deliberately non-unique and exists to make this read cheap.
 
 A correction updates; it does not accumulate
 ===============================================
@@ -112,9 +143,9 @@ from smartmatch_domain.cba_contacts import (
     CONTACT_BOARD_ROLE,
     ClassificationCorrection,
     SpeakerContactDraft,
+    folded_contact_name,
     speaker_contact_email,
     speaker_contact_external_subject,
-    speaker_contact_subject_id,
 )
 from sqlalchemy.orm import Session
 
@@ -122,7 +153,7 @@ from smartmatch_persistence import schema
 from smartmatch_persistence.professionals import ProfessionalIdentityRepository
 
 __all__ = [
-    "SpeakerContactAlreadyExists",
+    "SpeakerContactCreated",
     "SpeakerContactRepository",
     "SpeakerContactRow",
 ]
@@ -140,12 +171,13 @@ class SpeakerContactRow:
     to send to.
 
     Attributes:
-        professional_id: The contact's identity, derived at create time from
-            ``(tenant, unit, folded name)``. Stable across edits, including an
-            edit that changes the name — see
-            :meth:`SpeakerContactRepository.update`.
+        professional_id: The contact's identity. Opaque and generated at create
+            time (OQ-CBA-017), not a function of the name or of anything else
+            about the person — which is what makes it stable across every edit,
+            a rename included. See :meth:`SpeakerContactRepository.update`.
+        full_name: §13's "Name", and an ordinary column: a label a Connector may
+            correct, with nothing keyed to it.
         owning_unit_id: The unit whose Connector is accountable for this record.
-        full_name: §13's "Name".
         company: §13's "Company", or ``None`` — a stated absence, not a gap.
         title: §13's "Job title", or ``None``.
         topic_text: §18's topic/interests/expertise text.
@@ -222,30 +254,34 @@ class SpeakerContactRow:
         return self.match_ineligibility_reason is None
 
 
-class SpeakerContactAlreadyExists(Exception):
-    """A create derived the identity of a contact this unit already holds.
+@dataclass(frozen=True, slots=True)
+class SpeakerContactCreated:
+    """What a create produced, and who else in the unit already had the name.
 
-    Carries the stored contact rather than only its id, so the route can answer
-    ``409`` naming who is already there — a Connector can recognize or dispute
-    "Dana Reyes at Reyes Analytics", and cannot do either with a bare UUID.
+    A value rather than a bare row, because a create now answers two questions
+    and only one of them is "what did you store". The second — *are you sure
+    this is a new person?* — is the job the removed ``409`` was doing as a side
+    effect (OQ-CBA-017), and it has to travel out of the repository somehow or
+    the route has no way to ask it.
 
-    Raised rather than resolved, for the reason the module docstring gives at
-    length: the two silent alternatives are overwriting one person's record with
-    another's, and creating a second row under a key that admits only one.
+    A pair rather than a flag on :class:`SpeakerContactRow`: a same-name
+    relationship is a fact about a *create*, not about a stored contact. Putting
+    it on the row would make every read of every roster carry a claim about
+    duplication that no reader asked for, and that nothing would keep current.
 
     Attributes:
-        existing: The contact already stored under the derived identity.
+        contact: The contact this create stored. Always present — this type
+            never describes a refusal, because there is no longer a refusal to
+            describe.
+        same_name: The unit's other contacts whose folded name matches, most
+            recently added first, capped by the caller's ``limit``. Empty when
+            nobody else carries the name, which is the ordinary case, and empty
+            is what keeps the populated case worth reading. Never contains
+            :attr:`contact`: the read happens before the insert.
     """
 
-    def __init__(self, existing: SpeakerContactRow) -> None:
-        super().__init__(
-            f"a contact named {existing.full_name!r} already exists in this unit "
-            f"({existing.professional_id}); two different people with the same "
-            "name in one unit cannot be told apart by the derived identity, so "
-            "this create is refused rather than merged or duplicated "
-            "(OQ-CBA-017)"
-        )
-        self.existing = existing
+    contact: SpeakerContactRow
+    same_name: tuple[SpeakerContactRow, ...]
 
 
 #: The ``speaker_profile`` columns every read in this module selects, in the
@@ -302,13 +338,22 @@ class SpeakerContactRepository:
         owning_unit_id: uuid.UUID,
         draft: SpeakerContactDraft,
         actor_id: uuid.UUID,
-    ) -> SpeakerContactRow:
+        professional_id: uuid.UUID | None = None,
+        same_name_limit: int = 1,
+    ) -> SpeakerContactCreated:
         """Add one contact to ``owning_unit_id``, across all three tables.
 
-        The identity is derived, not generated: the same name submitted twice by
-        the same unit resolves to the same ``professional_id``, so a
-        double-clicked form does not mint a second person. The second submission
-        is therefore a conflict rather than an insert.
+        **The identity is generated, not derived** (OQ-CBA-017). Every call
+        stores a new person, so two Connectors adding two different professionals
+        who happen to share a name both succeed — and a Connector who
+        double-clicks the form adds the same person twice. That second case is
+        the cost of the decision and it is paid deliberately: the previous
+        scheme prevented it only by making the *first* case impossible, and it
+        stopped preventing even that as soon as anybody corrected a name. What
+        the caller gets instead is :attr:`SpeakerContactCreated.same_name` — the
+        contacts already here under this name — which is information a person
+        can act on rather than a refusal they have to work around. **OQ-CBA-047**
+        records that request-level idempotency for this route is now unowned.
 
         ``actor_id`` is the Speaker Connector performing the create, and it is
         required rather than optional. A classification typed into §13's form is
@@ -323,29 +368,29 @@ class SpeakerContactRepository:
                 ``tenant_id``. Recorded only on the axes this draft classifies;
                 an unclassified draft records no actor, because there is no
                 judgment to attribute.
-
-        Raises:
-            SpeakerContactAlreadyExists: this unit already holds a contact under
-                the derived identity. Detected by reading the existing row so
-                the exception can name it, rather than by catching an
-                ``IntegrityError`` — a caught constraint violation knows the key
-                and not the person, and would also have poisoned the session's
-                transaction for the route trying to answer with it.
+            professional_id: The identity to store, or ``None`` to generate one.
+                Supplied only by a test that needs a predictable id — the
+                ``xxx_id or uuid.uuid4()`` arrangement ``jobs.py``,
+                ``outreach.py``, ``contacts.py`` and ``cba_invitations.py`` all
+                use. A caller passing one is choosing an identity, which no
+                route does: the API has no body field for it (MM-A01).
+            same_name_limit: How many same-name contacts to report. Defaults to
+                ``1``, which is the useful floor — a hint's job is to say
+                *somebody is already here*, and a caller who wants to list them
+                asks for more. The cap belongs to the caller for
+                :meth:`list_for_unit`'s reason.
         """
-        professional_id = speaker_contact_subject_id(
-            tenant_id=tenant_id,
-            unit_id=owning_unit_id,
-            full_name=draft.full_name,
-        )
+        professional_id = professional_id or uuid.uuid4()
 
-        existing = self.get(
+        # Read before the insert, so the new row cannot appear in its own hint
+        # and no exclusion predicate has to remember to leave it out.
+        same_name = self.list_same_name(
             session,
             tenant_id=tenant_id,
             owning_unit_id=owning_unit_id,
-            professional_id=professional_id,
+            full_name=draft.full_name,
+            limit=same_name_limit,
         )
-        if existing is not None:
-            raise SpeakerContactAlreadyExists(existing)
 
         # `external_subject` and `email` are both derived *from* the id, never
         # supplied. `ensure_account`'s ON CONFLICT targets the pkey, which is
@@ -393,7 +438,7 @@ class SpeakerContactRepository:
                 "the contact just inserted could not be read back in the same "
                 "transaction; this is a defect in this module, not a caller error"
             )
-        return created
+        return SpeakerContactCreated(contact=created, same_name=same_name)
 
     def create_from_import(
         self,
@@ -557,6 +602,77 @@ class SpeakerContactRepository:
         ).all()
         return tuple(SpeakerContactRow(*row) for row in rows)
 
+    def list_same_name(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        full_name: str,
+        limit: int,
+    ) -> tuple[SpeakerContactRow, ...]:
+        """This unit's contacts whose folded name matches ``full_name``.
+
+        The duplicate hint's read, and the whole of what replaced
+        ``409 speaker_contact_name_already_used``. It answers *is somebody by
+        this name already here* and never decides anything: the caller creates
+        regardless, because two professionals in one department can share a name
+        and OQ-CBA-017 stopped pretending otherwise.
+
+        **Folded on both sides.** The stored name goes through
+        ``lower(btrim(...))`` and the argument through
+        :func:`smartmatch_domain.cba_contacts.folded_contact_name`, so
+        ``"Dana Reyes"``, ``"  dana reyes  "`` and ``"DANA REYES"`` all match —
+        which is the point, since a re-typed name is how one person gets entered
+        twice. Migration ``0030``'s ``ix_speaker_profile_unit_folded_name``
+        indexes exactly that expression, so this read is not a scan; a change to
+        the folding on either side must move the index with it or silently stop
+        using it.
+
+        The expression is spelled in SQL rather than compared in Python because
+        the alternative is loading the unit's whole roster to fold it here,
+        which turns a hint into a scan of up to two hundred rows on every create.
+
+        **Scoped by ``owning_unit_id``, and here that is a disclosure boundary**
+        rather than a filter: a hint reaching across units would tell a Connector
+        who another department knows, on a surface that exists to add somebody to
+        their own.
+
+        Ordered newest first, unlike :meth:`list_for_unit`'s alphabetical roster.
+        The names are all the same, so ordering by name orders nothing; the
+        contact most recently added under this name is the one most likely to be
+        the accidental duplicate a Connector is about to make again.
+        ``professional_id`` breaks ties, so two contacts added in the same
+        transaction never swap places between two identical reads.
+
+        The caller passes ``limit`` and decides what a full page means — no
+        ``truncated`` flag is invented here, for :meth:`list_for_unit`'s stated
+        reason. A route that wants to report truncation asks for one more row
+        than it intends to show.
+
+        Raises:
+            ValueError: ``limit`` is less than 1, for :meth:`list_for_unit`'s
+                reason.
+        """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+
+        folded = sa.func.lower(sa.func.btrim(schema.speaker_profile.c.full_name))
+        rows = session.execute(
+            sa.select(*_PROFILE_COLUMNS)
+            .where(
+                schema.speaker_profile.c.tenant_id == tenant_id,
+                schema.speaker_profile.c.owning_unit_id == owning_unit_id,
+                folded == folded_contact_name(full_name),
+            )
+            .order_by(
+                schema.speaker_profile.c.created_at.desc(),
+                schema.speaker_profile.c.professional_id,
+            )
+            .limit(limit)
+        ).all()
+        return tuple(SpeakerContactRow(*row) for row in rows)
+
     def list_match_eligible(
         self,
         session: Session,
@@ -634,18 +750,29 @@ class SpeakerContactRepository:
         instead would make removing a value the one edit a Connector cannot
         perform.
 
-        **The identity does not move when the name does.** ``professional_id``
-        was derived from the original name and is now a stored primary key with
-        a foreign key pointing at it, so renaming a contact edits the label and
-        not the key. The visible consequence is worth stating rather than
-        discovering: after ``"Dana Ryes"`` is corrected to ``"Dana Reyes"``, a
-        *create* for ``"Dana Reyes"`` derives a different id and succeeds,
-        producing a second contact for one person. That is the same
-        derivation-discipline caveat ``ensure_account`` documents about
-        ``external_subject``, and it is left as a caveat rather than repaired by
-        re-deriving the key: re-deriving would rewrite a primary key other rows
-        reference, which is a data-bearing migration and not a side effect of an
-        edit.
+        **The identity does not move when the name does, and now that is a
+        property rather than a caveat.** ``professional_id`` is generated
+        (OQ-CBA-017), so renaming a contact edits a label and there is no
+        derived key left to fall out of step with it.
+
+        This paragraph used to say the opposite thing with the same first
+        sentence, and the difference is the whole card. Under the derived scheme
+        a rename left an id that no longer corresponded to the stored name, so a
+        later *create* for the corrected name derived a different id, succeeded,
+        and produced a second contact for one person — with the duplicate guard
+        of the day looking at derived ids and therefore unable to see it.
+        Migration ``0030`` re-keyed those rows; the create path now compares
+        **names**, which is the thing a rename actually changes, and reports a
+        match instead of silently missing one.
+
+        Note what is still true and still deliberate: a rename does **not** hint
+        at same-name contacts. Only :meth:`create` does. An edit that renames
+        somebody into an existing name is the same hazard from the other
+        direction and is recorded as **OQ-CBA-049** rather than answered here,
+        because a hint on an edit needs a surface decision — a Connector
+        correcting a typo is not proposing a new person, and telling them
+        "somebody else is called this" mid-correction is a different message
+        with a different meaning.
 
         **An edit re-states the provenance, and this is where a Connector
         correction beats a proposal.** The draft carries the whole record, so a
