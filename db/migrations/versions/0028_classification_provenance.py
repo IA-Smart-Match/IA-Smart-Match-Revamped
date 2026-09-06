@@ -145,7 +145,7 @@ transaction (``transaction_per_migration=True`` in ``db/migrations/env.py``).
 
 Open questions this revision deliberately does not answer
 -----------------------------------------------------------
-* **OQ-CBA-038 — a live classification model.** The classifier behind the
+* **OQ-CBA-039 — a live classification model.** The classifier behind the
   ``inferred`` source is a deterministic fixture that resolves company and title
   text against the two released taxonomies and proposes nothing it cannot
   resolve. Which model would replace it, on whose credentials, under whose
@@ -155,7 +155,7 @@ Open questions this revision deliberately does not answer
   classification. ``build_contact_classifier`` refuses a live adapter under
   every edition until it is answered. No column here depends on the answer:
   a model-produced proposal is still ``inferred``, and still awaits review.
-* **OQ-CBA-039 — whether an inferred proposal expires.** A contact imported and
+* **OQ-CBA-045 — whether an inferred proposal expires.** A contact imported and
   never reviewed sits in the ``inferred`` arm indefinitely, permanently
   match-ineligible and permanently invisible unless somebody opens the roster.
   Whether that should age into a work queue, a reminder, or nothing at all is a

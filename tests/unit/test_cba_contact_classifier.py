@@ -539,7 +539,7 @@ def test_a_live_classifier_is_refused_under_every_edition(edition: Edition):
     property would leave a production boot silently able to construct something
     nobody ratified.
     """
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(edition, use_fixture=False)
 
 
@@ -553,9 +553,9 @@ def test_a_classifier_credential_fails_closed_under_every_edition(edition: Editi
 def test_allowing_live_providers_still_does_not_reach_a_live_classifier():
     """``ALLOW_LIVE_PROVIDERS`` is a necessary gate, not a sufficient one.
 
-    Flipping it reaches an adapter that does not exist, because OQ-CBA-038 has
+    Flipping it reaches an adapter that does not exist, because OQ-CBA-039 has
     not been answered. The flag is accepted so a caller can pass the real value
     rather than assume it, and is deliberately not enough.
     """
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(Edition.PRODUCTION, use_fixture=False, allow_live_providers=True)

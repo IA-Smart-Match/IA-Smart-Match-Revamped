@@ -101,7 +101,13 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
-from smartmatch_domain.cba_classification import CLASSIFICATION_SOURCE_HUMAN
+from smartmatch_domain.cba_classification import (
+    CLASSIFICATION_SOURCE_HUMAN,
+    ContactClassificationProposal,
+    ProposedClassification,
+    inferred_classification,
+    match_ineligibility_reason,
+)
 from smartmatch_domain.cba_contacts import (
     CONTACT_BOARD_ROLE,
     ClassificationCorrection,
@@ -188,6 +194,32 @@ class SpeakerContactRow:
     role_classified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def match_ineligibility_reason(self) -> str | None:
+        """Why this contact may not enter matching yet, or ``None`` if it may.
+
+        A property rather than a stored column, because it is a reading of the
+        four columns above and not a fact of its own: a stored flag would be a
+        second answer that could disagree with them, and the disagreement would
+        be invisible until somebody matched on it.
+
+        Delegates to the domain so the roster screen, the eligibility filter and
+        any later caller cannot each decide it differently — and so the
+        fail-closed behaviour is inherited rather than re-argued: every argument
+        ``None`` returns a reason, not eligibility.
+        """
+        return match_ineligibility_reason(
+            primary_industry_code=self.primary_industry_code,
+            industry_classification_source=self.industry_classification_source,
+            primary_role_code=self.primary_role_code,
+            role_classification_source=self.role_classification_source,
+        )
+
+    @property
+    def match_eligible(self) -> bool:
+        """Whether §19's review step has been satisfied for both axes."""
+        return self.match_ineligibility_reason is None
 
 
 class SpeakerContactAlreadyExists(Exception):
@@ -363,6 +395,100 @@ class SpeakerContactRepository:
             )
         return created
 
+    def create_from_import(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        draft: SpeakerContactDraft,
+        proposal: ContactClassificationProposal,
+        at: datetime,
+    ) -> SpeakerContactRow:
+        """Record a §19 imported contact with the classifier's proposal, unreviewed.
+
+        Customer §19's steps two through four: an accepted import row becomes a
+        speaker record, and the classifier's reading of its company and title
+        text is stored beside it as ``inferred`` — a proposal awaiting step
+        five, which is the Connector's review. Nothing here is ``human`` and
+        nothing here names an actor, because nobody has looked at the
+        classification yet: the person who accepted the import row reviewed
+        *the row*, and treating that as a review of the classification would be
+        the bypass §19's ordering exists to prevent.
+
+        **Takes the professional id rather than deriving one.** The account and
+        the unit link already exist by the time this runs — the accept path
+        provisions them from ``synthetic_professional_subject_id`` — and
+        deriving a second id here from the folded name would produce a
+        ``speaker_profile`` whose foreign key points at a different person than
+        the one the import provisioned. This method therefore writes exactly one
+        table, and its caller owns the other two.
+
+        **An existing profile is left exactly as it is.** A re-import of
+        somebody already on the roster returns the stored row untouched rather
+        than overwriting it, and that is the hazard this guard exists for: the
+        stored classification may have been reviewed and corrected by a
+        Connector, and replacing it with a fresh machine proposal would silently
+        undo a human judgment and put the contact back behind the review gate.
+        Skipping is also what makes replaying an accept harmless.
+
+        Args:
+            professional_id: The already-provisioned identity this profile
+                belongs to.
+            draft: The stated fields. Must carry **no** classification codes —
+                the proposal supplies those, and a draft that also carried them
+                would give one row two sources of the same value.
+            proposal: What the classifier read. Either axis may be
+                undetermined, which stores as NULL rather than as a guess.
+            at: When the classifier ran.
+
+        Raises:
+            ValueError: ``draft`` carries a classification code. Refused rather
+                than silently preferring one of the two, because whichever this
+                method chose would be wrong half the time and invisible in
+                both.
+        """
+        if draft.primary_industry_code is not None or draft.primary_role_code is not None:
+            raise ValueError(
+                "a draft passed to create_from_import must carry no classification "
+                "codes; the proposal supplies them, and a draft carrying its own "
+                "would make the stored value depend on which of the two this "
+                "method happened to prefer"
+            )
+
+        existing = self.get(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            professional_id=professional_id,
+        )
+        if existing is not None:
+            return existing
+
+        session.execute(
+            sa.insert(schema.speaker_profile).values(
+                tenant_id=tenant_id,
+                professional_id=professional_id,
+                owning_unit_id=owning_unit_id,
+                **_stated_values(draft),
+                **_inferred_values(proposal, at=at),
+            )
+        )
+
+        created = self.get(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=owning_unit_id,
+            professional_id=professional_id,
+        )
+        if created is None:  # pragma: no cover - the insert above is in this transaction
+            raise RuntimeError(
+                "the imported contact just inserted could not be read back in the "
+                "same transaction; this is a defect in this module, not a caller error"
+            )
+        return created
+
     def get(
         self,
         session: Session,
@@ -422,6 +548,64 @@ class SpeakerContactRepository:
             .where(
                 schema.speaker_profile.c.tenant_id == tenant_id,
                 schema.speaker_profile.c.owning_unit_id == owning_unit_id,
+            )
+            .order_by(
+                schema.speaker_profile.c.full_name,
+                schema.speaker_profile.c.professional_id,
+            )
+            .limit(limit)
+        ).all()
+        return tuple(SpeakerContactRow(*row) for row in rows)
+
+    def list_match_eligible(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        limit: int,
+    ) -> tuple[SpeakerContactRow, ...]:
+        """This unit's contacts that have cleared §19's review gate.
+
+        Customer §19's last two steps are ordered — "Speaker Connector
+        reviews/corrects classifications" *then* "Speaker becomes available for
+        matching" — and this is that ordering expressed as a query. A contact
+        whose classification is still a proposal, or is missing on either axis,
+        is not returned. It is not returned with a penalty, a low score, or a
+        flag for the caller to remember to check: it is absent, because "a
+        contact whose classification still needs review must not silently enter
+        matching" is a property a caller should not be able to forget.
+
+        **The predicate is a positive match on ``human``, not an exclusion of
+        ``inferred``.** The exclusion form admits a row whose source is NULL,
+        which is exactly the unreviewed speaker this gate exists to keep out —
+        the same fail-open hole ``match_ineligibility_reason`` documents having
+        had. Post-``0028`` the database cannot hold a code with no source, so
+        the two forms agree today; they stop agreeing the moment anything reads
+        this table through a projection that drops the provenance columns, and
+        the positive form is the one that stays correct then.
+
+        This is a filter, not a scorer. It says who may enter matching and
+        nothing about how they rank once there — ADR-0011's unknown-is-not-zero
+        is untouched, because no unknown is being turned into a number here.
+
+        Raises:
+            ValueError: ``limit`` is less than 1, for
+                :meth:`list_for_unit`'s reason.
+        """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+
+        rows = session.execute(
+            sa.select(*_PROFILE_COLUMNS)
+            .where(
+                schema.speaker_profile.c.tenant_id == tenant_id,
+                schema.speaker_profile.c.owning_unit_id == owning_unit_id,
+                schema.speaker_profile.c.primary_industry_code.is_not(None),
+                schema.speaker_profile.c.primary_role_code.is_not(None),
+                schema.speaker_profile.c.industry_classification_source
+                == CLASSIFICATION_SOURCE_HUMAN,
+                schema.speaker_profile.c.role_classification_source == CLASSIFICATION_SOURCE_HUMAN,
             )
             .order_by(
                 schema.speaker_profile.c.full_name,
@@ -605,13 +789,7 @@ def _draft_values(draft: SpeakerContactDraft, *, actor_id: uuid.UUID) -> dict[st
     write the combination the ``CHECK`` refuses.
     """
     return {
-        "full_name": draft.full_name,
-        "company": draft.company,
-        "title": draft.title,
-        "topic_text": draft.topic_text,
-        "prior_talk": draft.prior_talk,
-        "location_city": draft.location_city,
-        "location_postal_code": draft.location_postal_code,
+        **_stated_values(draft),
         "primary_industry_code": draft.primary_industry_code,
         "industry_taxonomy_version": draft.industry_taxonomy_version,
         **_human_provenance("industry", code=draft.primary_industry_code, actor_id=actor_id),
@@ -619,6 +797,70 @@ def _draft_values(draft: SpeakerContactDraft, *, actor_id: uuid.UUID) -> dict[st
         "role_taxonomy_version": draft.role_taxonomy_version,
         **_human_provenance("role", code=draft.primary_role_code, actor_id=actor_id),
     }
+
+
+def _stated_values(draft: SpeakerContactDraft) -> dict[str, Any]:
+    """The seven non-classification columns a draft states.
+
+    Split out from :func:`_draft_values` so the import path shares them: the
+    classification columns are the only ones that path fills differently, and a
+    field added to the draft must not reach two of the three writers.
+    """
+    return {
+        "full_name": draft.full_name,
+        "company": draft.company,
+        "title": draft.title,
+        "topic_text": draft.topic_text,
+        "prior_talk": draft.prior_talk,
+        "location_city": draft.location_city,
+        "location_postal_code": draft.location_postal_code,
+    }
+
+
+def _inferred_values(proposal: ContactClassificationProposal, *, at: datetime) -> dict[str, Any]:
+    """Both axes of a classifier's proposal, as the ``inferred`` arm stores them.
+
+    An axis the classifier could not resolve produces the *unclassified* arm —
+    every column NULL — and not a code of any kind. That is the card's
+    "ambiguous or unknown is reviewable, never a guess", and ADR-0011's
+    unknown-is-not-zero applied to a taxonomy rather than to a score: the raw
+    company or title text is already stored beside these columns, where a
+    reviewer reads it, so there is nothing a guess would add except the
+    appearance of an answer (OQ-CBA-010).
+
+    ``at`` is passed rather than taken as ``now()`` because a classifier ran at
+    a particular moment and both axes were read in the same pass; two
+    ``now()`` calls in one statement would agree anyway, but the argument makes
+    the shared instant a stated fact rather than a coincidence of the dialect.
+    """
+    values: dict[str, Any] = {}
+    for axis, outcome in (("industry", proposal.industry), ("role", proposal.role)):
+        if isinstance(outcome, ProposedClassification):
+            # Built through the domain's own constructor rather than assembled
+            # here: it is what fixes the source at `inferred` and offers no
+            # actor parameter, so this module cannot write a proposal that
+            # names somebody even by mistake.
+            assignment = inferred_classification(outcome, at=at)
+            values.update(
+                {
+                    f"primary_{axis}_code": assignment.code,
+                    f"{axis}_taxonomy_version": assignment.taxonomy_version,
+                    f"{axis}_classification_source": assignment.source,
+                    f"{axis}_classified_by_user_id": assignment.actor_id,
+                    f"{axis}_classified_at": assignment.assigned_at,
+                }
+            )
+        else:
+            values.update(
+                {
+                    f"primary_{axis}_code": None,
+                    f"{axis}_taxonomy_version": None,
+                    f"{axis}_classification_source": None,
+                    f"{axis}_classified_by_user_id": None,
+                    f"{axis}_classified_at": None,
+                }
+            )
+    return values
 
 
 def _human_provenance(axis: str, *, code: str | None, actor_id: uuid.UUID) -> dict[str, Any]:

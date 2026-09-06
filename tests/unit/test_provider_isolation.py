@@ -293,7 +293,7 @@ def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
 # The same assertions the topic provider gets, for the same failures, plus one
 # this seam needs and that one does not. §19's classifier reads a named person's
 # employer and job title, so the "may this leave the building" question
-# (OQ-CBA-038) is sharper here than OQ-CBA-026 is there — and customer §20
+# (OQ-CBA-039) is sharper here than OQ-CBA-026 is there — and customer §20
 # independently puts looking a company up out of scope, which is why the socket
 # test below is a scope assertion and not only a provider one.
 #
@@ -309,7 +309,7 @@ def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
 def test_every_edition_gets_the_fixture_contact_classifier(edition: Edition):
     """Customer §19 assigns an initial classification; no approved model exists.
 
-    OQ-CBA-038 — which model, on whose credentials, under whose terms, and
+    OQ-CBA-039 — which model, on whose credentials, under whose terms, and
     whether a named person's employer and job title may be sent to a third party
     at all — is open, so every edition gets the deterministic fixture.
     """
@@ -319,7 +319,7 @@ def test_every_edition_gets_the_fixture_contact_classifier(edition: Edition):
 @pytest.mark.parametrize("edition", list(Edition))
 def test_a_live_contact_classifier_is_refused_under_every_edition(edition: Edition):
     """Not only the classroom one: the refusal is about approval, not deployment."""
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(edition, use_fixture=False)
 
 
@@ -332,7 +332,7 @@ def test_a_contact_classifier_credential_fails_closed_under_every_edition(editio
     for classroom secrets, widened to every edition because no edition has an
     approved model for this seam.
     """
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(edition, api_key="live-key")
 
 
@@ -343,7 +343,7 @@ def test_allowing_live_providers_still_does_not_reach_a_live_contact_classifier(
     asserting because it is the flag an operator would reach for first, and the
     thing it must not do is silently succeed.
     """
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(Edition.PRODUCTION, use_fixture=False, allow_live_providers=True)
 
 
@@ -389,5 +389,5 @@ def test_no_product_scope_reaches_a_live_contact_classifier(scope: ProductScope)
     product definition.
     """
     assert enabled_capabilities(scope) is not None
-    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-038"):
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
         build_contact_classifier(Edition.PRODUCTION, use_fixture=False)

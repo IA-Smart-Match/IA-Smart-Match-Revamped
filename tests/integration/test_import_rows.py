@@ -299,6 +299,76 @@ def test_gate_b_contact_values_are_persisted_after_gate_close(
     }
 
 
+def test_the_import_stage_stores_classification_columns_without_resolving_them(
+    client, engine, session_factory, unit_id, coordinator, tenant_id
+):
+    """§19's classification happens at accept, not at import — asserted both ways.
+
+    ``docs/pilot-data/columns.yaml`` declares ``primary_industry_code`` and
+    ``primary_role_code`` on the ``professionals`` dataset and says the contract
+    "does NOT validate them against those taxonomies, resolve a display name to
+    a code, or infer either one from company or title. That is
+    CBA-IMPORT-CLASSIFY's work, and an unrecognized value is a review item, not
+    an import failure." This is that sentence, tested.
+
+    ``"banking"`` is not a §7 sector code and never becomes one. The job still
+    **succeeds** — a whole batch must not fail over one cell a coordinator typed
+    loosely — and the raw value reaches ``review_item.row_data`` verbatim, where
+    a reviewer can see what was submitted.
+
+    The second assertion is the one that pins the stage boundary: **no**
+    ``speaker_profile`` row exists yet. A speaker record and its classification
+    proposal are written when a coordinator accepts the review item, not when
+    the rows arrive, so an import nobody reviewed classifies nobody. An import
+    path that wrote the profile directly would put a machine's proposal into the
+    roster with no decision behind it at all.
+    """
+    rows = [
+        {
+            "Name": "Dana Reyes",
+            "Metro Region": "Inland Empire",
+            "Company": "Reyes Analytics",
+            "Title": "Principal Analyst",
+            "primary_industry_code": "banking",
+        }
+    ]
+    job_id = uuid.UUID(
+        _post_import(
+            client,
+            unit_id,
+            coordinator,
+            key="cba-classification-columns",
+            body=_rows_body(rows, dry_run=False),
+        ).json()["job_id"]
+    )
+
+    state = _run_job_to_terminal(session_factory, tenant_id, job_id)
+    assert state is JobState.SUCCEEDED, f"job reached {state}, not succeeded"
+
+    summary = _terminal_event(session_factory, tenant_id, job_id)["summary"]
+    assert summary["usable"] is True
+
+    with engine.connect() as conn:
+        items = conn.execute(
+            text("SELECT row_data FROM review_item WHERE import_batch_id = :id ORDER BY row_index"),
+            {"id": uuid.UUID(summary["import_batch_id"])},
+        ).all()
+        profiles = conn.execute(
+            text("SELECT count(*) FROM speaker_profile WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        ).scalar_one()
+
+    (item,) = items
+    assert item.row_data == {
+        "name": "Dana Reyes",
+        "metro_region": "Inland Empire",
+        "company": "Reyes Analytics",
+        "title": "Principal Analyst",
+        "primary_industry_code": "banking",
+    }
+    assert profiles == 0
+
+
 def test_an_invalid_public_url_shape_is_a_finding_not_a_crash_or_a_drop(
     client, engine, session_factory, unit_id, coordinator, tenant_id
 ):

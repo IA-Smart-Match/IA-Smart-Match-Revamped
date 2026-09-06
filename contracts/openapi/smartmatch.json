@@ -3643,6 +3643,37 @@
         "title": "SendSummaryView",
         "type": "object"
       },
+      "SpeakerContactClassificationSource": {
+        "description": "How each axis's current value was set (OQ-CBA-008).\n\nTwo fields and not six: the timestamps and the actor id are on the row, and\na \u00a713 roster screen does not need them to answer the question this surface\nexists to answer \u2014 *has anybody looked at this?* Exposing\n``classified_by_user_id`` would put one Connector's account id in front of\nanother with no screen asking for it, and OQ-CBA-008 recorded provenance for\naccountability rather than for display.\n\n``null`` on an axis means unclassified, which is a real state: \u00a719 imports a\ncontact first and classifies it afterwards.",
+        "properties": {
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'inferred', 'human', or null when the industry is unclassified.",
+            "title": "Industry"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'inferred', 'human', or null when the role is unclassified.",
+            "title": "Role"
+          }
+        },
+        "title": "SpeakerContactClassificationSource",
+        "type": "object"
+      },
       "SpeakerContactCreate": {
         "description": "One speaker contact, as a Speaker Connector fills it in (customer \u00a713).\n\nNote what is **not** here: no tenant, no owning unit, no professional id, no\nactor. The first two come from the verified principal and the path; the third\nis derived from the name rather than supplied, so a caller cannot choose\nsomebody else's identity (MM-A01); the fourth is never a body field.\n\n``contact_email`` **is** here, and is the one field this model accepts in\norder to refuse. See the module docstring.",
         "properties": {
@@ -3807,6 +3838,9 @@
       "SpeakerContactResponse": {
         "description": "One stored contact, as \u00a713's screens render it.\n\nCarries **no email of any kind** \u2014 neither the address the create discarded\nnor the ``.invalid`` placeholder ``user_account`` holds. A response field\nholding an address is the first thing a later card would try to send to, and\nthere is nothing here to send to.",
         "properties": {
+          "classification_source": {
+            "$ref": "#/components/schemas/SpeakerContactClassificationSource"
+          },
           "company": {
             "anyOf": [
               {
@@ -3858,6 +3892,23 @@
               }
             ],
             "title": "Location Postal Code"
+          },
+          "match_eligible": {
+            "description": "Whether customer \u00a719's review step has been satisfied on both axes, and therefore whether this contact may enter matching. False for an unclassified contact and for one carrying a classifier's proposal nobody has reviewed.",
+            "title": "Match Eligible",
+            "type": "boolean"
+          },
+          "match_ineligibility_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this contact may not enter matching yet, or null when it may. A stable token rather than a sentence, and a reason rather than a bare false, so a screen can tell 'the classifier proposed Finance and nobody has checked' from 'we have no idea where this person works' \u2014 two states that call for different actions and would otherwise be one greyed-out row.",
+            "title": "Match Ineligibility Reason"
           },
           "owning_unit_id": {
             "format": "uuid",
@@ -3962,6 +4013,8 @@
           "industry_taxonomy_version",
           "primary_role_code",
           "role_taxonomy_version",
+          "classification_source",
+          "match_eligible",
           "created_at",
           "updated_at"
         ],

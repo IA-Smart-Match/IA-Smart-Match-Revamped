@@ -11,7 +11,7 @@ Choosing a model is not an implementation detail that can be settled at a
 keyboard. It commits the project to a vendor, a set of terms, a per-run cost,
 and — because the input is a named person's employer and job title — a decision
 about sending CBA contact data to a third party. None of those has an owner's
-answer, which is **OQ-CBA-038**. So :func:`build_contact_classifier` refuses a
+answer, which is **OQ-CBA-039**. So :func:`build_contact_classifier` refuses a
 live client under *every* edition rather than only the classroom one, on the
 pattern ``registry.build_paid_extraction_provider`` established and
 ``topic_semantics.build_semantic_topic_provider`` repeated: the refusal is a
@@ -334,7 +334,7 @@ def build_contact_classifier(
         allow_live_providers: Mirrors the ``ALLOW_LIVE_PROVIDERS`` environment
             gate. Accepted so a caller can pass the real value rather than
             assume it, and deliberately **not** sufficient: the gate being open
-            does not conjure an adapter or answer OQ-CBA-038.
+            does not conjure an adapter or answer OQ-CBA-039.
 
     Returns:
         A :class:`FixtureContactClassifier`, which makes no network call and
@@ -350,7 +350,7 @@ def build_contact_classifier(
             f"{edition.value!r}. No environment in this repository should hold one: "
             "the model, the vendor terms, and whether a named person's employer and "
             "job title may be sent to a third party at all are unanswered "
-            "(OQ-CBA-038). Failing closed; check the environment configuration and "
+            "(OQ-CBA-039). Failing closed; check the environment configuration and "
             "secret bindings, and rotate anything actually bound."
         )
 
@@ -358,7 +358,7 @@ def build_contact_classifier(
         raise ProviderConfigurationError(
             f"no live contact classifier may be constructed under edition "
             f"{edition.value!r} — or any other. Which model, on whose credentials, "
-            "under which terms, and with what per-run cost is OQ-CBA-038, and it is "
+            "under which terms, and with what per-run cost is OQ-CBA-039, and it is "
             "open. ALLOW_LIVE_PROVIDERS is a necessary gate, not a sufficient one: "
             f"it was passed as {allow_live_providers!r} here and there is still no "
             "adapter behind it. Customer §19's classification ships against a model "
