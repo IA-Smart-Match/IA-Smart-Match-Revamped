@@ -66,12 +66,25 @@ _PARENT_REVISION = "0024_cba_classification"
 #: an earlier revision wrote is touched. ``0025`` is now two links down and still
 #: reachable from ``head``, which is what the chain test below now walks rather
 #: than asserting as one hop.
-_HEAD_REVISION = "0027_match_weight_setting"
+#: Updated again by ``CBA-IMPORT-CLASSIFY``: ``0028_classification_provenance``
+#: chains to ``0027`` and is the head. Unlike ``0026`` and ``0027`` it does *not*
+#: only add new tables — it adds six columns to ``speaker_profile``, the very
+#: table this file's card shaped, so the composability question this assertion
+#: exists to force is a real one here rather than a formality. It composes:
+#: every added column is nullable, every existing column, constraint and key is
+#: untouched, and ``0028``'s two new ``CHECK``s constrain only the columns it
+#: added together with the two classification codes ``0024`` added. The one
+#: interaction worth naming is that ``0028`` backfills a ``human`` provenance
+#: onto rows that already carry a code, which changes no value this file asserts.
+_HEAD_REVISION = "0028_classification_provenance"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
-_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = ("0026_event_registration",)
+_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0027_match_weight_setting",
+    "0026_event_registration",
+)
 
 
 def _script_directory():

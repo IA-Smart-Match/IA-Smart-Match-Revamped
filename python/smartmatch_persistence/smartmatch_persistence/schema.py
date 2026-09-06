@@ -1965,8 +1965,30 @@ speaker_profile = sa.Table(
     # §§7-8 require a Speaker Connector to correct an assigned classification,
     # and a correction updates this row rather than superseding it — P9 Gate A
     # §2's current-state treatment of board_role. Whether the previous value is
-    # retained anywhere is OQ-CBA-008, open when 0024 landed.
+    # retained anywhere was OQ-CBA-008, open when 0024 landed; it was decided on
+    # 6 September 2026 as *provenance, no history*, which is the six columns
+    # below and still no previous value anywhere.
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # OQ-CBA-008's answer, added by migration 0028. Three columns per axis, and
+    # they answer "can I trust this classification?" rather than "what changed?".
+    #
+    # `classification_source` is §19's review gate made visible: `inferred` is a
+    # classifier's reading of the company/title text, a proposal awaiting step
+    # five, and `human` is somebody's judgment. Without the column a proposed
+    # '52' and a reviewed '52' are the same four characters and the gate is
+    # invisible.
+    #
+    # The actor may appear only beside `human` — a classifier has no judgment to
+    # attribute — and it is nullable rather than NOT NULL only so 0028's backfill
+    # can describe rows written before the column existed. Nothing this package
+    # builds produces a `human` row without one:
+    # `smartmatch_domain.cba_classification.human_classification` requires the id.
+    sa.Column("industry_classification_source", sa.Text, nullable=True),
+    sa.Column("industry_classified_by_user_id", _UUID, nullable=True),
+    sa.Column("industry_classified_at", _TS, nullable=True),
+    sa.Column("role_classification_source", sa.Text, nullable=True),
+    sa.Column("role_classified_by_user_id", _UUID, nullable=True),
+    sa.Column("role_classified_at", _TS, nullable=True),
     sa.PrimaryKeyConstraint("tenant_id", "professional_id", name="speaker_profile_pkey"),
     # RESTRICT: a classification that outlived its subject would be an
     # assertion about nobody, and one that vanished with them would delete a
@@ -2026,6 +2048,53 @@ speaker_profile = sa.Table(
         "AND (company IS NULL OR length(btrim(company)) > 0) "
         "AND (title IS NULL OR length(btrim(title)) > 0)",
         name="ck_speaker_profile_text_present",
+    ),
+    # Migration 0028's provenance keys and constraints, mirrored. Composite and
+    # tenant-scoped, so an account in one tenant cannot be recorded as the
+    # reviewer of a classification in another; RESTRICT, for the reason
+    # match_weight_setting.updated_by_user_id gives — deleting an account must
+    # not silently erase the authorship of a judgment it made. MATCH SIMPLE (the
+    # default) is what lets a NULL actor satisfy the key with no row to point at.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "industry_classified_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_profile_industry_classified_by",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "role_classified_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_profile_role_classified_by",
+    ),
+    # Three enumerated arms per axis, not four independent couplings. 0028's
+    # docstring argues it: `(source = 'human') = (actor IS NOT NULL)` evaluates
+    # to NULL when the source is NULL, a CHECK treats NULL as satisfied, and the
+    # constraint would then admit an unclassified row carrying an actor. Spelled
+    # here exactly as 0028 spells it, since
+    # tests/integration/test_schema_matches_migration.py compares the two.
+    #
+    # The middle arm is the card's non-negotiable in the database: an `inferred`
+    # value may never carry an actor, so no path can record a review that did not
+    # happen. The last arm omits the actor clause deliberately — see 0028 on why
+    # a pre-provenance `human` row has a NULL actor rather than an invented one.
+    sa.CheckConstraint(
+        "(industry_classification_source IS NULL AND primary_industry_code IS NULL "
+        "AND industry_classified_at IS NULL AND industry_classified_by_user_id IS NULL)"
+        " OR (industry_classification_source = 'inferred' AND primary_industry_code IS NOT NULL "
+        "AND industry_classified_at IS NOT NULL AND industry_classified_by_user_id IS NULL)"
+        " OR (industry_classification_source = 'human' AND primary_industry_code IS NOT NULL "
+        "AND industry_classified_at IS NOT NULL)",
+        name="ck_speaker_profile_industry_provenance",
+    ),
+    sa.CheckConstraint(
+        "(role_classification_source IS NULL AND primary_role_code IS NULL "
+        "AND role_classified_at IS NULL AND role_classified_by_user_id IS NULL)"
+        " OR (role_classification_source = 'inferred' AND primary_role_code IS NOT NULL "
+        "AND role_classified_at IS NOT NULL AND role_classified_by_user_id IS NULL)"
+        " OR (role_classification_source = 'human' AND primary_role_code IS NOT NULL "
+        "AND role_classified_at IS NOT NULL)",
+        name="ck_speaker_profile_role_provenance",
     ),
 )
 
