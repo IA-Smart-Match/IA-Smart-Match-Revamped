@@ -3855,7 +3855,7 @@
             "type": "string"
           },
           "status": {
-            "description": "'registered' \u2014 you hold a place \u2014 or 'cancelled'. There is no 'waitlisted': no capacity exists in this deployment for one to overflow from (OQ-CBA-021).",
+            "description": "'registered' \u2014 you hold a place \u2014 or 'cancelled'. There is no 'waitlisted': no capacity exists in this deployment for one to overflow from (OQ-CBA-029).",
             "title": "Status",
             "type": "string"
           },
