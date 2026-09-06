@@ -110,7 +110,7 @@ class TestTheStatusVocabulary:
         assert {s.value for s in FeedbackStatus} == {"submitted", "withdrawn"}
 
     def test_never_rated_is_not_one_of_them(self) -> None:
-        """"Never rated" is the absence of a row, not a status.
+        """ "Never rated" is the absence of a row, not a status.
 
         Spelling it as a third value would make it storable, and a stored
         "never rated" is a row asserting something nobody did.
