@@ -299,6 +299,42 @@ class ContactChannelRepository:
         ).all()
         return [_to_contact(row) for row in rows]
 
+    def list_for_professional(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        limit: int = DEFAULT_CONTACT_PAGE_SIZE,
+        offset: int = 0,
+    ) -> list[ContactChannelRow]:
+        """Every channel one person holds within one unit.
+
+        Scoped by all three of tenant, unit and professional rather than by the
+        professional alone, for :meth:`get`'s reason: a person known to two units
+        is two accountabilities, and a caller entitled to one of them is not
+        thereby entitled to the other. Narrowing after the fact would make the
+        route's 404 and its authorization disagree about what "not yours" means.
+
+        Ordered and clamped exactly as :meth:`list_for_unit` is, so the two reads
+        page the same way — a caller moving between the unit roster and one
+        person's channels should not meet two orderings of the same rows.
+        """
+        bounded = max(1, min(limit, MAX_CONTACT_PAGE_SIZE))
+        rows = session.execute(
+            _selectable()
+            .where(
+                schema.contact_channel.c.tenant_id == tenant_id,
+                schema.contact_channel.c.owning_unit_id == owning_unit_id,
+                schema.contact_channel.c.professional_id == professional_id,
+            )
+            .order_by(schema.contact_channel.c.address, schema.contact_channel.c.id)
+            .limit(bounded)
+            .offset(max(0, offset))
+        ).all()
+        return [_to_contact(row) for row in rows]
+
     def update_evidence(
         self,
         session: Session,

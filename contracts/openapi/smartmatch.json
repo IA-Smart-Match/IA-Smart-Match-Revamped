@@ -157,6 +157,275 @@
         "title": "CandidateExplanationView",
         "type": "object"
       },
+      "ChannelListResponse": {
+        "description": "One roster contact's channels, each with its trail.",
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelWithHistoryResponse"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "professional_id",
+          "channels",
+          "limit",
+          "offset"
+        ],
+        "title": "ChannelListResponse",
+        "type": "object"
+      },
+      "ChannelResponse": {
+        "description": "One channel belonging to one \u00a713 roster contact.\n\n``suppressed`` and ``send_eligible`` are both computed at read time rather\nthan stored \u2014 the first by a join against ``suppression_record``, the second\nby ``smartmatch_domain.consent.is_send_eligible`` over the row's own state,\nsource and suppression. A stored copy of either would be a second place for\nthe answer to live, and the disagreement between two such places always\nresolves toward sending.",
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "channel_kind": {
+            "title": "Channel Kind",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Evidence"
+          },
+          "consent_recorded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Recorded At"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Source"
+          },
+          "contact_channel_id": {
+            "format": "uuid",
+            "title": "Contact Channel Id",
+            "type": "string"
+          },
+          "contact_state": {
+            "title": "Contact State",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "send_eligible": {
+            "description": "Whether a send may address this channel: 'active_candidate', an approved consent source, and no suppression. All three, always.",
+            "title": "Send Eligible",
+            "type": "boolean"
+          },
+          "suppressed": {
+            "description": "Whether this address is under a suppression record. Outranks everything.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contact_channel_id",
+          "professional_id",
+          "channel_kind",
+          "address",
+          "contact_state",
+          "suppressed",
+          "send_eligible",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ChannelResponse",
+        "type": "object"
+      },
+      "ChannelTransitionRequest": {
+        "description": "Move one channel to the next state in the consent lifecycle.",
+        "properties": {
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required with a consent source, for the reason a create requires it.",
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required to reach 'consented', and then it must be approved. Ignored for every other move: the source that authorized a contact was recorded when it reached 'consented', and rewriting it later would redate a permission granted earlier."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this move was made, in the actor's own words. Kept on the trail.",
+            "title": "Reason"
+          },
+          "to_state": {
+            "$ref": "#/components/schemas/ContactState",
+            "description": "The state to move to."
+          }
+        },
+        "required": [
+          "to_state"
+        ],
+        "title": "ChannelTransitionRequest",
+        "type": "object"
+      },
+      "ChannelTransitionView": {
+        "description": "One recorded move, as the trail holds it.",
+        "properties": {
+          "actor_user_id": {
+            "description": "The authenticated caller who made this move. Never a body field.",
+            "format": "uuid",
+            "title": "Actor User Id",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Source"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state moved out of, or null for the registration entry \u2014 which is a real entry rather than an absent one: the contact moved from not existing to its initial state, and somebody did that.",
+            "title": "From State"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "to_state": {
+            "title": "To State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_state",
+          "actor_user_id",
+          "occurred_at"
+        ],
+        "title": "ChannelTransitionView",
+        "type": "object"
+      },
+      "ChannelWithHistoryResponse": {
+        "description": "A channel and the trail of every move made to it.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/ChannelResponse"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelTransitionView"
+            },
+            "title": "Transitions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "channel",
+          "transitions"
+        ],
+        "title": "ChannelWithHistoryResponse",
+        "type": "object"
+      },
       "ClassificationCorrectionRequest": {
         "description": "Correct one or both of a contact's \u00a7\u00a77-8 classification axes.\n\nAn omitted axis is left alone, never cleared. Nothing in \u00a713 or \u00a7\u00a77-8\ndescribes un-classifying a speaker, and giving null two meanings \u2014 \"not part\nof this correction\" and \"delete the stored value\" \u2014 would make the commoner\ncase the dangerous one.\n\nNote what is not here: no field saying who is correcting, and none saying\nwhat the value was before. OQ-CBA-008's interim ruling is current value only,\nand a request field for provenance would be this route inventing the audit\nvocabulary that ruling declines to invent.",
         "properties": {
@@ -2300,6 +2569,65 @@
           "reason"
         ],
         "title": "RedriveRequest",
+        "type": "object"
+      },
+      "RegisterChannelRequest": {
+        "description": "Record one address for a roster contact, and the evidence for it.\n\n``professional_id`` is **not** a field: it is the path, and the person named\nthere has to already be on this unit's roster. That is the difference between\nthis create and ``routers/outreach_contacts.py``'s, which stores an identifier\nit cannot resolve.",
+        "properties": {
+          "address": {
+            "description": "The address itself. Pilot and test data use RFC 2606 reserved domains (.invalid), which cannot resolve and therefore cannot be written to by accident.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Address",
+            "type": "string"
+          },
+          "consent_evidence": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the consent was captured \u2014 a form submission id, the coordinator's note, the institutional agreement's reference. Required with a source: an auditor asking to see the evidence needs somewhere for the answer to live that is not a comment on a ticket.",
+            "title": "Consent Evidence"
+          },
+          "consent_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required when creating as 'consented', and then it must be one of the four approved sources. Scraped, purchased and inferred are storable as provenance on a 'discovered' channel and can never authorize a send."
+          },
+          "contact_state": {
+            "$ref": "#/components/schemas/ContactState",
+            "default": "discovered",
+            "description": "'discovered' (this unit holds the address, and asserts nothing more) or 'consented' (a named person agreed, and this request names the approved source and the evidence). Creating an 'active_candidate' is refused: activation is an act with an actor, not an initial value."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this channel is being recorded, kept on its first trail entry.",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "title": "RegisterChannelRequest",
         "type": "object"
       },
       "RegisterContactRequest": {
@@ -9917,6 +10245,477 @@
           }
         },
         "summary": "Edit one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels": {
+      "get": {
+        "description": "Every channel this unit holds for this person, each with its full trail.\n\n``send_eligible`` is on every row, so \"why can I not write to this person\" is\nanswerable by reading rather than only by trying. A person with no channel at\nall \u2014 the ordinary case for a contact added through the \u00a713 form, which\nwrites none \u2014 returns an empty list, which is the honest answer and not a\n404: the contact exists, and holds nothing.\n\nRaises:\n    ApiError: 404 when the person is not on this unit's roster.",
+        "operationId": "list_speaker_contact_channels_v1_units__unit_id__speaker_contacts__professional_id__channels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a speaker contact's channels and their consent history",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "post": {
+        "description": "Store one channel for a roster contact and open its audit trail.\n\n``201``: when this returns, a row exists and so does the first entry of its\nhistory \u2014 the registration itself, recorded with the authenticated caller as\nthe actor, because \"who says this person agreed\" is the question the whole\nfeature rests on. The actor is never a body field: letting a request name who\nrecorded a consent would be the caller-selected-identity pattern (MM-A01) in\nthe one place it would matter most.\n\nThe response carries the trail as well as the row, so a caller can see the\nsingle entry it just caused rather than having to fetch it to believe it.\n\nRaises:\n    ApiError: 404 when the person is not on this unit's roster; 409 when the\n        address is suppressed, or when this tenant already holds a channel\n        for it; 403 when a consent claim names no approved source or the\n        initial state is not one a channel may be created in; 400 when a\n        source arrives without evidence.",
+        "operationId": "register_speaker_contact_channel_v1_units__unit_id__speaker_contacts__professional_id__channels_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelWithHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record a contact channel for a speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels/{contact_channel_id}/transitions": {
+      "post": {
+        "description": "Move the channel, and record who moved it and why.\n\nA ``POST`` to a *transitions* collection rather than a ``PATCH`` of the state\nfield, because that is what happens: a row is appended to a history and the\nchannel's state follows from it. ``201`` for the same reason \u2014 the thing\ncreated is the transition.\n\nThe legality of the move is ``smartmatch_domain.consent``'s decision, and it\nis asked **with the live suppression**, which is what makes suppression win\nhere rather than only at send time. A suppressed address cannot reach\n``consented`` or ``active_candidate`` by any route, however well sourced the\nrequest; a move that does not increase what may be done to the person still\nworks, so a Connector can record that a suppressed contact went stale.\n\nRaises:\n    ApiError: 404 when the channel is not this person's, in this unit; 409\n        when the address is suppressed and the move would escalate it, when\n        the move is not a legal edge, or when the channel moved underneath\n        this request; 403 when a consent claim names no approved source; 400\n        when it names one without evidence.",
+        "operationId": "transition_speaker_contact_channel_v1_units__unit_id__speaker_contacts__professional_id__channels__contact_channel_id__transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "contact_channel_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Contact Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelWithHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Move a speaker contact's channel through the consent lifecycle",
         "tags": [
           "speaker-contacts"
         ]

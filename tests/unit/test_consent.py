@@ -180,9 +180,7 @@ def test_send_violation_is_a_permission_error():
 def test_a_contact_cannot_be_created_already_send_eligible():
     """The whole card in one assertion: creation alone grants nothing."""
     with pytest.raises(ConsentViolationError, match="cannot be created in"):
-        assert_registrable(
-            ContactState.ACTIVE_CANDIDATE, consent_source=ConsentSource.IN_PERSON
-        )
+        assert_registrable(ContactState.ACTIVE_CANDIDATE, consent_source=ConsentSource.IN_PERSON)
 
 
 def test_active_candidate_is_not_registrable_even_with_every_approved_source():
@@ -195,7 +193,7 @@ def test_active_candidate_is_not_registrable_even_with_every_approved_source():
 def test_registrable_states_exclude_active_candidate_as_a_set_property():
     """Stated as a set property so a future edit cannot quietly add it back."""
     assert ContactState.ACTIVE_CANDIDATE not in REGISTRABLE_STATES
-    assert REGISTRABLE_STATES == frozenset({ContactState.DISCOVERED, ContactState.CONSENTED})
+    assert sorted(s.value for s in REGISTRABLE_STATES) == ["consented", "discovered"]
 
 
 def test_registering_as_discovered_asserts_nothing_and_needs_no_source():
@@ -243,9 +241,7 @@ def test_a_registrable_consented_contact_is_still_not_send_eligible():
 
 def test_escalating_states_are_derived_from_the_send_rule():
     """The set paraphrases `is_send_eligible`, so it cannot drift from it."""
-    assert ESCALATING_STATES == frozenset(
-        {ContactState.ACTIVE_CANDIDATE, ContactState.CONSENTED}
-    )
+    assert sorted(s.value for s in ESCALATING_STATES) == ["active_candidate", "consented"]
     for state in ContactState:
         assert is_escalation(state) == (state in ESCALATING_STATES)
 
@@ -255,9 +251,7 @@ def test_suppression_blocks_activation_of_a_properly_consented_contact():
     # Legal, correctly sourced, and refused anyway — on suppression alone.
     assert_transition(ContactState.CONSENTED, ContactState.ACTIVE_CANDIDATE)
     with pytest.raises(ConsentViolationError, match="suppressed"):
-        assert_transition(
-            ContactState.CONSENTED, ContactState.ACTIVE_CANDIDATE, suppressed=True
-        )
+        assert_transition(ContactState.CONSENTED, ContactState.ACTIVE_CANDIDATE, suppressed=True)
 
 
 def test_suppression_blocks_reaching_consented_from_an_approved_source():
