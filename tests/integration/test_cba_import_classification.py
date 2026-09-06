@@ -624,7 +624,66 @@ def test_a_stated_taxonomy_code_is_taken_as_a_proposal_rather_than_as_a_fact(
     assert stored.role_classified_by_user_id is None
 
 
-@pytest.mark.parametrize("stated", ["banking", "Finance and Insurance!", "521", "  ", "52.0"])
+@pytest.mark.parametrize(
+    ("stated_industry", "stated_role"),
+    [
+        ("Finance and Insurance", "Finance"),
+        ("finance and insurance", "  finance  "),
+        ("52", "finance"),
+    ],
+)
+def test_a_stated_display_name_resolves_to_its_code(
+    engine: Engine,
+    tenant_id,
+    unit_id,
+    session_factory,
+    stated_industry: str,
+    stated_role: str,
+) -> None:
+    """The display-name resolution the import contract assigns to this card.
+
+    ``docs/pilot-data/columns.yaml`` says the import contract does not "resolve
+    a display name to a code … That is CBA-IMPORT-CLASSIFY's work". A
+    coordinator exporting §7's sector *name* under a column spelled
+    ``primary_industry_code`` has said something perfectly clear, and dropping
+    it because the header promised a code would throw away good evidence on a
+    technicality. ``resolve_sector`` and ``resolve_role_category`` accept both
+    forms, in any casing and with any surrounding whitespace, and nothing else.
+
+    What is stored is always the **code**, so two spellings of one answer are
+    one stored value rather than two.
+    """
+    professional_id = _accept(
+        session_factory,
+        tenant_id=tenant_id,
+        unit_id=unit_id,
+        primary_industry_code=stated_industry,
+        primary_role_code=stated_role,
+    )
+
+    stored = _profile(engine, tenant_id, professional_id)
+
+    assert stored is not None
+    assert stored.primary_industry_code == "52"
+    assert stored.primary_role_code == "finance"
+    # Still a proposal, however clearly the export stated it.
+    assert stored.industry_classification_source == CLASSIFICATION_SOURCE_INFERRED
+    assert stored.role_classification_source == CLASSIFICATION_SOURCE_INFERRED
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        "banking",
+        "Retail Banking",
+        # A §8 *role* name in the §7 industry column. The two vocabularies are
+        # closed and separate, and one must not be readable as the other.
+        "Finance",
+        "521",
+        "52.0",
+        "  ",
+    ],
+)
 def test_a_stated_code_outside_the_closed_taxonomy_is_not_stored(
     engine: Engine, tenant_id, unit_id, session_factory, stated: str
 ) -> None:
@@ -634,6 +693,14 @@ def test_a_stated_code_outside_the_closed_taxonomy_is_not_stored(
     the import contract says exactly that — so the accept succeeds, the axis
     stays unclassified, and the raw value is still in ``review_item.row_data``
     for anybody who wants to see what was not taken.
+
+    Note what is *not* in this list. ``"Finance and Insurance!"`` resolves to
+    ``52``: the released taxonomy's own fold is punctuation-insensitive, so a
+    trailing exclamation mark is not a different sector. That is
+    ``smartmatch_domain.naics_sectors``'s decision rather than this module's,
+    and a test asserting the opposite here would be pinning a behaviour this
+    card does not own — the reason every case below is a value the taxonomy
+    genuinely does not name.
     """
     professional_id = _accept(
         session_factory,

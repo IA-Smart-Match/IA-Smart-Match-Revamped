@@ -193,16 +193,11 @@ from smartmatch_domain.cba_classification import (
 )
 from smartmatch_domain.cba_contacts import SpeakerContactDraft
 from smartmatch_domain.cba_role_categories import (
-    CBA_ROLE_TAXONOMY_VERSION,
-    UnknownCbaRoleCategory,
-    role_category_for_code,
+    ClassifiedRoleCategory,
+    resolve_role_category,
 )
 from smartmatch_domain.metrics import OpportunityCategoryShape, shape_opportunity_category
-from smartmatch_domain.naics_sectors import (
-    NAICS_TAXONOMY_VERSION,
-    UnknownNaicsSector,
-    sector_for_code,
-)
+from smartmatch_domain.naics_sectors import ClassifiedSector, resolve_sector
 from smartmatch_domain.synthetic_pilot import (
     MAX_SYNTHETIC_JOURNEYS_PER_ACCEPT,
     SYNTHETIC_BOARD_ROLE,
@@ -592,9 +587,15 @@ def _classify(
     the company name would throw away better evidence for worse. It is still
     only a proposal: it arrived on a spreadsheet, nobody in this system has
     reviewed it, and ``docs/pilot-data/columns.yaml`` says explicitly that the
-    import contract does not validate it. This module does — against the closed
-    taxonomy, through ``resolve_sector`` / ``resolve_role_category``, so a
-    misspelling, a display name, or a code from some other vocabulary resolves
+    import contract does not validate it, "resolve a display name to a code, or
+    infer either one from company or title. That is CBA-IMPORT-CLASSIFY's work".
+
+    All three of those are here. ``resolve_sector`` / ``resolve_role_category``
+    accept §7's and §8's **names** as well as their codes, in any casing, so a
+    coordinator who exported ``"Finance and Insurance"`` under a column named
+    ``primary_industry_code`` is understood rather than silently dropped — the
+    display-name resolution that sentence assigns to this card. They accept
+    nothing else: a misspelling, or a code from some other vocabulary, resolves
     to nothing rather than being stored because a coordinator typed it.
 
     The classifier reads company and title when the export stated no usable
@@ -635,23 +636,28 @@ def _stated_code(row_data: Mapping[str, Any], *, axis: str) -> ProposedClassific
         return None
 
     stated = value.strip()
-    try:
-        if axis == "industry":
-            sector_for_code(stated)
-            version = NAICS_TAXONOMY_VERSION
-        else:
-            role_category_for_code(stated)
-            version = CBA_ROLE_TAXONOMY_VERSION
-    except (UnknownNaicsSector, UnknownCbaRoleCategory):
-        # Not an import failure and not a finding: the contract already said an
-        # unrecognized value here is a review item's problem rather than the
-        # batch's. The value stays in `review_item.row_data` where it can be
-        # read, the axis stays unclassified, and a Connector decides.
-        return None
+    if axis == "industry":
+        sector = resolve_sector(stated)
+        if not isinstance(sector, ClassifiedSector):
+            # Not an import failure and not a finding: the contract already said
+            # an unrecognized value here is a review item's problem rather than
+            # the batch's. The raw text stays in `review_item.row_data` where it
+            # can be read, the axis stays unclassified, and a Connector decides.
+            return None
+        code, version = sector.sector.code, sector.taxonomy_version
+    else:
+        role = resolve_role_category(stated)
+        if not isinstance(role, ClassifiedRoleCategory):
+            return None
+        code, version = role.category.code, role.taxonomy_version
 
     return ProposedClassification(
-        code=stated,
+        code=code,
         taxonomy_version=version,
+        # The text as the export wrote it, not the code it resolved to. A
+        # reviewer looking at a proposal needs to see what the sheet actually
+        # said — `"Finance and Insurance"` and `"52"` are the same proposal and
+        # not the same evidence.
         evidence=stated,
         classifier=IMPORT_COLUMN_CLASSIFIER,
     )
