@@ -85,6 +85,11 @@ const CoordinatorSpeakerContacts = lazy(() =>
     default: m.CoordinatorSpeakerContacts,
   })),
 );
+const CoordinatorSpeakerFeedback = lazy(() =>
+  import("./pages/coordinator/CoordinatorSpeakerFeedback").then((m) => ({
+    default: m.CoordinatorSpeakerFeedback,
+  })),
+);
 
 const VolunteerHome = lazy(() =>
   import("./pages/volunteer/VolunteerHome").then((m) => ({ default: m.VolunteerHome })),
@@ -207,6 +212,14 @@ export const router = createBrowserRouter([
       // page is behind `admin`/`coordinator` there regardless of what the
       // browser renders.
       { path: "speaker-contacts", element: withSuspense(<CoordinatorSpeakerContacts />) },
+      // Customer §16's Connector read of student feedback, aggregate-only per
+      // OQ-CBA-003 part 1. Mounted unconditionally for the reason the roster
+      // above is: a route is a claim about what exists rather than a
+      // permission. `GET .../speakers/{speaker_id}/feedback-summary` is
+      // `admin`/`coordinator` server-side whatever the router renders, and
+      // there is deliberately no route listing individual ratings for a later
+      // page to reach for.
+      { path: "speaker-feedback", element: withSuspense(<CoordinatorSpeakerFeedback />) },
       // Card B24's replacement: the Connector submits a real match run against
       // a filed Speaker Request. Mounted unconditionally for the same reason
       // the roster above is — the capability gating the *API* is on under both
