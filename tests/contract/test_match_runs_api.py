@@ -552,10 +552,14 @@ def test_a_virtual_run_is_stored_under_the_cba_registry_and_names_its_mode(
     two numbers and five subject ids — and the run that lands is a 2.0.0 run in
     the virtual model.
 
-    ``match_run`` has no ``scoring_mode`` column (OQ-CBA-028, open), so the mode
-    is asserted where it is actually stored: on the durable command payload and
-    on every stored explanation. Both are rows in ``job``, read back here with
-    the API out of the picture.
+    The mode is asserted on the durable command payload and on every stored
+    explanation — both rows in ``job``, read back here with the API out of the
+    picture. ``match_run`` grew a ``scoring_mode`` column of its own in
+    migration ``0032`` (OQ-CBA-028), and that row is asserted in
+    ``tests/integration/test_match_run_command_path.py`` rather than here: this
+    file is about what the *route* puts on the command path, and the column is
+    deliberately not on the wire. Exposing it on the read response is a separate
+    card, with its own contract regeneration.
     """
     accepted = _post(match_context, _submission(match_context))
     assert accepted.status_code == 202, accepted.text

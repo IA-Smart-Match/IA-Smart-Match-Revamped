@@ -1308,9 +1308,13 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
             "solver_version": pins.solver_version,
             "route_estimate_source": pins.route_estimate_source,
             "route_estimate_version": pins.route_estimate_version,
-            # The mode is reported here because `match_run` has no column for
-            # it (OQ-CBA-028) and this event is where a follower of the job can
-            # read it. `null` is a pre-ADR-0016 run, not the physical model.
+            # Reported here as well as stored on the row. `match_run` grew a
+            # `scoring_mode` column in migration 0032 (OQ-CBA-028), and this
+            # stays because the two answer different questions: the column is
+            # what a report queries afterwards, and this is what a client
+            # following the job reads without a second lookup — the same reason
+            # every other pin above is echoed here. `null` is a pre-ADR-0016
+            # run, not the physical model.
             "scoring_mode": pins.scoring_mode,
             "scoring_mode_version": pins.scoring_mode_version,
             "portfolio_status": result.status.value,

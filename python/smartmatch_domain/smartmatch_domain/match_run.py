@@ -241,13 +241,18 @@ class MatchRunPins:
             run as ``cba-physical-1`` would claim a proximity factor was scored
             under a rulebook that had no modes at all.
 
-            **Not persisted on the ``match_run`` row.** That table (migration
-            ``0018``) has no column for it and this card adds no DDL, so the
-            durable record of a run's mode is the job summary event and the
-            stored explanation payload, plus ``registry_hash`` — which differs
-            between the two modes by construction, because they apply different
-            weight sets. Giving the mode its own column is OQ-CBA-028, and
-            until it lands the mode is recoverable but not queryable.
+            **Persisted on the ``match_run`` row** since migration ``0032``,
+            which closed OQ-CBA-028. Before it, the mode reached durable storage
+            only through the job summary event, the stored explanation payload,
+            and ``registry_hash`` — which differs between the two modes by
+            construction, because they apply different weight sets. Those three
+            made every run recoverable and no run queryable. The mode now has a
+            column of its own, a partial CHECK holding the closed vocabulary,
+            and a ``NULL`` on every run that genuinely predates that vocabulary.
+
+            It stays ``None``-able here for the same reason the column is
+            nullable: a pre-ADR-0016 run has no mode, and the writer must be
+            able to say so rather than pick one.
         scoring_mode_version: The mode vocabulary's version
             (:data:`smartmatch_domain.factor_registry.SCORING_MODE_VERSION`),
             set exactly when :attr:`scoring_mode` is, so a stored

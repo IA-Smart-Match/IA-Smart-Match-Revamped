@@ -372,6 +372,18 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((portfolio_status = ANY (ARRAY['optimal'::text, 'feasible'::text, "
         "'infeasible'::text, 'unknown'::text])))"
     ),
+    # Migration 0032, OQ-CBA-028. **Partial on purpose**, and the pinned
+    # expression is where that is held: the `scoring_mode IS NULL` arm is what
+    # makes a pre-ADR-0016 run storable, and an edit that dropped it — a
+    # "tightening" to a plain IN — would put every historical row in violation
+    # and could not be applied to a populated database at all. It is also why
+    # `ck_match_run_pins_present` above still names eight fields and not nine:
+    # the two constraints say different things, and the older one is about pins
+    # that were always required.
+    ("match_run", "ck_match_run_scoring_mode"): (
+        "CHECK (((scoring_mode IS NULL) OR (scoring_mode = ANY (ARRAY["
+        "'cba-physical-1'::text, 'cba-virtual-1'::text]))))"
+    ),
     # Migration 0019, the durable redemption and the representable debit. The
     # ledger's other new guarantee — that no UPDATE succeeds — is a trigger, as
     # match_run's is, and so has no entry here; the two partial unique indexes
@@ -810,6 +822,17 @@ BEHAVIOURAL_COVERAGE = {
     ("match_run", "ck_match_run_random_seed"): "test_match_run_snapshot.py",
     ("match_run", "ck_match_run_route_estimate_source"): "test_match_run_snapshot.py",
     ("match_run", "ck_match_run_portfolio_status"): "test_match_run_snapshot.py",
+    # Migration 0032.
+    ("match_run", "ck_match_run_scoring_mode"): (
+        "test_match_run_snapshot.py — one accepted row per released mode, "
+        "parametrized over CBA_SCORING_MODES from the domain rather than over a "
+        "literal, so a mode added in Python without a migration fails here; one "
+        "accepted row with no mode at all, which is the arm a 'tightening' to a "
+        "plain IN would silently remove; and one refused row naming the "
+        "constraint, using the `legacy-pre-adr-0016` sentinel OQ-CBA-028 "
+        "rejected, so the value that would reopen the closed vocabulary is the "
+        "value proved unstorable"
+    ),
     # Migration 0019.
     ("point_ledger_entry", "ck_point_ledger_entry_kind"): (
         "test_redemption_durability.py — one refused case per kind for each of "
