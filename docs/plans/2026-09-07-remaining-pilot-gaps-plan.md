@@ -550,3 +550,583 @@ what the per-speaker route already gives.
 **Could go wrong.** The residual rule is easy to lose in a refactor that "simplifies"
 the domain function to `len(all) >= 3`; the unit test matrix in 2.4 item 1 is the
 guard. The dashboard test that pinned "names the gap" must be rewritten, not deleted.
+
+---
+
+## Gap 3 — `attendance_record` has no route writer
+
+**Classification: reverses a recorded decision** — three of them, in three places that
+must change together:
+
+1. `python/smartmatch_persistence/smartmatch_persistence/attendance.py:1-22` — the module
+   docstring scopes the writer to "the minimal `attendance_record` writer the synthetic
+   pilot authorization allows" and closes with "**no route imports this repository, and
+   none may**". `python/smartmatch_persistence/smartmatch_persistence/engagement.py:11-19`
+   quotes that sentence and says "That sentence is still true after this module exists".
+2. `services/api/smartmatch_api/routers/pipeline.py:61-65` and
+   `routers/cba_handoff.py:46-48` — both open a paragraph with "**No attendance
+   writer.** The Attended stage *cites* an `attendance_record`; it does not create one."
+3. `docs/plans/open-questions/pipeline-stage-writers-deferred.md:56-72` — **OQ-102**,
+   "who writes `attendance_record`", whose safe default is "The synthetic pilot path
+   (`tests/integration/test_synthetic_attendance_writer.py`) remains the only writer,
+   and it is not a production one", and whose reason is the one that matters here:
+   "`attendance_record` is the only input to points (ADR-0013), so whatever writes it
+   is also what mints student rewards."
+
+The authorization the writer was built under is
+`docs/decisions/synthetic-pilot-development-authorization-2026-09-03.md:63` — item 3,
+"minimal synthetic writer for Attended-stage CHECK constraints in demo seed flow" — and
+`services/api/smartmatch_api/pipeline_provisioning.py:41-48` explains why even the
+review-accept path does not call it. A route exceeds item 3. The owner's 7 September
+authorization is the new authority; it is recorded in the register, and the ratified
+3 September document is **not** edited (the precedent is OQ-CBA-032's closure at
+`cba-phase-deferred.md:195-203`, which left the ratified worksheet untouched and
+recorded the narrowing beside it).
+
+### 3.1 What exists today
+
+`AttendanceRepository.record_attendance(session, *, tenant_id, owning_unit_id,
+subject_id, event_id, method) -> uuid.UUID` (`attendance.py:63-170`) inserts with
+`ON CONFLICT DO NOTHING` on `uq_attendance_record_subject_event`, refuses a `method`
+outside `ATTENDANCE_METHODS = {"qr_scan", "coordinator_entry", "import"}` (`:47`),
+reads the row back, and raises `ConflictingOwningUnitError` when an earlier row sits
+under a different unit. It returns the id and does not say whether this call inserted.
+The table (`schema.py:433-480`) carries composite foreign keys to `org_unit`,
+`user_account` (the subject) and `event`, all `RESTRICT`.
+
+Three readers already depend on the row: the Attended stage in both funnels
+(`PipelineRepository.advance_stage` checks the row exists in the tenant at
+`persistence/pipeline.py:539-550`; the CBA hand-off additionally checks the row's
+subject is the invitation's professional and its event is the journey's event,
+`persistence/pipeline.py:776-786` and `:855-903`); student feedback eligibility
+(`persistence/student_speaker_feedback.py:415-424` — an attendance row for the
+*student* at the event, also a composite foreign key on the feedback table); and the
+rewards balance (`routers/rewards.py:512-566`: no ledger entry **and** at least one
+attendance row is the *unknown* balance, "It is not zero"). The student browse surface
+reads it too (`routers/student_events.py:667-693`). Everything above is a read. The
+only writer in the tree is the test file the OQ names, plus `tools/generate_pilot_dataset.py`
+through the same repository.
+
+Two consequences follow for the e2e walk-through. Step 25
+(`tests/e2e/test_pilot_clickthrough.py:2388-2420`) skips the feedback submission
+because "nothing in the `/v1` surface creates one"; step 24 (`:2243`) leaves
+`attended_at` null for the same reason. And **the subject of an attendance row is not
+only a student**: the CBA hand-off cites a row whose `subject_id` is the *speaker's*
+professional id (`persistence/pipeline.py:889-892`). A route that only accepted
+students would leave the Attended stage of the CBA funnel unreachable.
+
+Points are minted by a separate call. `RewardsRepository.credit_attendance`
+(`persistence/rewards.py:240-262`) appends the ledger entry for one attendance,
+idempotently under `uq_point_ledger_entry_attendance_credit`, and its docstring says of
+`actor_id`: "It is accepted for the case where a coordinator's action is what caused
+the derivation to be run." Nothing under `services/` calls it; `tools/generate_pilot_dataset.py:858`
+does.
+
+### 3.2 What is planned
+
+**Route.** `POST /v1/units/{unit_id}/events/{event_id}/attendance` in a **new** router
+`services/api/smartmatch_api/routers/attendance.py`. Not on `routers/engagement.py`,
+whose router is pinned read-only by
+`tests/unit/test_matching_fail_closed.py:372-388` and bounded to one path by
+`R2_AUTHORIZED_ENGAGEMENT_PATHS` (`:269-273`) — a `POST` there would need both pins
+loosened and would attach a write to the router that exists to prove D8 is still
+open. The path contains none of `_CHECK_IN_MARKERS = ("check-in", "checkin",
+"check_in", "/qr", "qr-", "qr_", "scan")` (`tests/unit/test_checkin_wiring.py:56`),
+because this is not the B08 check-in flow: no token is issued or verified, and the
+router must not import `smartmatch_domain.checkin` (`:111-118` holds the composition
+root to that). `attendance` and `events` are not forbidden segments in
+`_forbidden_gate_for_path` (`test_matching_fail_closed.py:128-207`; the existing
+`/v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` already passes the same
+scan at `:603-612`).
+
+**Mounting.** In `main.py`'s capability list beside `pipeline.router`
+(`main.py:373`, `Capability.DISCOVERY_METRICS`): the row exists to make the funnel's
+Attended stage reachable, and the funnel is what that capability mounts. This is a
+judgement the reviewer may move — `EVENT_READS` (feedback eligibility) and
+`REWARDS_LEDGER` (points) also depend on the row — but it must be *one* capability,
+stated in the router docstring.
+
+**Authorization.** `_ATTENDANCE_WRITE_ROLES = frozenset({"admin", "coordinator"})`, a
+literal, with `_authorize_attendance_write` loading the unit via `load_unit_or_404`
+and calling `assert_allowed` with `required_roles=` and nothing else — the same shape
+as `_authorize_engagement_read` (`routers/engagement.py:153-175`). The coordinator is
+the accountable actor for unit record-keeping (the argument at `engagement.py:100-107`),
+and OQ-102's own framing — the coordinator is one of its three candidate writers — is
+what makes this the narrowest honest answer.
+
+**Body.** `subject_id: uuid.UUID` only. No `method` field: the route *is* a
+coordinator's entry, so `method` is fixed server-side to `"coordinator_entry"` — taken
+from a new domain constant `COORDINATOR_ENTRY_METHOD` in
+`smartmatch_domain/attendance.py` beside `ATTENDANCE_METHODS` (`:66`), not from
+`synthetic_pilot.py`, whose equal-valued constant is documented as the *synthetic*
+writer's (`synthetic_pilot.py:65-69`). A caller-chosen `qr_scan` would claim a scanner
+that does not exist; `import` would claim a batch. No `recorded_at`: `created_at` is
+the server default (`schema.py:446`) and a coordinator cannot backdate presence.
+
+**Preconditions, each a worded refusal rather than an `IntegrityError`:**
+
+* the event exists in this tenant **and** `event.host_org_unit_id == unit_id`, else
+  `404 event_not_found` — the same scoping the hand-off applies to its event
+  (`persistence/pipeline.py:741-750`); an attendance owned by unit A at an event
+  hosted by unit B is a row nobody's drill-down can explain;
+* the subject is a `user_account` in this tenant, else `404 attendance_subject_not_found`
+  — the composite foreign key would refuse it anyway, but as a `500`;
+* `ConflictingOwningUnitError` → `409 attendance_owned_by_another_unit`.
+
+Registration is **not** required. An attendance row is evidence that somebody was
+present; requiring an `event_registration` row first would refuse the walk-in the
+coordinator is looking at.
+
+**Repository change.** `record_attendance` returns a new frozen
+`AttendanceWriteResult(attendance_id, created)`, with `created` read from
+`RETURNING id` on the `ON CONFLICT DO NOTHING` insert (a row comes back only when this
+call inserted) — the same "one statement decides" discipline
+`EventRepository.upsert_returning_outcome` applies at `events.py:378-387`. The two
+existing callers (the integration test and `generate_pilot_dataset.py`) change to
+`.attendance_id`.
+
+**Points.** After the attendance write, in the same transaction, the route calls
+`RewardsRepository.credit_attendance(session, tenant_id=..., attendance_id=...,
+actor_id=principal.user_id)` and catches `AlreadyCreditedError` so a repeated request
+is idempotent. This is ADR-0013's model — "Points derive from recorded attendance and
+nothing else" (`ADR-0013-attendance-derived-engagement.md:60`) — and it is the case the
+`actor_id` parameter was written for. Without it, every student the coordinator marks
+present shows `state: "unknown"` on `GET /v1/units/{unit_id}/rewards` forever
+(`routers/rewards.py:548-557`), and step 15 has no balance to spend. The rate is
+`POINTS_PER_VERIFIED_ATTENDANCE = 100` (`smartmatch_domain/rewards.py:101`) with
+`EARN_POLICY_RATIFIED = False` (`:121`), both already published on the catalog
+response; nothing here promotes D7.
+
+**Response.** `201 AttendanceRecordResponse{attendance_id, unit_id, event_id,
+subject_id, method, recorded_at, points_credited: bool, ledger_entry_id | null}` read
+back from the rows; `200` with the same body when the row already existed (the
+speaker-requests pattern at `routers/speaker_requests.py:613-620`). No score, no
+balance.
+
+**Rate limit.** `ATTENDANCE_WRITE_RATE_LIMIT = RateLimit(operation="attendance.record",
+max_requests=120, window=timedelta(minutes=1))` — a coordinator marking a room of
+students present needs more than the 30-per-minute a filing gets.
+
+### 3.3 The docstrings, changed with the code
+
+* `attendance.py:1-22` — rewrite. The module is now the attendance writer for the
+  coordinator route and the synthetic seed; it is still not a scanner, not a live
+  check-in, and not identity. Delete "no route imports this repository, and none
+  may"; state which route does, and that `tests/unit/test_checkin_wiring.py` still
+  holds the route away from `smartmatch_domain.checkin`.
+* `engagement.py:11-19` — the paragraph quoting the sentence must go; the reason the
+  reader is a separate module (different exposure) still stands and is kept.
+* `routers/pipeline.py:61-65` and `routers/cba_handoff.py:46-48` — each becomes "**No
+  attendance writer here.** The Attended stage *cites* an `attendance_record` written by
+  `routers/attendance.py`; this router never creates one." OQ-102's citation at
+  `pipeline.py:65` changes to the closure.
+* `pipeline_provisioning.py:41-48` — still true (it does not call the writer); add one
+  sentence pointing at the route so a reader does not conclude the writer is uncalled.
+* `tests/integration/test_synthetic_attendance_writer.py:1-15` — "the minimal
+  `attendance_record` writer" is no longer minimal-and-synthetic; reword.
+* `tests/e2e/test_pilot_clickthrough.py:2404-2409` (step 25) and `:2602` — rewrite.
+* `docs/plans/2026-09-07-matching-expansion-brief.md:63-67` is a dated brief and is
+  left as written.
+
+### 3.4 Tests, written first
+
+1. `tests/integration/test_synthetic_attendance_writer.py` — add
+   `test_record_attendance_reports_whether_it_inserted` (first call `created=True`,
+   second `False`, same id).
+2. `tests/authz/test_policy_matrix.py` — `Operation(key="attendance.record",
+   method="POST", path="/v1/units/{unit_id}/events/{event_id}/attendance",
+   module="smartmatch_api.routers.attendance", authorizer="_authorize_attendance_write",
+   roles_constant="_ATTENDANCE_WRITE_ROLES", required_roles=frozenset({"admin",
+   "coordinator"}), resource_type="org_unit", unit_scoped=True)` and its rectangle,
+   copied from `engagement.attendance_summary`'s (locate with `grep -n
+   "attendance_summary" tests/authz/test_policy_matrix.py`).
+3. `tests/contract/test_attendance_api.py` — new, on the fixture shape of
+   `tests/contract/test_engagement_api.py` (docstring `:1-12`; one tenant, one unit,
+   one sibling, a coordinator, a student, real `event` rows):
+   `test_a_coordinator_records_a_students_attendance_and_the_row_is_in_the_table`,
+   `test_the_same_request_twice_is_a_200_and_one_row`,
+   `test_the_method_is_coordinator_entry_and_the_body_cannot_choose_it` (a `method`
+   field in the body is a `422`), `test_attendance_credits_points_once`
+   (one `point_ledger_entry` after two calls; the student's `GET .../rewards` balance is
+   `measured` and equals `POINTS_PER_VERIFIED_ATTENDANCE`),
+   `test_a_speaker_subject_is_accepted` (a `user_account` with no student membership),
+   `test_an_event_hosted_by_another_unit_is_a_404`,
+   `test_a_subject_outside_the_tenant_is_a_404`,
+   `test_a_student_may_not_record_attendance`,
+   `test_a_sibling_coordinator_may_not_record_attendance`,
+   `test_the_response_carries_no_score_and_no_balance`.
+4. `tests/unit/test_checkin_wiring.py` — no edit; it must still pass (path markers,
+   composition-root import) and the PR must say it ran.
+5. `tests/unit/test_matching_fail_closed.py` — no allowlist edit is needed for a new
+   router (the engagement pins are on `engagement.router` only); the OpenAPI scan at
+   `:603-612` must pass on the regenerated document.
+6. `tests/e2e/test_pilot_clickthrough.py` — step 24 (`:2243`): after the hand-off, the
+   coordinator records the accepted speaker's attendance at the event and re-issues the
+   hand-off with `attendance_id`; assert `attended_at` is set and `applied` contains
+   `"attended"`. Step 25 (`:2388`): the coordinator records the **student principal's**
+   attendance at the same event; the student then submits a rating (`201`), reads it
+   back, and the Connector's per-speaker and unit summaries are asserted suppressed
+   (one rating). Keep every existing `403` assertion. The `pytest.skip` on the
+   submission is removed.
+7. `make openapi`.
+
+### 3.5 Files, register, branch, milestones
+
+Code: `services/api/smartmatch_api/routers/attendance.py` (new), `main.py`,
+`python/smartmatch_persistence/smartmatch_persistence/attendance.py`,
+`python/smartmatch_domain/smartmatch_domain/attendance.py`, `tools/generate_pilot_dataset.py`
+(the `.attendance_id` change), `contracts/openapi/smartmatch.json`. No migration.
+No frontend in this PR: the Connector page that records attendance is a separate,
+smaller PR once the route exists, and the e2e steps drive the route directly.
+
+Register: `docs/plans/open-questions/pipeline-stage-writers-deferred.md:56-72` — add
+under OQ-102 a paragraph opening **"Decided 7 September 2026 by Danny Tran, program
+owner of record."**: the coordinator writes it, through `POST
+/v1/units/{unit_id}/events/{event_id}/attendance`, `{admin, coordinator}`, method fixed
+to `coordinator_entry`, points credited on record at the unratified D7 rate; the
+scanner and roster-upload writers remain unbuilt. That register has no table shape;
+its closures are prose paragraphs under each heading, and this follows it. Also add a
+one-row entry to `cba-phase-deferred.md`'s `## Decision taken 2026-09-07` section
+cross-referencing OQ-102, so the CBA gate lists the reversal.
+
+Branch `feat/attendance-route`. Milestones: (1) `feat(persistence): record_attendance
+reports whether it inserted` — test 1; (2) `feat(api): POST
+/v1/units/{unit_id}/events/{event_id}/attendance, credited on record` — tests 2, 3, 4,
+5, 7; (3) `docs: retire the "none may" prohibition where it is written, close OQ-102`
+— 3.3; (4) `test(e2e): steps 24 and 25 walk the Attended stage and the feedback
+submission` — test 6.
+
+### 3.6 What would make it wrong
+
+* Letting the body choose `method`. `qr_scan` on a row nobody scanned is a false
+  provenance the engagement summary then reports by mechanism
+  (`routers/engagement.py:121-128`).
+* Accepting `recorded_at` from the caller. The Attended stage reads
+  `attendance_record.created_at` as its timestamp (`persistence/pipeline.py:732-733`).
+* Skipping the unit check on the event. The composite foreign key does not check the
+  event's host unit, only that the event exists in the tenant.
+* Crediting points twice, or not at all. The contract test on the ledger count is the
+  guard; `AlreadyCreditedError` must be caught, `UnknownAttendanceError` must not be.
+* Importing `smartmatch_domain.checkin` from the router, or naming the path with any
+  check-in marker. Both are pinned.
+* Returning a balance. `GET /v1/units/{unit_id}/rewards` is the balance's only surface.
+
+### 3.7 The PR's trade-off report
+
+**Chosen.** A coordinator-gated write with a server-fixed `coordinator_entry` method,
+crediting points in the same transaction.  
+**Rejected.** A `POST` on the engagement router (pinned read-only for D8's sake); a
+caller-chosen method (false provenance); requiring registration first (refuses
+walk-ins); recording without crediting (leaves every balance `unknown` and step 15
+unreachable); a separate "credit" route (a second human step for a derivation ADR-0013
+says is automatic).  
+**Cost.** The three prohibitions above are retired and their prose rewritten; the
+synthetic-pilot authorization's item 3 is exceeded by the owner's later decision;
+`record_attendance` changes return type for two callers.  
+**Exposure.** A coordinator can now assert that a named account was present at a unit's
+event, and that assertion mints 100 points for that account. A speaker's attendance
+also mints a ledger entry the speaker cannot spend (the catalog is student-gated,
+`routers/rewards.py:182`); it is inert but it is a row, and the PR must say so. No
+roster is exposed: `GET .../engagement/attendance-summary` still counts and never lists,
+and this route returns the one row it wrote.  
+**Could go wrong.** OQ-102's warning is now live: a wrong row is a wrong reward. The
+compensating control is the append-only ledger with `actor_id` and
+`record_reversal` (`persistence/rewards.py:340`), which the PR must name as the
+correction path. A coordinator marking the wrong student present cannot delete the
+row (`RESTRICT` everywhere); the PR must say the fix is a reversal entry, not a delete.
+
+---
+
+## Gap 4 — no funded reward item exists
+
+**Classification: reverses a recorded decision** — the rewards catalog worksheet's
+status line, `docs/pilot-data/rewards-catalog-worksheet.md:3`: "**do not seed listable
+catalog rows**", and the sentence under it, "Empty cells are intentional — engineering
+must not invent owners, funding, or point costs." The D6 decision record's boundary
+(`docs/decisions/pilot-decisions.md:197-204`: "No new ... catalog, route, or UI behavior
+is authorized by this record") and its §5 list of what stays open
+(`docs/decisions/d6-rewards-budget-decision-record.md:104-123`: "Item names, costs, and
+content", "Read/redemption roles") are ratified records and are **not edited**; the
+owner's 7 September authorization is recorded beside them.
+
+### 4.1 What exists today
+
+Step 15 (`tests/e2e/test_pilot_clickthrough.py:1370-1421`) asserts the catalog is empty,
+issues a redemption request for an invented item id, requires `404
+reward_item_not_found` — "403 would mean the student gate had closed again" — and
+skips. The gap is data. `RewardsRepository` "Reads and appends `point_ledger_entry`;
+reads the listable catalog" (`persistence/rewards.py:235-236`) and has no item writer;
+`routers/rewards.py:105-110` says "**No catalog writer, no seeding, and no money.**
+`reward_item` rows are written by the synthetic seed path, not by this API" — and
+`tools/generate_pilot_dataset.py:66-76` says the seed path *cannot* write them either:
+"`reward_item` ... has **no writer anywhere in the application**. ... Reaching around
+that with an `INSERT` here is precisely what this tool must not do", reported on every
+run at `:1150-1156`. The only inserts are raw SQL in tests
+(`tests/integration/test_rewards_api.py:142-165`,
+`tests/integration/test_engagement_schema_constraints.py:309-450`).
+
+A `/v1` route is the wrong fix, and the tree says why twice. `test_the_rewards_router_exposes_two_reads_and_two_commands`
+(`tests/unit/test_matching_fail_closed.py:565-585`) pins the four method/path pairs
+precisely so that "a later card [cannot] hang a catalog *writer* off `/rewards` — a
+`POST` there would seed items the D6/D7 artifacts do not authorize"; and D6 §5 lists
+"Read/redemption roles" as undecided, so a route would have to invent the role set that
+may create catalog items. A seed tool needs no role set: it is an operator's act,
+gated the way every seed tool here is gated.
+
+### 4.2 What is planned — a repository writer and an operator tool, no route
+
+**Persistence.** `RewardsRepository.create_item(session, *, tenant_id, name,
+points_cost, fulfilment_cost, budget_owner_id, funded) -> uuid.UUID` — an `INSERT`
+through `schema.reward_item`, so `ck_reward_item_points_cost_positive`,
+`ck_reward_item_fulfilment_cost_non_negative` and the composite owner key
+(`schema.py:543-576`) all apply. It commits nothing. It raises a new
+`UnknownBudgetOwnerError(ValueError)` after checking the owner is a `user_account` in
+the tenant, so the tool refuses with a sentence rather than an `IntegrityError`. It
+does not default `funded`: the column's `server_default 'false'` is an insert default,
+not a policy, and the tool passes the value explicitly.
+
+**Operator tool.** `tools/seed_pilot_rewards.py`, on the shape of
+`tools/seed_pilot_logins.py` and `tools/seed_pilot_principals.py`: reuses
+`require_development_fixture_settings` and `acquire_seed_lock` from `tools/seed_pilot.py`
+(`:37-52`), refuses to run outside `SMARTMATCH_EDITION=dev` with fixture providers, and
+takes **every value as an argument with no default** — `--name`, `--points-cost`,
+`--fulfilment-cost`, `--budget-owner-subject` (the `user_account.external_subject`;
+the tool resolves the id and refuses an unknown one), `--funded/--unfunded`. The
+worksheet's rule that engineering "must not invent owners, funding, or point costs" is
+honoured by construction: the tool cannot run without the owner typing them.
+Idempotent on `(tenant, name)`: an existing item with identical values is a no-op
+report, with different values a `SeedConflictError`, like `seed_pilot`'s own rule
+(`tools/seed_pilot.py:1-6`, `seed_pilot_logins.py:41-44`). It prints the D7 calibration
+check — whether `points_cost <= CALIBRATION_N × POINTS_PER_VERIFIED_ATTENDANCE` using
+the domain's constants (`smartmatch_domain/rewards.py:101-121`) — as a *report line*,
+not a refusal: D7 is tentative, and the owner may seed a stretch reward on purpose.
+
+A `make seed-pilot-rewards` target beside `seed-pilot-logins` (`Makefile:167-174`),
+`SEED_PILOT_REWARD_ARGS` passed through. **No compose one-shot**: a compose service
+would need the values in `docker-compose.yml` or `.env`, and a reward's name and cost
+in a checked-in file is exactly the invented catalog the worksheet forbids. The hosted
+guide documents the `make` invocation the operator runs after `seed-principals`.
+
+**Where the owner's values go.** The tool's `--help` and the hosted guide point at the
+worksheet's catalog table (`rewards-catalog-worksheet.md:20-27`); the owner fills a
+row, then runs the tool with that row. The budget owner for the pilot is named in D6
+(`d6-rewards-budget-decision-record.md:27-29`: Danny Tran); the tool still takes the
+subject as an argument rather than hard-coding it, because a name in a decision record
+is not a `user_account` row.
+
+**e2e step 15.** Rewritten to *branch* rather than skip: if the catalog is empty, keep
+today's assertions and skip naming the seed command; if it is not, the student — whose
+balance is measured once Gap 3's route has credited an attendance — requests the
+cheapest item, asserts `201` and `status == "requested"`, and the coordinator decides
+it through `POST .../redemptions/{id}/decision`, asserting the returned state. If the
+balance is `unknown` or below cost, the step asserts the server's `409` code
+(`balance_unknown` / `insufficient_balance`, `routers/rewards.py:705-745`) and skips
+naming which. The step must never insert a row; the seed tool is the operator's.
+
+### 4.3 Tests, written first
+
+1. `tests/integration/test_rewards_repository.py` — `test_create_item_writes_a_listable_row_when_funded_and_owned`,
+   `test_create_item_refuses_an_owner_outside_the_tenant` (`UnknownBudgetOwnerError`),
+   `test_create_item_rejects_a_non_positive_cost_at_the_database` (`IntegrityError`
+   from the CHECK, not caught), `test_an_unfunded_item_is_not_listable`
+   (`listable_items` excludes it — the existing rule at `persistence/rewards.py:521-577`).
+2. `tests/unit/test_seed_pilot_rewards.py` — on the pattern of
+   `tests/unit/test_seed_pilot.py:38-100`: every argument required (argparse exits
+   non-zero on any omission), the settings gate is checked before any connection, the
+   lock is acquired, an identical rerun is an idempotent repeat, a differing rerun is a
+   `SeedConflictError`, and the calibration line is printed and never refuses.
+3. `tests/unit/test_matching_fail_closed.py` — **no change**, and the PR must say
+   `test_the_rewards_router_exposes_two_reads_and_two_commands` still passes: the
+   router gains nothing.
+4. `tests/e2e/test_pilot_clickthrough.py` step 15 — as in 4.2.
+5. `tests/unit/test_cba_rewards_copy.py:89-92` — no change; the student page still
+   renders `catalog.items.map`.
+
+### 4.4 Files, register, branch, milestones
+
+Code: `python/smartmatch_persistence/smartmatch_persistence/rewards.py`,
+`tools/seed_pilot_rewards.py` (new), `Makefile`. No migration, no route, no frontend,
+no OpenAPI change.
+
+Prose that must change with it: `routers/rewards.py:105-110`, `tools/generate_pilot_dataset.py:66-76`
+and `:1150-1156` (the tool may now say the catalog is seeded separately by
+`seed_pilot_rewards.py`, or call the new repository method itself when given the same
+arguments — the implementer chooses, and either way the "no writer anywhere" sentence
+goes); `tests/unit/test_matching_fail_closed.py:73-77` (the paragraph about "no
+`reward_item` writer by construction" — the *router* still has none; reword to say
+the writer is the operator tool); `docs/pilot-data/rewards-catalog-worksheet.md:3`
+(status line becomes "human completion required — seed only values the owner has
+written into the table below, with `make seed-pilot-rewards`"); `docs/operations/hosted-synthetic-pilot-guide.md`
+(a subsection after "Pre-loaded pilot principals", `:207-224`, and the "Cannot" line at
+`:309` which lists "rewards ledger APIs" among things that cannot run — verify whether
+that line is still accurate after PR #104 and this PR, and correct it if not).
+
+Register: `cba-phase-deferred.md` — a row in `## Decision taken 2026-09-07` reading
+"Rewards catalog seeding — **Decided.** A funded `reward_item` may be seeded on the
+pilot appliance by the operator tool with owner-supplied values; no route creates one;
+D7 stays tentative; the worksheet's empty cells are filled by the owner, not by
+engineering." D6's own record is not edited.
+
+Branch `feat/seed-pilot-rewards`. Milestones: (1) `feat(persistence): RewardsRepository.create_item`
+— test 1; (2) `feat(tools): seed_pilot_rewards, every value owner-supplied` — test 2,
+Makefile; (3) `docs: the catalog has an operator writer; register the decision` — 4.4
+prose; (4) `test(e2e): step 15 walks request and decision when a funded item exists`
+— test 4 (after Gap 3 has merged, see §6).
+
+### 4.5 What would make it wrong
+
+* A default for any of name, cost, owner or `funded`. The worksheet's rule is the
+  whole reason the catalog is empty today.
+* A route. It reopens the D6 role question and breaks a pin that exists on purpose.
+* Seeding from the e2e test or from `compose_smoke.sh` to make step 15 go green. The
+  step says why at `:1385-1389`: "Inserting a reward row and a ledger entry to force a
+  ticket into existence would manufacture the evidence the decision route exists to
+  check."
+* Promoting D7. The tool reports calibration; it does not enforce or ratify it.
+* Reading `fulfilment_cost` anywhere on the API. `routers/rewards.py:108` still holds.
+
+### 4.6 The PR's trade-off report
+
+**Chosen.** A repository writer plus an operator seed tool whose every value is an
+argument, and a `make` target.  
+**Rejected.** A `/v1` catalog-create route (undecided role set; breaks a pin that
+guards D6); a compose one-shot with values in a checked-in file (invents the catalog);
+raw SQL in the tool (bypasses the constraints every other write goes through).  
+**Cost.** Two docstrings and one test docstring that said "no writer" are rewritten; a
+new tool to keep gated.  
+**Exposure.** A student on the appliance can now see a catalog item and open a
+redemption against a balance credited by Gap 3; a coordinator can decide it. Real
+money is still nowhere: `fulfilment_cost` is stored and never read, and D8 is untouched.  
+**Could go wrong.** An operator seeds an item the owner has not written into the
+worksheet — the tool cannot tell; the guide must say the worksheet row comes first. A
+seeded item under a budget owner who later loses their account hits `RESTRICT`.
+
+---
+
+## Gap 5 — `feedback.py` is orphaned and mis-wired
+
+**Classification: decision-free**, with a recommendation: **correct the map; do not
+delete the module.**
+
+### 5.1 What exists today
+
+`python/smartmatch_domain/smartmatch_domain/feedback.py` (276 lines) is imported by
+`tests/unit/test_feedback.py:8` and by nothing else — a grep for
+`smartmatch_domain.feedback` over `services/`, `python/` and `apps/` finds only the
+cross-reference in `student_speaker_feedback.py:8` ("**This is not**
+`smartmatch_domain.feedback`"). Its `REASON_TO_FACTOR` at `feedback.py:108-118` maps
+`WRONG_TOPIC → "topic_relevance"`, `WRONG_ROLE → "role_fit"`, `TOO_FAR → "travel_burden"`,
+`UNAVAILABLE → "availability"`, `OVERCOMMITTED → "engagement_load"`,
+`RECENTLY_ENGAGED → "repeat_penalty"`, `OTHER → None`.
+
+Against `PROPOSED_FACTORS` (`factor_registry.py:280-378`): `topic_relevance` (`:334`)
+and `travel_burden` (`:349`) are present but carry `retired_in_version=REGISTRY_VERSION`
+(`:346`, `:361`) and are listed in `SUPERSEDED_SCORING_KEYS` (`:394`); `availability`
+(`:364`) is present as an `ELIGIBILITY` factor with `proposed_weight=0.0` — a Stage A
+filter whose weight cannot move; `role_fit`, `engagement_load` and `repeat_penalty` do
+not exist in the registry at all. The four active scoring keys are
+`APPROVED_SCORING_KEYS` (`:383-390`): `industry_match`, `role_match`,
+`cba_semantic_topic`, `proximity`, each defined as a module constant
+(`factors/industry_match.py:104`, `factors/role_match.py:114`,
+`factors/cba_semantic_topic.py:124`, `factors/proximity.py:145`). So a proposal from
+this module today would nudge two retired weights, one immovable weight, and three
+names nothing can look up. `tests/unit/test_feedback.py:130-142` asserts the retired
+`travel_burden` mapping by name.
+
+Why deletion is the wrong fix. The OQ-CBA-032 closure
+(`cba-phase-deferred.md:195-225`) rests one of its rows on this module: "MM-005's
+shadow mode is a **different** control, and it is already satisfied ...
+`smartmatch_domain.feedback.WeightProposal.requires_approval` is a setterless property
+on a `@final`, frozen, slotted class, so a proposal can never apply itself. Nothing in
+this repository consumes those proposals." `routers/matching_weights.py:69-80` repeats
+the argument. Delete the module and a ratified closure cites a class that does not
+exist, MM-005 in `docs/migration/migration-manifest.yaml:399` loses its target, and the
+one tested statement of the approval control (`test_feedback.py:204-255`) goes with it.
+The module is also the reference implementation ADR-0011 rule 1 names
+(`ADR-0011-accountable-numbers.md:55`: "`feedback.acceptance_rate` is the reference
+implementation"). Orphaned is a fact about wiring; the register says the un-wiring is
+deliberate. Correcting a stale map inside an unwired module changes no behaviour, no
+weight, no registry version and no route — which is what makes it decision-free.
+
+### 5.2 What is planned
+
+In `feedback.py`:
+
+* Import the four key constants from their factor modules (all inside
+  `smartmatch_domain`, so the "Domain is pure" import-linter contract in
+  `pyproject.toml:148-166` is unaffected) and rewrite `REASON_TO_FACTOR` as:
+  `WRONG_TOPIC → CBA_SEMANTIC_TOPIC_FACTOR_KEY`, `WRONG_ROLE → ROLE_MATCH_FACTOR_KEY`,
+  `TOO_FAR → CBA_PROXIMITY_FACTOR_KEY`, `UNAVAILABLE → None`, `OVERCOMMITTED → None`,
+  `RECENTLY_ENGAGED → None`, `OTHER → None`. The three `None`s are honest: availability
+  is a Stage A filter with no weight to move, and no factor measures load or recency —
+  OQ-CBA-040 (`cba-phase-deferred.md:51`) records that a decline is "recorded, never
+  scored", so mapping those reasons to a made-up factor would be the very signal it
+  bars. No `WRONG_INDUSTRY` reason is added: `DeclineReason` is the seven-member
+  closed enum finding F-18 replaced (`feedback.py:14-18`), and adding a member is a
+  vocabulary change the manifest would have to record; it is noted in the PR as a
+  follow-up, not done.
+* Update the module docstring's account of the mapping (`:14-18`) to say the targets
+  are the `2.0.0-approved-oq-cba-004` registry's active scoring keys, resolved by
+  import so a rename cannot strand them again.
+* `MAX_FACTOR_DELTA` and `PER_REASON_BUMP` (`:64-68`) stay. They are bounds on a
+  human-approved *proposal*, not weights; weights live in the registry and in
+  `match_weight_setting`, and this module writes neither. The PR says so.
+
+In `tests/unit/test_feedback.py`:
+
+* `test_declines_raise_the_implicated_factor` (`:130-134`) asserts on
+  `CBA_PROXIMITY_FACTOR_KEY` instead of `"travel_burden"`.
+* New `test_every_mapped_factor_is_an_active_scoring_key`: every non-`None` target of
+  `REASON_TO_FACTOR` is in `factor_registry.implemented_scoring_keys()` (`:576-583`,
+  implemented and not retired) — the test that would have caught this drift, and will
+  catch the next retirement.
+* New `test_reasons_with_no_factor_move_nothing`: the three `None` reasons at the
+  floor produce no proposal.
+* `test_each_reason_maps_to_its_documented_factor` (`:136-142`) is unchanged and now
+  passes for the right reason.
+
+In `docs/migration/migration-manifest.yaml`, MM-005 (`:399`): the entry carries
+`legacy_symbol`, `behavior_replaced` and `behavior_rejected` fields (`:399-470`); add a
+`corrections:` field in the shape MM-004's has (`:381-388`) — "7 September 2026 —
+`REASON_TO_FACTOR` retargeted to the 2.0.0 registry's active keys after
+`topic_relevance` and `travel_burden` were retired by OQ-CBA-027/025; three reasons map
+to no factor; module still unwired." Status stays `ported_unverified` — the correcting
+party does not set `verified` (`:375`).
+
+### 5.3 Files, branch, milestones
+
+Code: `python/smartmatch_domain/smartmatch_domain/feedback.py`,
+`tests/unit/test_feedback.py`, `docs/migration/migration-manifest.yaml`. No migration,
+no route, no registry change (`REGISTRY_VERSION` at `factor_registry.py:137` is
+untouched — no factor was added, removed or reweighted). Branch
+`fix/feedback-reason-map`. Milestones: (1) `test(feedback): pin mapped factors to the
+active registry` — red; (2) `fix(feedback): retarget REASON_TO_FACTOR to the active
+scoring keys` — green; (3) `docs(migration): MM-005 correction note`.
+
+### 5.4 What would make it wrong
+
+* Wiring it to anything. The OQ-CBA-032 obligation is explicit: "Do not add an
+  advisory shadow run, a stored evaluation record, or a 'validated' flag on a weight
+  set without reopening this." A route, a worker command, or an import from
+  `matching_weights.py` reopens a closed decision.
+* Mapping `OVERCOMMITTED` or `RECENTLY_ENGAGED` to `proximity` or `role_match` "so the
+  reason does something". That is a decline feeding a factor it does not describe —
+  OQ-CBA-040 by another route.
+* Adding a factor to satisfy the map. That is a registry bump and an approver's
+  signature (`factor_registry.py:383-390`).
+* Bumping `REGISTRY_VERSION` or `registry_hash` inputs. Nothing in the registry
+  changed; `tests/unit/test_match_run_pins.py` would fail for stored runs if it had.
+
+### 5.5 The PR's trade-off report
+
+**Chosen.** Retarget the map to the active keys by import; three reasons map to no
+factor; module stays unwired.  
+**Rejected.** Deleting the module (strands a ratified closure, MM-005, and ADR-0011's
+reference implementation); adding `WRONG_INDUSTRY` (a vocabulary change under MM-005
+F-18); mapping the three orphan reasons to the nearest existing factor (OQ-CBA-040).  
+**Cost.** Nothing at runtime; one manifest note.  
+**Exposure.** None. No route reads the module.  
+**Could go wrong.** The next factor retirement re-strands the map silently — the new
+registry-pinning test is the guard. Someone reads the corrected map as an invitation
+to wire it; the OQ-CBA-032 obligation is the answer, and the module docstring should
+quote it.
