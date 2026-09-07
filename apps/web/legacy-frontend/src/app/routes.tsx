@@ -89,6 +89,11 @@ const VolunteerSpeakerRequest = lazy(() =>
     default: m.VolunteerSpeakerRequest,
   })),
 );
+const VolunteerConfirmedSpeaker = lazy(() =>
+  import("./pages/volunteer/VolunteerConfirmedSpeaker").then((m) => ({
+    default: m.VolunteerConfirmedSpeaker,
+  })),
+);
 const VolunteerProfile = lazy(() =>
   import("./pages/volunteer/VolunteerProfile").then((m) => ({ default: m.VolunteerProfile })),
 );
@@ -208,6 +213,13 @@ export const router = createBrowserRouter([
       // there is nothing here for `whenCapable` to remove. A UI gate is not
       // authorization in any case — the server decides, per request.
       { path: "speaker-request", element: withSuspense(<VolunteerSpeakerRequest />) },
+      // Customer §6 step 9: the other end of the intake above. Mounted
+      // unconditionally for the same reason it is — a route is a claim about
+      // what exists, not a permission. `GET .../cba/confirmed-speakers` and the
+      // hand-off `POST` beside it are `admin`/`coordinator` server-side
+      // whatever the router renders, and the page treats the refusal as an
+      // answer rather than hiding the control.
+      { path: "confirmed-speaker", element: withSuspense(<VolunteerConfirmedSpeaker />) },
       { path: "assignments", element: withSuspense(<VolunteerAssignments />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],
