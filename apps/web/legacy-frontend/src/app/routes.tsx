@@ -65,6 +65,11 @@ const CoordinatorMeetings = lazy(() =>
     default: m.CoordinatorMeetings,
   })),
 );
+const CoordinatorMatchRuns = lazy(() =>
+  import("./pages/coordinator/CoordinatorMatchRuns").then((m) => ({
+    default: m.CoordinatorMatchRuns,
+  })),
+);
 const CoordinatorSpeakerContacts = lazy(() =>
   import("./pages/coordinator/CoordinatorSpeakerContacts").then((m) => ({
     default: m.CoordinatorSpeakerContacts,
@@ -180,6 +185,13 @@ export const router = createBrowserRouter([
       // page is behind `admin`/`coordinator` there regardless of what the
       // browser renders.
       { path: "speaker-contacts", element: withSuspense(<CoordinatorSpeakerContacts />) },
+      // Card B24's replacement: the Connector submits a real match run against
+      // a filed Speaker Request. Mounted unconditionally for the same reason
+      // the roster above is — the capability gating the *API* is on under both
+      // product scopes, and a route is a claim about what exists rather than a
+      // permission. `POST /v1/units/{unit_id}/match-runs` is authorized
+      // server-side per request whatever the router renders.
+      { path: "match-runs", element: withSuspense(<CoordinatorMatchRuns />) },
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },
