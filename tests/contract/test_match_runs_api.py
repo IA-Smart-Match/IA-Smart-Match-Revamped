@@ -21,8 +21,10 @@ Five things are asserted that nothing else can assert:
 * **The body carries no evidence.** There is no field on the request through
   which a caller could state a speaker's industry, role, topic text or place,
   and the published schema is asserted to have none.
-* **A physical Speaker Request is refused, not degraded.** Naming the missing
-  capability, because an unknown proximity would sort every speaker last.
+* **A physical Speaker Request is scored, and an unlocatable speaker is not.**
+  OQ-CBA-024's ZIP-centroid table removed the 503, so ``cba-physical-1`` runs
+  end to end — and a speaker whose ZIP that table cannot resolve is reported
+  unscorable rather than entered at zero and ranked last.
 * **An unreviewed contact is absent, not last.** Track 16's gate holds over
   HTTP: the contact appears in ``excluded_candidates`` with its reason and in
   none of the three scored groups.
@@ -58,6 +60,7 @@ from smartmatch_domain.factor_registry import (
 )
 from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
 from smartmatch_domain.factors.proximity import (
+    CBA_PHYSICAL_SCORING_MODE,
     CBA_PROXIMITY_FACTOR_KEY,
     CBA_VIRTUAL_SCORING_MODE,
 )
@@ -91,6 +94,16 @@ REQUESTED_SECTOR = "52"
 REQUESTED_ROLE = "finance"
 
 REQUEST_DESCRIPTION = "A panel on how finance teams evaluate analytics investments."
+
+#: The CPP campus's own ZIP, and therefore one OQ-CBA-024's Californian table
+#: resolves. A speaker filed under it has a measured distance and can be scored
+#: under ``cba-physical-1``.
+CAMPUS_ZIP = "91768"
+
+#: Well formed, five digits, and not in California, so the table does not name
+#: it. The distance is **unknown** — not the Far band, and not a fallback to
+#: some nearest neighbour, which is the whole of ADR-0016 Proposal 4.
+OUT_OF_STATE_ZIP = "10001"
 
 
 @pytest.fixture(scope="module")
@@ -210,6 +223,7 @@ def _insert_speaker(
     industry_source: str | None,
     role_source: str | None,
     topic_text: str | None,
+    postal_code: str | None = None,
 ) -> uuid.UUID:
     """Create one professional and their ``speaker_profile`` row.
 
@@ -241,11 +255,13 @@ def _insert_speaker(
             "INSERT INTO speaker_profile (tenant_id, professional_id, owning_unit_id, "
             "full_name, primary_industry_code, industry_taxonomy_version, "
             "primary_role_code, role_taxonomy_version, topic_text, "
+            "location_postal_code, "
             "industry_classification_source, industry_classified_by_user_id, "
             "industry_classified_at, role_classification_source, "
             "role_classified_by_user_id, role_classified_at) "
             "VALUES (:tid, :pid, :unit, :full_name, :industry, :industry_version, "
-            ":role, :role_version, :topic, :industry_source, :industry_actor, "
+            ":role, :role_version, :topic, :postal_code, "
+            ":industry_source, :industry_actor, "
             ":industry_at, :role_source, :role_actor, :role_at)"
         ),
         {
@@ -258,6 +274,7 @@ def _insert_speaker(
             "role": role_code,
             "role_version": None if role_code is None else CBA_ROLE_TAXONOMY_VERSION,
             "topic": topic_text,
+            "postal_code": postal_code,
             "industry_source": industry_source,
             "industry_actor": reviewer_id if industry_source == "human" else None,
             "industry_at": None if industry_source is None else "2026-09-05T00:00:00Z",
@@ -291,6 +308,16 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
     * ``epsilon`` — sector and role present but ``inferred``. Track 16's gate:
       a proposal awaiting the review customer §19 orders, so absent from the
       pool entirely.
+    * ``zeta``    — identical to ``alpha`` in every respect except one: their
+      ZIP is not Californian, so OQ-CBA-024's table cannot resolve it. Under
+      ``cba-physical-1`` that makes their proximity *unknown* and them
+      unscorable, and the single-variable difference from ``alpha`` is what
+      makes the cause unambiguous. Under ``cba-virtual-1`` they score normally,
+      because §11 removes proximity from that model entirely.
+
+    Every speaker carries a postal code, because the physical model needs one
+    to resolve and a fixture where nobody had an address could only ever
+    exercise the unknown branch.
     """
     tenant_id = uuid.uuid4()
     unit_id = uuid.uuid4()
@@ -354,10 +381,10 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
             title=f"On-campus finance analytics panel {uuid.uuid4().hex[:8]}",
         )
 
-        for name, industry, role, industry_source, role_source, topic in (
-            ("alpha", REQUESTED_SECTOR, REQUESTED_ROLE, "human", "human", None),
-            ("beta", REQUESTED_SECTOR, "marketing", "human", "human", None),
-            ("gamma", "11", REQUESTED_ROLE, "human", "human", None),
+        for name, industry, role, industry_source, role_source, topic, zip_code in (
+            ("alpha", REQUESTED_SECTOR, REQUESTED_ROLE, "human", "human", None, CAMPUS_ZIP),
+            ("beta", REQUESTED_SECTOR, "marketing", "human", "human", None, CAMPUS_ZIP),
+            ("gamma", "11", REQUESTED_ROLE, "human", "human", None, CAMPUS_ZIP),
             (
                 "delta",
                 REQUESTED_SECTOR,
@@ -365,8 +392,10 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
                 "human",
                 "human",
                 "Twelve years of treasury analytics and forecasting.",
+                CAMPUS_ZIP,
             ),
-            ("epsilon", REQUESTED_SECTOR, REQUESTED_ROLE, "inferred", "inferred", None),
+            ("epsilon", REQUESTED_SECTOR, REQUESTED_ROLE, "inferred", "inferred", None, CAMPUS_ZIP),
+            ("zeta", REQUESTED_SECTOR, REQUESTED_ROLE, "human", "human", None, OUT_OF_STATE_ZIP),
         ):
             speakers[name] = _insert_speaker(
                 conn,
@@ -379,6 +408,7 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
                 industry_source=industry_source,
                 role_source=role_source,
                 topic_text=topic,
+                postal_code=zip_code,
             )
 
     verifier = FixtureTokenVerifier()
@@ -589,42 +619,104 @@ def test_the_submission_reports_the_mode_and_the_registry_it_scored_under(match_
 
 
 # ---------------------------------------------------------------------------
-# Physical is refused, not degraded
+# Physical is scored now, and an unmeasured speaker is still absent
 # ---------------------------------------------------------------------------
 
 
-def test_a_physical_speaker_request_is_refused_and_names_the_missing_capability(
-    match_context, engine
-) -> None:
-    """OQ-CBA-024 is not built, so the physical model cannot be scored honestly.
+def test_a_physical_speaker_request_is_scored_and_reaches_storage(match_context, engine) -> None:
+    """OQ-CBA-024 shipped the ZIP-centroid table, so the 503 is gone.
 
-    The refusal is the deliverable. Faking a coordinate to switch the path on
-    would give every candidate a plausible distance nobody measured; leaving the
-    distance unknown would make every composite unknown, sort every speaker last
-    and render a shortlist that looks broken and *is* a lie. So the run is
-    refused, the error names the capability rather than the request, and nothing
-    is written.
+    This route refused every physical request with
+    ``match_run_physical_scoring_unavailable`` for as long as no coordinate
+    table existed, because customer §10 gives Proximity the largest single
+    weight and an unknown distance would have made every composite unknown. The
+    table exists now, these speakers have Californian ZIPs on file, and the run
+    goes through under ``cba-physical-1``.
+
+    The run is read out of ``match_run`` rather than off the response, for the
+    reason the virtual case gives: ``get_session`` rolls back unconditionally,
+    so a route that stored nothing would still return a clean ``202``.
     """
-    response = _post(
+    accepted = _post(
         match_context,
-        _submission(match_context, speaker_request_id=str(match_context.physical_request_id)),
+        _submission(
+            match_context,
+            speaker_request_id=str(match_context.physical_request_id),
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma"),
+        ),
     )
 
-    assert response.status_code == 503
-    error = response.json()["error"]
-    assert error["code"] == "match_run_physical_scoring_unavailable"
-    assert error["details"]["owner_question"] == "OQ-CBA-024"
-    assert error["details"]["missing_capability"] == "zip_centroid_table"
-    assert error["details"]["scoring_mode"] == "cba-physical-1"
+    assert accepted.status_code == 202, accepted.text
+    body = accepted.json()
+    assert body["scoring_mode"] == CBA_PHYSICAL_SCORING_MODE
+    assert body["scoring_mode_version"] == SCORING_MODE_VERSION
+    assert body["registry_version"] == REGISTRY_VERSION
+    assert body["scored_candidates"] == 3
 
-    with engine.connect() as conn:
-        assert (
-            conn.execute(
-                text("SELECT count(*) FROM job WHERE tenant_id = :tid"),
-                {"tid": match_context.tenant_id},
-            ).scalar_one()
-            == 0
-        ), "a refused physical request still enqueued a command"
+    job_id = uuid.UUID(body["job_id"])
+    payload = _stored_payload(engine, job_id)
+    assert payload["scoring_mode"] == CBA_PHYSICAL_SCORING_MODE
+    assert payload["event_need_id"] == str(match_context.physical_request_id)
+
+    outcome = _execute_pending(engine, match_context.tenant_id, job_id)
+    assert outcome.status == "executed", outcome
+
+    run = _run_row(engine, job_id)
+    assert run.registry_version == REGISTRY_VERSION
+    assert run.event_need_id == str(match_context.physical_request_id)
+    # Four weights, not three: customer §10 puts Proximity in the physical
+    # model, and the snapshot's own weights are where that shows up.
+    assert CBA_PROXIMITY_FACTOR_KEY in run.weights
+    assert abs(sum(float(weight) for weight in run.weights.values()) - 1.0) < 1e-9
+
+
+def test_a_speaker_whose_zip_is_not_in_the_table_is_unscorable_not_ranked_last(
+    match_context,
+) -> None:
+    """The refusal's reason outlived the refusal.
+
+    ``zeta`` differs from ``alpha`` in exactly one respect — a ZIP the
+    Californian table does not name — so the cause is unambiguous. Their
+    distance is unknown, which under the physical model makes their composite
+    unknown, which makes them unscorable. They are **reported** rather than
+    entered at ``0.0``: a speaker nobody has located must not sort below
+    speakers who were measured, because that reads as "we looked and they were
+    a poor fit" rather than "we do not know where they are".
+    """
+    body = _post(
+        match_context,
+        _submission(
+            match_context,
+            speaker_request_id=str(match_context.physical_request_id),
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma", "zeta"),
+        ),
+    ).json()
+
+    assert body["scored_candidates"] == 3
+    assert body["unscorable_candidates"] == 1
+    assert body["excluded_candidates"] == []
+
+
+def test_the_same_speaker_scores_under_the_virtual_model(match_context) -> None:
+    """The control for the test above, and the ADR-0016 Proposal 5 boundary.
+
+    ``zeta`` is unscorable under ``cba-physical-1`` *because of proximity*, and
+    the proof is that the identical record scores under ``cba-virtual-1``, where
+    customer §11 removes the factor from the model entirely. Without this, a
+    ``zeta`` who was unscorable for some unrelated reason would pass the
+    physical assertion just as well.
+    """
+    body = _post(
+        match_context,
+        _submission(
+            match_context,
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma", "zeta"),
+        ),
+    ).json()
+
+    assert body["scoring_mode"] == CBA_VIRTUAL_SCORING_MODE
+    assert body["scored_candidates"] == 4
+    assert body["unscorable_candidates"] == 0
 
 
 # ---------------------------------------------------------------------------

@@ -47,19 +47,31 @@ topic text and place off ``speaker_profile``. That is correctness under 2.0.0,
 and it is also what makes a run *trustworthy*: a caller can no longer assert a
 speaker's evidence and have the immutable snapshot record the assertion as fact.
 
-## Virtual events ship first, and physical is refused rather than degraded
+## Both scoring modes run, and an unmeasured speaker is still absent
 
 ``cba-virtual-1`` scores three factors and does not score proximity (customer
-§11), so a virtual run goes end to end under 2.0.0 with no coordinate table at
-all. ``cba-physical-1`` needs a distance in miles from the CPP campus, and
-resolving a city or a ZIP to a coordinate needs OQ-CBA-024's static offline
-ZIP-centroid table, which does not exist here.
+§11). ``cba-physical-1`` scores four, and its fourth needs a distance in miles
+from the CPP campus — which is why this route refused every physical request
+with ``match_run_physical_scoring_unavailable`` until OQ-CBA-024 shipped the
+static offline ZIP-centroid table. It has, so the refusal is gone and the mode
+is taken off the filed request like any other run-level fact.
 
-So a physical request is **refused** with
-:data:`_PHYSICAL_UNAVAILABLE_CODE`, naming the missing capability. It is not
-degraded: an unknown proximity makes the composite unknown (ADR-0011), every
-physical candidate would be unscorable and sort last, and a shortlist assembled
-from that would be a confident-looking lie about people nobody measured.
+What is *not* gone is the reason the refusal existed. A distance is resolved
+only for a speaker whose stored ZIP is in that Californian table; a blank,
+malformed, or out-of-state ZIP still resolves to nothing, and nothing is an
+**unknown** distance rather than the Far band. Under ``cba-physical-1`` an
+unknown factor makes the composite unknown (ADR-0011), so such a candidate is
+not shortlistable — and :func:`_partition_pool` puts them in ``unscorable``,
+where they are counted and reported, rather than entering them at ``0.0`` where
+they would sort below every measured candidate as though somebody had measured
+them and found them wanting.
+
+The consequence is visible and deliberate: a physical run against a roster
+nobody has recorded ZIPs for is refused with
+``match_run_insufficient_scorable_candidates`` and a count of exactly who could
+not be scored. That is a different refusal from the old one — it names a gap in
+*this tenant's records* that a Speaker Connector can close, not a capability the
+deployment lacks.
 
 ## Why the API scores and the worker solves
 
@@ -165,7 +177,6 @@ from smartmatch_domain.factor_registry import (
     assert_scoring_ready,
 )
 from smartmatch_domain.factors.cba_semantic_topic import SemanticTopicProvider
-from smartmatch_domain.factors.proximity import CBA_VIRTUAL_SCORING_MODE
 from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE, inputs_fingerprint
 from smartmatch_domain.optimizer import (
     PortfolioCandidate,
@@ -223,13 +234,6 @@ MATCH_RUN_RATE_LIMIT = RateLimit(
 #: G3 §2.2a's record cap reused — ``routers/events.py::MAX_ROWS`` uses the same
 #: number for the same reason — rather than a second limit invented here.
 MAX_CANDIDATES: Final[int] = 200
-
-#: The error code a physical Speaker Request is refused with. A named constant
-#: rather than a literal at the raise site because it is a contract: a client
-#: distinguishing "this capability is not built yet" from "the registry is not
-#: approved" matches on this string, and the two 503s mean different things and
-#: call for different actions.
-_PHYSICAL_UNAVAILABLE_CODE: Final[str] = "match_run_physical_scoring_unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -730,45 +734,6 @@ def _load_request_or_404(
     return request
 
 
-def _assert_mode_available(request: SpeakerRequestEvidence) -> str:
-    """Return the run's scoring mode, refusing the one that cannot be scored yet.
-
-    ``cba-virtual-1`` is scored. ``cba-physical-1`` is refused, and the refusal
-    names the capability rather than the request: nothing about a physical
-    Speaker Request is wrong, and a 400 would tell a host to change a correct
-    entry. See the module docstring for why this is a refusal and not a
-    degraded run.
-
-    Raises:
-        ApiError: 503 :data:`_PHYSICAL_UNAVAILABLE_CODE` for a physical request.
-    """
-    mode = request.scoring_mode
-    if mode != CBA_VIRTUAL_SCORING_MODE:
-        raise ApiError(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            code=_PHYSICAL_UNAVAILABLE_CODE,
-            message=(
-                "Match scoring for a physical Speaker Request is not available "
-                "in this deployment. Customer §10 measures Proximity in miles "
-                "from the CPP campus and it carries the largest single weight, "
-                "but resolving a city or ZIP code to a coordinate needs the "
-                "static offline ZIP-centroid table of OQ-CBA-024, which is not "
-                "built. Without it every candidate's distance is unknown, which "
-                "makes every composite unknown and would sort every speaker "
-                "last — so the run is refused rather than returned as a "
-                "shortlist nobody measured. Virtual Speaker Requests score "
-                "normally: customer §11 removes Proximity from that model "
-                "entirely."
-            ),
-            details={
-                "scoring_mode": mode,
-                "missing_capability": "zip_centroid_table",
-                "owner_question": "OQ-CBA-024",
-            },
-        )
-    return mode
-
-
 def _topic_provider() -> SemanticTopicProvider:
     """The §9 comparison adapter for one run.
 
@@ -845,11 +810,12 @@ def create_match_run(
       was actually scored, under the registry version recorded on it.
 
     Raises:
-        ApiError: 503 when the registry is not ready or the request is physical
-            (see :func:`_assert_mode_available`); 404 when no such Speaker
+        ApiError: 503 when the registry is not ready; 404 when no such Speaker
             Request exists in this unit; 400 when the pool is over
             :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer
-            candidates can be scored than the requested shortlist needs.
+            candidates can be scored than the requested shortlist needs, which
+            is the physical model's ordinary answer for a roster whose ZIPs are
+            missing, since an unresolved distance is unknown and never Far.
     """
     charge = charge_quota(session, principal, MATCH_RUN_RATE_LIMIT)
 
@@ -884,7 +850,12 @@ def create_match_run(
         owning_unit_id=owning_unit_id,
         speaker_request_id=body.speaker_request_id,
     )
-    scoring_mode = _assert_mode_available(request)
+    # Off the filed request, never off the body. ADR-0016 Proposal 5 requires
+    # the mode to be resolved from the event before scoring, and
+    # `SpeakerRequestEvidence.scoring_mode` is a property over `is_virtual` for
+    # exactly that reason: there is no constructor parameter, and therefore no
+    # request field, through which a caller could choose one.
+    scoring_mode = request.scoring_mode
 
     pool = assemble_cba_pool(
         session,
@@ -1005,8 +976,8 @@ def _mode_of(value: str | None) -> str:
 
     :class:`~smartmatch_domain.scoring.StageBScore` types both mode fields as
     nullable because the superseded model produces neither, and this route can
-    no longer produce that model — ``_assert_mode_available`` refused every
-    scoring mode but ``cba-virtual-1`` before any candidate was scored. A
+    no longer produce that model — ``rank_cba_candidates`` is the only scorer it
+    calls, and it stamps both fields on every score it returns. A
     ``None`` arriving here would mean the CBA scorer returned a pre-ADR-0016
     score, which is a defect and not a state to render, so it is raised rather
     than coerced to a plausible string.
