@@ -1686,8 +1686,7 @@ def _register_invitable_channel(
     channel_id = json_body(created)["channel"]["contact_channel_id"]
 
     activated = api.post(
-        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}"
-        f"/channels/{channel_id}/transitions",
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels/{channel_id}/transitions",
         json={
             "to_state": "active_candidate",
             "reason": "e2e click-through: the Connector opened outreach on this contact",
@@ -1804,8 +1803,7 @@ def test_22_the_shortlist_is_composed_into_an_invitation_batch(
             f"for this speaker ({addresses[professional_id]!r})"
         )
         assert outcome["delivery"] is None, (
-            "an invitation nobody has dispatched carries a delivery record: "
-            f"{outcome['delivery']}"
+            f"an invitation nobody has dispatched carries a delivery record: {outcome['delivery']}"
         )
         assert outcome["speaker_response"]["response"] == "awaiting_response", (
             "a freshly composed invitation already records an answer: "
@@ -1913,9 +1911,7 @@ def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
     addresses: dict[str, str] = _INVITATION_STATE["addresses"]
     nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
 
-    response = api.post(
-        f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch"
-    )
+    response = api.post(f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch")
     assert response.status_code == 202, (
         f"dispatching batch {batch_id} returned {response.status_code}, "
         f"expected 202: {response.text[:400]}"
