@@ -6,6 +6,8 @@ import {
   Send,
   Mail,
   Users,
+  Star,
+  SlidersHorizontal,
   Video,
   Building,
   Menu,
@@ -22,6 +24,16 @@ import { principalDisplayName, principalInitials } from "../../lib/principal";
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
+  // §5's four-factor weighting, immediately before the pipeline it feeds: this
+  // is what the unit's *next* match run scores with. `GET`/`PATCH
+  // /v1/units/{unit_id}/matching-weights` are `admin`/`coordinator` and
+  // deny-by-default; the page shows the server's refusal rather than hiding
+  // the control, so the link is visible to everyone this portal is granted to.
+  {
+    name: "Matching weights",
+    href: "/coordinator-portal/matching-weights",
+    icon: SlidersHorizontal,
+  },
   // The §13 pipeline, in the order it is walked: a match run against a filed
   // Speaker Request produces a shortlist, and the shortlist links onward to
   // the compose step with `?run={id}`. Both `/v1` routes are deny-by-default
@@ -33,6 +45,11 @@ const navigation = [
   // Contact" above, which is outreach over `contact_channel`: this one records
   // *who a speaker is* and sends nothing to anybody.
   { name: "Speaker contacts", href: "/coordinator-portal/speaker-contacts", icon: Users },
+  // §16's read of how students rated those same speakers — aggregate only, per
+  // OQ-CBA-003 part 1, which is why it sits beside the roster rather than
+  // inside it. `GET .../speakers/{speaker_id}/feedback-summary` is
+  // `admin`/`coordinator` server-side whatever this sidebar renders.
+  { name: "Speaker feedback", href: "/coordinator-portal/speaker-feedback", icon: Star },
   { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 
