@@ -8,15 +8,25 @@ held by the project's **current interim owner** and is **subject to IA West
 review**, which has not happened. IA West may change, reverse, or reject any of
 them, and nothing here should be quoted as an institutional position.
 
-**Interim owner: DangT (`dangtran1022@gmail.com`).** This is a self-assignment
-by the person doing the work, not an appointment by IA West — it records who to
+**Interim owner: Danny Tran (`@BrooklynD23`).** This is a self-assignment by
+the person doing the work, not an appointment by IA West — it records who to
 ask about any decision below, and nothing more. It confers no institutional
 authority, and IA West may replace the holder without reference to this file.
 
-No interim-owner assignment existed anywhere in this repository before this
-entry; the only other identity recorded for it is `@BrooklynD23` (see
-`CODEOWNERS`, which states plainly that even that routing is unverified). That
-`CODEOWNERS` entry is still unverified and this entry does not fix it.
+Who that is, is no longer an open question. `gh api users/BrooklynD23` resolves
+to profile name "Danny Tran" and
+`gh api repos/.../collaborators/BrooklynD23/permission` returns `admin`, both
+recorded in `docs/decisions/owner-roster.md`; the repository's `.mailmap` maps
+this file's earlier address, `dangtran1022@gmail.com`, along with
+`dt110202@gmail.com` and the unrelated-looking `dangt` account address, to that
+one GitHub identity. The owner and the `CODEOWNERS` entry are the same person,
+and earlier text here calling that identity unverified is superseded.
+
+What remains unverified is a different claim, and this entry does not fix it:
+whether branch protection on the default branch actually *requires* review from
+Code Owners. Until somebody with admin access confirms that setting,
+`CODEOWNERS` suggests a reviewer rather than requiring one — see the header of
+that file, and CONTRIBUTING.md, "Documentation is not a control".
 
 **What "tentative" means here, precisely:**
 

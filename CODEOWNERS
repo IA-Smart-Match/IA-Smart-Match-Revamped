@@ -8,19 +8,21 @@
 # never matches, and reviews are never requested. A file in that state looks
 # exactly like a working one.
 #
-# This file therefore takes effect only if BOTH of the following are true, and
-# NEITHER HAS BEEN VERIFIED from inside this checkout, because neither is a
-# property of the repository's files:
+# This file therefore takes effect only if BOTH of the following are true:
 #
 #   1. The owner named below exists and has write access to this repository.
+#      CONFIRMED: `gh api users/BrooklynD23` resolves to profile name "Danny
+#      Tran" and `gh api repos/.../collaborators/BrooklynD23/permission`
+#      returns `admin`, both recorded in docs/decisions/owner-roster.md.
 #   2. Branch protection on the default branch actually requires review from
-#      Code Owners. Without that setting, this file suggests reviewers; it does
-#      not require them.
+#      Code Owners. NOT VERIFIED — it is a repository setting, not a property
+#      of these files, so nothing in this checkout can establish it. Without
+#      that setting, this file suggests reviewers; it does not require them.
 #
-# Whoever has admin access should confirm both in repository settings and record
-# the result. Until then, treat this as routing convenience, not as a control —
-# a rule the tooling does not enforce is a defect in this project, not a
-# safeguard. See CONTRIBUTING.md, "Documentation is not a control".
+# Whoever has admin access should confirm the second in repository settings and
+# record the result. Until then, treat this as routing convenience, not as a
+# control — a rule the tooling does not enforce is a defect in this project,
+# not a safeguard. See CONTRIBUTING.md, "Documentation is not a control".
 #
 # Placement: GitHub reads CODEOWNERS from the repository root, from .github/, or
 # from docs/. This repository keeps exactly one copy, here at the root. Do not
