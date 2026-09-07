@@ -166,21 +166,41 @@ def test_the_portfolio_size_stays_inside_the_ratified_presentation_rule() -> Non
     assert MIN_SHORTLIST_SIZE <= body["portfolio_size"] <= MAX_SHORTLIST_SIZE
 
 
-def test_a_candidate_pool_larger_than_the_cap_is_refused_rather_than_silently_cut() -> None:
-    """The generator must not hand the route more candidates than it accepts.
+def test_the_request_model_does_not_itself_enforce_the_candidate_cap() -> None:
+    """Why the generator has to carry the check: ``maxItems`` here validates nothing.
 
-    Asserted through the model so the number comes from the route rather than
-    from a second copy of it kept here.
+    ``MatchRunRequest.candidate_subject_ids`` declares the cap in
+    ``json_schema_extra``, which documents it for a schema reader and is not a
+    constraint. The route enforces it separately with a ``400``. Pinned so the
+    next reader does not delete the generator's own guard as redundant — and so
+    that if the model ever *does* gain the constraint, this fails and says the
+    guard can go.
     """
     generator = _generator()
 
-    with pytest.raises(ValueError):
-        MatchRunRequest.model_validate(
-            generator.match_run_body(
-                speaker_request_id=uuid.uuid4(),
-                candidate_subject_ids=tuple(uuid.uuid4() for _ in range(MAX_CANDIDATES + 1)),
-                seed=plan.DEFAULT_SEED,
-            )
+    MatchRunRequest.model_validate(
+        generator.match_run_body(
+            speaker_request_id=uuid.uuid4(),
+            candidate_subject_ids=tuple(uuid.uuid4() for _ in range(MAX_CANDIDATES)),
+            seed=plan.DEFAULT_SEED,
+        )
+    )
+
+
+def test_a_candidate_pool_larger_than_the_cap_is_refused_rather_than_silently_cut() -> None:
+    """The generator refuses at the boundary rather than truncating or discovering a 400.
+
+    Truncating would hand the run a pool quietly missing people; discovering it
+    over HTTP would mean the whole dataset had already been written before
+    anything said so.
+    """
+    generator = _generator()
+
+    with pytest.raises(generator.GeneratorError):
+        generator.match_run_body(
+            speaker_request_id=uuid.uuid4(),
+            candidate_subject_ids=tuple(uuid.uuid4() for _ in range(MAX_CANDIDATES + 1)),
+            seed=plan.DEFAULT_SEED,
         )
 
 

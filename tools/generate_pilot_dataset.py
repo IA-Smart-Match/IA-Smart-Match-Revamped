@@ -71,10 +71,54 @@ this repository are raw SQL inside tests. Reaching around that with an
 ``INSERT`` here is precisely what this tool must not do, so the generated
 dataset has real attendance-derived balances and an **empty catalog**, and
 therefore no redemption in any state. That is reported at the end of every run
-rather than papered over. The same is true of professional topic and location
-evidence: no table holds it, so it is derived from the seed and submitted in
-the match-run request body, which is where the API contract actually expects it
-to come from.
+rather than papered over.
+
+The match run, and why it is four steps rather than one
+-------------------------------------------------------
+It used to be one call carrying its own evidence. OQ-CBA-031 removed that: a
+request body that could state a speaker's expertise is a request body that can
+decide its own shortlist, so ``POST /v1/units/{unit_id}/match-runs`` now takes a
+``speaker_request_id`` and a list of ``candidate_subject_ids`` and nothing else,
+and ``smartmatch_api.match_run_evidence`` reads every scored fact off this
+tenant's own rows. Producing a match run therefore means producing those rows,
+through the product's own routes, in customer §19's own order:
+
+1. **A professionals import, accepted.** ``pipeline_provisioning`` turns each
+   accepted row into a ``speaker_profile`` — the table the evidence assembler
+   reads — plus an *unreviewed* classification proposal for whatever §7/§8 code
+   the export stated.
+2. **The §19 review step**, through
+   ``POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/classification``.
+   §19 orders review before availability, and a proposal is a proposal: an
+   unreviewed contact is *absent* from every pool, reported with the reason
+   ``industry_classification_awaiting_review``. A deliberate fraction of the
+   roster is left unreviewed so that state is visible in generated data rather
+   than only in a test.
+3. **A Speaker Request, filed** through
+   ``POST /v1/units/{unit_id}/speaker-requests``. It is a real ``event`` row with
+   real ``speaker_request_classification`` targets, and it is what supplies §9's
+   description text and §11's virtual/physical switch. Virtual, because the
+   generated roster carries no postal codes and a physical run would answer with
+   a pool nobody has located.
+4. **The run itself**, submitted with ids the API handed back rather than ids
+   this tool derived from a name.
+
+What the shortlist actually looks like, stated in advance
+----------------------------------------------------------
+Most of the named pool drops out, and not because of anything in this file.
+OQ-CBA-061: the fixture semantic-topic provider holds no recordings, so a
+speaker carrying ``topic_text`` scores ``unknown`` on customer §9, ADR-0011
+rule 1 makes their composite ``None``, and they are reported as *unscorable*
+rather than shortlisted — while a speaker who filled nothing in gets §9's stated
+policy neutral and is shortlistable. The seed puts expertise text on most
+professionals, so most named candidates are unscorable and the shortlist is
+filled from the quiet minority.
+
+Every one of those counts is printed at the end of a run rather than smoothed
+over. Stripping the seed's topic text would make the demo look fuller and is
+**not** done here: it is one of three candidate answers the CBA product owner
+holds for OQ-CBA-061, and choosing one of them inside a generator would be
+answering an open question by writing code.
 
 Determinism
 -----------
@@ -130,8 +174,8 @@ from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
 from pilot_dataset_plan import (
+    CALENDAR_ANCHOR,
     DEFAULT_SEED,
-    EVENT_LOCATION,
     IN_LIST_CATEGORIES,
     EventPlan,
     ProfessionalPlan,
@@ -149,8 +193,10 @@ from seed_demo_pipeline import (
 )
 from seed_pilot import SeedConfigurationError, require_development_fixture_settings
 from smartmatch_api.config import Settings
+from smartmatch_api.routers.match_runs import MAX_CANDIDATES
 from smartmatch_domain.event_vocabulary import G3_VOCABULARY
 from smartmatch_domain.events import DateOnlyTime, EventTime, ExactTime, UnresolvedTime
+from smartmatch_domain.explanation import MAX_SHORTLIST_SIZE
 from smartmatch_domain.pipeline import PipelineStage
 from smartmatch_domain.synthetic_pilot import (
     SYNTHETIC_ATTENDANCE_METHOD,
@@ -256,6 +302,51 @@ FANOUT_IMPORT_ROWS: Final[int] = 2
 #: How many professionals go into the deliberately-undecided review queue.
 PENDING_IMPORT_ROWS: Final[int] = 30
 
+#: How many professionals are imported **and accepted** so they become §13
+#: speaker contacts, and therefore the pool a match run can name.
+#:
+#: A hundred, and the number is squeezed from both ends.
+#:
+#: The ceiling is a rate limit: ``SPEAKER_CONTACT_WRITE_RATE_LIMIT`` allows
+#: thirty writes a minute and every reviewed contact costs one, so the whole
+#: 250-professional roster would spend seven minutes doing nothing but §19
+#: corrections. It is also bounded by ``routers/match_runs.MAX_CANDIDATES``
+#: (200), which a run may not exceed.
+#:
+#: The floor is OQ-CBA-061, and this is the uncomfortable part. Only the
+#: professionals carrying *no* expertise text can be scored at all — everyone
+#: else is ``unknown`` on customer §9 and therefore unscorable — and the plan
+#: gives only :data:`~pilot_dataset_plan.UNKNOWN_TOPIC_SHARE` of them no
+#: expertise text. After the deliberate unreviewed fifth and the deliberate
+#: unclassified share are taken out too, a roster of sixty yields exactly three
+#: scorable candidates for a three-speaker shortlist: a demo one unlucky seed
+#: away from a ``422``. A hundred yields five. The margin is thin because the
+#: open question makes it thin, and widening it by removing topic text from the
+#: seed is the workaround this file will not take.
+MATCH_ROSTER_ROWS: Final[int] = 100
+
+#: Seconds between §19 classification corrections, for the reason
+#: :data:`DECISION_PACE_SECONDS` exists: ``SPEAKER_CONTACT_WRITE_RATE_LIMIT`` is
+#: thirty a minute, and a tool that hammers a limiter and recovers from the
+#: ``429`` is a tool that hides how close it is running to it.
+CLASSIFICATION_PACE_SECONDS: Final[float] = 2.05
+
+#: How many §7 sectors and §8 role categories the generated Speaker Request
+#: targets. Two of each rather than one: with a single target every scorable
+#: candidate lands on the same two-valued comparison and the shortlist is
+#: decided by tie-breaking, and with a dozen the targets stop discriminating at
+#: all. Two produces candidates that match both axes, one axis and neither,
+#: which is the spread that makes a ranking readable.
+SPEAKER_REQUEST_TARGETS: Final[int] = 2
+
+#: The generated Speaker Request's date. Derived from the plan's own calendar
+#: anchor rather than from ``date.today()``, for the reason
+#: :data:`~pilot_dataset_plan.CALENDAR_ANCHOR` is a literal: a request whose date
+#: moved between runs would resolve to a different ADR-0012 identity key and the
+#: filing would stop being idempotent across a midnight boundary. Ninety days
+#: after the anchor, so it reads as an event still being planned.
+SPEAKER_REQUEST_LEAD_DAYS: Final[int] = 90
+
 
 class GeneratorError(RuntimeError):
     """The dataset could not be generated through the paths this tool insists on."""
@@ -279,6 +370,7 @@ class RunReport:
     professionals: int = 0
     professionals_without_topics: int = 0
     professionals_without_location: int = 0
+    professionals_without_classification: int = 0
     events: int = 0
     events_unresolved: int = 0
     events_quarantined: int = 0
@@ -294,9 +386,22 @@ class RunReport:
     student_attendances: int = 0
     ledger_credits: int = 0
     students_left_uncredited: int = 0
+    speaker_contacts_created: int = 0
+    speaker_contacts_reviewed: int = 0
+    speaker_contacts_left_unreviewed: int = 0
+    speaker_contacts_unclassifiable: int = 0
+    speaker_request_id: str | None = None
     match_run_job: str | None = None
+    match_run_id: str | None = None
+    match_run_job_status: str | None = None
+    match_run_scoring_mode: str | None = None
+    match_run_candidates: int | None = None
     match_run_scored: int | None = None
     match_run_unscorable: int | None = None
+    match_run_excluded: int | None = None
+    match_run_excluded_reasons: dict[str, int] = field(default_factory=dict)
+    match_run_portfolio_status: str | None = None
+    match_run_shortlist: int | None = None
     notes: list[str] = field(default_factory=list)
 
     def lines(self) -> tuple[str, ...]:
@@ -306,6 +411,7 @@ class RunReport:
             f"professionals               {self.professionals}",
             f"  no topic evidence         {self.professionals_without_topics} (deliberate)",
             f"  no location evidence      {self.professionals_without_location} (deliberate)",
+            f"  no §7/§8 classification   {self.professionals_without_classification} (deliberate)",
             f"events                      {self.events}",
             f"  unresolved date           {self.events_unresolved} (deliberate, ADR-0010)",
             f"  quarantined tags          {self.events_quarantined} (deliberate)",
@@ -321,9 +427,22 @@ class RunReport:
             f"student attendance records  {self.student_attendances}",
             f"point ledger credits        {self.ledger_credits}",
             f"  attended but uncredited   {self.students_left_uncredited} (deliberate: unknown)",
+            f"speaker contacts created    {self.speaker_contacts_created}",
+            f"  classifications reviewed  {self.speaker_contacts_reviewed} (§19, now matchable)",
+            f"  left unreviewed           {self.speaker_contacts_left_unreviewed} (deliberate)",
+            f"  nothing to review         {self.speaker_contacts_unclassifiable} (unclassified)",
+            f"speaker request filed       {self.speaker_request_id or 'not filed'}",
             f"match-run job               {self.match_run_job or 'not submitted'}",
+            f"  job status                {self.match_run_job_status}",
+            f"  match run                 {self.match_run_id}",
+            f"  scoring mode              {self.match_run_scoring_mode}",
+            f"  candidates named          {self.match_run_candidates}",
             f"  scored candidates         {self.match_run_scored}",
             f"  unscorable candidates     {self.match_run_unscorable} (reported, never zeroed)",
+            f"  excluded candidates       {self.match_run_excluded} (never evaluated)",
+            f"    by reason               {self.match_run_excluded_reasons or '{}'}",
+            f"  portfolio status          {self.match_run_portfolio_status}",
+            f"  shortlist                 {self.match_run_shortlist} speakers",
         )
 
 
@@ -374,6 +493,26 @@ def _request(
         raise GeneratorError(f"could not reach {url}: {exc.reason}") from exc
 
 
+def _request_text(*, url: str, bearer_token: str, timeout: float = 60.0) -> tuple[int, str]:
+    """One authenticated ``GET`` whose body is not JSON.
+
+    Separate from :func:`_request` rather than a flag on it, because there is
+    exactly one such body in this tool — the job event stream, which is
+    ``text/event-stream`` — and folding a "decode or don't" switch into the
+    general helper would make every other caller's return type a union.
+    """
+    request = urllib.request.Request(
+        url=url, method="GET", headers={"Authorization": f"Bearer {bearer_token}"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return int(response.status), response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), exc.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        raise GeneratorError(f"could not reach {url}: {exc.reason}") from exc
+
+
 def wait_for_api(*, api_base: str, attempts: int, delay: float) -> None:
     """Block until the API answers ``/api/health``, or say plainly that it never did."""
     last = "no attempt made"
@@ -400,11 +539,21 @@ def professionals_rows(planned: Sequence[ProfessionalPlan]) -> list[dict[str, st
     """The ratified ``professionals`` columns, spelled as a coordinator's export would.
 
     ``docs/pilot-data/columns.yaml`` declares ``name`` and ``metro_region``
-    required and ``company`` / ``title`` / ``expertise_tags`` / ``initials``
-    optional. A professional with no expertise record contributes no
-    ``expertise_tags`` key at all rather than an empty string: an absent column
-    is an absent record, and a blank one is a record that says nothing, which
-    are not the same claim.
+    required and ``company`` / ``title`` / ``expertise_tags`` / ``initials`` /
+    ``primary_industry_code`` / ``primary_role_code`` optional. A professional
+    with no expertise record contributes no ``expertise_tags`` key at all rather
+    than an empty string: an absent column is an absent record, and a blank one
+    is a record that says nothing, which are not the same claim. The same rule
+    governs the two classification cells.
+
+    Those two cells matter more than their size suggests. They are what
+    ``pipeline_provisioning._stated_code`` reads on an accept, and without them
+    every accepted contact arrives unclassified — the fixture classifier reads
+    company and title text and this plan's organizations and titles are not
+    taxonomy names — so §19 would hold the whole roster out of every pool and a
+    match run would have nobody to score. The values are only *stated*, never
+    reviewed: the accept records them as an ``inferred`` proposal, and a person
+    has to confirm one before the speaker becomes matchable.
     """
     rows: list[dict[str, str]] = []
     for person in planned:
@@ -417,6 +566,10 @@ def professionals_rows(planned: Sequence[ProfessionalPlan]) -> list[dict[str, st
         }
         if person.topics is not None:
             row["expertise_tags"] = ", ".join(person.topics)
+        if person.industry_code is not None:
+            row["primary_industry_code"] = person.industry_code
+        if person.role_code is not None:
+            row["primary_role_code"] = person.role_code
         rows.append(row)
     return rows
 
@@ -869,59 +1022,379 @@ def write_students(
 
 
 # ---------------------------------------------------------------------------
-# The match run — evidence in the request body, because no table holds it
+# The match run — assembled from rows, because OQ-CBA-031 says a body may not
 # ---------------------------------------------------------------------------
 
 
-def match_run_body(
-    planned: Sequence[ProfessionalPlan],
+def match_roster(planned: Sequence[ProfessionalPlan]) -> tuple[ProfessionalPlan, ...]:
+    """The slice imported, accepted, and named as the match run's candidate pool.
+
+    Taken *after* the rows Phase A.2 leaves pending, so no professional is both
+    an undecided review item and an accepted speaker contact. Overlapping the
+    two would make the pending queue's size depend on how fast the accept ran,
+    and would decide the same row twice on a re-run.
+
+    A plain slice rather than a selection: which professionals carry topic text,
+    a classification or neither is what makes the run's report interesting, and
+    a generator that picked its own candidates on those grounds would be
+    choosing the shortlist it wanted to demonstrate.
+    """
+    start = min(PENDING_IMPORT_ROWS, len(planned))
+    return tuple(planned[start : start + MATCH_ROSTER_ROWS])
+
+
+def reviews_classification(index: int) -> bool:
+    """Whether roster member ``index`` gets its §19 classification review.
+
+    Arithmetic rather than random, so the same roster reviews the same people on
+    every run — the property ``decision_for`` exists for, applied to the other
+    decision this tool makes on somebody's behalf.
+
+    Four in five, and the fifth is not an oversight. Customer §19 orders review
+    before availability, so an unreviewed contact is *absent* from every pool
+    with the reason ``industry_classification_awaiting_review``. A generator that
+    reviewed the whole roster would leave that state unreachable from generated
+    data, and a Connector looking at the demo would never see the difference
+    between "nobody has checked this record" and "we checked and they scored
+    badly" — two situations that call for different actions.
+    """
+    return index % 5 != 4
+
+
+def _frequent_codes(values: Sequence[str | None], *, wanted: int) -> list[str]:
+    """The ``wanted`` most common non-null codes, ties broken by the code itself.
+
+    Deterministic on purpose: ``collections.Counter.most_common`` breaks ties by
+    insertion order, which for this caller is roster order, which changes with
+    ``--professionals``. Sorting on the count *and* the code makes the Speaker
+    Request's targets a function of the seed alone.
+    """
+    counts: dict[str, int] = {}
+    for value in values:
+        if value is not None:
+            counts[value] = counts.get(value, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [code for code, _ in ranked[:wanted]]
+
+
+def speaker_request_body(
+    roster: Sequence[ProfessionalPlan],
     *,
-    tenant_id: uuid.UUID,
-    unit_id: uuid.UUID,
-    limit: int,
     seed: int,
 ) -> dict[str, Any]:
-    """Build one ``POST /match-runs`` submission from the plan.
+    """Build the ``POST /v1/units/{unit_id}/speaker-requests`` body (customer §12).
 
-    The candidate pool carries **evidence, never a score** — the request model
-    refuses a caller-supplied score, and rightly: a caller scoring its own pool
-    would be a caller choosing its own shortlist.
+    **Virtual**, and that is a statement about the generated data rather than a
+    convenience. Customer §11 removes Proximity from the virtual model; the
+    physical model measures miles from the CPP campus against a speaker's stored
+    postal code, and this plan puts no postal code on anybody. A physical request
+    would therefore produce a pool nobody has located — every candidate's
+    distance an honest unknown — which is correct behaviour and a useless demo.
+    The switch is the Speaker Request's to make, and this makes it deliberately.
 
-    ``expertise_topics`` is ``null`` for a professional with no expertise record
-    and a list for one with a record. That distinction is the whole point of
-    including them: a ``null`` makes ``topic_relevance`` unknown, and the route
-    excludes that candidate from the pool and *reports* it rather than entering
-    it at zero, where it would sit below every measured candidate as though it
-    had been measured and found wanting.
+    The industry and role targets are the roster's own most common codes. A
+    request targeting a sector nobody on the roster holds would score every
+    candidate the same defensible zero, and a shortlist drawn from that is
+    tie-breaking rather than matching.
 
-    ``required_topics`` and ``preferred_topics`` name terms that are common in
-    the plan, so a genuine shortlist forms rather than every candidate scoring
-    unknown.
+    ``description`` is §9's text — the thing a speaker's topic evidence is
+    compared *against*. It names the request's own targets rather than reciting
+    the tag vocabulary, because a description assembled out of the same twelve
+    terms the speakers' expertise cells are drawn from would make the comparison
+    a lexical overlap wearing a semantic factor's clothes.
     """
+    industries = _frequent_codes(
+        [person.industry_code for person in roster], wanted=SPEAKER_REQUEST_TARGETS
+    )
+    roles = _frequent_codes([person.role_code for person in roster], wanted=SPEAKER_REQUEST_TARGETS)
+    if not industries or not roles:
+        raise GeneratorError(
+            "the planned roster states no §7 sector or no §8 role category at all, so no "
+            "Speaker Request could name a target; check UNCLASSIFIED_INDUSTRY_SHARE and "
+            "UNCLASSIFIED_ROLE_SHARE in tools/pilot_dataset_plan.py"
+        )
     return {
-        "event_need_id": f"synthetic-pilot-need-{seed}",
-        "required_topics": ["workshop"],
-        "preferred_topics": ["career panel", "mentor"],
-        "event_location": {"latitude": EVENT_LOCATION[0], "longitude": EVENT_LOCATION[1]},
-        "portfolio_size": 3,
-        "random_seed": seed % 1000,
-        "candidates": [
-            {
-                "subject_id": str(
-                    synthetic_professional_subject_id(
-                        tenant_id=tenant_id, unit_id=unit_id, name=person.name
-                    )
-                ),
-                "expertise_topics": None if person.topics is None else list(person.topics),
-                "location": (
-                    None
-                    if person.location is None
-                    else {"latitude": person.location[0], "longitude": person.location[1]}
-                ),
-            }
-            for person in planned[:limit]
-        ],
+        "title": f"Synthetic pilot speaker panel {seed}",
+        "time_zone": PILOT_TIME_ZONE,
+        "on_date": (CALENDAR_ANCHOR + timedelta(days=SPEAKER_REQUEST_LEAD_DAYS)).isoformat(),
+        "is_virtual": True,
+        "industry_codes": industries,
+        "role_codes": roles,
+        "description": (
+            "A virtual panel for students weighing a first role: how professionals in "
+            "these sectors and functions evaluate offers, build a first year, and decide "
+            "what to specialise in."
+        ),
     }
+
+
+def match_run_body(
+    *,
+    speaker_request_id: uuid.UUID,
+    candidate_subject_ids: Sequence[uuid.UUID],
+    seed: int,
+) -> dict[str, Any]:
+    """Build one ``POST /v1/units/{unit_id}/match-runs`` submission.
+
+    Four fields, and the interesting thing about this function is everything it
+    does **not** build. There is no topic here, no location, no expertise, no
+    event description and no physical/virtual switch, because OQ-CBA-031 took
+    them all out of the request: every one is read from this tenant's own rows by
+    ``smartmatch_api.match_run_evidence``. A body that could state a speaker's
+    expertise is a body that can decide its own shortlist, and this tool
+    submitting one would make the generated run a record of what the generator
+    asserted rather than of what the appliance holds.
+
+    ``candidate_subject_ids`` are ``speaker_profile.professional_id`` values the
+    API handed back from its own roster listing — see :func:`resolve_candidates`
+    — never ids derived here from a name. Naming somebody does not assert
+    anything about them.
+
+    ``portfolio_size`` is the G1 presentation rule's upper bound, taken from
+    ``smartmatch_domain.explanation`` rather than typed in, so a shortlist that
+    can be filled is filled.
+
+    Raises:
+        GeneratorError: the pool is over the route's own cap. Refused here
+            rather than left to the ``400``, because the request model does not
+            enforce the cap — ``maxItems`` sits in ``json_schema_extra``, which
+            documents the limit for a schema reader and validates nothing — so a
+            body that passed ``model_validate`` would still be rejected at the
+            route, and a tool that only found out over HTTP would have written
+            the whole dataset first.
+    """
+    if len(candidate_subject_ids) > MAX_CANDIDATES:
+        raise GeneratorError(
+            f"a match run may name at most {MAX_CANDIDATES} candidates; this pool holds "
+            f"{len(candidate_subject_ids)}. Lower MATCH_ROSTER_ROWS."
+        )
+    return {
+        "speaker_request_id": str(speaker_request_id),
+        "portfolio_size": MAX_SHORTLIST_SIZE,
+        "random_seed": seed % 1000,
+        "candidate_subject_ids": [str(subject_id) for subject_id in candidate_subject_ids],
+    }
+
+
+def file_speaker_request(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    body: Mapping[str, Any],
+    report: RunReport,
+) -> uuid.UUID:
+    """File the Speaker Request a match run cannot exist without, and return its id.
+
+    Both success codes are accepted and they mean different things. ``201`` filed
+    a new request; ``200`` means ADR-0012's identity key — same host unit, same
+    folded title, same date — resolved this onto a request already filed and
+    updated it, which is the ordinary second-run path and is exactly why
+    :data:`SPEAKER_REQUEST_LEAD_DAYS` is measured from a fixed calendar anchor.
+    """
+    status, payload = _request(
+        method="POST",
+        url=f"{api_base}/v1/units/{unit_id}/speaker-requests",
+        bearer_token=bearer_token,
+        body=body,
+    )
+    if status not in (200, 201) or not isinstance(payload, dict):
+        raise GeneratorError(
+            f"POST /v1/units/{unit_id}/speaker-requests answered {status}: {payload}"
+        )
+    request_id = uuid.UUID(str(payload["request_id"]))
+    report.speaker_request_id = str(request_id)
+    print(
+        f"generate-pilot-dataset: speaker request {request_id} "
+        f"({'filed' if status == 201 else 'already filed, updated'})"
+    )
+    return request_id
+
+
+def list_speaker_contacts(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+) -> dict[str, dict[str, Any]]:
+    """This unit's §13 roster, keyed by ``full_name``.
+
+    Read back rather than derived. The import path does key a professional's
+    identity off the folded name today — that is OQ-CBA-048's residual, not a
+    contract — and a tool that recomputed the id would be asserting a derivation
+    the API's own contract says a caller must not make. Asking the roster which
+    id it holds costs one request and stays correct the day OQ-CBA-048 closes.
+
+    A truncated listing is raised rather than silently used: a roster read that
+    quietly returned its first two hundred rows would produce a candidate pool
+    missing people nobody could account for.
+    """
+    status, payload = _request(
+        method="GET",
+        url=f"{api_base}/v1/units/{unit_id}/speaker-contacts",
+        bearer_token=bearer_token,
+    )
+    if status != 200 or not isinstance(payload, dict):
+        raise GeneratorError(
+            f"GET /v1/units/{unit_id}/speaker-contacts answered {status}: {payload}"
+        )
+    if payload.get("truncated"):
+        raise GeneratorError(
+            "the speaker-contact roster is truncated, so the candidate pool this tool "
+            "assembles would silently omit contacts; lower MATCH_ROSTER_ROWS or page the "
+            "listing when the API grows a cursor"
+        )
+    return {str(contact["full_name"]): contact for contact in payload["contacts"]}
+
+
+def review_classifications(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+    report: RunReport,
+) -> None:
+    """Perform customer §19's review step on four of every five roster members.
+
+    The import recorded whatever code the export stated as an **inferred**
+    proposal, and ``match_ineligibility_reason`` holds a proposal out of every
+    pool until a person confirms it. This is that person, acting through the
+    route built for it — not an ``UPDATE``, and not a widening of what counts as
+    reviewed.
+
+    Three outcomes, all counted:
+
+    * reviewed — both axes confirmed, so the contact becomes match-eligible;
+    * left unreviewed — deliberate, so the run reports somebody as
+      ``industry_classification_awaiting_review`` rather than ranking them last;
+    * nothing to review — the export stated no code on an axis, so there is no
+      proposal to confirm and no value this tool is entitled to invent. The
+      contact stays ineligible with ``industry_classification_missing``, which
+      is the honest reason and a different one.
+    """
+    for index, person in enumerate(roster):
+        contact = contacts.get(person.name)
+        if contact is None:
+            raise GeneratorError(
+                f"the accepted roster member {person.name!r} is not in this unit's "
+                "speaker-contact listing; the professionals accept did not provision a "
+                "speaker_profile for them"
+            )
+        if not reviews_classification(index):
+            report.speaker_contacts_left_unreviewed += 1
+            continue
+        if person.industry_code is None and person.role_code is None:
+            # `ClassificationCorrection.create` refuses a correction naming
+            # neither axis, and rightly: there is nothing here to confirm.
+            report.speaker_contacts_unclassifiable += 1
+            continue
+
+        body: dict[str, str] = {}
+        if person.industry_code is not None:
+            body["primary_industry_code"] = person.industry_code
+        if person.role_code is not None:
+            body["primary_role_code"] = person.role_code
+
+        professional_id = contact["professional_id"]
+        status, payload = _request(
+            method="POST",
+            url=(
+                f"{api_base}/v1/units/{unit_id}/speaker-contacts/{professional_id}/classification"
+            ),
+            bearer_token=bearer_token,
+            body=body,
+        )
+        if status != 200:
+            raise GeneratorError(
+                f"POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/classification "
+                f"answered {status}: {payload}"
+            )
+        report.speaker_contacts_reviewed += 1
+        time.sleep(CLASSIFICATION_PACE_SECONDS)
+
+
+def resolve_candidates(
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+) -> tuple[uuid.UUID, ...]:
+    """The ``professional_id`` of every roster member, as the API reported it.
+
+    Every one of them, including the ones §19 will exclude. Naming only the
+    eligible would hand the demo a pool that had already been filtered by this
+    tool and a run that could not report an exclusion — and the exclusion
+    reporting is the part of this surface that distinguishes "nobody has reviewed
+    this record" from "we looked and they scored badly".
+    """
+    return tuple(uuid.UUID(str(contacts[person.name]["professional_id"])) for person in roster)
+
+
+def wait_for_job(
+    *,
+    api_base: str,
+    bearer_token: str,
+    job_id: uuid.UUID,
+    attempts: int,
+    delay: float,
+) -> str:
+    """Poll one job to a terminal state and return that state.
+
+    Returned rather than asserted, because the caller reports it: a job that
+    ``failed`` is a fact about this appliance the run should print, not an
+    exception that hides which of the run's phases had already succeeded.
+    """
+    last = "unknown"
+    for attempt in range(1, attempts + 1):
+        status, payload = _request(
+            method="GET",
+            url=f"{api_base}/v1/jobs/{job_id}",
+            bearer_token=bearer_token,
+        )
+        if status != 200 or not isinstance(payload, dict):
+            raise GeneratorError(f"GET /v1/jobs/{job_id} answered {status}: {payload}")
+        last = str(payload["status"])
+        if last in {"succeeded", "failed", "abandoned"}:
+            print(f"generate-pilot-dataset: match-run job {last} on attempt {attempt}")
+            return last
+        time.sleep(delay)
+    raise GeneratorError(
+        f"match-run job {job_id} never left status {last!r}; check `docker compose logs worker`"
+    )
+
+
+def _completed_match_run_id(
+    *,
+    api_base: str,
+    bearer_token: str,
+    job_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """The ``match_run_id`` from the job's own terminal event, or ``None``.
+
+    Read from the job's event stream because that is where the completion
+    summary lives and there is no route that lists a unit's match runs. Nothing
+    is inferred from the ``202``: the acknowledgement carries a job id and says
+    nothing about which run the job went on to write.
+    """
+    status, stream = _request_text(
+        url=f"{api_base}/v1/jobs/{job_id}/events",
+        bearer_token=bearer_token,
+    )
+    if status != 200:
+        raise GeneratorError(f"GET /v1/jobs/{job_id}/events answered {status}: {stream[:400]}")
+    for line in stream.splitlines():
+        if not line.startswith("data: "):
+            continue
+        try:
+            event = json.loads(line.removeprefix("data: "))
+        except json.JSONDecodeError:  # pragma: no cover - a malformed frame is not fatal here
+            continue
+        body = event.get("payload", {})
+        if body.get("type") == "job.completed":
+            run_id = body.get("summary", {}).get("match_run_id")
+            if run_id is not None:
+                return uuid.UUID(str(run_id))
+    return None
 
 
 def submit_match_run(
@@ -931,9 +1404,24 @@ def submit_match_run(
     unit_id: uuid.UUID,
     body: Mapping[str, Any],
     request_id: str,
+    attempts: int,
+    delay: float,
     report: RunReport,
 ) -> None:
-    """Submit the match run and record what the API said about the pool."""
+    """Submit the run, follow it to a terminal state, and report the shortlist.
+
+    A ``202`` on its own proves the body was well formed and nothing else. What a
+    stakeholder opens is the *persisted run*, so this follows the job to a
+    terminal state and reads the run back — and reports the shortlist it found,
+    including when that shortlist is thin. A green submission over an empty
+    shortlist is not a working demo, and reporting it as one is the failure mode
+    this whole phase exists to avoid.
+
+    ``503 registry_not_ready`` is reported rather than raised. It means the
+    factor registry on this appliance is not approved or not fully implemented,
+    which is a deployment fact about the stack rather than a defect in the
+    dataset the run had already generated.
+    """
     status, payload = _request(
         method="POST",
         url=f"{api_base}/v1/units/{unit_id}/match-runs",
@@ -941,11 +1429,86 @@ def submit_match_run(
         body=body,
         request_id=request_id,
     )
+    if status == 503 and isinstance(payload, dict) and "registry_not_ready" in str(payload):
+        report.notes.append(
+            "match run NOT submitted: the API answered 503 registry_not_ready, so this "
+            "appliance's factor registry is not approved or not fully implemented. Every "
+            "other phase above completed; the Connector surface has a filed Speaker "
+            "Request and a reviewed roster and no run to open."
+        )
+        return
+    if status == 422:
+        # The route's ordinary answer when fewer candidates can be scored than
+        # the requested shortlist needs. Reported rather than raised, and
+        # reported as what it is: the appliance refusing to present a shortlist
+        # it could not fill, which is ADR-0011 behaving correctly over a pool
+        # OQ-CBA-061 emptied. Papering over it with a smaller portfolio_size
+        # here would be this tool choosing a presentation rule.
+        report.notes.append(
+            "match run REFUSED with 422: fewer candidates could be scored than the "
+            f"{MAX_SHORTLIST_SIZE}-speaker shortlist needs. The Connector surface has a "
+            "filed Speaker Request and a reviewed roster and NO run to open. See the "
+            f"OQ-CBA-061 note below — the API's answer was: {payload}"
+        )
+        return
     if status != 202 or not isinstance(payload, dict):
         raise GeneratorError(f"POST /v1/units/{unit_id}/match-runs answered {status}: {payload}")
-    report.match_run_job = str(payload.get("job_id"))
+
+    job_id = uuid.UUID(str(payload["job_id"]))
+    report.match_run_job = str(job_id)
+    report.match_run_scoring_mode = payload.get("scoring_mode")
+    report.match_run_candidates = len(body["candidate_subject_ids"])
     report.match_run_scored = payload.get("scored_candidates")
     report.match_run_unscorable = payload.get("unscorable_candidates")
+
+    excluded = payload.get("excluded_candidates") or []
+    report.match_run_excluded = len(excluded)
+    reasons: dict[str, int] = {}
+    for entry in excluded:
+        reason = str(entry.get("reason"))
+        reasons[reason] = reasons.get(reason, 0) + 1
+    report.match_run_excluded_reasons = reasons
+
+    report.match_run_job_status = wait_for_job(
+        api_base=api_base,
+        bearer_token=bearer_token,
+        job_id=job_id,
+        attempts=attempts,
+        delay=delay,
+    )
+    if report.match_run_job_status != "succeeded":
+        report.notes.append(
+            f"the match-run job finished {report.match_run_job_status!r} rather than "
+            "'succeeded', so there is no persisted run for a stakeholder to open. The "
+            "submission was accepted; the work was not completed."
+        )
+        return
+
+    run_id = _completed_match_run_id(api_base=api_base, bearer_token=bearer_token, job_id=job_id)
+    if run_id is None:
+        report.notes.append(
+            "the match-run job succeeded but its completion event named no match_run_id, "
+            "so this tool cannot say what the shortlist holds"
+        )
+        return
+    report.match_run_id = str(run_id)
+
+    status, run = _request(
+        method="GET",
+        url=f"{api_base}/v1/units/{unit_id}/match-runs/{run_id}",
+        bearer_token=bearer_token,
+    )
+    if status != 200 or not isinstance(run, dict):
+        raise GeneratorError(
+            f"GET /v1/units/{unit_id}/match-runs/{run_id} answered {status}: {run}"
+        )
+    report.match_run_portfolio_status = run.get("portfolio_status")
+    report.match_run_shortlist = len(run.get("shortlist") or [])
+    if not run.get("shortlist_available", True):
+        report.notes.append(
+            "the persisted run's shortlist could not be reconstructed: "
+            f"{run.get('shortlist_unavailable_reason')}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1009,6 +1572,7 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
     summary = plan_summary(professionals, events, students)
     report.professionals_without_topics = summary.professionals_without_topics
     report.professionals_without_location = summary.professionals_without_location
+    report.professionals_without_classification = summary.professionals_without_classification
 
     wait_for_api(api_base=api_base, attempts=args.ready_attempts, delay=2.0)
 
@@ -1134,15 +1698,79 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
             report=report,
         )
 
-    # -- The match run -----------------------------------------------------
+    # -- Phase A.4: the roster a match run can actually name ----------------
+    #
+    # Imported and *accepted*, because an accept is what runs
+    # `pipeline_provisioning` and therefore what writes the `speaker_profile`
+    # rows `match_run_evidence` reads. Everything Phase B wrote is a
+    # `user_account` and a unit link; neither is a speaker record, and a match
+    # run naming one answers `speaker_profile_not_found`.
+    roster = match_roster(professionals)
+    if not roster:
+        raise GeneratorError(
+            f"--professionals {args.professionals} leaves no roster to match on after the "
+            f"{PENDING_IMPORT_ROWS} rows Phase A.2 keeps pending"
+        )
+    roster_job = submit_import(
+        api_base=api_base,
+        bearer_token=args.bearer_token,
+        unit_id=unit_id,
+        dataset="professionals",
+        rows=professionals_rows(roster),
+        request_id=f"pilot-dataset-roster-{args.seed}",
+    )
+    roster_items = wait_for_review_items(
+        session,
+        tenant_id=tenant_id,
+        job_id=roster_job,
+        wanted=len(roster),
+        attempts=args.dispatch_attempts,
+        delay=2.0,
+    )
+    report.review_items_submitted += len(roster_items)
+    for item_id in roster_items:
+        _decide_one(
+            api_base=api_base,
+            bearer_token=args.bearer_token,
+            item_id=item_id,
+            decision="accepted",
+            report=report,
+        )
+    contacts = list_speaker_contacts(
+        api_base=api_base, bearer_token=args.bearer_token, unit_id=unit_id
+    )
+    report.speaker_contacts_created = len(contacts)
+
+    # -- Phase A.5: customer §19's review step ------------------------------
+    review_classifications(
+        api_base=api_base,
+        bearer_token=args.bearer_token,
+        unit_id=unit_id,
+        roster=roster,
+        contacts=contacts,
+        report=report,
+    )
+
+    # -- Phase A.6: the Speaker Request, then the run against it ------------
+    speaker_request_id = file_speaker_request(
+        api_base=api_base,
+        bearer_token=args.bearer_token,
+        unit_id=unit_id,
+        body=speaker_request_body(roster, seed=args.seed),
+        report=report,
+    )
     submit_match_run(
         api_base=api_base,
         bearer_token=args.bearer_token,
         unit_id=unit_id,
         body=match_run_body(
-            professionals, tenant_id=tenant_id, unit_id=unit_id, limit=200, seed=args.seed
+            speaker_request_id=speaker_request_id,
+            candidate_subject_ids=resolve_candidates(roster, contacts),
+            seed=args.seed,
         ),
         request_id=f"pilot-dataset-match-run-{args.seed}",
+        attempts=args.dispatch_attempts,
+        delay=2.0,
         report=report,
     )
 
@@ -1154,9 +1782,13 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         "missing by accident."
     )
     report.notes.append(
-        "professional topic and location evidence is NOT stored: no table holds it. It is "
-        "derived from --seed and submitted in the match-run request body, which is where "
-        "the API contract expects it to come from."
+        "OQ-CBA-061: the fixture semantic-topic provider holds no recordings, so every "
+        "candidate carrying expertise text scores unknown on customer §9, their composite "
+        "is None (ADR-0011 rule 1), and they are reported UNSCORABLE rather than "
+        "shortlisted. The shortlist above is therefore drawn from the minority of "
+        "candidates who filed no expertise text at all. That is the open question's cost "
+        "to this demo, not a defect in the generated data — and it is NOT worked around "
+        "here by stripping topic text from the seed."
     )
     return report
 
