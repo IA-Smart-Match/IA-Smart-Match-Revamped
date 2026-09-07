@@ -523,4 +523,9 @@ def _candidate_evidence(
         # distance, never a guess and never the Far band. See the module
         # docstring, and `zip_proximity` for what the resolver refuses to do.
         distance_miles=None if distance is None else distance.miles,
+        # Set exactly when a distance is. `ProximityInputs` refuses a
+        # provenance with no distance, which is the right refusal: a receipt for
+        # a measurement nobody made is how an unknown starts to look like a
+        # value.
+        distance_provenance=None if distance is None else distance.provenance,
     )
