@@ -22,8 +22,12 @@ its own single membership carrying the role its portal needs. No role set in
 any router changed, no route became less strict, and no principal holds a role
 it does not need: the student is a student everywhere, and the Event Host is a
 ``volunteer`` and nothing else. A portal that stays unreachable because the API
-has no route for it stays unreachable — ``OQ-CBA-014`` records that for the
-Event Host, and this tool does not answer it with a permit.
+has no route for it stays unreachable, and this tool answers no such gap with a
+permit. ``OQ-CBA-014`` was the standing example — the Event Host could file and
+read nothing back — and it was closed on 7 September 2026 by *adding a route*
+(``GET /v1/units/{unit_id}/host/speaker-requests``, scoped to the requests that
+host filed), which is the only way a gap of that shape may be closed. No role set
+here or in any router moved to make it true.
 
 ## Why the bearer token is named here
 
