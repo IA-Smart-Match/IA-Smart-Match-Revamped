@@ -770,3 +770,290 @@ shadow-mode weight tuner wired to three factor keys that do not exist is a trap 
 whoever wires it up next.
 
 ---
+
+## Part 4 — The score-display question
+
+The owner wants a prominent fit score with a plain-language reason: a card reading
+**"Job Fit Score 89%"** over a sentence like *"Strong full-stack: React (5y),
+TypeScript (3y)…"*.
+
+This section has two jobs. First, to tell the owner that the register already
+carries a position on this and he may not know it. Second — because this is his
+call and not mine — to lay out neutrally what reversing it costs, what the
+substantive objection is, and what the alternatives are.
+
+### 4.1 What OQ-CBA-005 actually says
+
+The register is `docs/plans/open-questions/cba-phase-deferred.md`. Its columns are
+`ID | Decision required | Safe planning default | Owner and deadline | Unlocks`
+(`:11`). Row `:17`, verbatim and complete:
+
+> | OQ-CBA-005 | Should ranked candidates expose any overall score in the UI? |
+> Rank internally; show factor-level provenance and Topic reasoning; do not show a
+> prominent overall percentage. | CBA product owner; decide only if a later UI
+> asks to expose the aggregate. | Optional match-result presentation change; not
+> ranking itself. |
+
+That is the entire recorded text. Three things follow from reading it closely, and
+the third is the one that matters most.
+
+**It is an open question, not a closed decision.** The register's own framing
+(`:7`) is that it "is the fail-closed boundary for the CBA phase. Unresolved
+product choices are recorded here instead of becoming permanent implementation
+defaults." Compare OQ-CBA-001 through 004 on the same page, each of which reads
+"**Closed 5 September 2026 by ADR-0016 (Accepted).**" OQ-CBA-005 carries no such
+marker. What sits in its third column is a **safe planning default** — the
+conservative behaviour in force *because nobody has decided yet*.
+
+**The register anticipated this exact moment.** The owner-and-deadline column reads
+"decide only if a later UI asks to expose the aggregate." A later UI is now asking.
+The owner is therefore not overturning a ratified decision; he is being invited to
+answer an open question at precisely the trigger the register named. That is a much
+lower bar than "reversing a decision", and he should know it is the lower bar.
+
+**But the recorded reasoning is thin, and I should not inflate it.** The row gives
+a position and no rationale. The substantive argument for it lives elsewhere, in
+the code and in the G1 worksheet the code cites: `SCORE_PROVENANCE_LABEL` is
+"heuristic score" and its docstring says a percentage "would be the legacy 'Topic
+Relevance 0%' surface returning under a new registry, and the worksheet's
+classification table exists precisely because those percentages were the symptom
+stakeholders reported" (`explanation.py:28-34`, `:92-99`). So the origin is
+empirical: percentages on the legacy system were a reported problem, and the
+program direction from the G1 workshop
+(`docs/plans/workshops/g1-workshop-output-worksheet.md`, agenda item 1) was to stop
+showing them. That is the real reasoning, and it is a fact about the legacy
+product, not a first-principles argument. Section 4.3 supplies the
+first-principles one, which is stronger.
+
+### 4.2 What reversing it would require
+
+Mechanically small; procedurally not.
+
+1. **Answer OQ-CBA-005** in the register, replacing the safe planning default with
+   a recorded decision, an owner, and a date — the form OQ-CBA-001..004 use.
+2. **`explanation.py`.** Nothing in the module multiplies by 100 or formats a
+   percentage; a score leaves as a bare float in `[0, 1]` beside
+   `SCORE_PROVENANCE_LABEL` (`:28-34`). `CandidateExplanation` validates that
+   `score_label == SCORE_PROVENANCE_LABEL` and raises otherwise (`:373-375`), so a
+   "Job Fit Score" label cannot be attached without changing that constant or that
+   check.
+3. **`cba_topic_explanation.py`.** `CbaTopicExplanation.__post_init__` rejects any
+   `ui_label` containing `%` outright (`:131-134`) — "a percentage on a factor
+   score is the legacy…" — so factor-level percentages are refused by the type even
+   if the composite's are permitted.
+4. **The frontend contract tests.**
+   `tests/unit/test_frontend_match_run_contract.py` bans a list of literals from
+   the page source: `"* 100"`, `"*100"`, `"%"`, `"percent"`, `"Percent"`,
+   `"Match Score"`, `"match_score"`, `"heuristic_score"`, `"fit score"`,
+   `"Fit Score"` (`:147-159`, asserted at `:161-172`). Note that **`"Fit Score"`
+   is literally on that list** — the owner's proposed card title is a named
+   forbidden string. The ban is on the *character* `%`, not on a rendered value,
+   deliberately: "A page with no `%` in it cannot grow one in a Tailwind class, a
+   template literal, or a copy tweak without this failing" (`:163-166`). A sibling
+   file, `tests/unit/test_frontend_matching_contract.py`, holds `AIMatching.tsx` to
+   the same rule, so both surfaces would need changing.
+
+None of that is hard. It is perhaps a day. The reason to slow down is in 4.3.
+
+### 4.3 The substantive objection, quantified
+
+This is the part that is not about process, and it is stronger than the recorded
+reasoning in 4.1.
+
+**A percentage over a 12-value composite is false precision, and the arithmetic
+says so exactly.** From §1.3, a physical candidate today can hold one of twelve
+values. Rendered as percentages those are:
+
+```
+13.5%  25.5%  37.5%  38.5%  43.5%  50.5%  55.5%  62.5%  67.5%  68.5%  80.5%  92.5%
+```
+
+A "Job Fit Score 89%" is **not reachable**. Neither is 86%. Neither is any of the
+other 88 integer percentages outside that list. A two-significant-figure percentage
+implies the engine can distinguish roughly a hundred levels of fit; it can
+distinguish twelve, and in a realistic pool — assembled for one sector and one role,
+so sharing 0.55 of the weight by construction — it distinguishes **three**, the
+proximity bands. The owner's worry that "89% vs 86% would be noise dressed as
+measurement" is not merely a risk. It is arithmetically guaranteed: those two
+numbers cannot both occur, and neither can occur at all.
+
+**The precision runs the other way too, and it is worse.** Where the engine *can*
+tell two candidates apart, the difference is often far below what a percentage
+renders. Golden case G-CBA-11 pins the deciding gap between its two candidates at
+`0.925 − 0.9175 = 0.0075` — **0.75 of a percentage point**. Rounded to integers,
+both read "92%", and a card showing "92%" twice would present as identical the one
+distinction the engine actually made, and made for a documented reason (a
+policy-neutral Topic outranking a measured 0.45). A percentage would simultaneously
+overstate the resolution the engine has *between* tiers and destroy the resolution
+it has *within* one.
+
+**And a percentage has no way to say "unknown".** Per §1.4, any single unknown
+factor makes the composite `None` — not low, not zero, absent — and the candidate
+becomes `is_shortlistable: false`. A card whose whole design is a big number has no
+honest state for that; "—%" or "0%" is exactly the coercion ADR-0011 rule 1 forbids
+("Never `0`, never `0%`, never `—` styled to look like a measurement",
+`ADR-0011-accountable-numbers.md:51-55`). Any percentage design must answer this
+before anything else, and "we'll just hide those candidates" is not an answer,
+because a Connector needs to know that somebody was excluded and why.
+
+The honest summary: the objection is not "percentages are tacky." It is that this
+particular engine, today, cannot support the claim a percentage makes. That would
+change if Part 3's Stage 1 landed — a graded engine with hundreds of reachable
+values could support a coarser numeric display far better. **The order matters:
+resolution first, then display.** Deciding the display first locks in a number the
+engine will have to grow into.
+
+### 4.4 Can the engine produce the reason sentence?
+
+Partly, and the gap is instructive.
+
+**What exists.** Every `FactorScore` carries a non-empty `basis` string on every
+branch including unknown, and they are genuinely specific:
+
+- Industry — "speaker sector 52 (Finance and Insurance) is one of the 1 requested
+  sector(s) (`<taxonomy version>`)" (`industry_match.py:263-269`), or, unknown,
+  "speaker industry value `'Tech'` is not classified under `<version>` and awaits
+  review; not evaluable" (`:231-239`).
+- Role — the same shape against the CBA role taxonomy (`role_match.py:270-276`).
+- Proximity — "10.0 miles straight-line from `<campus label>` (`<origin id>`
+  1.0.0); Near band (cba-proximity-bands 1.0.0-cba-bands). Distance from
+  `<provenance>`." (`proximity.py:679-691`), plus an `estimate_label` when the
+  value is a ZIP-centroid approximation (`:173-179`).
+- Topic — a provider `rationale` constrained to **exactly one sentence** by
+  `assert_one_sentence` (`cba_semantic_topic.py:70`), or the verbatim §9 neutral
+  wording (`:109-112`).
+
+Plus `CandidateExplanation` (`explanation.py:270-`) carrying every factor in
+registry order including the unknown ones, `unknown_factor_keys`,
+`policy_neutral_factor_keys`, the applied weights, and the registry and formula
+versions. And approved UI labels: `TOPIC_NEUTRAL_UI_LABEL`,
+`TOPIC_MEASURED_ZERO_UI_LABEL` ("0 — measured"), `FACTOR_UNKNOWN_UI_LABEL`
+(`cba_topic_explanation.py:73-86`).
+
+So a sentence of this shape is fully supportable, today, from stored evidence:
+
+> *Finance and Insurance (requested); Finance role (requested); 10 miles — Near;
+> topic fit not yet evaluated.*
+
+**What does not exist, and cannot be faked.** The owner's example is *"React (5y),
+TypeScript (3y)"* — a skill list with per-skill durations. There is no skills
+table, no durations, and no structured expertise anywhere in the schema. A speaker
+has **one** primary NAICS sector, **one** primary role category, and free text in
+`topic_text` / `prior_talk`. There is no "5y", there is no "React", and there is
+nothing from which either could be honestly derived. Extracting them with an LLM
+would produce exactly the `llm_generated_assumption` that
+`PROHIBITED_INPUTS` names (`factor_registry.py:398-409`).
+
+The gap is worth naming precisely, because it explains the whole mismatch: **the
+owner's example comes from a résumé-matching product and we are not one.** A
+job-fit card works because a CV carries dozens of graded, dated, itemised facts. A
+speaker profile carries two categorical facts, a distance, and a paragraph. The
+reason sentence we can write is honest and useful; it will simply never read like
+the example, and no display decision can change that. Part 3's Stage 1 would add
+gradation but not itemisation.
+
+### 4.5 Alternatives that meet the owner's real goal
+
+Reading the request charitably, the goal is not the number — it is a legible
+**why**, delivered fast enough to scan. Four options, all compatible with the
+current engine, in rough order of how much they concede:
+
+**A. Ordinal bands.** Render the composite as **Strong / Moderate / Limited fit**,
+with **Not scored** as a first-class fourth state for `None`. This is honest at
+twelve values in a way a percentage is not, survives Stage 1 raising the count,
+never implies a hundredth of a point, and gives the "big legible verdict" the card
+design wants. Cost: choosing cut points, which is an owner decision, and a register
+entry. It also lets the Topic factor's existing three states line up with a
+composite state instead of fighting it.
+
+**B. Ranked reasons — the closest honest analogue to the owner's card.** Show the
+top two or three factors by *weighted contribution* (`applied_weights[key] × value`
+is already computed inside `_compose_cba`, `scoring.py:613`), each with its `basis`
+string. "Ranked #1 of 8 — Industry: Finance and Insurance (requested) · Proximity:
+10 miles, Near." This delivers the prominence and the reason without asserting a
+magnitude, and every string it needs already exists and is already stored.
+
+**C. Per-factor evidence with provenance — what the safe default already
+prescribes.** The factor rows, their states, their `basis` strings, the neutral
+caption, the estimate labels, and the registry version. Most information, least
+scannable; correct as the drill-down beneath A or B rather than as the top-level
+card.
+
+**D. Relative position instead of absolute magnitude.** "1st of 8 candidates" or a
+rank badge. Ties become visible rather than hidden, which given §1.7 is a feature:
+if three candidates genuinely tie, saying so is more useful than three identical
+percentages that look like a coincidence.
+
+My proposal, offered as a proposal: **A for the headline, B beneath it, C as the
+drill-down.** That gives the owner the prominent, plain-language, scannable card he
+is asking for, keeps every claim inside what the evidence supports, needs no change
+to `explanation.py`'s percentage rule, and does not have to be revisited when
+Stage 1 changes the engine's resolution.
+
+If the owner wants the percentage anyway, the decision is his to make and this
+report does not stand in its way. Two requests in that case, both cheap: **answer
+OQ-CBA-005 explicitly in the register rather than letting the default lapse
+silently**, so the reasoning is on the record for whoever inherits it; and **do
+Stage 1 first**, so the number means something when it appears.
+
+---
+
+## Summary
+
+1. **The engine is honest and well-guarded, and it is blunt.** Four factors, one
+   registry, fail-closed guards against the legacy deflation defect, and a
+   type-level refusal to render an unknown as a number. It is also, today, capable
+   of **twelve** distinct composite values for a physical candidate and **four**
+   for a virtual one.
+
+2. **The binding constraint right now is the Topic provider.** The fixture replays
+   recorded pairs and raises on everything else, so a real speaker *with* topic
+   text is unscorable and only a speaker with *no* topic evidence — scoring the §9
+   neutral 0.50 — reaches a number at all. This deserves the owner's attention
+   independently of everything else in this report.
+
+3. **The comparison project is less exotic than it sounds.** NextSteamGame's
+   re-ranker is a hand-weighted linear composite of static constants with no
+   learned model and no feedback loop — architecturally the same family as ours.
+   What it has is dozens of graded features mined from millions of reviews. The
+   lesson is about feature gradation, not vector search. (Verified from its README,
+   backend listing, `retrieval.py` and `recommender.py`; not from a checkout, and
+   not line-by-line.)
+
+4. **Retrieval is not our bottleneck.** The pool is caller-supplied and capped at
+   200. Resolution is the bottleneck.
+
+5. **The deepest blocker to anything learned is the total absence of a relevance
+   signal**, and it is deliberate four times over: OQ-CBA-040 bars response-aware
+   ranking, OQ-CBA-053 bars ratings, OQ-CBA-051 records that the schema has no
+   speaker-appearance relation, no `/v1` route creates an `attendance_record`, and
+   the one shadow-mode weight tuner in the tree (`feedback.py`) is imported by
+   nothing and points at three factor keys that no longer exist. **The synthetic
+   pilot cannot supply this signal — not for lack of volume, but because synthetic
+   decisions measure the workflow rather than the match.**
+
+6. **The score card is an open question with a conservative default, not a closed
+   decision** — and the register explicitly says to decide it "if a later UI asks
+   to expose the aggregate," which is now. The objection is arithmetic rather than
+   aesthetic: 89% is not a reachable value, the deciding margin in a real golden
+   case is 0.75 of a point, and an unknown composite has no honest percentage. The
+   reason *sentence* is buildable from existing `basis` strings; the example's
+   "React (5y)" is not, because no skills or durations exist in the schema.
+
+**Bottom line on the hybrid-RAG question, stated plainly for the owner:** nothing
+technical stops us building the retrieval half, and it would not help, because we
+have 200 candidates rather than 80,000. Nothing technical stops us building the
+embedding half either, but it is gated behind a privacy and vendor decision that
+needs him and a named privacy owner. And the part that would actually make a
+recommender *learn* is blocked on evidence this system has decided four separate
+times not to collect, and that the pilot cannot generate. Meanwhile the change that
+would most improve match quality — grading the Industry, Role and Proximity factors
+so the engine can tell more than twelve outcomes apart — needs no model, no vendor,
+no vector store, and no new data. It is the thing worth doing first, and it is the
+one option the original question did not contain.
+
+*Every recommendation above is a proposal for the program owner. No open question
+is adopted or closed by this document, and no engine code was changed to produce
+it.*
+
+---
