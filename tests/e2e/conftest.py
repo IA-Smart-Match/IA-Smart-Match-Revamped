@@ -37,6 +37,24 @@ import pytest
 # network and are not secrets; see docker-compose.yml's header note.
 API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8080")
 API_BEARER = os.environ.get("API_BEARER", "compose-api")
+#: The other three portals' bearers, the same literals ``docker-compose.yml``
+#: puts in ``SMARTMATCH_DEV_PRINCIPALS`` (they carry no YAML anchor of their
+#: own, because nothing in that file aliases them). One
+#: principal per portal, each holding a single membership carrying a single
+#: role, because a stakeholder click-through has to be able to enter every
+#: portal the product has and not only the Speaker Connector's.
+#:
+#: Four tokens is not four permissions. Each one yields a bare subject and
+#: nothing else; ``PrincipalRepository.load_by_subject`` reads the tenant, the
+#: memberships and the grants from rows no test here can write. A step that
+#: wants a student's answer sends the student's token and takes what the server
+#: says — it never tells the API who it is or what role it holds.
+STUDENT_BEARER = os.environ.get("STUDENT_BEARER", "compose-student")
+#: The Event Host's. Stored role ``volunteer``, presented as **Event Host**; the
+#: token is named for the persona and the row is not renamed, because
+#: authorization is over storage and never over presentation.
+HOST_BEARER = os.environ.get("HOST_BEARER", "compose-host")
+ADMIN_BEARER = os.environ.get("ADMIN_BEARER", "compose-admin")
 UNIT_PATH = os.environ.get("UNIT_PATH", "pilot")
 DB_URL = "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
 
@@ -119,21 +137,56 @@ def poll_until(
     return False
 
 
-@pytest.fixture(scope="session")
-def api() -> Iterator[httpx.Client]:
-    """An HTTP client for the appliance, authenticated by the fixture bearer.
+def _client_for(bearer: str) -> Iterator[httpx.Client]:
+    """One HTTP client for the appliance, carrying one dev bearer.
 
-    There is no real sign-in in this repository: the compose dev bearer token
-    is the only path to an authenticated principal, which is why it is the one
-    used here. It resolves to a principal the SERVER names; nothing in this
-    package ever tells the API who it is or what role it holds.
+    Shared by the four fixtures below rather than written out four times: what
+    differs between them is a single header value, and four copies of the same
+    constructor would be four places for a timeout or a base URL to drift.
     """
     with httpx.Client(
         base_url=API_BASE,
-        headers={"Authorization": f"Bearer {API_BEARER}"},
+        headers={"Authorization": f"Bearer {bearer}"},
         timeout=30.0,
     ) as client:
         yield client
+
+
+@pytest.fixture(scope="session")
+def api() -> Iterator[httpx.Client]:
+    """The Speaker Connector's client — the one most of this walk uses.
+
+    There is no browser sign-in on this appliance's ``/v1`` surface: the compose
+    dev bearer tokens are the path to an authenticated principal, which is why
+    they are what these tests send. Each resolves to a principal the SERVER
+    names; nothing in this package ever tells the API who it is or what role it
+    holds.
+    """
+    yield from _client_for(API_BEARER)
+
+
+@pytest.fixture(scope="session")
+def student_api() -> Iterator[httpx.Client]:
+    """A client for the pre-loaded student principal.
+
+    Its existence is what lets the rewards and student-surface steps below run
+    at all, and its *separateness* is what keeps them meaningful: the coordinator
+    is still refused every route this principal reaches, and each step asserts
+    both halves rather than only the one that now passes.
+    """
+    yield from _client_for(STUDENT_BEARER)
+
+
+@pytest.fixture(scope="session")
+def host_api() -> Iterator[httpx.Client]:
+    """A client for the pre-loaded Event Host principal (stored role ``volunteer``)."""
+    yield from _client_for(HOST_BEARER)
+
+
+@pytest.fixture(scope="session")
+def admin_api() -> Iterator[httpx.Client]:
+    """A client for the pre-loaded administration principal."""
+    yield from _client_for(ADMIN_BEARER)
 
 
 @pytest.fixture(scope="session", autouse=True)

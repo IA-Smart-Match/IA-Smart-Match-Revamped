@@ -195,12 +195,45 @@ Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. 
 | `SMARTMATCH_EDITION` | Yes (keep `dev`) | Non-dev refuses `SMARTMATCH_DEV_PRINCIPALS` |
 | `SMARTMATCH_DATABASE_URL` | Yes | Default matches compose/native Postgres |
 | `SMARTMATCH_USE_FIXTURE_PROVIDERS` | Yes (`true`) | Setting `false` does **not** enable live providers; construction fails |
-| `SMARTMATCH_DEV_PRINCIPALS` | Yes for authenticated API without compose | JSON `{"token":"subject"}`; must match `make seed-pilot` subject. Compose already sets `{"compose-api":"compose-pilot-coordinator"}` |
+| `SMARTMATCH_DEV_PRINCIPALS` | Yes for authenticated API without compose | JSON `{"token":"subject"}`; every subject must be one that `make seed-pilot` / `make seed-pilot-principals` created, or that token resolves to nobody and 401s. Compose already sets all four — see "Pre-loaded pilot principals" below |
 | `SMARTMATCH_EMAIL_API_KEY` | Leave empty | Outreach (G4) not implemented |
 | `SMARTMATCH_ROUTES_API_KEY` | Leave empty | Routes adapter not live |
 | `SMARTMATCH_RELEASE` | Optional | Health payload only |
 
 You are **not** missing live SendGrid/Google Maps keys. Empty is correct.
+
+### Pre-loaded pilot principals
+
+The appliance seeds one principal per portal, so a stakeholder can enter every
+shell rather than only the Speaker Connector's. Each is a separate account with
+a single membership carrying a single role; `GET /v1/me/portals` reports which
+shell a token opens, from `membership` rows and never from anything the caller
+sends.
+
+| Bearer token | Subject | Role | Portal |
+|---|---|---|---|
+| `compose-api` | `compose-pilot-coordinator` | `coordinator` | Connector Dashboard (`/coordinator-portal`) |
+| `compose-student` | `compose-pilot-student` | `student` | Student Portal (`/student-portal`) |
+| `compose-host` | `compose-pilot-volunteer` | `volunteer` | Event Host Portal (`/volunteer-portal`) |
+| `compose-admin` | `compose-pilot-admin` | `admin` | CBA Administration (`/dashboard`) |
+
+Four tokens is four **identities**, not four permissions: a token yields a bare
+subject and the database supplies the rest, so each principal opens exactly one
+portal and is refused the others. All four are dev-only — no password, no
+expiry, no revocation — and the API refuses to boot with them set under any
+edition but `dev`. The accounts sit on `@example.invalid` addresses, which
+resolve nowhere.
+
+The Event Host portal is the honest exception: the `volunteer` role carries one
+write (file a Speaker Request) and **no reads at all**, because the request
+queue is granted to the Speaker Connector and holds every host's request text
+for the unit. Whether a host may list back their own requests is open question
+**OQ-CBA-014** — until it is answered, that portal can be entered and used to
+file, and has nothing to display afterwards.
+
+The owner-supplied `/login` passwords (`SMARTMATCH_PILOT_*_EMAIL` /
+`_PASSWORD`, seeded by `seed-logins`) are a separate mechanism and are not in
+this repository; see `.env.example`.
 
 ### Used by compose/worker, **absent** from `.env.example`
 
@@ -284,4 +317,4 @@ If a button looks real and 404s, that is the legacy frontend vs this contract �
 - Never commit `.env`, `.env.local`, OAuth client secrets, or service-account JSON.  
 - Never import live student CSVs.  
 - Never set `SMARTMATCH_EDITION` to `staging`/`classroom`/`production` on compose; seed, local queue, and fixture principals will refuse to start.  
-- A public tunnel + baked `compose-api` token is a **demo**, not an access-control model.
+- A public tunnel + a baked `compose-*` token is a **demo**, not an access-control model. That is as true of the four pre-loaded principals as it was of the one: more identities is not more security, and none of these tokens may leave the compose network.

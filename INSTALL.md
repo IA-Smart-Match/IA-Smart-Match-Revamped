@@ -263,6 +263,7 @@ finished when it shows this:
 | `db` | `running (healthy)` | `127.0.0.1:5432` — see the port-collision note below |
 | `migrate` | `exited (0)` | — |
 | `seed` | `exited (0)` | — |
+| `seed-principals` | `exited (0)` | — |
 | `api` | `running (healthy)` | `127.0.0.1:8080` |
 | `worker` | `running (healthy)` | `127.0.0.1:8081` |
 | `scheduler` | `running` | — (outbound only) |
@@ -316,6 +317,96 @@ curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
 
 `2` before the decision, `1` after it. Step 6 of the smoke path below is the
 same decision as a curl, if the portal's own control is not reachable.
+
+**5. Enter every portal type.** The appliance pre-loads **four** principals,
+one per portal, so a stakeholder can see each shell rather than only the
+Speaker Connector's. Each is a separate account holding a single membership
+carrying a single role, seeded by the `seed` and `seed-principals` one-shots;
+`docker-compose.yml`'s `SMARTMATCH_DEV_PRINCIPALS` maps one bearer token to
+each. Ask the server which portal a token opens — the answer comes from
+`membership` rows, never from anything the caller sends:
+
+```bash
+for TOKEN in compose-api compose-student compose-host compose-admin; do
+  echo "== $TOKEN"
+  curl -s "http://127.0.0.1:8080/v1/me/portals" \
+    -H "Authorization: Bearer $TOKEN" \
+    | python3 -c 'import json,sys
+for p in json.load(sys.stdin)["portals"]:
+    print("  {role:12} -> {display_name} at {home_path}".format(**p))'
+done
+```
+
+which prints exactly one line per token:
+
+```
+== compose-api
+  coordinator  -> Connector Dashboard at /coordinator-portal
+== compose-student
+  student      -> Student Portal at /student-portal
+== compose-host
+  volunteer    -> Event Host Portal at /volunteer-portal
+== compose-admin
+  admin        -> CBA Administration at /dashboard
+```
+
+| Bearer token | Signs in as | Stored role | Portal | Home path |
+|---|---|---|---|---|
+| `compose-api` | `compose-pilot-coordinator@example.invalid` | `coordinator` | Connector Dashboard | `/coordinator-portal` |
+| `compose-student` | `compose-pilot-student@example.invalid` | `student` | Student Portal | `/student-portal` |
+| `compose-host` | `compose-pilot-volunteer@example.invalid` | `volunteer` | Event Host Portal | `/volunteer-portal` |
+| `compose-admin` | `compose-pilot-admin@example.invalid` | `admin` | CBA Administration | `/dashboard` |
+
+These are **not credentials** and must never be treated as any. They have no
+password, no expiry and no revocation, they authenticate nothing outside this
+compose network, and `Settings._validate_isolation`
+(`services/api/smartmatch_api/config.py`) refuses to start the API with them
+set under any edition but `dev`. The addresses are under RFC 2606's reserved
+`.invalid` TLD, so no message this pilot composes can reach a person. The
+separate, owner-supplied `/login` credentials — a real password path — are a
+different mechanism entirely — the owner fills in
+`SMARTMATCH_PILOT_*_EMAIL` / `_PASSWORD` in a gitignored `.env`, the
+`seed-logins` one-shot writes a `pilot_credential` row for each pair that is
+set, and a role whose pair is unset is simply not created. See `.env.example`
+and `docs/decisions/pilot-login-decision-2026-09-04.md`. Nothing in this
+repository ships a password.
+
+Four tokens is four *identities*, not four *permissions*. A token yields a bare
+subject; the tenant, the memberships and the grants are read from rows an
+administrator wrote. Each principal therefore opens exactly one portal and is
+refused the others — `tests/e2e/test_pilot_clickthrough.py`'s step 03b asserts
+both halves, and the coordinator is still refused the student-gated rewards
+catalog in step 14.
+
+**What each principal can actually reach, stated plainly:**
+
+- **Speaker Connector (`compose-api`)** — the full path this file walks:
+  imports, the review queue, metrics and drill-downs, match runs, events,
+  outreach, invitations, the confirmed-speaker hand-off, and the thresholded
+  speaker-feedback aggregate.
+- **Student (`compose-student`)** — the rewards catalog and their own
+  redemptions, the published-event browse and agenda, event registration, and
+  their own speaker-feedback listing. Two things are reachable but empty on a
+  fresh appliance and are not defects: nothing seeds a **funded reward item**,
+  so the catalog is `[]` and there is nothing to redeem; and no event is
+  published, so the browse list reports what it withheld rather than showing
+  rows. Submitting a speaker rating additionally needs an `attendance_record`,
+  and **no `/v1` route creates one** — the route answers `403
+  student_feedback_not_eligible`, which is the check working, not a gap in the
+  principal.
+- **Admin (`compose-admin`)** — the administration surface, including
+  tenant-wide metric aggregates.
+- **Event Host (`compose-host`)** — **one write and no reads.** Filing a
+  Speaker Request works (`POST /v1/units/{unit_id}/speaker-requests` returns
+  the filed request). Reading the queue back does not: it is granted to the
+  Speaker Connector and to nobody else, because the queue holds *every* host's
+  request text for the unit and handing one host the others' filings would be a
+  widening no committed artifact supports. Whether a host should be able to
+  list back **their own** requests is open question **OQ-CBA-014**, recorded
+  rather than answered. Until it is answered, a stakeholder can *enter* the
+  Event Host portal and file a request, and there is nothing for that portal to
+  display afterwards. Step 26 of the e2e asserts exactly this, refusal
+  included.
 
 **Two things this walkthrough does not show, stated rather than glossed:**
 
@@ -691,15 +782,31 @@ if a score is a constant instead of a computation, if an unknown is rendered as
 `0` (ADR-0011), if a role could be chosen by the caller instead of resolved by
 the server, or if any match score is presented as a percentage.
 
-**Three steps cannot run on this appliance and are skipped by name, never
+Since the appliance pre-loads one principal per portal, the suite also proves
+that each of the four tokens above opens exactly one portal and is refused the
+others (step 03b), walks the **rewards catalog** as the student while asserting
+the coordinator is still refused it (step 14), and files a **Speaker Request**
+as the Event Host while asserting that host is refused every read of it (step
+26, OQ-CBA-014).
+
+**Three steps still cannot run on this appliance and are skipped by name, never
 faked.** `make e2e` passes `-ra` so each one is printed in the summary:
 
-- The **rewards catalog** and the **redemption self-read** are gated on the
-  `student` role alone, and the only principal the compose stack can
-  authenticate is a coordinator. The suite asserts the `403` is a correct
-  refusal and then skips the catalog walk, pending the D6 role decision.
-- A **redemption decision** has nothing to decide, for the same reason: only a
-  student can create one.
+- A **redemption decision** has nothing to decide. The role gate is gone — a
+  student principal exists and reaches the request route, which the suite
+  proves by getting a `404` (not a `403`) for an item id nobody issued. What is
+  missing is a **funded reward item**: nothing seeds a rewards catalog and no
+  `/v1` route creates one, so there is nothing to request and therefore nothing
+  for the coordinator-gated decision route to act on.
+- **Student speaker feedback** cannot be submitted. Here too the role gate is
+  closed — the student reads their own (empty) feedback listing and reaches the
+  submit route — but the route requires an `attendance_record` for the caller
+  at that event and **no `/v1` route creates one**
+  (`smartmatch_persistence/attendance.py` says no route imports it and none
+  may). The refusal is asserted as `403 student_feedback_not_eligible`, which
+  is a different code from the role gate's `forbidden`, so the suite can tell
+  which gate is standing. Seeding the row directly would manufacture the
+  evidence the feature exists to check.
 - The **portal pages** fetch `/api/portals/*`, a backend no service in this
   repository serves, so they render a load-failure state. Nothing stands in
   for it; the web service's real behaviour is covered by
@@ -725,7 +832,11 @@ environment variables that used to be typed by hand are set in
   time and is never bundled.
 - `VITE_SMARTMATCH_BEARER_TOKEN=compose-api` is the local-only dev token
   `docker-compose.yml` maps to the seeded subject `compose-pilot-coordinator`
-  — the same `Authorization: Bearer compose-api` the curl steps above use. It
+  — the same `Authorization: Bearer compose-api` the curl steps above use.
+  Substituting one of the other three tokens from the table in step 5 and
+  restarting the dev server is how the browser enters a *different* portal:
+  the bundle carries the token, `GET /v1/me/portals` decides which shell it
+  opens, and nothing about that decision happens in the browser. It
   is a credential, not an identity: the browser sends it and the server
   decides who that is. Being a build-time variable, it *is* in the bundle the
   browser runs, which is exactly why it is a short compose-only string that

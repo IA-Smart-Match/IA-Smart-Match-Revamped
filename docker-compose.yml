@@ -100,15 +100,42 @@ name: smartmatch
 # (`*name`) that references it.
 x-compose-dev-identity:
   pilot_subject: &compose_pilot_subject "compose-pilot-coordinator"
-  # The full SMARTMATCH_DEV_PRINCIPALS value: one token mapped to the subject
-  # above. Kept as a single anchored JSON scalar, rather than assembling it
-  # from separate token/subject anchors, because YAML anchors substitute
-  # whole scalar nodes and cannot be interpolated into a larger string — this
-  # anchor's token half must therefore be read alongside the smoke path in
-  # INSTALL.md, which documents the same literal value for the
+  # The other three portals the product has, one subject each. Every one is a
+  # separate account carrying a single membership, seeded by the
+  # `seed-principals` one-shot below from `tools/seed_pilot_principals.py`'s
+  # own table — which is where the roles and the `.invalid` emails live, and
+  # which `tests/unit/test_compose_dev_principals.py` compares against the map
+  # below, so a token added here without a subject seeded there fails a unit
+  # test rather than a stakeholder's click.
+  #
+  # Four principals rather than one is not a widening. No route's role set
+  # changed and nothing became less strict; a portal that has no readable route
+  # is still unreachable, which is OQ-CBA-014's finding about the Event Host
+  # and not something a permit here may answer.
+  #
+  # Their subjects are `compose-pilot-student`, `compose-pilot-volunteer` and
+  # `compose-pilot-admin`. They are written into the map below as literals and
+  # given no anchors of their own, unlike `pilot_subject` above: an anchor
+  # earns its keep by being aliased somewhere, and `seed` is the only service
+  # that takes a subject as an argument. These three are seeded from a table in
+  # Python, so an anchor here would be a name nothing uses that a reader would
+  # nonetheless have to keep in step.
+  #
+  # `compose-pilot-volunteer` keeps the *stored* role's name. CBA presents that
+  # role to a reader as **Event Host**
+  # (`smartmatch_domain.role_presentation`), and the bearer token below is
+  # named for the persona; the row is not renamed, because authorization is
+  # over storage and never over presentation.
+  #
+  # The full SMARTMATCH_DEV_PRINCIPALS value: four tokens mapped to the four
+  # subjects above. Kept as a single anchored JSON scalar, rather than
+  # assembling it from separate token/subject anchors, because YAML anchors
+  # substitute whole scalar nodes and cannot be interpolated into a larger
+  # string — this anchor's token halves must therefore be read alongside the
+  # smoke path in INSTALL.md, which documents the same literal values for the
   # `Authorization: Bearer` header.
   #
-  # All three values below are deliberately SHORT — under the sixteen
+  # All the values below are deliberately SHORT — under the sixteen
   # characters `tools/scan_forbidden.py`'s `hard-coded-credential` rule uses
   # as its threshold for "this is shaped like a real secret". That is the
   # same reason `POSTGRES_PASSWORD: smartmatch` below passes the same scanner,
@@ -125,7 +152,7 @@ x-compose-dev-identity:
   # threshold, it stops being local-only test data and belongs in the
   # environment, not in this file. Do not reshape the text to get past the
   # gate.
-  api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator"}'
+  api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator","compose-student":"compose-pilot-student","compose-host":"compose-pilot-volunteer","compose-admin":"compose-pilot-admin"}'
   # The token half of the map above, on its own, because two consumers need it
   # as a bare `Authorization: Bearer` value rather than as a JSON map: the
   # `seed-review` service (which submits the demo import through the real API)
@@ -138,6 +165,20 @@ x-compose-dev-identity:
   # fine, and `scripts/compose_smoke.sh` asserts the seeded queue in CI.
   # Allowlisted by name in `.gitleaks.toml` for exactly this reason.
   api_dev_bearer_token: &compose_api_dev_bearer_token "compose-api"
+  # The other three portals' tokens are `compose-student`, `compose-host` and
+  # `compose-admin`, and they get no anchor here for the reason their subjects
+  # get none: nothing in this file aliases them. `compose-api` is restated
+  # above because two services genuinely consume it as a bare header value;
+  # these three are consumed by a person pasting a curl line (INSTALL.md's
+  # "Enter every portal type") and by `tests/e2e/conftest.py`, neither of which
+  # can read a YAML anchor. `tests/unit/test_compose_dev_principals.py` is what
+  # keeps them and the map above from drifting apart.
+  #
+  # `compose-host` rather than `compose-volunteer`, deliberately: seventeen
+  # characters would cross the sixteen `tools/scan_forbidden.py` uses as its
+  # "shaped like a real secret" threshold. Choosing a shorter honest name is
+  # allowed; reshaping the text around the gate is not — see the note above,
+  # which says the same thing about the key.
   worker_task_bearer_token: &compose_worker_task_bearer_token "compose-task"
   # Deliberately a different value from the task token above: a caller holding
   # one must not be able to use the other. The worker refuses to start if they
@@ -247,6 +288,58 @@ services:
     restart: "no"
 
   # -------------------------------------------------------------------------
+  # Seed-principals — one-shot, dev-only. Creates the student, Event Host
+  # (stored role `volunteer`) and admin principals the other three entries in
+  # SMARTMATCH_DEV_PRINCIPALS resolve to, so a stakeholder can enter every
+  # portal the product has rather than only the Speaker Connector's.
+  #
+  # It exists as a second one-shot rather than as more arguments to `seed`
+  # because three identities cannot be expressed as one set of `--subject /
+  # --email / --role` flags, and because `seed` owns the coordinator and has
+  # since before these existed. tools/seed_pilot_principals.py holds the table
+  # and reuses seed_pilot's edition guard, advisory lock and row helpers rather
+  # than restating them — so a change to what "dev fixture settings" means
+  # applies to both, exactly as it does for seed-logins.
+  #
+  # What it is NOT: an authentication system, and not a widening. Each account
+  # gets one membership carrying one role, the same shape the coordinator has
+  # had all along, and every route stays deny-by-default and authorized per
+  # request. A portal with no readable route stays unreachable — see
+  # OQ-CBA-014 on the Event Host, which this file records rather than answers.
+  # -------------------------------------------------------------------------
+  seed-principals:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_principals.py"
+      # --tenant-slug, --unit-path and the rest stay at the script's defaults
+      # (pilot / pilot / program), the same ones `seed` above relies on, so
+      # every pilot principal lands in one tenant and one unit and the smoke
+      # path can keep looking the unit up by the literal path 'pilot'.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      # seed_pilot_principals.py imports seed_pilot, and both are mounted here
+      # rather than baked into the image.
+      PYTHONPATH: /home/smartmatch
+    # This container serves nothing, so the API image's /api/health probe could
+    # only ever fail — the same reason seed-review and seed-logins disable it.
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_principals.py:/home/smartmatch/seed_pilot_principals.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # -------------------------------------------------------------------------
   # Seed-logins — one-shot, dev-only. Creates the four pilot logins the
   # `/login` screen signs in with, from credentials the OWNER supplies in a
   # gitignored `.env` (see `.env.example`).
@@ -333,11 +426,17 @@ services:
       # this checkout expects. Locally it stays `compose-dev`.
       SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       PORT: "8080"
-      # Maps one local-only bearer token to the subject `seed` creates above.
-      # See the header note on dev bearer tokens: this is not an account
-      # authentication system, has no expiry or revocation, and
-      # Settings._validate_isolation (services/api/smartmatch_api/config.py)
-      # refuses to boot with this set under any edition but dev.
+      # Maps four local-only bearer tokens to the four subjects `seed` and
+      # `seed-principals` create above — one per portal, so a stakeholder can
+      # click through every one of them. See the header note on dev bearer
+      # tokens: this is not an account authentication system, has no expiry or
+      # revocation, and Settings._validate_isolation
+      # (services/api/smartmatch_api/config.py) refuses to boot with this set
+      # under any edition but dev.
+      #
+      # More entries is more *identities*, not more *permission*: each token
+      # yields a bare subject, and PrincipalRepository.load_by_subject reads
+      # the tenant, memberships and grants from rows this file cannot write.
       SMARTMATCH_DEV_PRINCIPALS: *compose_api_dev_principals_json
     ports:
       - "127.0.0.1:8080:8080"
@@ -347,6 +446,12 @@ services:
       migrate:
         condition: service_completed_successfully
       seed:
+        condition: service_completed_successfully
+      # Waited on for `seed`'s reason: the API accepts three tokens whose
+      # subjects this one-shot creates, and a token that resolves to no account
+      # is a 401. Better that the API waits than that a stakeholder's first
+      # click into the student portal is refused because a race was lost.
+      seed-principals:
         condition: service_completed_successfully
 
   # -------------------------------------------------------------------------

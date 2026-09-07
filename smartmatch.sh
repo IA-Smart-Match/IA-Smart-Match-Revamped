@@ -64,7 +64,7 @@ PUBLISHED_PORTS=(
   "5173=web"
 )
 
-COMPOSE_SERVICES=(db migrate seed seed-logins api worker scheduler seed-review web)
+COMPOSE_SERVICES=(db migrate seed seed-principals seed-logins api worker scheduler seed-review web)
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
@@ -296,7 +296,7 @@ cmd_status() {
     case "$service" in
       seed-logins)
         : ;;
-      migrate|seed|seed-review)
+      migrate|seed|seed-principals|seed-review)
         if [ "$state" != "exited" ] || [ "${exit_code:-1}" != "0" ]; then unhealthy=1; fi
         ;;
       *)

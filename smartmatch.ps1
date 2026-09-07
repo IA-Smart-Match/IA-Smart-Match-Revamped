@@ -112,7 +112,7 @@ $script:PublishedPorts = [ordered] @{
     5173 = 'web'
 }
 
-$script:ComposeServices = @('db', 'migrate', 'seed', 'seed-logins', 'api', 'worker', 'scheduler', 'seed-review', 'web')
+$script:ComposeServices = @('db', 'migrate', 'seed', 'seed-principals', 'seed-logins', 'api', 'worker', 'scheduler', 'seed-review', 'web')
 
 # One-shots whose exit code decides whether the stack is in its expected state.
 #
@@ -121,7 +121,7 @@ $script:ComposeServices = @('db', 'migrate', 'seed', 'seed-logins', 'api', 'work
 # is the default and what CI runs. Counting it would report a perfectly healthy
 # stack as broken. scripts/compose_health.sh leaves it out of the health suite
 # for the same reason. It is still displayed.
-$script:OneShotServices = @('migrate', 'seed', 'seed-review')
+$script:OneShotServices = @('migrate', 'seed', 'seed-principals', 'seed-review')
 $script:OptionalServices = @('seed-logins')
 
 # CHECK_IDS — the contract shared with scripts/compose_health.sh. Adding a
@@ -132,6 +132,7 @@ $script:CheckIds = @(
     'migrations-at-head',
     'migrate-exited-ok',
     'seed-exited-ok',
+    'seed-principals-exited-ok',
     'seed-review-exited-ok',
     'api-health',
     'worker-health',
@@ -435,6 +436,7 @@ function Invoke-HealthChecks {
         (Test-MigrationsAtHead),
         (Test-OneShotExitedOk -Id 'migrate-exited-ok' -Service 'migrate'),
         (Test-OneShotExitedOk -Id 'seed-exited-ok' -Service 'seed'),
+        (Test-OneShotExitedOk -Id 'seed-principals-exited-ok' -Service 'seed-principals'),
         (Test-OneShotExitedOk -Id 'seed-review-exited-ok' -Service 'seed-review'),
         (Test-ApiHealth),
         (Test-WorkerHealth),
