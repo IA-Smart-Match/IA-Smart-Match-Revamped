@@ -87,6 +87,7 @@ Eleven checks, every one a read, and the command exits nonzero unless all pass:
 | `migrations-at-head` | `alembic_version` equals the head computed from `db/migrations/versions/` |
 | `migrate-exited-ok` | the one-shot migration exited 0 |
 | `seed-exited-ok` | the pilot principal was seeded |
+| `seed-principals-exited-ok` | the student, Event Host and admin principals were seeded — without it three of the four dev bearer tokens resolve to no account and answer 401, so three of the four portals cannot be entered |
 | `seed-review-exited-ok` | the demo review queue was created — which means an import reached review through real dispatch |
 | `api-health` | `GET /api/health` is 200, `status=ok`, and the release matches what this checkout expects |
 | `worker-health` | `GET /health` is 200 and `status=ok` |
