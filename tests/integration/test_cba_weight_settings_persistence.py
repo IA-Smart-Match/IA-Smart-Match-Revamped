@@ -106,7 +106,22 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``ON DELETE RESTRICT`` reference. Neither ``match_weight_setting`` nor its
 #: revision log is read or written, and a unit with no weighting configured
 #: invites exactly as a unit with one does.
-_HEAD_REVISION = "0029_cba_speaker_invitation"
+#:
+#: Moved again by ``CBA-OPAQUE-SPEAKER-IDENTITY``:
+#: ``0030_cba_opaque_speaker_identity`` is now the head, and it is the first
+#: bump this file has taken from a revision that is not purely additive — so the
+#: composability question is a real one rather than a formality. ``0030``
+#: re-keys the ``user_account`` rows behind customer §13's speaker contacts and
+#: repoints every column in the schema that holds an account id, and
+#: ``match_weight_setting.updated_by_user_id`` and
+#: ``match_weight_setting_revision.changed_by_user_id`` are both on that list.
+#: They are listed for completeness rather than because they can match: a §13
+#: roster contact is not a principal — no credential, no membership, no grant —
+#: and cannot be the actor who last changed a unit's weights. The two statements
+#: ``0030`` runs against this card's tables therefore update zero rows by
+#: construction, and no weighting, revision entry, or actor attribution this
+#: file asserts is touched. ``0030`` adds no column, no constraint and no CHECK.
+_HEAD_REVISION = "0030_cba_opaque_speaker_identity"
 
 NEED = "need-weight-settings-1"
 

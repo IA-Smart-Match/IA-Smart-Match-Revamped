@@ -6,8 +6,12 @@ part that only exists over HTTP: that authorization is reached before any row is
 written, that a Speaker Connector really can add a contact and an Event Host
 really cannot — the one cell that distinguishes this card from
 ``CBA-EVENT-REQUEST`` — that a unit in another tenant is a ``404`` rather than a
-``403``, that a second person with the same name is refused rather than merged,
-and that the contact email a Connector types is visibly discarded.
+``403``, and that the contact email a Connector types is visibly discarded.
+
+Same-name creates are **not** here. They used to be — this file owned the
+``409`` — and OQ-CBA-017 replaced that refusal with a hint on a successful
+create, which ``tests/contract/test_cba_contact_duplicate_hint.py`` owns whole
+rather than half of it living on in each file.
 
 ``tests/integration/test_cba_contact_corrections.py`` owns what the writer does
 to the rows. Nothing here re-asserts that; what it asserts is that the response
@@ -500,51 +504,26 @@ def test_a_contact_in_another_unit_is_a_404(contact_context, engine: Engine) -> 
 
 # ---------------------------------------------------------------------------
 # The duplicate name — OQ-CBA-017
+#
+# The refusal that used to live here is gone. Identity is opaque, so two
+# same-named people are two contacts and the create reports the others instead
+# of blocking; `tests/contract/test_cba_contact_duplicate_hint.py` owns that
+# behaviour in full. What stays here is the one claim it does not make — that a
+# name is scoped to a unit and not to the tenant.
 # ---------------------------------------------------------------------------
-
-
-def test_a_second_contact_with_the_same_name_is_refused(contact_context) -> None:
-    """409, and neither a merge nor a duplicate.
-
-    The identity derives from the folded name, so the second create would land on
-    the first person's primary key. Upserting would overwrite one person's record
-    with another's while returning ``200``; a second row is not available at all.
-    Refusing is the only answer that loses nothing silently.
-    """
-    client, unit_id, token, _ = contact_context
-
-    first = _create(client, unit_id, token)
-    assert first.status_code == 201, first.text
-
-    second = _create(client, unit_id, token, company="A Different Employer")
-
-    assert second.status_code == 409, second.text
-
-
-def test_the_refused_duplicate_did_not_overwrite_the_stored_contact(contact_context) -> None:
-    """The point of the 409 is that the first person's record is intact afterwards.
-
-    Asserted separately from the status code, because a route could answer 409
-    *after* writing — the refusal has to happen before the write, not instead of
-    reporting one.
-    """
-    client, unit_id, token, _ = contact_context
-
-    first = _create(client, unit_id, token)
-    professional_id = first.json()["professional_id"]
-    _create(client, unit_id, token, company="A Different Employer")
-
-    fetched = client.get(
-        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}", headers=_auth(token)
-    )
-
-    assert fetched.json()["company"] == COMPANY
 
 
 def test_the_same_name_in_a_different_unit_is_a_different_contact(
     contact_context, engine: Engine
 ) -> None:
-    """``unit_id`` is in the hash input, so two departments' rosters do not collide."""
+    """Two departments' rosters are separate, and always were.
+
+    This used to hold because ``unit_id`` was in the identity's hash input. It
+    now holds because nothing is hashed at all and every create makes a new
+    person — so the assertion outlived its own reason, which is exactly why it
+    is worth keeping: it pins the *observable* fact rather than the mechanism
+    that happened to produce it.
+    """
     client, unit_id, token, tenant_id = contact_context
 
     second_unit_id = _add_unit(engine, tenant_id, f"{UNIT_PATH}.second")

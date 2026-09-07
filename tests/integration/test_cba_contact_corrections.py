@@ -4,7 +4,13 @@
 call, what status comes back, what the response body says. This module owns the
 rows underneath it: that a create really does write all three tables, that a
 correction replaces a current value and bumps ``updated_at`` **without** leaving
-a history behind, and that a repeat create is refused rather than resolved.
+a history behind.
+
+Identity is **not** this file's subject any more. It was, while
+``professional_id`` was derived from the folded name and a repeat create was a
+refusal; OQ-CBA-017 made the id opaque and
+``tests/integration/test_cba_opaque_speaker_identity.py`` owns what replaced
+that — two same-named people, the duplicate hint, and the rename fork.
 
 The distinction matters most for the correction. OQ-CBA-008's interim ruling is
 current value only, and "no history was written" is not something an HTTP
@@ -29,14 +35,10 @@ from smartmatch_domain.cba_contacts import (
     CONTACT_BOARD_ROLE,
     ClassificationCorrection,
     SpeakerContactDraft,
-    speaker_contact_subject_id,
 )
 from smartmatch_domain.cba_role_categories import CBA_ROLE_TAXONOMY_VERSION
 from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION
-from smartmatch_persistence.cba_contacts import (
-    SpeakerContactAlreadyExists,
-    SpeakerContactRepository,
-)
+from smartmatch_persistence.cba_contacts import SpeakerContactRepository
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
@@ -130,7 +132,14 @@ def _create(
     actor_id,
     **overrides,
 ):
-    """Create one contact in its own transaction and return the stored row."""
+    """Create one contact in its own transaction and return the stored row.
+
+    Unwraps ``SpeakerContactCreated.contact``, so every test below goes on
+    receiving a ``SpeakerContactRow``. The duplicate hint the create also
+    returns is not this file's subject — it belongs to
+    ``test_cba_opaque_speaker_identity.py`` — and threading it through here
+    would make every correction test carry a value it never reads.
+    """
     with Session(engine) as session, session.begin():
         return repository.create(
             session,
@@ -138,7 +147,7 @@ def _create(
             owning_unit_id=unit_id,
             draft=_draft(**overrides),
             actor_id=actor_id,
-        )
+        ).contact
 
 
 # ---------------------------------------------------------------------------
@@ -186,21 +195,6 @@ def test_a_create_writes_all_three_tables(
     assert board_role == CONTACT_BOARD_ROLE
 
 
-def test_the_identity_is_derived_rather_than_generated(
-    engine: Engine, tenant_id, unit_id, actor_id, repository: SpeakerContactRepository
-) -> None:
-    """The stored key is exactly what the domain derives from the folded name.
-
-    That equality is what makes a repeat create a conflict rather than a second
-    row, and pinning it here means the two halves cannot drift apart silently.
-    """
-    row = _create(engine, repository, tenant_id, unit_id, actor_id)
-
-    assert row.professional_id == speaker_contact_subject_id(
-        tenant_id=tenant_id, unit_id=unit_id, full_name=NAME
-    )
-
-
 def test_the_stored_account_carries_no_real_address(
     engine: Engine, tenant_id, unit_id, actor_id, repository: SpeakerContactRepository
 ) -> None:
@@ -243,36 +237,6 @@ def test_a_create_writes_no_contact_channel(
         ).scalar_one()
 
     assert channels == 0
-
-
-def test_a_repeat_create_is_refused_and_names_the_stored_contact(
-    engine: Engine, tenant_id, unit_id, actor_id, repository: SpeakerContactRepository
-) -> None:
-    """OQ-CBA-017. The exception carries the row, so a route can say who is there.
-
-    The *folded* name is what collides, so the second create uses different
-    casing and spacing — proving the identity turns on the fold rather than on
-    the literal, which is what makes a re-typed name resolve to one person.
-    """
-    first = _create(engine, repository, tenant_id, unit_id, actor_id)
-
-    with (
-        Session(engine) as session,
-        session.begin(),
-        pytest.raises(SpeakerContactAlreadyExists) as caught,
-    ):
-        repository.create(
-            session,
-            tenant_id=tenant_id,
-            owning_unit_id=unit_id,
-            draft=_draft(full_name="  DANA REYES  ", company="A Different Employer"),
-            actor_id=actor_id,
-        )
-
-    assert caught.value.existing.professional_id == first.professional_id
-    assert caught.value.existing.company == COMPANY, (
-        "the refused create must not have overwritten the stored contact"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -612,17 +576,16 @@ def test_renaming_a_contact_does_not_move_its_identity(
 ) -> None:
     """The caveat the repository docstring states, pinned so it cannot change silently.
 
-    ``professional_id`` was derived at create time and is now a stored key that
-    ``user_account`` and ``professional_unit_relationship`` rows reference. An
-    edit changes the label, not the key — re-deriving would rewrite a primary
-    key other rows point at, which is a migration rather than a side effect of
-    an edit.
+    ``professional_id`` is generated at create time and is a stored key that
+    ``user_account`` and ``professional_unit_relationship`` rows reference, so
+    an edit changes the label and never the key.
 
-    The second assertion is the consequence, stated so a reader meets it here
-    rather than in production: the derived id for the corrected name is a
-    *different* id, so a later create under that name would succeed and produce
-    a second contact for one person. That is the shape of OQ-CBA-017 from the
-    other direction.
+    This docstring used to carry a second paragraph naming the consequence of
+    that under the *derived* scheme: the id for the corrected name was a
+    different id, so a later create under it succeeded and produced a second
+    contact for one person. OQ-CBA-017 removed the derivation, and
+    ``test_cba_opaque_speaker_identity.py::test_the_rename_fork_no_longer_hides_a_second_record``
+    is where that sequence is now pinned, from the create's side.
     """
     created = _create(engine, repository, tenant_id, unit_id, actor_id)
     corrected_name = "Dana Reyes-Okonkwo"
@@ -640,9 +603,6 @@ def test_renaming_a_contact_does_not_move_its_identity(
     assert edited is not None
     assert edited.full_name == corrected_name
     assert edited.professional_id == created.professional_id
-    assert created.professional_id != speaker_contact_subject_id(
-        tenant_id=tenant_id, unit_id=unit_id, full_name=corrected_name
-    )
 
 
 def test_the_roster_lists_only_this_units_contacts(
