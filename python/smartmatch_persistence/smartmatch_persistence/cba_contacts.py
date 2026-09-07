@@ -361,8 +361,19 @@ class SpeakerContactRepository:
         stopped preventing even that as soon as anybody corrected a name. What
         the caller gets instead is :attr:`SpeakerContactCreated.same_name` — the
         contacts already here under this name — which is information a person
-        can act on rather than a refusal they have to work around. **OQ-CBA-047**
-        records that request-level idempotency for this route is now unowned.
+        can act on rather than a refusal they have to work around.
+
+        The double-click is now answerable, and **not here** (OQ-CBA-047,
+        decided 2026-09-06). ``routers/cba_contacts.py`` accepts an optional
+        ``Idempotency-Key`` and reserves it through
+        :class:`~smartmatch_persistence.idempotency.IdempotencyRepository`
+        before calling this method, so a replayed request never reaches this
+        insert. None of that lives in this repository, and it must not: a key is
+        a fact about a *request*, and this method knows only about rows. In
+        particular it introduces **no name-based rule of any kind** — no
+        uniqueness on ``(tenant_id, owning_unit_id, full_name)``, no
+        deduplication, no refusal. Two calls naming the same person are still
+        two people.
 
         ``actor_id`` is the Speaker Connector performing the create, and it is
         required rather than optional. A classification typed into §13's form is
@@ -378,11 +389,15 @@ class SpeakerContactRepository:
                 an unclassified draft records no actor, because there is no
                 judgment to attribute.
             professional_id: The identity to store, or ``None`` to generate one.
-                Supplied only by a test that needs a predictable id — the
-                ``xxx_id or uuid.uuid4()`` arrangement ``jobs.py``,
+                The ``xxx_id or uuid.uuid4()`` arrangement ``jobs.py``,
                 ``outreach.py``, ``contacts.py`` and ``cba_invitations.py`` all
-                use. A caller passing one is choosing an identity, which no
-                route does: the API has no body field for it (MM-A01).
+                use. Supplied by a test that needs a predictable id, and — since
+                OQ-CBA-047 — by the create route on its idempotent path, which
+                must reserve the id before this insert so the reservation and
+                the contact name the same row. **Still never a caller's
+                choice**: the route mints it with ``uuid.uuid4()`` exactly as
+                ``submit_command`` mints a ``job_id``, and the API has no body
+                field for an identity (MM-A01).
             same_name_limit: How many same-name contacts to report. Defaults to
                 ``1``, which is the useful floor — a hint's job is to say
                 *somebody is already here*, and a caller who wants to list them
