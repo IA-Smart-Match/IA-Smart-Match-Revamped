@@ -158,7 +158,14 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: configured weights and a unit that has not are affected identically, which is
 #: to say not at all. Every claim this file makes about what a unit's weights
 #: are, who last changed them, and what the revision log records is untouched.
-_HEAD_REVISION = "0032_match_run_scoring_mode"
+#:
+#: Moved again by OQ-CBA-014's closure: ``0033_event_filed_by`` chains to
+#: ``0032_match_run_scoring_mode`` and is now the head. It adds
+#: ``event.filed_by_user_id`` and its constraints and composite foreign key, all
+#: on ``event`` — a table this file's tests never read or write. Nothing here
+#: about a unit's weights, its revision log, or who last changed them is
+#: affected.
+_HEAD_REVISION = "0033_event_filed_by"
 
 NEED = "need-weight-settings-1"
 
