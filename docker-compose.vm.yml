@@ -7,7 +7,8 @@
 #
 #   1. Long-running services get `restart: unless-stopped`, so Docker brings
 #      them back after a reboot or a crash. The one-shot services (migrate,
-#      seed, seed-logins, seed-review) keep `restart: "no"` from the base file:
+#      seed, seed-principals, seed-logins, seed-review) keep `restart: "no"`
+#      from the base file:
 #      a seed that re-ran on every boot would either fail on its own conflict
 #      guard or quietly re-seed a database an operator has been working in.
 #   2. `SMARTMATCH_RELEASE` is taken from the environment, so the API's
@@ -26,7 +27,9 @@
 # What this does NOT make the VM
 # ---------------------------------------------------------------------------
 # The instance stays synthetic: SMARTMATCH_EDITION=dev, fixture providers,
-# seeded data, the compose-only bearer tokens, and the legacy frontend. It has
+# seeded data, the compose-only bearer tokens — four of them since the pilot
+# needs one principal per portal, all still refused under any edition but dev —
+# and the legacy frontend. It has
 # no identity provider, no real user, no live provider credential, and no
 # production data. ALLOW_CLOUD_DEPLOY=false still holds — see
 # docs/operations/vm-deploy.md for the gates that must close before any of this
