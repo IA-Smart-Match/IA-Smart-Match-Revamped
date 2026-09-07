@@ -7,7 +7,7 @@ named and signed (same person, both roles). Engineering may implement per §5.
 
 ## 0. Session-recorded direction (31 August 2026)
 
-**Session approver:** Danny Tran (@dangt) — see
+**Session approver:** Danny Tran (@BrooklynD23) — see
 `docs/decisions/2026-08-31-session-ratification.md`.
 
 The session approved an **aggregate-visibility hierarchy** as direction:
@@ -22,9 +22,9 @@ Raw rows stay restricted; this hierarchy is about aggregate access only.
 
 ## 1. Closed decisions (2 September 2026)
 
-**Product owner:** Danny Tran (@dangt) — program owner, same person.  
-**Security/privacy owner:** Danny Tran (@dangt) — privacy owner (P9 Gate B).  
-**Development Lead:** Danny Tran (@dangt)
+**Product owner:** Danny Tran (@BrooklynD23) — program owner, same person.  
+**Security/privacy owner:** Danny Tran (@BrooklynD23) — privacy owner (P9 Gate B).  
+**Development Lead:** Danny Tran (@BrooklynD23)
 
 | Question | Decision |
 |---|---|
@@ -90,9 +90,9 @@ Scope rules:
 ## 7. Signatures
 
 ```
-Product owner:        Danny Tran (@dangt), program/product owner
-Security/privacy:     Danny Tran (@dangt), privacy owner (P9 Gate B)
-Development Lead:     Danny Tran (@dangt)
+Product owner:        Danny Tran (@BrooklynD23), program/product owner
+Security/privacy:     Danny Tran (@BrooklynD23), privacy owner (P9 Gate B)
+Development Lead:     Danny Tran (@BrooklynD23)
 Date:                 2026-09-02
 ```
 

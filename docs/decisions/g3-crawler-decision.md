@@ -4,7 +4,7 @@
 field is blank. This artifact passes P6's G3 stop-gate.
 **Gate:** P6 (`docs/plans/2026-08-28-g3-events-s3-s5-plan.md`).
 **Decisions taken:** 2026-08-29, in session.
-**Owner of record:** **Danny Tran, Development Lead** (@dangt)
+**Owner of record:** **Danny Tran, Development Lead** (@BrooklynD23)
 **Changes no code.**
 
 > An agent drafted this file to record decisions a human made. Each decision in
@@ -298,7 +298,7 @@ worker-side; API handlers record commands and review decisions only.
 ## 11. Signature
 
 ```
-G3 approved by: Danny Tran, Development Lead  (@dangt)
+G3 approved by: Danny Tran, Development Lead  (@BrooklynD23)
 Date: 2026-08-29
 
 This signature ratifies §1–§10. It does NOT ratify the R3 threat model, which is

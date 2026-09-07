@@ -19,9 +19,9 @@ superseded for field choices by §8; see
 
 ## 0. Gate record — CLOSED 2 September 2026
 
-- **§0.1 Program owner of record** — Danny Tran (@dangt),
+- **§0.1 Program owner of record** — Danny Tran (@BrooklynD23),
   program owner *(tentative)*
-- **§0.2 Privacy owner of record** — Danny Tran (@dangt),
+- **§0.2 Privacy owner of record** — Danny Tran (@BrooklynD23),
   privacy owner *(current)*
 - **§0.3 Per-field collect/drop decisions** — **collect** all three: Public
   URL; Point(s) of Contact (published); Contact Email / Phone (published). See
@@ -181,7 +181,7 @@ its actual scope stops reviewers from looking.
 
 ## 6. Privacy owner — named 2 September 2026
 
-P9 Gate B named Danny Tran (@dangt) as privacy owner in §8.
+P9 Gate B named Danny Tran (@BrooklynD23) as privacy owner in §8.
 Because all three fields are **collect**, the ADR-0014 minimization, retention,
 correction, and export fields in §8 must still be completed before contact-field
 ingest is authorized.
@@ -200,8 +200,8 @@ ingest is authorized.
 ## 8. Decision record — SIGNED 2 September 2026
 
 ```
-Program owner (name, role):        Danny Tran (@dangt), program owner (tentative)
-Privacy owner (name, role):        Danny Tran (@dangt), privacy owner (current)
+Program owner (name, role):        Danny Tran (@BrooklynD23), program owner (tentative)
+Privacy owner (name, role):        Danny Tran (@BrooklynD23), privacy owner (current)
 Date:                              2026-09-02
 
 Public URL                          [x] collect   [ ] drop

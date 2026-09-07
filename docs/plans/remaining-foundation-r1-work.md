@@ -12,7 +12,7 @@ them; the calendar cost of a late decision is larger than the work itself.
 
 | # | Item | Blocked on | Owner | Blocks |
 |---|---|---|---|---|
-| ~~D1~~ | ~~Approve the factor registry contents and golden case set~~ | ~~Gate G1~~ | ~~Program owner~~ | **Closed 2026-09-03** — Danny Tran (@dangt); see `docs/plans/workshops/g1-workshop-output-worksheet.md` and `REGISTRY_STATUS = "approved"` (M1) |
+| ~~D1~~ | ~~Approve the factor registry contents and golden case set~~ | ~~Gate G1~~ | ~~Program owner~~ | **Closed 2026-09-03** — Danny Tran (@BrooklynD23); see `docs/plans/workshops/g1-workshop-output-worksheet.md` and `REGISTRY_STATUS = "approved"` (M1) |
 | D2 | Confirm ELI formula parameters (decay half-life, window, caps) | Open decision 2 | Program owner | R1 tuning; not R1 delivery |
 | D3 | Route-matrix provider terms and per-run call budget | Open decision 6 | Procurement + engineering | `travel_burden` factor |
 | D4 | Domain registration and DNS control | Open decision 8 | Institutional IT | All mail work (R4) |
@@ -111,7 +111,7 @@ legacy factors per the G1 worksheet.
 
 ## R1 — Frontend — **ON HOLD** (new product UI)
 
-**Owner assigned 2026-09-03:** Danny Tran (@dangt) — legacy-frontend synthetic
+**Owner assigned 2026-09-03:** Danny Tran (@BrooklynD23) — legacy-frontend synthetic
 pilot scope only. **New product UI** under `apps/web/` remains blocked until
 `apps/web/DESIGN.md` Part 2 (D-1..D-11) is ratified.
 
@@ -134,7 +134,7 @@ redesign starts from them rather than rediscovering them.
 
 | # | Item | Depends on | Notes |
 |---|---|---|---|
-| **D-0** | **Assign a DESIGN.md owner and settle the eleven open decisions** | — | **Owner assigned 2026-09-03** (Danny Tran @dangt, legacy scope). Part 2 D-1..D-11 still open for new product UI. |
+| **D-0** | **Assign a DESIGN.md owner and settle the eleven open decisions** | — | **Owner assigned 2026-09-03** (Danny Tran @BrooklynD23, legacy scope). Part 2 D-1..D-11 still open for new product UI. |
 | W1 | Scaffold `apps/web` — React 18, TypeScript, Vite | D-0 | |
 | W2 | Generate the TypeScript client from OpenAPI; add a drift check to CI | W1 | Routes now exist (`/imports`, `/v1/jobs/*`), so this is unblocked once W1 is |
 | W4 | Provenance and truthful-state components | W1 | **Before W3 and W5, deliberately.** These enforce the labelling rule; anything built before them needs revisiting. |

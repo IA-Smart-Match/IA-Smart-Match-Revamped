@@ -1,6 +1,6 @@
 # D6 — rewards budget owner: decision record
 
-**Status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran (@dangt) named
+**Status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran (@BrooklynD23) named
 institutional budget owner. **$5,000** placeholder ceiling ratified pending
 institutional funding confirmation — **not** a ratified figure. IA West
 Coordinator remains operational administrator. D7 remains tentative and is
@@ -8,7 +8,7 @@ Coordinator remains operational administrator. D7 remains tentative and is
 **Gate:** P7 — D6/D7 rewards (`docs/plans/prep/blocked-work-register-830.md`
 §"P7 — D6/D7 rewards"; `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`
 Stop-gate item 1).
-**Formal decider:** Danny Tran (@dangt), rewards budget owner — named
+**Formal decider:** Danny Tran (@BrooklynD23), rewards budget owner — named
 2026-09-02.
 **Session direction (31 August 2026):** recorded in
 `docs/decisions/pilot-decisions.md` §"D6 — session-recorded working direction
@@ -26,18 +26,18 @@ tables already authorized by migration `0009` — is recorded separately in
 
 ## 1. Budget ownership
 
-**Decision:** Danny Tran (@dangt) is named the **institutional budget owner**
+**Decision:** Danny Tran (@BrooklynD23) is named the **institutional budget owner**
 for the rewards program, effective 2026-09-02.
 
 - Source: `docs/decisions/pilot-decisions.md` §D6 — "**Ratification status:**
-  **CLOSED — 2026-09-02 (pilot scope).** Danny Tran (@dangt) named as
+  **CLOSED — 2026-09-02 (pilot scope).** Danny Tran (@BrooklynD23) named as
   institutional budget owner."
 - Confirmed by `docs/decisions/2026-08-31-session-ratification.md`, matrix row
-  "P7 D6/D7": "Danny Tran (@dangt), budget owner — D6 closed 2026-09-02" /
+  "P7 D6/D7": "Danny Tran (@BrooklynD23), budget owner — D6 closed 2026-09-02" /
   "Institutional budget owner: Danny Tran; operational control with IA West
   Coordinator."
 - Confirmed by `docs/plans/prep/blocked-work-register-830.md` §0 row 5:
-  "**Rewards budget owner (D6)** … **Named 2026-09-02** — Danny Tran (@dangt);
+  "**Rewards budget owner (D6)** … **Named 2026-09-02** — Danny Tran (@BrooklynD23);
   $5k placeholder. D6 **closed** for pilot scope."
 
 ## 2. Operational administration
@@ -177,7 +177,7 @@ which remains gated.
 ## 8. Signature
 
 ```
-Rewards budget owner:  Danny Tran (@dangt)
+Rewards budget owner:  Danny Tran (@BrooklynD23)
 Date:                  2026-09-02
 ```
 

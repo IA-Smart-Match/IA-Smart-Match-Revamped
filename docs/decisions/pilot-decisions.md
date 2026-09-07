@@ -90,7 +90,7 @@ Consequences that follow directly:
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
 | **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
-| **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@dangt) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
+| **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@BrooklynD23) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
 | **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
 | **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
@@ -99,7 +99,7 @@ Consequences that follow directly:
 
 ## D1 — G1 factor-registry workshop record — **CLOSED 2026-09-03**
 
-**Ratification status:** **CLOSED.** Danny Tran (@dangt) ratified
+**Ratification status:** **CLOSED.** Danny Tran (@BrooklynD23) ratified
 `docs/plans/workshops/g1-workshop-output-worksheet.md` per Dr. Wang program
 direction.
 
@@ -150,7 +150,7 @@ direction.
 
 **Sign-off — UNSIGNED:**
 
-- Ratified by: ____________________ (must be Danny Tran, @dangt)
+- Ratified by: ____________________ (must be Danny Tran, @BrooklynD23)
 - Date: ____________
 - Commit recording ratification: ____________
 
@@ -165,7 +165,7 @@ does not authorize it and must not be cited as if it did.
 ## D6 — session-recorded working direction (31 August 2026)
 
 **Ratification status:** **CLOSED — 2026-09-02 (pilot scope).** Danny Tran
-(@dangt) named as institutional budget owner. $5,000 placeholder ceiling
+(@BrooklynD23) named as institutional budget owner. $5,000 placeholder ceiling
 ratified pending institutional funding confirmation. IA West Coordinator
 remains operational administrator. D7 remains tentative.
 
@@ -304,7 +304,7 @@ the reverse.
 ## D-0 and the frontend decisions D-1..D-11 — split scope (2026-09-03)
 
 **D-0 (assign a `DESIGN.md` owner) is partially closed for legacy-only work.**
-Danny Tran (@dangt) is named owner in
+Danny Tran (@BrooklynD23) is named owner in
 [`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) for **legacy frontend**
 engineering (synthetic pilot: metrics truthfulness, discovery feed, events
 calendar). **New product UI** under `apps/web/` stays blocked until Part 2's
