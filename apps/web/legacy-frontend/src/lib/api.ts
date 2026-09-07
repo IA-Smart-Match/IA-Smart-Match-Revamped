@@ -3418,6 +3418,89 @@ export async function cancelEventRegistration(
 }
 
 // ---------------------------------------------------------------------------
+// Speaker-contact channels (customer §13, consent — appended for the
+// invitation-compose surface)
+//
+// One read, and it exists so that "why can I not invite this person" is
+// answerable *before* a batch is composed rather than only afterwards, out of
+// the batch's skip reasons.
+//
+// **`send_eligible` is the server's answer and is never recomputed here.** The
+// route computes it at read time from the row's lifecycle state, its consent
+// source and a live suppression join, all three together. A browser that
+// derived "consented" from any subset of those would be a second answer to
+// "may we write to this person", and the disagreement between two such answers
+// resolves toward sending every time. So this client reads the boolean and
+// renders the three inputs beside it as explanation — never as arithmetic.
+//
+// A person with no channel at all returns an empty list, which is the ordinary
+// case for a contact added through the §13 form (that form writes no channel;
+// OQ-CBA-011) and is the honest answer rather than a 404.
+// ---------------------------------------------------------------------------
+
+/** One channel belonging to one §13 roster contact, exactly as the server read it. */
+export interface SpeakerContactChannel {
+  contact_channel_id: string;
+  professional_id: string;
+  /** `"email"` today. Reported rather than assumed. */
+  channel_kind: string;
+  address: string;
+  /** The lifecycle state — `"active_candidate"` is the only one a send may use. */
+  contact_state: string;
+  /** Under a suppression record. Outranks every consent record and state. */
+  suppressed: boolean;
+  /**
+   * Whether a send may address this channel: an active candidate, an approved
+   * consent source, and no suppression. All three, always. **Read it; never
+   * re-derive it.**
+   */
+  send_eligible: boolean;
+  /** Where the consent came from, or null when nothing was recorded. */
+  consent_source: string | null;
+  consent_recorded_at: string | null;
+  consent_evidence: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One channel and the trail of every move made to it. */
+export interface SpeakerContactChannelWithHistory {
+  channel: SpeakerContactChannel;
+  transitions: Array<{
+    from_state: string | null;
+    to_state: string;
+    reason: string | null;
+    occurred_at: string;
+  }>;
+}
+
+/** A page of one roster contact's channels. */
+export interface SpeakerContactChannelList {
+  professional_id: string;
+  channels: SpeakerContactChannelWithHistory[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/channels`
+ *
+ * Rejects with `ApiRequestError` carrying a `404` when the person is not on
+ * this unit's roster — which is a different fact from "holds no channel", and
+ * the two must not be folded together by a caller.
+ */
+export async function fetchSpeakerContactChannels(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerContactChannelList> {
+  return requestJson<SpeakerContactChannelList>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/channels`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
 // CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
 //
 // The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked

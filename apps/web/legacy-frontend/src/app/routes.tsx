@@ -70,6 +70,11 @@ const CoordinatorMatchRuns = lazy(() =>
     default: m.CoordinatorMatchRuns,
   })),
 );
+const CoordinatorInvitations = lazy(() =>
+  import("./pages/coordinator/CoordinatorInvitations").then((m) => ({
+    default: m.CoordinatorInvitations,
+  })),
+);
 const CoordinatorSpeakerContacts = lazy(() =>
   import("./pages/coordinator/CoordinatorSpeakerContacts").then((m) => ({
     default: m.CoordinatorSpeakerContacts,
@@ -197,6 +202,14 @@ export const router = createBrowserRouter([
       // permission. `POST /v1/units/{unit_id}/match-runs` is authorized
       // server-side per request whatever the router renders.
       { path: "match-runs", element: withSuspense(<CoordinatorMatchRuns />) },
+      // §13's compose step, reached from a shortlist link carrying `?run={id}`.
+      // Mounted unconditionally for the reason the two routes above are: a
+      // route is a claim about what exists rather than a permission, and
+      // `POST /v1/units/{unit_id}/speaker-invitations/batches` is authorized
+      // server-side per request — deny-by-default, `admin`/`coordinator` only,
+      // and with the consent check repeated at dispatch and again at delivery —
+      // whatever this router renders.
+      { path: "invitations", element: withSuspense(<CoordinatorInvitations />) },
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },
