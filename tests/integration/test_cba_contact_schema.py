@@ -109,12 +109,23 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``(tenant_id, speaker_professional_id)`` — by id, never by name — so no
 #: contact row this file writes can be removed by it, and nothing it stores
 #: depends on that id being derivable from anything.
-_HEAD_REVISION = "0031_student_speaker_feedback"
+#: Updated again by ``CBA-MATCH-RUN-SCORING-MODE``:
+#: ``0032_match_run_scoring_mode`` chains to ``0031_student_speaker_feedback``
+#: and is the head. It closes OQ-CBA-028 by adding ``scoring_mode`` and
+#: ``scoring_mode_version`` to ``match_run``, and it does not reach this file's
+#: surface at all: ``speaker_profile`` is neither read nor written by it, and
+#: the one table it alters is one this card never referenced. The composability
+#: question it does raise is about ``0018``, not ``0025`` — ``0032`` disables
+#: ``match_run_is_immutable`` for the single UPDATE that backfills the two new
+#: columns and re-enables it in the same transaction — and that is answered
+#: where the trigger is exercised, ``test_match_run_snapshot.py``, not here.
+_HEAD_REVISION = "0032_match_run_scoring_mode"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0031_student_speaker_feedback",
     "0030_cba_opaque_speaker_identity",
     "0029_cba_speaker_invitation",
     "0028_classification_provenance",

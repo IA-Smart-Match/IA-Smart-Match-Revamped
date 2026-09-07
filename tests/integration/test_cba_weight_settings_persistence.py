@@ -133,7 +133,26 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: feedback path reads a weight at all — a rating records what students thought
 #: after the fact, and is deliberately not an input to what the optimizer
 #: proposes beforehand.
-_HEAD_REVISION = "0031_student_speaker_feedback"
+#:
+#: Moved again by ``CBA-MATCH-RUN-SCORING-MODE``:
+#: ``0032_match_run_scoring_mode`` chains to ``0031_student_speaker_feedback``
+#: and is now the head. It is the first bump this file has taken from a revision
+#: on the matching path, so the composability question is a real one: ``0032``
+#: adds ``scoring_mode`` and ``scoring_mode_version`` to ``match_run``
+#: (OQ-CBA-028) and backfills them from the stored explanation payload.
+#:
+#: It composes, and the reason is precise. ``match_weight_setting`` and its
+#: revision log are neither read nor written — not even by the backfill, whose
+#: only sources are ``match_run`` and ``job.payload``. That matters more than it
+#: looks: ``registry_hash`` *would* have been a tempting backfill source, since
+#: it differs between the two modes, and recovering a mode from it means
+#: recomputing today's weight sets — exactly the reconstruction a unit's stored
+#: overrides make wrong. ``0032`` declines to do it and says so in its own
+#: docstring. So a unit that has configured weights and a unit that has not are
+#: backfilled identically, and every claim this file makes about what a unit's
+#: weights are, who last changed them, and what the revision log records is
+#: untouched.
+_HEAD_REVISION = "0032_match_run_scoring_mode"
 
 NEED = "need-weight-settings-1"
 

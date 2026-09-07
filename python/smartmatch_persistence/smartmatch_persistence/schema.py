@@ -1332,6 +1332,18 @@ match_run = sa.Table(
     sa.Column("solver_version", sa.Text, nullable=False),
     sa.Column("route_estimate_source", sa.Text, nullable=False),
     sa.Column("route_estimate_version", sa.Text, nullable=False),
+    # Which of the registry's models produced this run (migration 0032,
+    # OQ-CBA-028). Nullable, and NULL means the run predates ADR-0016's mode
+    # vocabulary -- not that the mode went unrecorded. Reading a NULL here as
+    # 'cba-physical-1' would claim a proximity factor was scored under a
+    # rulebook that had no modes at all.
+    #
+    # The pairing rule -- both set or neither -- lives in
+    # smartmatch_domain.match_run.MatchRunPins.__post_init__ rather than in a
+    # CHECK, so a caller is told which half it left out at the point it left it
+    # out. See 0032's docstring.
+    sa.Column("scoring_mode", sa.Text, nullable=True),
+    sa.Column("scoring_mode_version", sa.Text, nullable=True),
     # Mirrors smartmatch_domain.optimizer.PortfolioStatus: 'infeasible' is a
     # claim about the model, 'unknown' one about the search stopping early, and
     # the two are never conflated.
@@ -1393,6 +1405,15 @@ match_run = sa.Table(
     sa.CheckConstraint(
         "portfolio_status IN ('optimal','feasible','infeasible','unknown')",
         name="ck_match_run_portfolio_status",
+    ),
+    # ADR-0016 Proposal 5's closed mode vocabulary, and **partial** on purpose:
+    # it constrains a mode that is present and says nothing about a run that has
+    # none. `ck_match_run_pins_present` above was deliberately left alone rather
+    # than widened to cover this column -- every row stored before 0032 would
+    # have violated it the moment the revision ran.
+    sa.CheckConstraint(
+        "scoring_mode IS NULL OR scoring_mode IN ('cba-physical-1','cba-virtual-1')",
+        name="ck_match_run_scoring_mode",
     ),
 )
 
