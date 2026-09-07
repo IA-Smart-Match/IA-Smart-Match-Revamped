@@ -75,10 +75,17 @@ def _helper_body(source: str, name: str) -> str:
 
 
 def _interface_body(source: str, name: str) -> str:
-    """The body of one exported interface."""
+    """The *fields* of one exported interface, with its doc comments stripped.
+
+    Comments go for the same reason they go everywhere else in this file: the
+    forbidden names below are field names, and a doc sentence explaining that
+    ``response_count`` is "how many ratings the mean was computed from" is prose
+    about an aggregate rather than a list of ratings on it. A check that could
+    not tell those apart would forbid documenting the type.
+    """
     marker = f"export interface {name} {{"
     assert marker in source, f"api.ts is missing {name}"
-    return source.split(marker, 1)[1].split("\n}", 1)[0]
+    return _code_only(source.split(marker, 1)[1].split("\n}", 1)[0])
 
 
 # ---------------------------------------------------------------------------
