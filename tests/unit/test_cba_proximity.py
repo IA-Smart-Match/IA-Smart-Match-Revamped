@@ -33,6 +33,8 @@ from smartmatch_domain.factors.proximity import (
     MID_BAND_SCORE,
     NEAR_BAND_SCORE,
     PROXIMITY_ESTIMATE_LABEL,
+    ZIP_CENTROID_ESTIMATE_LABEL,
+    ZIP_CENTROID_PROVENANCE_PREFIX,
     CampusOrigin,
     Coordinate,
     ProximityBand,
@@ -42,6 +44,7 @@ from smartmatch_domain.factors.proximity import (
     VirtualEventProximityError,
     band_for_miles,
     distance_miles_from_campus,
+    estimate_label_for,
     proximity_is_scored,
     score_proximity,
 )
@@ -464,10 +467,15 @@ def test_a_full_pipeline_from_a_coordinate_lands_in_the_expected_band():
     assert score_proximity(_at(miles)).band is ProximityBand.NEAR
 
 
-def test_scored_values_carry_the_coarse_estimate_label():
+def test_a_distance_with_no_stated_source_carries_only_the_claim_this_module_can_make():
+    """No provenance means the caller did not say where the number came from,
+    so the label claims only what is visible here: a straight line, not a
+    route. Naming a ZIP-centroid approximation for a distance that might not be
+    one would be provenance invented at the point of rendering it."""
     result = score_proximity(_at(50.0))
     assert result.score.estimate_label == PROXIMITY_ESTIMATE_LABEL
     assert "deferred" in PROXIMITY_ESTIMATE_LABEL
+    assert "Distance from" not in result.score.basis
 
 
 def test_values_are_rounded_to_the_factor_score_precision():
@@ -500,3 +508,102 @@ def test_the_module_does_not_import_the_superseded_travel_burden_factor():
     change to one cannot silently move the other."""
     source = _MODULE_PATH.read_text()
     assert "from smartmatch_domain.factors.travel_burden import" not in source
+
+
+# --------------------------------------------------------------------------
+# Provenance -- where a distance came from, recorded and rendered (OQ-CBA-024)
+# --------------------------------------------------------------------------
+
+
+def test_a_zip_centroid_distance_says_in_its_basis_where_it_came_from():
+    """ADR-0011's rule that a stored number must be traceable, applied to the
+    one number in this factor that nobody can re-derive by reading the score:
+    the score says which table and vintage produced the distance."""
+    result = score_proximity(
+        ProximityInputs(
+            location=POMONA, distance_miles=24.9, distance_provenance="zcta-centroid-2023"
+        )
+    )
+    assert result.score.basis.endswith("Distance from zcta-centroid-2023.")
+
+
+def test_the_provenance_clause_is_appended_and_changes_nothing_before_it():
+    """The band sentence is a prefix of the provenance-carrying one, so a basis
+    stored before this field existed and one stored after still read as the
+    same statement about the same band."""
+    without = score_proximity(_at(24.9))
+    with_source = score_proximity(
+        ProximityInputs(
+            location=POMONA, distance_miles=24.9, distance_provenance="zcta-centroid-2023"
+        )
+    )
+    assert with_source.score.basis.startswith(without.score.basis)
+    assert with_source.score.value == without.score.value
+    assert with_source.band is without.band
+
+
+def test_a_zip_centroid_distance_labels_the_zip_centroid_approximation():
+    """The larger of the two approximations, and the one a reader would never
+    guess: the distance is measured from the middle of a ZIP code area, not
+    from where the speaker is. A rural ZCTA is tens of miles across."""
+    result = score_proximity(
+        ProximityInputs(
+            location=POMONA, distance_miles=24.9, distance_provenance="zcta-centroid-2023"
+        )
+    )
+    assert result.score.estimate_label == ZIP_CENTROID_ESTIMATE_LABEL
+    assert "ZIP code area" in ZIP_CENTROID_ESTIMATE_LABEL
+    assert "street address" in ZIP_CENTROID_ESTIMATE_LABEL
+    assert "deferred" in ZIP_CENTROID_ESTIMATE_LABEL
+
+
+def test_a_future_gazetteer_vintage_keeps_the_zip_centroid_label():
+    """Matched on the provenance *family*, so regenerating the table against a
+    newer Gazetteer does not silently demote every score's label."""
+    assert estimate_label_for("zcta-centroid-2031") == ZIP_CENTROID_ESTIMATE_LABEL
+    assert ZIP_CENTROID_PROVENANCE_PREFIX == "zcta-centroid-"
+
+
+def test_a_provenance_this_module_cannot_describe_is_not_described_as_a_zip_centroid():
+    """A distance from some future source is recorded honestly in the basis but
+    is not given a label describing an approximation it never made."""
+    result = score_proximity(
+        ProximityInputs(
+            location=POMONA, distance_miles=24.9, distance_provenance="surveyed-address-2027"
+        )
+    )
+    assert result.score.estimate_label == PROXIMITY_ESTIMATE_LABEL
+    assert "surveyed-address-2027" in result.score.basis
+
+
+def test_an_unknown_still_carries_no_estimate_label_and_no_provenance_clause():
+    """The invariant provenance must not erode: an unknown has no value, so it
+    has nothing to describe as an estimate and nothing to attribute."""
+    result = score_proximity(ProximityInputs(location=POMONA, distance_miles=None))
+    assert result.score.estimate_label is None
+    assert "Distance from" not in result.score.basis
+
+
+def test_provenance_without_a_distance_is_a_contradiction():
+    """A receipt for a measurement nobody made is how an unknown starts to look
+    like a value."""
+    with pytest.raises(ValueError):
+        ProximityInputs(
+            location=POMONA, distance_miles=None, distance_provenance="zcta-centroid-2023"
+        )
+
+
+def test_a_blank_provenance_is_refused_rather_than_stored():
+    """Blank is worse than absent: it looks like an answer to "where did this
+    number come from" and is not one."""
+    for blank in ("", "   ", "\t"):
+        with pytest.raises(ValueError):
+            ProximityInputs(location=POMONA, distance_miles=10.0, distance_provenance=blank)
+
+
+def test_provenance_defaults_to_none_so_existing_constructions_still_work():
+    """The golden fixtures build `ProximityInputs` without it, and a required
+    field would have turned every one of them into a rewrite."""
+    inputs = ProximityInputs(location=POMONA, distance_miles=10.0)
+    assert inputs.distance_provenance is None
+    assert score_proximity(inputs).score.value == NEAR_BAND_SCORE

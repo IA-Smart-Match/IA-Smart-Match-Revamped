@@ -422,6 +422,11 @@ class CbaCandidateEvidence:
             ``None`` when the place on file was not resolved to a coordinate.
             This module never resolves one (OQ-CBA-024) and never guesses:
             an unresolved address is an unknown distance, not the Far band.
+        distance_provenance: What produced ``distance_miles`` — the API's ZIP
+            resolver sets ``"zcta-centroid-2023"``. Carried through to the
+            proximity factor, which records it in the score's basis and reads
+            it to decide how coarse the value should say it is. ``None`` means
+            the caller stated no source; the distance is still scored.
     """
 
     subject_id: str
@@ -430,6 +435,7 @@ class CbaCandidateEvidence:
     topic_evidence: SpeakerTopicEvidence
     location: SpeakerLocation | None = None
     distance_miles: float | None = None
+    distance_provenance: str | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
@@ -526,6 +532,7 @@ def _cba_factor_scores(
             ProximityInputs(
                 location=evidence.location,
                 distance_miles=evidence.distance_miles,
+                distance_provenance=evidence.distance_provenance,
                 scoring_mode=str(model.scoring_mode),
             )
         )

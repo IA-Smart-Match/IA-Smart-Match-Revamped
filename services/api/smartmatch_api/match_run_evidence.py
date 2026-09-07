@@ -45,7 +45,8 @@ Evidence                     Source column
                              ``role_taxonomy_version``
 ``topic_evidence``           ``topic_text``, ``prior_talk``
 ``location``                 ``location_city``, ``location_postal_code``
-``distance_miles``           **never resolved here** — see below
+``distance_miles``           ``location_postal_code`` against the
+                             OQ-CBA-024 ZCTA centroid table — see below
 ===========================  ==========================================
 
 ## Track 16's eligibility gate is honoured, not re-implemented
@@ -65,14 +66,26 @@ fit" rather than "nobody has reviewed this record yet".
 
 ## No coordinate is ever invented
 
-``distance_miles`` is always ``None``. Resolving a city or a ZIP to a coordinate
-needs the static offline ZIP-centroid table of OQ-CBA-024, which does not exist
-in this repository. This module does not geocode, does not consult a provider,
-and does not fall back to a plausible number — an unresolved place is an unknown
-distance, never the Far band. That is why the physical scoring mode is refused
-at the route rather than degraded here: under ``cba-physical-1`` an unknown
-proximity makes every composite unknown, so every physical candidate would sort
-last and the run would be a confident-looking lie.
+``distance_miles`` comes from one place: a **table lookup**.
+:func:`~smartmatch_api.zip_proximity.resolve_distance_from_campus` reads the
+speaker's stored postal code against the static, offline, build-time-generated
+California ZCTA centroid table of OQ-CBA-024 and measures a straight line to the
+campus origin. Nothing here geocodes, consults a provider, opens a socket, or
+falls back to a plausible number.
+
+A ZIP the table does not name — blank, malformed, or outside California —
+resolves to ``None`` and is passed on as ``None``. That is an *unknown*
+distance, and ``score_proximity`` renders it as one: not the Far band, not
+``0.0``, and distinguishable in its basis string from a speaker who has no place
+on file at all. The two are different facts and the surface must be able to tell
+them apart, because they call for different actions — one needs an address, the
+other needs a ZIP a Californian table can reach.
+
+City names are **not** resolved. ``speaker_profile`` has no state column, so
+"Pomona" is ambiguous across states, and the disambiguation rule is an unmade
+product decision registered as **OQ-CBA-063**. A city table keyed on name alone
+would place Pomona, New York in California and produce a distance that looks
+exactly as trustworthy as a correct one.
 """
 
 from __future__ import annotations
@@ -111,6 +124,8 @@ from smartmatch_domain.speaker_requests import KIND_INDUSTRY, KIND_ROLE
 from smartmatch_persistence import schema
 from smartmatch_persistence.events import ORIGIN_COORDINATOR_ENTRY
 from sqlalchemy.orm import Session
+
+from smartmatch_api.zip_proximity import resolve_distance_from_campus
 
 __all__ = [
     "EXCLUSION_INDUSTRY_CODE_UNRECOGNISED",
@@ -472,6 +487,13 @@ def _candidate_evidence(
     except UnknownCbaRoleCategory:
         return ExcludedCandidate(subject_id, EXCLUSION_ROLE_CODE_UNRECOGNISED)
 
+    # Resolved for every candidate, physical or virtual. It is a dict lookup
+    # against a table already in memory, and making it conditional on the mode
+    # would put a second copy of "is proximity scored here" in this module —
+    # `score_cba_candidate` already asks `proximity_is_scored` and simply does
+    # not read the distance under `cba-virtual-1`.
+    distance = resolve_distance_from_campus(row.location_postal_code)
+
     return CbaCandidateEvidence(
         subject_id=subject_id,
         industry=IndustryMatchInputs(
@@ -495,8 +517,15 @@ def _candidate_evidence(
             topic_text=row.topic_text, prior_talk=row.prior_talk
         ),
         location=SpeakerLocation(city=row.location_city, postal_code=row.location_postal_code),
-        # Always. OQ-CBA-024's ZIP-centroid table does not exist, and a place
-        # that has not been resolved to a coordinate is an unknown distance —
-        # never a guess, and never the Far band. See the module docstring.
-        distance_miles=None,
+        # A table lookup, or nothing. `resolve_distance_from_campus` returns
+        # `None` for a blank, malformed, or non-Californian ZIP, and that `None`
+        # is passed through unchanged: an unresolved place is an unknown
+        # distance, never a guess and never the Far band. See the module
+        # docstring, and `zip_proximity` for what the resolver refuses to do.
+        distance_miles=None if distance is None else distance.miles,
+        # Set exactly when a distance is. `ProximityInputs` refuses a
+        # provenance with no distance, which is the right refusal: a receipt for
+        # a measurement nobody made is how an unknown starts to look like a
+        # value.
+        distance_provenance=None if distance is None else distance.provenance,
     )

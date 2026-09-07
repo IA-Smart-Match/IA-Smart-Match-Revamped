@@ -52,9 +52,15 @@ appears nowhere here — this module contains no weight literal of any kind.
 * **``scoring_mode_version``.** Proposal 9 puts it on ``MatchRunPins``; this
   module names the two *modes* (a closed, ADR-approved vocabulary) and nothing
   about how a run records them.
-* **How a city or ZIP becomes a coordinate.** That is a provider seam and it
-  is gated (OQ-CBA-024). The caller resolves it or does not; this module
-  measures and bands, and says "unknown" honestly when it cannot.
+* **How a city or ZIP becomes a coordinate.** OQ-CBA-024 settled that with a
+  static offline ZIP-centroid table, and the resolver that reads it lives at
+  the API/evidence layer, not here. This module still measures and bands and
+  says "unknown" honestly when it cannot, and it still has no way to resolve a
+  place itself — which is the point. What it does now accept is
+  :attr:`ProximityInputs.distance_provenance`, a *string* naming what produced
+  the distance. Recording where a number came from is not the same capability
+  as producing one, and the difference is the whole reason this module can
+  report a coarse value's coarseness without being able to manufacture one.
 
 **Coexistence with travel_burden — this module does not supersede it yet.**
 :mod:`smartmatch_domain.factors.travel_burden` is the pre-CBA, G1-approved
@@ -101,6 +107,8 @@ __all__ = [
     "NEAR_BAND_SCORE",
     "PROXIMITY_ESTIMATE_LABEL",
     "UNKNOWN_LOCATION_UI_LABEL",
+    "ZIP_CENTROID_ESTIMATE_LABEL",
+    "ZIP_CENTROID_PROVENANCE_PREFIX",
     "CampusOrigin",
     "Coordinate",
     "ProximityAssessment",
@@ -111,6 +119,7 @@ __all__ = [
     "VirtualEventProximityError",
     "band_for_miles",
     "distance_miles_from_campus",
+    "estimate_label_for",
     "proximity_is_scored",
     "score_proximity",
 ]
@@ -135,11 +144,36 @@ CBA_PROXIMITY_POLICY_ID: Final[str] = "cba-proximity-bands"
 #: call site.
 CBA_PROXIMITY_FACTOR_KEY: Final[str] = "proximity"
 
-#: Attached to every produced value: the band is derived from a straight-line
-#: distance, not a driving route. Never attached to an unknown, which has no
-#: value to describe as an estimate.
+#: Attached to a produced value whose distance arrived with **no stated
+#: provenance**: all this module can honestly say is that the band came from a
+#: straight line rather than a driving route. Never attached to an unknown,
+#: which has no value to describe as an estimate.
 PROXIMITY_ESTIMATE_LABEL: Final[str] = (
     "band from straight-line miles to the CPP campus; D3 route matrix deferred"
+)
+
+#: The provenance family this module knows how to describe, versioned by
+#: Gazetteer vintage (``zcta-centroid-2023``, and whatever supersedes it).
+#: Matched on the family rather than the exact token so a new vintage does not
+#: need a new label, and matched at all rather than assumed so that a distance
+#: from some *other* source can never be described as a ZIP-code approximation
+#: it did not come from.
+ZIP_CENTROID_PROVENANCE_PREFIX: Final[str] = "zcta-centroid-"
+
+#: Attached to a value whose distance came from a ZIP-code-area centroid.
+#:
+#: ADR-0011 requires a coarse value to say **how** it is coarse, and this one is
+#: coarse twice over: it is a straight line rather than a route, *and* it is
+#: measured from the middle of the speaker's ZIP code area rather than from
+#: where they actually are. The second approximation is the larger of the two
+#: and the one a reader would otherwise never guess — a rural ZCTA can be tens
+#: of miles across, so the label has to carry the caveat that this is not a
+#: street-address distance. A number that hid that would look exactly as
+#: precise as a surveyed one.
+ZIP_CENTROID_ESTIMATE_LABEL: Final[str] = (
+    "band from straight-line miles between the centroid of the speaker's ZIP code area "
+    "and the CPP campus; not measured from a street address, and not a driving route "
+    "(D3 route matrix deferred)"
 )
 
 #: ADR-0016 Proposal 8: an unknown distance renders as this, and never as
@@ -374,12 +408,21 @@ class ProximityInputs:
             resolved by the caller, or ``None`` when the place on file has not
             been resolved to a coordinate. This module never resolves one
             itself — see OQ-CBA-024.
+        distance_provenance: What produced ``distance_miles`` — e.g.
+            ``"zcta-centroid-2023"``, the token the API's ZIP resolver sets.
+            Recorded on the score's ``basis`` so a stored number can be traced
+            to the data behind it, and consulted when choosing the estimate
+            label, because how coarse a distance is depends on where it came
+            from. Defaults to ``None``, which means *the caller did not say*:
+            the value is still scored, and its label then claims only what this
+            module can see for itself.
         scoring_mode: One of :data:`CBA_SCORING_MODES`, resolved from the event
             before scoring and never inferred here.
     """
 
     location: SpeakerLocation | None
     distance_miles: float | None = None
+    distance_provenance: str | None = None
     scoring_mode: str = CBA_PHYSICAL_SCORING_MODE
 
     def __post_init__(self) -> None:
@@ -389,7 +432,19 @@ class ProximityInputs:
                 f"{self.scoring_mode!r}. The mode vocabulary is closed (ADR-0016 "
                 "Proposal 5); an unrecognised mode is refused rather than defaulted."
             )
+        if self.distance_provenance is not None and not self.distance_provenance.strip():
+            raise ValueError(
+                "distance_provenance: must be a non-empty, non-blank string when supplied. "
+                "A blank provenance is worse than none: it looks like an answer to 'where "
+                "did this number come from' and is not one. Pass None to say nothing."
+            )
         if self.distance_miles is None:
+            if self.distance_provenance is not None:
+                raise ValueError(
+                    "distance_provenance was supplied with no distance_miles. Provenance is "
+                    "the receipt for a measurement, and a receipt for a measurement nobody "
+                    "made is how an unknown starts to look like a value."
+                )
             return
         if not math.isfinite(self.distance_miles):
             raise ValueError(f"distance_miles: must be finite, got {self.distance_miles!r}")
@@ -526,6 +581,31 @@ def distance_miles_from_campus(
     return EARTH_RADIUS_MILES * c
 
 
+def estimate_label_for(distance_provenance: str | None) -> str:
+    """The ADR-0011 coarseness label a distance from ``distance_provenance`` earns.
+
+    Two labels, and which one applies is a question about the *input*, not a
+    formatting choice. A distance measured to a ZIP code area's centroid is
+    approximate in a way a reader has to be told about — the point is not the
+    speaker's address — so it gets a label that says so. A distance whose origin
+    the caller did not state gets the weaker claim this module can make on its
+    own: straight line, not a route. Neither label is ever attached to an
+    unknown; see :func:`_unknown`.
+
+    Args:
+        distance_provenance: :attr:`ProximityInputs.distance_provenance`.
+
+    Returns:
+        :data:`ZIP_CENTROID_ESTIMATE_LABEL` for a provenance in the
+        ``zcta-centroid-`` family, otherwise :data:`PROXIMITY_ESTIMATE_LABEL`.
+    """
+    if distance_provenance is not None and distance_provenance.startswith(
+        ZIP_CENTROID_PROVENANCE_PREFIX
+    ):
+        return ZIP_CENTROID_ESTIMATE_LABEL
+    return PROXIMITY_ESTIMATE_LABEL
+
+
 def _unknown(inputs: ProximityInputs, basis: str) -> ProximityAssessment:
     """An honest non-answer: ``value=None``, no band, no estimate label."""
     return ProximityAssessment(
@@ -586,6 +666,16 @@ def score_proximity(inputs: ProximityInputs) -> ProximityAssessment:
     # Decided against the raw float, before any display rounding below.
     band = band_for_miles(inputs.distance_miles)
 
+    # Appended rather than interpolated mid-sentence so the existing wording is
+    # a prefix of the new one: a stored basis from before provenance existed
+    # and one written after it still read as the same sentence about the same
+    # band, with a source named at the end when there is a source to name.
+    provenance_clause = (
+        ""
+        if inputs.distance_provenance is None
+        else f" Distance from {inputs.distance_provenance}."
+    )
+
     return ProximityAssessment(
         score=FactorScore(
             CBA_PROXIMITY_FACTOR_KEY,
@@ -595,8 +685,9 @@ def score_proximity(inputs: ProximityInputs) -> ProximityAssessment:
                 f"{CPP_CAMPUS_ORIGIN.label} ({CPP_CAMPUS_ORIGIN.identifier} "
                 f"{CPP_CAMPUS_ORIGIN_VERSION}); {band.label} band "
                 f"({CBA_PROXIMITY_POLICY_ID} {CBA_PROXIMITY_FORMULA_VERSION})."
+                f"{provenance_clause}"
             ),
-            estimate_label=PROXIMITY_ESTIMATE_LABEL,
+            estimate_label=estimate_label_for(inputs.distance_provenance),
         ),
         band=band,
         distance_miles=inputs.distance_miles,

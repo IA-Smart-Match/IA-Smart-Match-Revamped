@@ -344,10 +344,11 @@ def _seed_match_fixtures(unit_id: str) -> dict[str, Any]:
     """File one virtual Speaker Request and five speakers, once per session.
 
     Virtual on purpose, and not a limitation of the test: customer section 11
-    removes Proximity from the virtual model, so ``cba-virtual-1`` scores end to
-    end with no coordinate table. A physical request is refused by the API until
-    OQ-CBA-024's ZIP-centroid table exists — step 09b asserts that refusal
-    rather than working around it.
+    removes Proximity from the virtual model, so ``cba-virtual-1`` scores on
+    these speakers' evidence alone. None of them has a postal code on file, and
+    that is deliberate — step 09b runs the *physical* model over this same
+    roster to prove that a speaker nobody has located is excluded and reported
+    rather than shortlisted at a distance nobody measured.
 
     Each speaker exists to make one distinction visible through the appliance:
 
@@ -910,19 +911,27 @@ def test_09_match_run_scores_are_computed(api: httpx.Client, flow: ClickThrough)
     print(f"  scores: {scores}")
 
 
-def test_09b_a_physical_speaker_request_is_refused_rather_than_degraded(
+def test_09b_a_physical_run_excludes_the_speakers_nobody_has_located(
     api: httpx.Client, flow: ClickThrough
 ) -> None:
-    """The other half of virtual-first: the path that cannot be scored is refused.
+    """The physical model runs now, and it still refuses to invent a distance.
 
-    Customer section 10 measures Proximity in miles from the CPP campus, and
-    resolving a city or ZIP to a coordinate needs OQ-CBA-024's static offline
-    centroid table, which is not built. The API could have shipped a physical
-    run anyway — every candidate's distance unknown, therefore every composite
-    unknown, therefore every speaker sorted last — and it would have looked
-    broken while being worse than broken: a confident shortlist about people
-    nobody measured. It refuses instead, and the refusal names the capability
-    rather than blaming the request.
+    Customer section 10 measures Proximity in miles from the CPP campus.
+    OQ-CBA-024 shipped the static offline ZIP-centroid table that resolves a
+    stored postal code, so this appliance no longer answers a physical Speaker
+    Request with ``match_run_physical_scoring_unavailable``.
+
+    What it still will not do is guess. **None of these seeded speakers has a
+    postal code on file**, so every distance is unknown; under
+    ``cba-physical-1`` an unknown factor makes the composite unknown, and a
+    candidate with no composite is excluded from the pool and reported rather
+    than entered at ``0.0`` and sorted last. With nobody left to shortlist, the
+    run is refused — and the refusal now names a gap in *this tenant's records*,
+    which a Speaker Connector can close by recording an address, rather than a
+    capability the deployment lacks.
+
+    The distinction is the whole point. Both answers are an error to a client,
+    and only one of them tells the truth about why.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
@@ -959,17 +968,29 @@ def test_09b_a_physical_speaker_request_is_refused_rather_than_degraded(
         headers={"Idempotency-Key": f"e2e-physical-{RUN_TAG}-{uuid.uuid4().hex}"},
     )
 
-    assert response.status_code == 503, (
-        "a physical Speaker Request was not refused; the appliance answered "
+    assert response.status_code != 503, (
+        "the appliance still refuses a physical Speaker Request as an "
+        "unavailable capability; OQ-CBA-024's ZIP-centroid table has shipped "
+        f"and the run should be scored. Body: {response.text[:400]}"
+    )
+    assert response.status_code == 422, (
+        "a physical run over speakers with no postal code on file should be "
+        "refused for want of scorable candidates; the appliance answered "
         f"{response.status_code}: {response.text[:400]}"
     )
     error = json_body(response)["error"]
-    assert error["code"] == "match_run_physical_scoring_unavailable", (
-        f"the refusal is coded {error['code']!r}, which does not name the "
-        "missing capability a reader has to act on"
+    assert error["code"] == "match_run_insufficient_scorable_candidates", (
+        f"the refusal is coded {error['code']!r}, which does not point at the "
+        "records a Speaker Connector has to fill in"
     )
-    assert error["details"]["owner_question"] == "OQ-CBA-024"
-    assert error["details"]["missing_capability"] == "zip_centroid_table"
+    # Nobody was scored at 0.0 to pad the shortlist out to its requested size:
+    # every named speaker is accounted for as unscorable or excluded, and none
+    # as a low-ranked measurement.
+    accounted = int(error["details"]["unscorable_candidates"]) + int(
+        error["details"]["excluded_candidates"]
+    )
+    assert int(error["details"]["scorable_candidates"]) == 0
+    assert accounted == len(fixture["speakers"])
 
 
 def test_10_a_changed_evidence_changes_the_score(api: httpx.Client, flow: ClickThrough) -> None:
