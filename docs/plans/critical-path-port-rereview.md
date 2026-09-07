@@ -244,7 +244,7 @@ for `eli.py` (`defect-remediation.md` §1).
 
 ## 6. Independent re-review record — 2026-09-03
 
-**Reviewer:** Independent review agent (gpt-5.6-sol-medium), **authorized by Danny Tran (@dangt)**.
+**Reviewer:** Independent review agent (gpt-5.6-sol-medium), **authorized by Danny Tran (@BrooklynD23)**.
 **Date:** 2026-09-03.
 **Scope:** Read-only manifest/port status; no `verified` flips in this record.
 

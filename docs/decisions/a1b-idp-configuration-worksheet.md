@@ -4,7 +4,7 @@
 dev/test tenant exists (confirmed 2026-09-02). Part 1 configuration fields
 below remain blank until the provisioner commits values.
 **Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY** until Part 1
-is complete. Session approver Danny Tran (@dangt) recorded P2 as **in scope;
+is complete. Session approver Danny Tran (@BrooklynD23) recorded P2 as **in scope;
 proceed** — see `docs/decisions/2026-08-31-session-ratification.md`.
 **Created by:** plan P2 card A0 (`docs/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
 **Date:** 2026-08-28 · **Branch:** `plan/a1b-sign-in`

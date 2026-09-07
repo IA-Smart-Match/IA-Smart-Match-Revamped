@@ -1,7 +1,7 @@
 # Synthetic pilot — development authorization
 
 **Status:** **RATIFIED — SESSION POLICY** (engineering authorization only).
-**Ratifier:** Danny Tran (@dangt), program owner.
+**Ratifier:** Danny Tran (@BrooklynD23), program owner.
 **Date:** 2026-09-03
 
 ---

@@ -57,7 +57,7 @@ Foundation → R1 → R2 → R3 → R4 → R5
 
 | Gate | Blocks | Owner |
 |------|--------|-------|
-| G1 | Factor registry + golden cases (matching) | **Danny Tran (@dangt)** — named 2026-09-02; workshop pending |
+| G1 | Factor registry + golden cases (matching) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; workshop pending |
 | G2 | Privacy/records for live data | Privacy / legal / records |
 | G3 | Agent eval, allowlist, cost controls (crawler) | Engineering ADR + program owner |
 | G4 | Consent-origin, deliverability (outreach) | Program owner + privacy/legal |
@@ -332,7 +332,7 @@ Human decisions recorded in `docs/decisions/owner-roster.md` and synced to
 
 | Decision | Outcome |
 |----------|---------|
-| Program / product owner | Danny Tran (@dangt) |
+| Program / product owner | Danny Tran (@BrooklynD23) |
 | P1 metrics authz | Closed — Option B; **implemented (V4)** |
 | P8 opportunities | Closed — category-list + coordinator review; **O1 implemented** |
 | P9 Gate A / Gate B | Closed (pilot scope) |

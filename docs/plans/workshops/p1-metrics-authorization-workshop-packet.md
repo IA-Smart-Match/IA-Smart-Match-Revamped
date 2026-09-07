@@ -23,8 +23,8 @@ problem; it answered none of the four questions below, and
 
 | Role | Why required | Named? |
 |---|---|---|
-| Product owner | Owns whether imported row payloads are visible to all unit roles | **Danny Tran (@dangt)** — named 2026-09-02 |
-| Security/privacy owner | ADR-0014 minimum disclosure applies to `row_data` | **Danny Tran (@dangt)** — privacy owner (P9 Gate B) |
+| Product owner | Owns whether imported row payloads are visible to all unit roles | **Danny Tran (@BrooklynD23)** — named 2026-09-02 |
+| Security/privacy owner | ADR-0014 minimum disclosure applies to `row_data` | **Danny Tran (@BrooklynD23)** — privacy owner (P9 Gate B) |
 | Development Lead | Records the decision and the resulting engineering sequence | Danny Tran |
 
 `metrics-authorization-decision-draft.md` §0 requires product **and** security
@@ -126,9 +126,9 @@ without unit membership; authorized drill-down count still equals aggregate.
 ## 6. Decision record — TO BE COMPLETED BY THE NAMED HUMANS
 
 ```
-Product owner (name, role):        Danny Tran (@dangt), program/product owner
-Security/privacy owner (name, role): Danny Tran (@dangt), privacy owner
-Development Lead:                  Danny Tran (@dangt)
+Product owner (name, role):        Danny Tran (@BrooklynD23), program/product owner
+Security/privacy owner (name, role): Danny Tran (@BrooklynD23), privacy owner
+Development Lead:                  Danny Tran (@BrooklynD23)
 Date:                              2026-09-02
 
 Item 1  student scope:             subtree
@@ -139,8 +139,8 @@ Item 3  option chosen (A/B/C):     B
 Item 4  metric exceptions:         none
 
 Signatures:
-  Product owner:                   Danny Tran (@dangt)
-  Security/privacy owner:          Danny Tran (@dangt)
+  Product owner:                   Danny Tran (@BrooklynD23)
+  Security/privacy owner:          Danny Tran (@BrooklynD23)
 ```
 
 P1 is **CLOSED**. Implementation authorized per

@@ -473,7 +473,7 @@ Branch: git fetch origin && git switch -c pilot/rewards-l1-l3-domain origin/main
 
 Read: docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md L1–L4; ADR-0013; docs/architecture/engagement-model.md; db/migrations/versions/0009_engagement_schema.py; docs/decisions/pilot-decisions.md D6/D7.
 
-Direction: points come from verified attendance at 100 pts/event (D7). Budget owner is Danny Tran (@dangt) (D6). N=3 is tentative — assert or document, do not invent a new economy. Balance is a fold of an append-only ledger.
+Direction: points come from verified attendance at 100 pts/event (D7). Budget owner is Danny Tran (@BrooklynD23) (D6). N=3 is tentative — assert or document, do not invent a new economy. Balance is a fold of an append-only ledger.
 
 Done:
 - Domain + persistence services + unit tests (integration if you write DB).

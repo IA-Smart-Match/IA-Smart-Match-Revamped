@@ -5,7 +5,7 @@ ratified; multiplicity and pilot date semantics decided. Schema migration
 remains a separate engineering card after `columns.yaml` update.
 **Gate:** P9 Gate A (`docs/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates
 §Gate A).
-**Formal decider:** Danny Tran (@dangt), program owner — named 2026-09-02.
+**Formal decider:** Danny Tran (@BrooklynD23), program owner — named 2026-09-02.
 (Supersedes prior "Dr. Wang" placeholder in plan text where program owner was
 unnamed.)
 **Session direction (31 August 2026):** relationship-scoped, contextual,
@@ -64,7 +64,7 @@ representation remains importable; worker wiring documents relationship intent.
 ## 5. Signature
 
 ```
-Program owner / Gate A decider:  Danny Tran (@dangt)
+Program owner / Gate A decider:  Danny Tran (@BrooklynD23)
 Date:                            2026-09-02
 ```
 

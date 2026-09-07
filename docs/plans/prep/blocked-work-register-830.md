@@ -29,13 +29,13 @@ none of these and may fill none of them.**
 
 | # | Field | Where | State | Blocks |
 |---|---|---|---|---|
-| 1 | **R3 security reviewer** | `docs/security/crawler-threat-model-draft.md` signature block; `r3-technical-review-findings.md` header | **Resolved 1a — 2026-09-02:** Danny Tran (@dangt), Development Lead, is the designated R3 security reviewer. Threat model **unsigned** until signing pass. | R3 signature pass (not authority) |
+| 1 | **R3 security reviewer** | `docs/security/crawler-threat-model-draft.md` signature block; `r3-technical-review-findings.md` header | **Resolved 1a — 2026-09-02:** Danny Tran (@BrooklynD23), Development Lead, is the designated R3 security reviewer. Threat model **unsigned** until signing pass. | R3 signature pass (not authority) |
 | 2 | **R3 reviewer *authority*** | same | **Closed 2026-09-02** — option **1a** (Development Lead is security reviewer) | — |
-| 3 | **Privacy owner** | P9 Gate B (`2026-08-28-pilot-columns-plan.md` §Stop-gates) | **Closed 2026-09-02** — Danny Tran (@dangt); see `p9-gate-b-contact-fields-worksheet.md` §8 | — |
-| 4 | **Program owner (D1/G1)** | `g1-factor-registry-workshop-packet.md` | **Named 2026-09-02** — Danny Tran (@dangt). G1 workshop may run. | Registry approval (workshop output) |
-| 5 | **Rewards budget owner (D6)** | `pilot-decisions.md` D6 | **Named 2026-09-02** — Danny Tran (@dangt); $5k placeholder. D6 **closed** for pilot scope. | P7 behavior cards |
+| 3 | **Privacy owner** | P9 Gate B (`2026-08-28-pilot-columns-plan.md` §Stop-gates) | **Closed 2026-09-02** — Danny Tran (@BrooklynD23); see `p9-gate-b-contact-fields-worksheet.md` §8 | — |
+| 4 | **Program owner (D1/G1)** | `g1-factor-registry-workshop-packet.md` | **Named 2026-09-02** — Danny Tran (@BrooklynD23). G1 workshop may run. | Registry approval (workshop output) |
+| 5 | **Rewards budget owner (D6)** | `pilot-decisions.md` D6 | **Named 2026-09-02** — Danny Tran (@BrooklynD23); $5k placeholder. D6 **closed** for pilot scope. | P7 behavior cards |
 | 6 | **Allowlist entry approver** | `r3-technical-review-findings.md` §5 | **Resolved 2026-08-29** by signed G3 §10 row 1 (Danny Tran). R3's §5 text is now stale. | — |
-| 7 | **Product owner (opportunities definition)** | P8 + P1 stop-gates | **Named 2026-09-02** — Danny Tran (@dangt). P8 and P1 **closed**. | — |
+| 7 | **Product owner (opportunities definition)** | P8 + P1 stop-gates | **Named 2026-09-02** — Danny Tran (@BrooklynD23). P8 and P1 **closed**. | — |
 | 8 | **Interim project owner** | `pilot-decisions.md`: "Interim owner: DangT … This is a **self-assignment**" | Filled, but **explicitly unratified** and pending IA West confirmation | Nothing directly; noted so it is not mistaken for institutional authority |
 | 9 | **`DESIGN.md` owner (D-0)** | `pilot-decisions.md` §197 | "deferred, not decided" | Nothing directly |
 
@@ -45,7 +45,7 @@ provisioner) and row 9 (D-0) remain open.
 
 ## 1. The R3 reviewer-authority question — **closed 2026-09-02**
 
-**Resolution (1a):** Danny Tran (@dangt), Development Lead, **is** the
+**Resolution (1a):** Danny Tran (@BrooklynD23), Development Lead, **is** the
 designated R3 security reviewer for this project. The signature block should
 name Danny Tran with role **Development Lead / Security Reviewer**.
 
@@ -60,7 +60,7 @@ as recorded there — authority resolution does not close those items.
 - **Status:** **CLOSED** — `docs/decisions/metrics-authorization-decision-draft.md`
 - **Policy:** Option B (split aggregates/drill-down); subtree scopes; admin
   unrestricted within tenant; bare `resource_grant` denied; no metric exceptions.
-- **Owners:** Danny Tran (@dangt) as product owner and security/privacy owner.
+- **Owners:** Danny Tran (@BrooklynD23) as product owner and security/privacy owner.
 - **Implementation:** V4 authorized; retire `INTENTIONALLY_UNGATED_OPERATIONS`
   for metrics in the implementation change set.
 
@@ -74,7 +74,7 @@ as recorded there — authority resolution does not close those items.
 
 ### P5 — G1 matching · workshop ready
 
-- **Program owner:** **Danny Tran (@dangt)** — named 2026-09-02.
+- **Program owner:** **Danny Tran (@BrooklynD23)** — named 2026-09-02.
 - **Waiting on:** G1 factor-registry workshop execution and committed approval
   outputs (factors, weights, golden cases).
 - **Cost of waiting:** scoring continues to fail closed — correct behaviour.
@@ -83,7 +83,7 @@ as recorded there — authority resolution does not close those items.
 
 ### P7 — D6/D7 rewards · D6 closed for pilot scope
 
-- **Budget owner:** **Danny Tran (@dangt)** — named 2026-09-02; $5,000 placeholder
+- **Budget owner:** **Danny Tran (@BrooklynD23)** — named 2026-09-02; $5,000 placeholder
   ceiling ratified pending institutional funding confirmation.
 - **Waiting on:** D7 calibration review; cards L1–L4+ remain gated per plan.
 - **Permitted now:** formal D6 record + schema verification per ratification boundary.
@@ -101,7 +101,7 @@ as recorded there — authority resolution does not close those items.
 - **Definition:** category-list with coordinator review; import + crawler evidence
   (P6 persistence for crawler rows). **BRANCH-ELIGIBILITY** — no score floor.
 - **Artifact:** `docs/decisions/p8-opportunities-decision-draft.md`
-- **Product owner:** Danny Tran (@dangt).
+- **Product owner:** Danny Tran (@BrooklynD23).
 - **Next:** card O1 (register definition); O2+ blocked on S12 / P6 as plan states.
 
 ### P9 — pilot columns · two independent gates, one of them cheap
@@ -109,7 +109,7 @@ as recorded there — authority resolution does not close those items.
 - **Gate A (`board_role`):** **CLOSED 2026-09-02 (pilot scope)** — relationship-scoped;
   multiple concurrent roles; no effective dates for pilot. Artifact:
   `docs/decisions/p9-gate-a-board-role-decision-draft.md`. Decider: Danny Tran
-  (@dangt), program owner. Schema migration follows plan Wave C.
+  (@BrooklynD23), program owner. Schema migration follows plan Wave C.
 - **Gate B (contact fields):** **CLOSED 2026-09-02.** Artifact:
   `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8. Collect all three;
   ADR-0014 fields recorded. Unblocks T-14 (subject to R3 sign-off), narrows
@@ -151,7 +151,7 @@ All claims above were read directly from the working tree at `fc40a06` on
 | Item | Prior state | Current state |
 |---|---|---|
 | **P9 Gate B** | RECORDED — GATE INCOMPLETE | **CLOSED** — `p9-gate-b-contact-fields-worksheet.md` §8 complete |
-| **Privacy owner** (register §0 item 3) | Blank | **Named and closed** — Danny Tran (@dangt) |
+| **Privacy owner** (register §0 item 3) | Blank | **Named and closed** — Danny Tran (@BrooklynD23) |
 | **events `gate_pending`** in `columns.yaml` | All three fields `withhold` | **Removed** — gate closed per worksheet comment |
 | **MP-4** (G3 §7) | Provisional while Gate B open | **Narrowed** — human/import per §8; extractors forbidden |
 | **T-14** (R3) | Blocked on Gate B | **Unblocked for closure** — pending R3 signature pass |
@@ -161,12 +161,12 @@ All claims above were read directly from the working tree at `fc40a06` on
 
 | Item | Prior state | Current state |
 |---|---|---|
-| **Program owner** (P5/D1) | Blank | **Named** — Danny Tran (@dangt) |
-| **Product owner** (P8/P1) | Blank | **Named** — Danny Tran (@dangt) |
+| **Program owner** (P5/D1) | Blank | **Named** — Danny Tran (@BrooklynD23) |
+| **Product owner** (P8/P1) | Blank | **Named** — Danny Tran (@BrooklynD23) |
 | **P1 metrics authz** | RECORDED — GATE INCOMPLETE | **CLOSED** — Option B; see decision draft |
 | **P8 opportunities** | RECORDED — GATE INCOMPLETE | **CLOSED** — category-list + coordinator review |
 | **P9 Gate A** | RECORDED — GATE INCOMPLETE | **CLOSED (pilot scope)** — relationship-scoped; multiple concurrent; no dates |
-| **P7 D6 budget owner** | Blank | **Named** — Danny Tran (@dangt); $5k placeholder |
+| **P7 D6 budget owner** | Blank | **Named** — Danny Tran (@BrooklynD23); $5k placeholder |
 | **R3 reviewer authority** | Open (1a vs 1b) | **Closed — 1a** (Development Lead is reviewer); signature still outstanding |
 | **P2 IdP** | No tenant | **Tenant exists** — worksheet Part 1 still unfilled |
 | **Next recommended action** | Name program owner or P1 workshop | **G1 workshop** or **R3 signing pass** |

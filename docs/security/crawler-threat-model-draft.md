@@ -990,7 +990,7 @@ quarantine by design.
 Recorded, not resolved. None may be closed by an agent.
 
 1. **Reviewer authority — CLOSED 2026-09-02 (option 1a).** Danny Tran
-   (@dangt), Development Lead, **is** the designated R3 security reviewer.
+   (@BrooklynD23), Development Lead, **is** the designated R3 security reviewer.
    The signature block below should name Danny with role Development Lead /
    Security Reviewer. Signing remains outstanding until the human signing pass.
 2. **T-13 enforcement point** — proposed above, not decided. Until named, T-13
@@ -1034,10 +1034,10 @@ reviewer authority and not security completeness.
 
 ## Security reviewer sign-off (R3) — **SIGNED 2026-09-03**
 
-Reviewer authority: Danny Tran (@dangt), Development Lead / Security Reviewer (1a).
+Reviewer authority: Danny Tran (@BrooklynD23), Development Lead / Security Reviewer (1a).
 
 ```
-Reviewed and approved as DESIGN REQUIREMENTS by: Danny Tran (@dangt), Development Lead / Security Reviewer
+Reviewed and approved as DESIGN REQUIREMENTS by: Danny Tran (@BrooklynD23), Development Lead / Security Reviewer
 Date: 2026-09-03
 
 Scope: the controls above are approved as requirements that implementation must

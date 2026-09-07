@@ -1,7 +1,7 @@
 # F5 deploy target — classroom vs dev (stakeholder pilot)
 
 **Status:** Decision note — program owner direction 2026-09-03.
-**Ratifier:** Danny Tran (@dangt).
+**Ratifier:** Danny Tran (@BrooklynD23).
 
 ---
 

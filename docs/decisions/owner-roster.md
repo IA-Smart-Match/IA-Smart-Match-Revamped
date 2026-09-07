@@ -2,7 +2,7 @@
 
 **Status:** **CLOSED** — rows 1–7 named through 3 September 2026.
 **Decision date:** 2 September 2026
-**Approver:** Danny Tran (@dangt)
+**Approver:** Danny Tran (@BrooklynD23)
 
 **Prepared:** 2 September 2026, from
 `docs/plans/2026-08-31-ratification-and-implementation-report.md` §5 item 2.
@@ -19,22 +19,22 @@ close their gate — it makes the gate runnable.
 
 | # | Role | Named | What it blocks today | Closes via |
 |---|---|---|---|---|
-| 1 | **Privacy owner** (P9 Gate B) | Danny Tran (@dangt) — named 2026-09-02; **gate closed** same date | — | `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8 |
-| 2 | **Program owner** (P5 / D1 / G1 matching) | **Danny Tran (@dangt)** — named 2026-09-02; **G1 closed 2026-09-03** | M2 factor implementation (`topic_relevance`, `travel_burden`) | `docs/plans/workshops/g1-workshop-output-worksheet.md` |
-| 3 | **Rewards budget owner** (P7 / D6) | **Danny Tran (@dangt)** — named 2026-09-02; $5,000 placeholder ceiling ratified pending institutional funding confirmation | Rewards catalog path; formal D6 gate **closed** for pilot scope | `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md` |
-| 4 | **Product owner** (P8 opportunities, and P1 metrics) | **Danny Tran (@dangt)** — same as program owner; named 2026-09-02 | P8 and P1 gates **closed** 2026-09-02 | `docs/decisions/metrics-authorization-decision-draft.md`; `docs/decisions/p8-opportunities-decision-draft.md` |
-| 5 | **R3 signature authority** | **Resolved 1a** — Danny Tran (@dangt), Development Lead; threat model **signed 2026-09-03** | S6a implementation evidence (live fetch still gated) | `docs/security/crawler-threat-model-draft.md`; `docs/decisions/r3-signing-decisions-2026-09-03.md` |
+| 1 | **Privacy owner** (P9 Gate B) | Danny Tran (@BrooklynD23) — named 2026-09-02; **gate closed** same date | — | `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8 |
+| 2 | **Program owner** (P5 / D1 / G1 matching) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; **G1 closed 2026-09-03** | M2 factor implementation (`topic_relevance`, `travel_burden`) | `docs/plans/workshops/g1-workshop-output-worksheet.md` |
+| 3 | **Rewards budget owner** (P7 / D6) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; $5,000 placeholder ceiling ratified pending institutional funding confirmation | Rewards catalog path; formal D6 gate **closed** for pilot scope | `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md` |
+| 4 | **Product owner** (P8 opportunities, and P1 metrics) | **Danny Tran (@BrooklynD23)** — same as program owner; named 2026-09-02 | P8 and P1 gates **closed** 2026-09-02 | `docs/decisions/metrics-authorization-decision-draft.md`; `docs/decisions/p8-opportunities-decision-draft.md` |
+| 5 | **R3 signature authority** | **Resolved 1a** — Danny Tran (@BrooklynD23), Development Lead; threat model **signed 2026-09-03** | S6a implementation evidence (live fetch still gated) | `docs/security/crawler-threat-model-draft.md`; `docs/decisions/r3-signing-decisions-2026-09-03.md` |
 
 ## Second tier — named later, blocking less
 
 | # | Role | Named | Note |
 |---|---|---|---|
-| 6 | **Google Cloud IdP provisioner** (P2) | **Danny Tran (@dangt)** — named 2026-09-03 | Worksheet Part 1 fields still required; see `docs/decisions/a1b-gcp-console-guide.md`. |
-| 7 | **Legacy-PII remediation owner** (CP-PII / D9) | **Danny Tran (@dangt)** — named 2026-09-03 | `MM-A09.blocking_owner`. Strategy: read-only archive (Q1). **Non-blocking** for Revamped private-repo engineering; gates D9/LICENSE only. |
+| 6 | **Google Cloud IdP provisioner** (P2) | **Danny Tran (@BrooklynD23)** — named 2026-09-03 | Worksheet Part 1 fields still required; see `docs/decisions/a1b-gcp-console-guide.md`. |
+| 7 | **Legacy-PII remediation owner** (CP-PII / D9) | **Danny Tran (@BrooklynD23)** — named 2026-09-03 | `MM-A09.blocking_owner`. Strategy: read-only archive (Q1). **Non-blocking** for Revamped private-repo engineering; gates D9/LICENSE only. |
 
 ## Authorized decision signers
 
-Effective 4 September 2026, Danny Tran (@dangt), as this roster's approver,
+Effective 4 September 2026, Danny Tran (@BrooklynD23), as this roster's approver,
 authorizes two additional people to make changes to architecture decision
 records and the project's other decision artifacts. Both are already
 repository collaborators — confirmed via the GitHub API — so this entry
@@ -43,11 +43,13 @@ writing; it does not grant, request, or change repository permissions.
 
 | Person | GitHub | Effective | Authorized by |
 |---|---|---|---|
-| **Chau Nguyen** | `@Chau-Nguyen-Developer` | 4 September 2026 | Danny Tran (@dangt) |
-| **Janice H.** | `@starey6789` | 4 September 2026 | Danny Tran (@dangt) |
+| **Chau Nguyen** | `@Chau-Nguyen-Developer` | 4 September 2026 | Danny Tran (@BrooklynD23) |
+| **Janice H.** | `@starey6789` | 4 September 2026 | Danny Tran (@BrooklynD23) |
 
-(`@dangt` above is the group's internal shorthand for Danny Tran, not a
-GitHub handle — unlike `@Chau-Nguyen-Developer` and `@starey6789`, which are.)
+(Danny Tran is credited above by his real GitHub handle, `@BrooklynD23` —
+corrected from an earlier internal shorthand, `@dangt`, that this roster used
+for the same purpose. That shorthand was never a GitHub handle, and it is
+unrelated to a different GitHub account of the same name — see below.)
 
 **A third collaborator account, `@BrooklynD23`, is not a fourth signer.**
 `gh api users/BrooklynD23` resolves to profile name "Danny Tran", and

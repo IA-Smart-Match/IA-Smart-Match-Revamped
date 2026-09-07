@@ -136,7 +136,7 @@ Legend:
 ### 1. Matching / scoring — registry approved; engine not built
 
 **Classification:** **Engineering** — gate **G1 / D1 closed 2026-09-03** (Danny
-Tran @dangt). **M1 landed.** M2–M10 remain build work.
+Tran @BrooklynD23). **M1 landed.** M2–M10 remain build work.
 
 **Current state:**
 
@@ -567,7 +567,7 @@ drill-down for `pending_review_items`; rewards schema refusing unowned reward.
 | **Fix #2 and Fix #14** | [`frontend-migration.md`](frontend-migration.md) §4.1 — “Cannot plan” without test log rows (Q7) |
 | **Architecture v1.1 §1.5 full text** | `columns.yaml` cites F-28 — section not in tree; ratified `columns.yaml` is pilot contract, not full v1.1 |
 | **`columns.yaml` → worker wiring** | Ratified but `handlers.py` still `validate_columns(..., required=(), optional=())` — no ticket id beyond J10/import execution |
-| **Named G1 / D6 owners** | G1: Danny Tran @dangt (closed 2026-09-03). D6: still unnamed. |
+| **Named G1 / D6 owners** | G1: Danny Tran @BrooklynD23 (closed 2026-09-03). D6: still unnamed. |
 | **Metrics authz decision record** | Documented as open in handoff; no ADR amendment choosing gate vs ungated |
 | **A1b live JWKS / IdP config** | Authn fixture exists; production OIDC not in tree |
 | **Event `read` HTTP API** | No route for events/pipeline/opportunities lists on OpenAPI — only metrics, imports, jobs |

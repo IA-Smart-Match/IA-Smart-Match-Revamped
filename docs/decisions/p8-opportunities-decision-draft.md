@@ -1,12 +1,12 @@
 # P8 — opportunities definition: decision record
 
 **Status:** **CLOSED — 2026-09-02.** Canonical definition ratified by product
-owner Danny Tran (@dangt). Card O1 of
+owner Danny Tran (@BrooklynD23). Card O1 of
 `docs/plans/2026-08-28-opportunities-s12-plan.md` may proceed; O2+ remain
 blocked on S12 persistence and P6 crawler persistence where applicable.
 **Gate:** P8 stop-gate (`docs/plans/2026-08-28-opportunities-s12-plan.md`
 §Stop-gate).
-**Product owner:** Danny Tran (@dangt) — named 2026-09-02 (same as program
+**Product owner:** Danny Tran (@BrooklynD23) — named 2026-09-02 (same as program
 owner).
 **Prepared from:** `docs/plans/prep/human-decisions-handoff-831.md` §7 and
 `docs/plans/opportunities-metric-inventory.md`.
@@ -78,7 +78,7 @@ for out-of-list examples is **required**, not advisory.
 ## 6. Signature
 
 ```
-Product owner:  Danny Tran (@dangt)
+Product owner:  Danny Tran (@BrooklynD23)
 Date:           2026-09-02
 ```
 
