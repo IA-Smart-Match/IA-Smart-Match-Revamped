@@ -2611,28 +2611,34 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
 # ---------------------------------------------------------------------------
 
 
-def test_26_the_event_host_files_a_request_and_can_read_nothing_back(
-    api: httpx.Client, host_api: httpx.Client, flow: ClickThrough
+def test_26_the_event_host_files_a_request_and_reads_back_their_own(
+    api: httpx.Client, host_api: httpx.Client, student_api: httpx.Client, flow: ClickThrough
 ) -> None:
-    """The Event Host portal's whole reachable surface, and its whole gap.
+    """The Event Host portal's whole reachable surface, now two routes wide.
 
     Run last, deliberately: filing a Speaker Request creates an ``event`` row,
     and an extra unpublished event ahead of the match-run and metrics steps
     would move numbers those steps assert against.
 
-    What the Event Host can do is one thing — ``POST`` a request — and this step
-    proves it works from the pre-loaded ``volunteer`` principal rather than only
-    from a contract test's in-process client. What the Event Host **cannot** do
-    is read anything at all, including the request they just filed: the queue
-    listing is gated on ``{admin, coordinator}`` and no per-host listing exists.
-    That is **OQ-CBA-014**, and it is asserted here as a refusal rather than
-    closed by adding ``volunteer`` to a read set — a host-scoped read is a
-    different query, not a wider permit, and inventing the permit would hand one
-    host every other host's request text for the unit.
+    **OQ-CBA-014, closed 7 September 2026** by Danny Tran, program owner of
+    record. The register asked whether a host may list back the requests *they*
+    filed, and pre-refused the shortcut: "do not widen the list role set as a
+    shortcut; a host-scoped read is a different query, not a wider permit". That
+    is exactly what shipped. ``GET /v1/units/{unit_id}/host/speaker-requests`` is
+    ``{volunteer}``, filters on ``filed_by_user_id == principal.user_id``, and
+    reads over migration ``0033``'s new column; the queue at
+    ``GET /v1/units/{unit_id}/speaker-requests`` is **unchanged** and still
+    ``{admin, coordinator}``.
+
+    So both halves are asserted here, and the queue's ``403`` is the load-bearing
+    one: it is what says the closure was a narrower route rather than a wider
+    permit. The queue holds every host's request text for the unit, and a ``200``
+    there would hand one host the others' filings.
 
     The Connector's read is exercised too, on the same request, because that is
-    what makes the host's ``403`` a *routing* gap rather than a lost write: the
-    filing landed in a queue somebody can work, and only the host cannot see it.
+    what makes the two reads two operations rather than two spellings of one; and
+    the Student is refused the host route, because ``{volunteer}`` is a role set
+    and not a synonym for "not a coordinator".
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
@@ -2696,7 +2702,29 @@ def test_26_the_event_host_files_a_request_and_can_read_nothing_back(
         "Connector's queue; the write reported 201 and reached nobody"
     )
 
+    own = host_api.get(f"/v1/units/{flow.unit_id}/host/speaker-requests")
+    assert own.status_code == 200, (
+        "the Event Host's own-requests read answered "
+        f"{own.status_code}. OQ-CBA-014 was closed 7 September 2026 by adding "
+        "this route; a host who can file and cannot read back what they filed "
+        f"is the gap that closure removed: {own.text[:300]}"
+    )
+    own_ids = {entry["request_id"] for entry in json_body(own)["requests"]}
+    assert request_id in own_ids, (
+        f"the request the Event Host just filed ({request_id}) is missing from "
+        "their own list. The route filters on filed_by_user_id == "
+        "principal.user_id, and this principal is the one that filed it"
+    )
+
+    student_refused = student_api.get(f"/v1/units/{flow.unit_id}/host/speaker-requests")
+    assert student_refused.status_code == 403, (
+        "the Event Host's own-requests route answered "
+        f"{student_refused.status_code} to a Student. The role set is "
+        "{volunteer} and customer §15 gives a Student browsing, registration, "
+        f"calendar and feedback — not the asking: {student_refused.text[:300]}"
+    )
+
     print(
-        f"  the Event Host filed {request_id} and is refused every read of it; "
-        "the Connector sees it in the queue (OQ-CBA-014)"
+        f"  the Event Host filed {request_id}, reads it back on their own route, "
+        "and is still refused the Connector's queue (OQ-CBA-014, closed)"
     )

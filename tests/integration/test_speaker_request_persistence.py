@@ -105,6 +105,39 @@ def unit_id(session: Session, tenant_id: uuid.UUID) -> uuid.UUID:
     return unit
 
 
+def _account(session: Session, tenant_id: uuid.UUID) -> uuid.UUID:
+    """One ``user_account`` in this tenant, to be somebody's recorded filer.
+
+    ``event.filed_by_user_id``'s foreign key is composite on
+    ``(tenant_id, filed_by_user_id)`` (migration ``0033``), so a filer has to be a
+    real account in the same tenant — which is the property the key exists to
+    enforce and the reason these tests cannot pass a bare ``uuid4()``.
+    """
+    user_id = uuid.uuid4()
+    subject = f"sub-filer-{user_id.hex}"
+    session.execute(
+        text(
+            "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+            "VALUES (:id, :tid, :subject, :email)"
+        ),
+        {"id": user_id, "tid": tenant_id, "subject": subject, "email": f"{subject}@example.edu"},
+    )
+    session.commit()
+    return user_id
+
+
+@pytest.fixture
+def filer_id(session: Session, tenant_id: uuid.UUID) -> uuid.UUID:
+    """The Event Host whose filings these are (migration ``0033``, OQ-CBA-014)."""
+    return _account(session, tenant_id)
+
+
+@pytest.fixture
+def second_filer_id(session: Session, tenant_id: uuid.UUID) -> uuid.UUID:
+    """A second Event Host in the same unit. The host-scoped read must not mix them."""
+    return _account(session, tenant_id)
+
+
 def _draft(**overrides) -> SpeakerRequestDraft:
     """A physical request one industry and one role wide, plus overrides."""
     fields: dict[str, object] = {
@@ -184,7 +217,7 @@ def test_an_unreleased_role_code_is_refused_by_the_taxonomy() -> None:
 
 
 def test_filing_a_request_stores_the_event_and_both_axes(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """One filing, one event row, and one classification row per target."""
     repository = SpeakerRequestRepository()
@@ -193,6 +226,7 @@ def test_filing_a_request_stores_the_event_and_both_axes(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(industry_codes=(FINANCE, PROFESSIONAL_SERVICES), role_codes=("finance",)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -248,7 +282,7 @@ def test_filing_a_request_stores_the_event_and_both_axes(
 
 
 def test_a_virtual_request_stores_no_location(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """Customer §11, held by the schema as well as by the draft."""
     repository = SpeakerRequestRepository()
@@ -257,6 +291,7 @@ def test_a_virtual_request_stores_no_location(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(is_virtual=True, location_city=None, location_postal_code=None),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -273,7 +308,7 @@ def test_a_virtual_request_stores_no_location(
 
 
 def test_an_exact_time_request_keeps_its_instant_and_its_end(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """ADR-0010's other precision, including an end the host actually stated."""
     ends_at = datetime(2026, 10, 14, 21, 0, tzinfo=UTC)
@@ -283,6 +318,7 @@ def test_an_exact_time_request_keeps_its_instant_and_its_end(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(event_time=ExactTime(starts_at=STARTS_AT, time_zone=ZONE, ends_at=ends_at)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -306,7 +342,7 @@ def test_an_exact_time_request_keeps_its_instant_and_its_end(
 
 
 def test_refiling_the_same_request_updates_it_rather_than_duplicating(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """The card's idempotency requirement, stated as ADR-0012 states it.
 
@@ -315,9 +351,21 @@ def test_refiling_the_same_request_updates_it_rather_than_duplicating(
     which is what lets the route answer ``201`` and then ``200``.
     """
     repository = SpeakerRequestRepository()
-    first = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    first = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
-    second = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    second = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
 
     assert first.created is True
@@ -331,17 +379,24 @@ def test_refiling_the_same_request_updates_it_rather_than_duplicating(
 
 
 def test_a_title_differing_only_in_case_and_punctuation_is_the_same_request(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """ADR-0012's folding rule, which is why a host's typo fix is not a new request."""
     repository = SpeakerRequestRepository()
-    first = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    first = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
     second = repository.file(
         session,
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(title="  analytics   careers panel!  "),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -350,7 +405,7 @@ def test_a_title_differing_only_in_case_and_punctuation_is_the_same_request(
 
 
 def test_a_different_date_is_a_different_request(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """The date is in the key, so moving the event files a second request.
 
@@ -359,13 +414,20 @@ def test_a_different_date_is_a_different_request(
     silently merge two genuinely different events.
     """
     repository = SpeakerRequestRepository()
-    first = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    first = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
     second = repository.file(
         session,
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(event_time=DateOnlyTime(on_date=date(2026, 10, 21), time_zone=ZONE)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -374,7 +436,7 @@ def test_a_different_date_is_a_different_request(
 
 
 def test_refiling_replaces_the_targets_rather_than_accumulating_them(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """A target the new draft does not name is one the host removed.
 
@@ -387,6 +449,7 @@ def test_refiling_replaces_the_targets_rather_than_accumulating_them(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(industry_codes=(FINANCE, PROFESSIONAL_SERVICES)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -395,6 +458,7 @@ def test_refiling_replaces_the_targets_rather_than_accumulating_them(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(industry_codes=(PROFESSIONAL_SERVICES,), role_codes=("marketing",)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -412,7 +476,7 @@ def test_refiling_replaces_the_targets_rather_than_accumulating_them(
 
 
 def test_refiling_a_request_that_moved_online_drops_its_stale_location(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """A place nobody claims any more must not survive the correction.
 
@@ -426,6 +490,7 @@ def test_refiling_a_request_that_moved_online_drops_its_stale_location(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(location_city="Pomona"),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -434,6 +499,7 @@ def test_refiling_a_request_that_moved_online_drops_its_stale_location(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(is_virtual=True, location_city=None, location_postal_code=None),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -456,7 +522,7 @@ def test_refiling_a_request_that_moved_online_drops_its_stale_location(
 
 
 def test_the_read_returns_the_request_with_both_axes(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """The Connector read, from the same rows the write produced."""
     repository = SpeakerRequestRepository()
@@ -465,6 +531,7 @@ def test_the_read_returns_the_request_with_both_axes(
         tenant_id=tenant_id,
         host_org_unit_id=unit_id,
         draft=_draft(industry_codes=(FINANCE, PROFESSIONAL_SERVICES), role_codes=("finance",)),
+        filed_by_user_id=filer_id,
     )
     session.commit()
 
@@ -482,7 +549,7 @@ def test_the_read_returns_the_request_with_both_axes(
 
 
 def test_the_read_never_returns_an_extracted_event(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """A crawler's row is not a Speaker Request, and this queue promises hosts' work.
 
@@ -492,7 +559,13 @@ def test_the_read_never_returns_an_extracted_event(
     exclusion to be testable at all.
     """
     repository = SpeakerRequestRepository()
-    filed = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    filed = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.execute(
         text(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
@@ -523,7 +596,7 @@ def test_the_read_never_returns_an_extracted_event(
 
 
 def test_the_read_is_scoped_to_its_unit(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """A request filed under one unit is not another unit's queue item."""
     other_unit = uuid.uuid4()
@@ -535,7 +608,13 @@ def test_the_read_is_scoped_to_its_unit(
         {"id": other_unit, "tid": tenant_id},
     )
     repository = SpeakerRequestRepository()
-    repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
 
     assert (
@@ -547,12 +626,296 @@ def test_the_read_is_scoped_to_its_unit(
 
 
 def test_get_answers_none_for_another_tenants_request(
-    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
 ) -> None:
     """Tenant isolation in the query, not as a filter applied afterwards."""
     repository = SpeakerRequestRepository()
-    result = repository.file(session, tenant_id=tenant_id, host_org_unit_id=unit_id, draft=_draft())
+    result = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
     session.commit()
 
     assert repository.get(session, tenant_id=tenant_id, event_id=result.event_id) is not None
     assert repository.get(session, tenant_id=uuid.uuid4(), event_id=result.event_id) is None
+
+
+# ---------------------------------------------------------------------------
+# Who filed it, and the host-scoped read built on that
+#
+# OQ-CBA-014, closed 7 September 2026. The queue (``list_for_unit`` above) holds
+# every host's request text for the unit and stays ``{admin, coordinator}``; what
+# is added here is a *different query* — one host's own filings — over migration
+# ``0033``'s ``event.filed_by_user_id``. The tests below are the whole of what
+# makes the two different rather than two spellings of one.
+# ---------------------------------------------------------------------------
+
+
+def test_filing_records_who_filed(
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
+) -> None:
+    """The filer reaches the row, and is read back off it rather than from the caller."""
+    repository = SpeakerRequestRepository()
+    result = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
+    session.commit()
+
+    stored = session.execute(
+        text("SELECT filed_by_user_id FROM event WHERE tenant_id = :tid AND id = :eid"),
+        {"tid": tenant_id, "eid": result.event_id},
+    ).scalar_one()
+    assert stored == filer_id
+
+
+def test_refiling_keeps_the_first_filer(
+    session: Session,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    filer_id: uuid.UUID,
+    second_filer_id: uuid.UUID,
+) -> None:
+    """First-filer-wins, and it is the collision OQ-CBA-065 registers rather than solves.
+
+    ADR-0012's identity key is host unit, folded title and resolved date, and it does
+    **not** include the filer — so two hosts in one unit filing the same title on the
+    same date are one request. The second filing updates the first host's row and the
+    first host stays its recorded filer.
+
+    Last-writer-wins was rejected: it would let a host take over another host's request
+    by retyping its title. The cost is that the second host's ``200`` lands on a row they
+    cannot list, which is exactly what OQ-CBA-065 records.
+    """
+    repository = SpeakerRequestRepository()
+    first = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
+    session.commit()
+    second = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(description="Retyped by a second host."),
+        filed_by_user_id=second_filer_id,
+    )
+    session.commit()
+
+    assert second.event_id == first.event_id
+    assert second.created is False
+    row = session.execute(
+        text(
+            "SELECT filed_by_user_id, description FROM event WHERE tenant_id = :tid AND id = :eid"
+        ),
+        {"tid": tenant_id, "eid": first.event_id},
+    ).one()
+    assert row.filed_by_user_id == filer_id, (
+        "a resubmission overwrote the recorded filer. The filer is excluded from the "
+        "ON CONFLICT update set on purpose: overwriting it would let a host take over "
+        "another host's request by retyping its title (OQ-CBA-065)."
+    )
+    # Every non-identity column is still refreshed; only the filer is held.
+    assert row.description == "Retyped by a second host."
+
+
+def test_list_filed_by_returns_only_that_hosts_requests(
+    session: Session,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    filer_id: uuid.UUID,
+    second_filer_id: uuid.UUID,
+) -> None:
+    """The whole point of the new query: one host's filings, not the unit's queue."""
+    repository = SpeakerRequestRepository()
+    mine = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
+    theirs = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(title="A Different Panel"),
+        filed_by_user_id=second_filer_id,
+    )
+    session.commit()
+
+    assert [
+        row.event_id
+        for row in repository.list_filed_by(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            filed_by_user_id=filer_id,
+            limit=10,
+        )
+    ] == [mine.event_id]
+    assert [
+        row.event_id
+        for row in repository.list_filed_by(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            filed_by_user_id=second_filer_id,
+            limit=10,
+        )
+    ] == [theirs.event_id]
+    # The queue is unchanged and still holds both — the two reads are two
+    # operations, and this is what says the narrower one did not replace it.
+    assert (
+        len(
+            repository.list_for_unit(
+                session, tenant_id=tenant_id, host_org_unit_id=unit_id, limit=10
+            )
+        )
+        == 2
+    )
+
+
+def test_list_filed_by_is_scoped_to_its_unit_and_tenant(
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
+) -> None:
+    """Both scopes are predicates in the query, not filters applied afterwards."""
+    other_unit = uuid.uuid4()
+    session.execute(
+        text(
+            "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+            "VALUES (:id, :tid, CAST('iawest.otherhost' AS ltree), 'department', 'Other')"
+        ),
+        {"id": other_unit, "tid": tenant_id},
+    )
+    repository = SpeakerRequestRepository()
+    repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
+    session.commit()
+
+    assert (
+        repository.list_filed_by(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=other_unit,
+            filed_by_user_id=filer_id,
+            limit=10,
+        )
+        == ()
+    )
+    assert (
+        repository.list_filed_by(
+            session,
+            tenant_id=uuid.uuid4(),
+            host_org_unit_id=unit_id,
+            filed_by_user_id=filer_id,
+            limit=10,
+        )
+        == ()
+    )
+
+
+def test_a_request_with_no_recorded_filer_is_listed_by_nobody(
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
+) -> None:
+    """The pre-``0033`` case, and the one that guards the leak.
+
+    A request filed before the filer was recorded has ``filed_by_user_id NULL``, which
+    means *unknown filer* and never *this caller*. Treating NULL as the caller — or
+    falling back to ``host_org_unit_id`` when the filer is unknown — would republish
+    the queue through the narrow route. Written by inserting the row directly, because
+    the writer has no parameter that could produce one.
+    """
+    session.execute(
+        text(
+            "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+            "                   on_date, time_zone, time_precision, resolved_date, origin) "
+            "VALUES (:id, :tid, :uid, :title, :norm, :on_date, :zone, 'date_only', "
+            "        :on_date, 'coordinator_entry')"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tid": tenant_id,
+            "uid": unit_id,
+            "title": "Filed Before Anybody Recorded Who",
+            "norm": "filed before anybody recorded who",
+            "on_date": ON_DATE,
+            "zone": ZONE,
+        },
+    )
+    session.commit()
+
+    assert (
+        SpeakerRequestRepository().list_filed_by(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            filed_by_user_id=filer_id,
+            limit=10,
+        )
+        == ()
+    )
+
+
+def test_list_filed_by_never_returns_an_extracted_event(
+    session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, filer_id: uuid.UUID
+) -> None:
+    """``origin = 'coordinator_entry'`` binds the narrow read exactly as it binds the queue.
+
+    Belt and braces against the database's own refusal: ``ck_event_filed_by_manual_origin``
+    already forbids a filer on an extracted row, so such a row can only ever carry NULL —
+    and this asserts the query excludes it on origin rather than relying on that.
+    """
+    repository = SpeakerRequestRepository()
+    filed = repository.file(
+        session,
+        tenant_id=tenant_id,
+        host_org_unit_id=unit_id,
+        draft=_draft(),
+        filed_by_user_id=filer_id,
+    )
+    session.execute(
+        text(
+            "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+            "                   on_date, time_zone, time_precision, resolved_date, origin, "
+            "                   source_url, fetched_at, extractor_version) "
+            "VALUES (:id, :tid, :uid, :title, :norm, :on_date, :zone, 'date_only', :on_date, "
+            "        'extraction', :url, now(), 'test-1')"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tid": tenant_id,
+            "uid": unit_id,
+            "title": "Crawled Career Fair",
+            "norm": "crawled career fair",
+            "on_date": ON_DATE,
+            "zone": ZONE,
+            "url": "https://example.invalid/events/career-fair",
+        },
+    )
+    session.commit()
+
+    assert [
+        row.event_id
+        for row in repository.list_filed_by(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            filed_by_user_id=filer_id,
+            limit=10,
+        )
+    ] == [filed.event_id]

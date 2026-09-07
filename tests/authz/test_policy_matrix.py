@@ -1233,9 +1233,10 @@ OPERATIONS: tuple[Operation, ...] = (
     # deny-by-default the absence of a permit is a denial rather than an
     # invitation to guess, so ``volunteer`` is **not** in the read set even
     # though it is in the write set: no committed artifact says an Event Host
-    # may read the other hosts' requests filed under the same unit, and the
-    # create response hands a host back its own request without needing the
-    # queue (OQ-CBA-014). That asymmetry is exactly why the two operations do
+    # may read the other hosts' requests filed under the same unit. A host's
+    # own filings are a different question, and it now has an answer — see
+    # ``speaker_request.list_own`` below, which is OQ-CBA-014 closed by adding
+    # a query rather than by widening this set. That asymmetry is exactly why the two operations do
     # not share an authorizer — one helper taking the role set as an argument
     # would make one call site the place both are widened from, which is the
     # rule ``tests/authz/test_route_roles.py`` states in its own words.
@@ -1268,6 +1269,32 @@ OPERATIONS: tuple[Operation, ...] = (
         roles_constant="_SPEAKER_REQUEST_READ_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    # ``speaker_request.list_own`` is OQ-CBA-014's answer, closed 7 September
+    # 2026 by Danny Tran, program owner of record. The register's own words
+    # asked for exactly this shape — "a host-scoped read is a different query,
+    # not a wider permit" — so the queue's role set above is **unchanged** and
+    # this is a third operation with a third authorizer and a third role
+    # constant. ``volunteer`` alone: ``admin`` and ``coordinator`` already hold
+    # the queue, which is strictly wider, and a coordinator who filed a request
+    # sees it there. Adding them here would be a second way to reach a row they
+    # can already reach, and the day the queue narrowed this one would silently
+    # keep it open.
+    #
+    # The rows it returns are filtered on ``principal.user_id`` and on nothing a
+    # caller supplies; ``evaluate`` cannot express that, so
+    # ``tests/contract/test_speaker_requests_api.py`` asserts it.
+    Operation(
+        key="speaker_request.list_own",
+        method="GET",
+        path="/v1/units/{unit_id}/host/speaker-requests",
+        module="smartmatch_api.routers.speaker_requests",
+        authorizer="_authorize_speaker_request_own_read",
+        roles_constant="_SPEAKER_REQUEST_OWN_READ_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
         resource_type="org_unit",
         unit_scoped=True,
     ),
@@ -4825,8 +4852,7 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "volunteer_at_owning_unit": permit(
             why=(
-                "the cell this whole card exists for, and the only permit any "
-                "`volunteer` shape has in this file. Customer §4 maps the "
+                "the cell this whole card exists for. Customer §4 maps the "
                 "stored `volunteer` role onto the **Event Host** persona and "
                 "§12 makes the Event Host the person who creates a Speaker "
                 "Request. The permit is not the whole rule the route enforces: "
@@ -4834,7 +4860,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "resolved date (ADR-0010 rule 2) and to the virtual/location "
                 "exclusion, and those are facts about a payload rather than "
                 "about a principal, so `evaluate` cannot express them and "
-                "`tests/contract/test_speaker_requests_api.py` asserts them"
+                "`tests/contract/test_speaker_requests_api.py` asserts them. "
+                "It is no longer the *only* `volunteer` permit in this file: "
+                "`speaker_request.list_own` below carries the second, and the "
+                "two together are the whole of what an Event Host may do"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
@@ -4909,15 +4938,122 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "request; §13 names only the Speaker Connector as the reader "
                 "of the queue, and reading it would hand one host every other "
                 "host's request under the same unit. Under deny-by-default the "
-                "narrower reading is the only one available — OQ-CBA-014 is "
-                "where the question of a host reading back their own requests "
-                "is recorded rather than answered here"
+                "narrower reading is the only one available. OQ-CBA-014 asked "
+                "whether a host may read back their **own** requests and was "
+                "closed 7 September 2026 by adding `speaker_request.list_own` "
+                "below — a different query with a different authorizer, which "
+                "is what the register asked for. This cell is unchanged by "
+                "that closure and must stay a deny: the answer was a narrower "
+                "route, not a wider permit here"
             ),
         ),
         "member_with_no_memberships": deny("no_grant"),
         "resource_grant_only": deny(
             "resource_grant_lacks_required_role",
             why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    # The host-scoped read, OQ-CBA-014's closure. Compare it against
+    # ``speaker_request.list`` directly above: the two differ in **three**
+    # cells — ``volunteer_at_owning_unit`` flips to a permit, and
+    # ``coordinator_at_owning_unit`` and ``admin_at_org_root`` flip to denies.
+    # That inversion is the decision. The queue and the host list are not a
+    # wider and a narrower version of one read; they are two reads that answer
+    # two questions, and neither principal set is a subset of the other.
+    #
+    # What ``evaluate`` cannot see, and what therefore has to be said here: a
+    # permit on this operation does **not** convey the unit's requests. The
+    # route filters on ``filed_by_user_id == principal.user_id``, so a
+    # permitted volunteer with no filings reads an empty list, and a request
+    # filed before migration ``0033`` — whose filer is NULL, meaning *unknown*
+    # — is listed by nobody at all. The contract test owns both.
+    "speaker_request.list_own": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "the one place in this file where an admin grant at the root "
+                "does **not** carry a unit-scoped read, and it is deliberate. "
+                "`admin` is not in `_SPEAKER_REQUEST_OWN_READ_ROLES` because "
+                "the queue is strictly wider and already theirs: this route "
+                "would tell them only which of the unit's requests they "
+                "personally typed, which `speaker_request.list` already shows "
+                "them alongside every other. A second door onto rows already "
+                "reachable is a second thing to narrow the day the first one "
+                "narrows"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the same reason, and the cell a reviewer should read first. "
+                "Customer §13 gives the Speaker Connector the queue; a "
+                "coordinator who filed a request sees it there, so refusing "
+                "them here costs them nothing and keeps this route about the "
+                "Event Host persona §12 names. `evaluate` refuses on the "
+                "required-roles check — the membership is active at exactly "
+                "the owning unit, so the role is the only thing left"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role and wrong path; either alone would refuse it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong path. No `tenant_wide_roles` here for "
+                "the reason the create row gives, and a host's own filings "
+                "are the least tenant-wide thing on this surface"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, "
+                "calendar and feedback — not the asking, and therefore not "
+                "the reading back of an asking. The membership is active at "
+                "the owning unit, so the role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the cell OQ-CBA-014's closure exists for, and the second "
+                "permit a `volunteer` shape holds in this file. §4 maps the "
+                "stored `volunteer` role onto the **Event Host** persona; §12 "
+                "makes that person the one who files a request; and a host "
+                "who filed one may read back what they filed. The permit is "
+                "the smaller half of the rule: it says this principal may "
+                "*call* the route, and the route then returns the rows whose "
+                "`filed_by_user_id` is this principal's own id and no others. "
+                "Nothing from the request selects whose rows come back — "
+                "there is no `?host_id=`, and there must never be one"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
         ),
         "admin_with_explicit_deny": deny(
             "explicit_resource_deny",
