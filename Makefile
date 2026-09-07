@@ -177,6 +177,17 @@ openapi-check: ## Fail if the committed OpenAPI document is stale
 	PYTHONPATH="$(DOMAIN_PATH):services/api" $(PY) tools/export_openapi.py \
 		contracts/openapi/smartmatch.json --check
 
+# A build-time step, and the only place this repository reaches the network for
+# geographic data (OQ-CBA-024). Nothing on a request path resolves a
+# coordinate; the committed module is the whole of the lookup.
+.PHONY: zcta-centroids
+zcta-centroids: ## Regenerate the CA ZCTA centroid table from the Census Gazetteer
+	$(PY) tools/generate_zcta_centroids.py
+
+.PHONY: zcta-centroids-check
+zcta-centroids-check: ## Fail if the committed CA ZCTA centroid table is stale
+	$(PY) tools/generate_zcta_centroids.py --check
+
 # ---------------------------------------------------------------------------
 # Local run — fixtures only, never a live provider
 # ---------------------------------------------------------------------------
