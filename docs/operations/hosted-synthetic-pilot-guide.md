@@ -224,12 +224,21 @@ expiry, no revocation — and the API refuses to boot with them set under any
 edition but `dev`. The accounts sit on `@example.invalid` addresses, which
 resolve nowhere.
 
-The Event Host portal is the honest exception: the `volunteer` role carries one
-write (file a Speaker Request) and **no reads at all**, because the request
-queue is granted to the Speaker Connector and holds every host's request text
-for the unit. Whether a host may list back their own requests is open question
-**OQ-CBA-014** — until it is answered, that portal can be entered and used to
-file, and has nothing to display afterwards.
+The Event Host portal carries two API surfaces and no more: the `volunteer` role
+may file a Speaker Request (`POST /v1/units/{unit_id}/speaker-requests`) and may
+list back **the requests that host filed**
+(`GET /v1/units/{unit_id}/host/speaker-requests`). That second route is
+**OQ-CBA-014**, closed 7 September 2026 by adding a narrower query rather than a
+wider permit. The Connector's queue at `GET /v1/units/{unit_id}/speaker-requests`
+is unchanged and still refuses a host: it holds every host's request text for the
+unit, and one host reading it would learn what the others asked for.
+
+Two things a demo should expect. A host sees only their own filings, so a second
+Event Host account signed into the same unit sees a different list rather than
+the same one. And **a request filed before migration `0033` is listed by
+nobody**: `event.filed_by_user_id` is NULL on those rows, NULL means the filer is
+unknown, and nothing was backfilled — so on an appliance whose database predates
+it, expect the host's list to be empty until they file something new.
 
 The owner-supplied `/login` passwords (`SMARTMATCH_PILOT_*_EMAIL` /
 `_PASSWORD`, seeded by `seed-logins`) are a separate mechanism and are not in

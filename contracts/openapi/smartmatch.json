@@ -8089,6 +8089,136 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/host/speaker-requests": {
+      "get": {
+        "description": "Return the requests **this caller** filed under this unit, soonest first.\n\n**OQ-CBA-014**, closed 7 September 2026 by Danny Tran, program owner of\nrecord. The register asked whether an Event Host may list back the requests\nthey filed and pre-refused the shortcut in its own words: \"do not widen the\nlist role set as a shortcut; a host-scoped read is a different query, not a\nwider permit\". This is that different query. The queue \u2014\n:func:`list_speaker_requests` \u2014 is untouched and still ``{admin,\ncoordinator}``; it holds every host's request text for the unit, and handing\none host the others' filings is what the narrower reading exists to prevent.\n\nThe only predicate on identity is ``filed_by_user_id == principal.user_id``.\nThere is deliberately no ``?host_id=`` parameter and no body: an id a caller\nsupplies is caller-selected identity (MM-A01), and it would be convenient in\nexactly the way that defect always is. Nothing in the request selects whose\nrows come back.\n\n**A request filed before migration ``0033`` is listed by nobody**, including\nthe host who filed it. Its ``filed_by_user_id`` is NULL, NULL means the filer\nis unknown, and unknown is not this caller \u2014 reading it as the caller, or\nfalling back to the host unit when the filer is unknown, would republish the\nwhole queue through this route. Nothing was backfilled, for the reason\n``0033``'s docstring gives: an inferred filer is indistinguishable from a\nrecorded one (ADR-0011 rule 1).\n\n**Nothing here reflects an invitation.** OQ-CBA-042 decided that an Event\nHost does not learn who declined, by any route, and that decision binds this\none. The enforcement is structural rather than a filter somebody has to\nremember: this renders ``SpeakerRequestRow`` through the same :func:`_view`\nthe queue uses, and that row carries no invitation, batch, count or response\nfield to withhold in the first place. A wider row type is the change that\nwould break it.\n\nWhat a host reads here is what :func:`create_speaker_request` already handed\nthem when they filed: title, description, time, virtual flag, location,\nindustries, roles, ``publication_status``, ``review_status`` and the two\ntimestamps. No field is new. What is new is the *list* \u2014 that these requests\nare theirs \u2014 which is the whole of what this route discloses.\n\nCharges :data:`SPEAKER_REQUEST_READ_RATE_LIMIT`: a read is a read, and a\nsecond counter would be a number nobody asked for. Quota first, then\nauthorization, then any row (ADR-0015). Reads ``MAX_ROWS + 1`` so\n``truncated`` is answered by the same query rather than by a second count\nwhose filters could drift from this one's.\n\nRaises:\n    ApiError: 403 when the caller is not an Event Host in this unit \u2014 a\n        coordinator included, since they hold the wider queue; 404 when the\n        unit is not this tenant's; 429 when the minute's quota is spent.",
+        "operationId": "list_own_speaker_requests_v1_units__unit_id__host_speaker_requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRequestListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the Speaker Requests this Event Host filed",
+        "tags": [
+          "speaker-requests"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/imports": {
       "post": {
         "description": "Accept an import command.\n\nReturns ``202``, not ``200``: nothing has been imported when this returns.\nThe command is recorded and will be dispatched; the job is where the outcome\nlives. Saying ``200`` here would be reporting success for work that has not\nstarted (v1.1 \u00a73.6 N2).\n\nAuthorization runs against the *owning unit*, after loading it \u2014 which is\nwhy it happens here rather than in a dependency. A dependency cannot\nauthorize a resource it has not fetched.\n\nQuota is charged before any of that (ADR-0015), so a caller producing 404s\nagainst unit ids they invented, or 403s against a unit they may not import\ninto, is spending exactly what a caller submitting real imports spends. It\nused to be charged inside ``submit_command``, which is past all three\nrefusals \u2014 those requests were free, and they are the cheapest of all the\nrefusals to produce in bulk.",
