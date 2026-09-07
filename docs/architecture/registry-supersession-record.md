@@ -138,7 +138,7 @@ customer §9 has a stated policy about.
 |---|---|
 | OQ-CBA-024 | How a city/ZIP becomes a coordinate. Owner steer is a static offline ZIP-centroid table; not built, because the goldens supply distances directly. Blocks OQ-CBA-031. |
 | OQ-CBA-025 | *Deletion* of the retired factors. Coexist is implemented; retirement still waits on no pinned run referencing them. |
-| ~~OQ-CBA-028~~ | **Closed 6 September 2026.** `scoring_mode` and `scoring_mode_version` are nullable columns on `match_run` as of migration `0032`, with a partial CHECK over ADR-0016's closed vocabulary and a backfill from the stored explanation payload. A pre-ADR-0016 run stays NULL. Not exposed on the HTTP read response. |
+| ~~OQ-CBA-028~~ | **Closed 6 September 2026.** `scoring_mode` and `scoring_mode_version` are nullable columns on `match_run` as of migration `0032`, with a partial CHECK over ADR-0016's closed vocabulary. **No backfill:** one was written and declined, because reaching stored runs needs an UPDATE and `0018`'s `match_run_is_immutable` refuses every UPDATE. Every pre-`0032` run stays NULL, and the stored explanation payload remains its mode's system of record. Not exposed on the HTTP read response. |
 | OQ-CBA-031 | Migrating the HTTP surface to CBA evidence. A request-schema change, dependent on OQ-CBA-024. |
 
 ## Where the guarantees are asserted
