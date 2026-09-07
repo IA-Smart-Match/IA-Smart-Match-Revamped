@@ -1,7 +1,7 @@
 # SmartMatch Design Standard
 
 **Status: PARTIAL — Part 1 constraints settled; Part 2 open. Legacy engineering authorized; new product UI on hold.**
-**Owner: Danny Tran (@dangt) — assigned 2026-09-03 (legacy-only scope).**
+**Owner: Danny Tran (@BrooklynD23) — assigned 2026-09-03 (legacy-only scope).**
 
 **Scope (2026-09-03):** Legacy frontend (`apps/web/legacy-frontend`) work
 authorized for stakeholder synthetic pilot (metrics truthfulness, discovery

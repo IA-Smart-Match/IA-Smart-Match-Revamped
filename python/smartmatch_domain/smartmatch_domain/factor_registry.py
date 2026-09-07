@@ -142,7 +142,7 @@ REGISTRY_VERSION: Final[str] = "2.0.0-approved-oq-cba-004"
 #: spanning both registries (ADR-0016 Proposal 9).
 SUPERSEDED_REGISTRY_VERSION: Final[str] = "1.1.1-approved-g1-m6j"
 
-#: Approved 2026-09-05 by Danny Tran (@dangt) per
+#: Approved 2026-09-05 by Danny Tran (@BrooklynD23) per
 #: ``docs/architecture/decisions/ADR-0016-cba-scoring-policy.md``, which records
 #: all ten proposals approved as drafted with no amendments. The prior approval
 #: (2026-09-03, gate G1) stands for :data:`SUPERSEDED_REGISTRY_VERSION`.

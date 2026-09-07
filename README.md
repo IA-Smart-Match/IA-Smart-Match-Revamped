@@ -311,7 +311,7 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
 
 | Gate | Blocks | Owner | Status |
 |---|---|---|---|
-| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @dangt) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed |
+| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @BrooklynD23) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed |
 | G2 — privacy, records, data-owner approval for live records | R2 live student data | Privacy / legal / records | Open — deferred in synthetic pilot |
 | G3 — agent eval set, tool allowlist, cost controls | R3 live crawl | Engineering ADR + program owner | Open — R3 threat model signed; eval set not started |
 | G4 — consent-origin policy, recipient policy, deliverability | R4 outreach | Program owner + privacy/legal | **Engineering built against a closed-G4 assumption** (see the R4 plan's authorization basis). The gate owner has not signed; what shipped is fixture-only and cannot reach a real address |
