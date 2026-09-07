@@ -37,7 +37,9 @@ import pytest
 # network and are not secrets; see docker-compose.yml's header note.
 API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8080")
 API_BEARER = os.environ.get("API_BEARER", "compose-api")
-#: The other three portals' bearers, from the same compose anchors. One
+#: The other three portals' bearers, the same literals ``docker-compose.yml``
+#: puts in ``SMARTMATCH_DEV_PRINCIPALS`` (they carry no YAML anchor of their
+#: own, because nothing in that file aliases them). One
 #: principal per portal, each holding a single membership carrying a single
 #: role, because a stakeholder click-through has to be able to enter every
 #: portal the product has and not only the Speaker Connector's.
