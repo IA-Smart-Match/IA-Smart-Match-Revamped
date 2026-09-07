@@ -126,12 +126,13 @@ x-compose-dev-identity:
   # (`smartmatch_domain.role_presentation`), and the bearer token below is
   # named for the persona; the row is not renamed, because authorization is
   # over storage and never over presentation.
+  #
   # The full SMARTMATCH_DEV_PRINCIPALS value: four tokens mapped to the four
-  # subjects above. Kept as a single anchored JSON scalar, rather than assembling it
-  # from separate token/subject anchors, because YAML anchors substitute
-  # whole scalar nodes and cannot be interpolated into a larger string — this
-  # anchor's token half must therefore be read alongside the smoke path in
-  # INSTALL.md, which documents the same literal value for the
+  # subjects above. Kept as a single anchored JSON scalar, rather than
+  # assembling it from separate token/subject anchors, because YAML anchors
+  # substitute whole scalar nodes and cannot be interpolated into a larger
+  # string — this anchor's token halves must therefore be read alongside the
+  # smoke path in INSTALL.md, which documents the same literal values for the
   # `Authorization: Bearer` header.
   #
   # All the values below are deliberately SHORT — under the sixteen
@@ -164,22 +165,20 @@ x-compose-dev-identity:
   # fine, and `scripts/compose_smoke.sh` asserts the seeded queue in CI.
   # Allowlisted by name in `.gitleaks.toml` for exactly this reason.
   api_dev_bearer_token: &compose_api_dev_bearer_token "compose-api"
-  # The other three tokens, restated on their own for the same reason and under
-  # the same discipline: a bare `Authorization: Bearer` value is what a
-  # stakeholder pastes into a curl line and what `tests/e2e` sends, and a YAML
-  # anchor cannot be interpolated into the JSON map above. INSTALL.md's
-  # "Entering every portal" section documents these same four literals, and the
-  # unit test named at the top of this block is what keeps the map and these
-  # from drifting apart.
+  # The other three portals' tokens are `compose-student`, `compose-host` and
+  # `compose-admin`, and they get no anchor here for the reason their subjects
+  # get none: nothing in this file aliases them. `compose-api` is restated
+  # above because two services genuinely consume it as a bare header value;
+  # these three are consumed by a person pasting a curl line (INSTALL.md's
+  # "Enter every portal type") and by `tests/e2e/conftest.py`, neither of which
+  # can read a YAML anchor. `tests/unit/test_compose_dev_principals.py` is what
+  # keeps them and the map above from drifting apart.
   #
   # `compose-host` rather than `compose-volunteer`, deliberately: seventeen
   # characters would cross the sixteen `tools/scan_forbidden.py` uses as its
   # "shaped like a real secret" threshold. Choosing a shorter honest name is
   # allowed; reshaping the text around the gate is not — see the note above,
   # which says the same thing about the key.
-  api_dev_student_bearer_token: &compose_api_dev_student_bearer_token "compose-student"
-  api_dev_host_bearer_token: &compose_api_dev_host_bearer_token "compose-host"
-  api_dev_admin_bearer_token: &compose_api_dev_admin_bearer_token "compose-admin"
   worker_task_bearer_token: &compose_worker_task_bearer_token "compose-task"
   # Deliberately a different value from the task token above: a caller holding
   # one must not be able to use the other. The worker refuses to start if they
