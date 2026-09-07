@@ -80,6 +80,11 @@ const CoordinatorInvitations = lazy(() =>
     default: m.CoordinatorInvitations,
   })),
 );
+const CoordinatorMatchingWeights = lazy(() =>
+  import("./pages/coordinator/CoordinatorMatchingWeights").then((m) => ({
+    default: m.CoordinatorMatchingWeights,
+  })),
+);
 const CoordinatorSpeakerContacts = lazy(() =>
   import("./pages/coordinator/CoordinatorSpeakerContacts").then((m) => ({
     default: m.CoordinatorSpeakerContacts,
@@ -235,6 +240,15 @@ export const router = createBrowserRouter([
       // and with the consent check repeated at dispatch and again at delivery —
       // whatever this router renders.
       { path: "invitations", element: withSuspense(<CoordinatorInvitations />) },
+      // §5's "one configurable location" for the four-factor weighting, and the
+      // panel `cba-phase-deferred.md` deferred in writing. Mounted
+      // unconditionally for the reason the routes above are: a route is a claim
+      // about what exists rather than a permission, and both
+      // `GET`/`PATCH /v1/units/{unit_id}/matching-weights` are authorized
+      // server-side per request — `admin`/`coordinator`, deny-by-default,
+      // tenant-scoped — whatever this router renders. The page shows the
+      // server's refusal rather than hiding the control.
+      { path: "matching-weights", element: withSuspense(<CoordinatorMatchingWeights />) },
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },

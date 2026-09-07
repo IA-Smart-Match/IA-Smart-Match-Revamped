@@ -3938,3 +3938,108 @@ export async function fetchSpeakerFeedbackSummary(
     { authenticated: true },
   );
 }
+
+
+/**
+ * What one scoring mode would actually score with, right now.
+ *
+ * Derived server-side on every read from the factor registry plus this unit's
+ * overrides, and — this is the part a client must not undo — **never stored**.
+ * `weights` is already normalized over the mode's factors. A browser that
+ * renormalized it, rounded it, or totalled it would be publishing a second
+ * opinion about a number the server already settled.
+ */
+export interface ScoringModeWeights {
+  scoring_mode: string;
+  registry_version: string;
+  /** Factor key to effective weight, as the server computed it for this response. */
+  weights: Record<string, number>;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/matching-weights` — one unit's weight configuration.
+ *
+ * Two fields are easy to confuse and must not be. `overrides` is what this unit
+ * has deliberately stored, and a factor absent from it has **no stored weight
+ * anywhere**; `modes` is what a run would score with today. A panel renders the
+ * first as "not set" rather than filling in what it guesses the registry says —
+ * a printed default is a second copy of the registry that keeps showing
+ * yesterday's figure after ADR-0016 revises it.
+ *
+ * `version` is null for a unit that has never configured anything. Echo whatever
+ * it is back as {@link MatchingWeightsUpdatePayload.expected_version}.
+ *
+ * `ignored_factor_keys` holds stored keys no current registry model admits. The
+ * server reports them instead of dropping them; so must anything rendering this.
+ */
+export interface MatchingWeights {
+  unit_id: string;
+  registry_version: string;
+  configurable_factors: string[];
+  overrides: Record<string, number>;
+  modes: ScoringModeWeights[];
+  version: number | null;
+  updated_by_user_id: string | null;
+  updated_at: string | null;
+  ignored_factor_keys: string[];
+}
+
+/**
+ * A proposed weighting for one unit.
+ *
+ * `overrides` is the **complete** override set after the change, not a patch of
+ * a patch: `{}` returns the unit to the registry's weights, and omitting a
+ * factor that was previously overridden clears that override.
+ *
+ * `expected_version` is the version a prior read returned. Sending it is what
+ * turns a concurrent edit into a `409 matching_weights_stale` instead of a
+ * silent overwrite of somebody else's save; omitting it is last-write-wins.
+ */
+export interface MatchingWeightsUpdatePayload {
+  overrides: Record<string, number>;
+  expected_version?: number | null;
+}
+
+/**
+ * Read a unit's matching weights and the version they are at.
+ *
+ * `admin` and `coordinator` only, authorized per request against the loaded
+ * unit — a UI that renders a panel grants nothing. A caller the server refuses
+ * gets {@link ApiRequestError} with status `403`, which is an answer to render
+ * rather than a state to hide.
+ */
+export async function fetchMatchingWeights(unitId: string): Promise<MatchingWeights> {
+  return requestJson<MatchingWeights>(
+    `/v1/units/${encodeURIComponent(unitId)}/matching-weights`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/matching-weights` — change what the next run scores with.
+ *
+ * Nothing is normalized, clamped or dropped on the way through, here or on the
+ * server: an inadmissible proposal comes back as {@link ApiRequestError} with
+ * status `422` and code `invalid_matching_weights`, whose message names every
+ * offending field at once. A stale `expected_version` comes back as `409` with
+ * code `matching_weights_stale` — a conflict a person resolves by re-reading,
+ * never a retry a client performs on their behalf.
+ *
+ * The response is the stored configuration read back, including its new
+ * `version`. It is the only thing a caller may show as saved.
+ *
+ * This changes no recorded match run. A `match_run` row carries the weights it
+ * was scored with and is immutable; a new weighting applies to the next run
+ * submitted and re-runs nothing.
+ */
+export async function updateMatchingWeights(
+  unitId: string,
+  payload: MatchingWeightsUpdatePayload,
+): Promise<MatchingWeights> {
+  return requestJson<MatchingWeights>(
+    `/v1/units/${encodeURIComponent(unitId)}/matching-weights`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}

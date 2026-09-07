@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   ClipboardList,
+  UserCheck,
   UserCircle,
   Briefcase,
   Menu,
@@ -17,9 +18,14 @@ import { principalDisplayName, principalInitials } from "../../lib/principal";
 
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
-  // Customer §12: the Event Host's own capability, and the only page in this
-  // shell backed by a `/v1` route rather than by the absent legacy portal API.
+  // Customer §12: the Event Host's own capability, backed by a `/v1` route
+  // rather than by the absent legacy portal API — as is the page below it.
   { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
+  // Customer §6 step 9: the other end of the intake above, so it sits beside
+  // it. `GET .../cba/confirmed-speakers` and the hand-off `POST` are
+  // `admin`/`coordinator` server-side whatever this shell renders — the page
+  // shows the refusal as an answer rather than hiding the control.
+  { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
   { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
   { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
