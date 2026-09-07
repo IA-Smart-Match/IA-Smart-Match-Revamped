@@ -351,7 +351,9 @@ class MatchRunAcceptedResponse(BaseModel):
         description=(
             "The model within that registry the pool was scored under, resolved "
             "from the Speaker Request's virtual/physical switch and never from "
-            "this body. Today always cba-virtual-1 — see the physical refusal."
+            "this body. cba-virtual-1 for a virtual request, cba-physical-1 for "
+            "a physical one — both are reachable, because OQ-CBA-024's offline "
+            "ZIP-centroid table retired the physical refusal."
         )
     )
     scoring_mode_version: str = Field(
