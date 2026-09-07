@@ -2035,3 +2035,193 @@ def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
         f"  {nicknames[accepted_id]} accepted through their own link; "
         f"{[nicknames[pid] for pid in declined_ids]} declined"
     )
+
+
+#: Substrings that must not appear anywhere in the Event Host's hand-off — not
+#: as a key, not as a value. OQ-CBA-042 takes the narrow reading: an Event Host
+#: learns who accepted and is told nothing whatever about who did not.
+#:
+#: ``member_inquiry`` rides along because ``Capability.MEMBER_INQUIRY_NARRATIVE``
+#: is false under the CBA scope and ``ConfirmedSpeakerView`` carries no field for
+#: it — a structural absence worth pinning on the wire, since a filter applied
+#: only at the edge would pass every other assertion here.
+_FORBIDDEN_ON_THE_HANDOFF: tuple[str, ...] = (
+    "declin",
+    "member_inquiry",
+    "skipped",
+    "invited_count",
+    "batch",
+    "total",
+    "_count",
+)
+
+
+def _handoff_leaks(payload: Any, path: str = "") -> list[str]:
+    """Every place a hand-off payload names something an Event Host may not see.
+
+    Walks keys *and* string values, because the two failure modes differ: a
+    ``declined_count`` field is a schema that leaked, while a ``current_stage``
+    of ``declined_invitation`` is a value that leaked through an honest field.
+    Both are the same disclosure to the person reading the screen.
+    """
+    leaks: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            here = f"{path}.{key}" if path else key
+            for forbidden in _FORBIDDEN_ON_THE_HANDOFF:
+                if forbidden in key.lower():
+                    leaks.append(f"key {here!r}")
+            leaks.extend(_handoff_leaks(value, here))
+    elif isinstance(payload, list):
+        for index, item in enumerate(payload):
+            leaks.extend(_handoff_leaks(item, f"{path}[{index}]"))
+    elif isinstance(payload, str):
+        for forbidden in _FORBIDDEN_ON_THE_HANDOFF:
+            if forbidden in payload.lower():
+                leaks.append(f"value at {path!r}: {payload!r}")
+    return leaks
+
+
+def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The accepted speaker reaches the Event Host. The ones who said no do not.
+
+    The reconciliation writes no stage a request asserted: the body names an
+    invitation and nothing else, and ``matched``, ``contacted`` and ``confirmed``
+    are read out of that invitation's own ``created_at``, ``dispatched_at`` and
+    ``response_recorded_at``. There is no ``stage`` field to toggle and no
+    ``reached_at`` to backdate, so this step proves the funnel is derived from
+    stored evidence rather than typed beside it.
+
+    That the evidence is what matters is asserted from the other side too: a
+    hand-off naming a **declined** invitation is refused ``409
+    cba_invitation_not_accepted``. Confirmed is supplied by the Speaker's own
+    answer, so an invitation carrying the wrong answer has nothing to hand
+    anybody — and a route that accepted it would be manufacturing a confirmation
+    out of a refusal.
+
+    **The OQ-CBA-042 property, pinned here and not only in the unit tests.**
+    The narrow reading was taken deliberately: an Event Host learning that named
+    professionals declined them is a fact about those people's availability and
+    willingness that nobody agreed to share. So ``/cba/confirmed-speakers`` is
+    checked for three separate disclosures, each of which a plausible convenience
+    would introduce:
+
+    * the declining speakers themselves, by id — asserted absent;
+    * any **word** for a decline, anywhere in the payload, as a key or a value —
+      which is what would appear if a status field were widened to carry the
+      whole invitation vocabulary;
+    * any **count or total**, which is the subtler leak. "One confirmed of
+      three invited" discloses that two people said no without naming either,
+      and a batch size is not the Host's fact to have. The surface reports which
+      speakers, and no arithmetic about the ones it is not reporting.
+
+    A repeat is a ``200`` with an empty ``applied`` and an unchanged speaker:
+    "they are confirmed" and "this request confirmed them" stay separable.
+    """
+    if flow.unit_id is None or not _INVITATION_STATE.get("accepted_invitation_id"):
+        pytest.skip("step 23 did not record an accepted invitation to hand off")
+
+    event_id = _seed_match_fixtures(flow.unit_id)["event_id"]
+    accepted_professional_id = _INVITATION_STATE["accepted_professional_id"]
+    nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": _INVITATION_STATE["accepted_invitation_id"]},
+    )
+    assert response.status_code == 200, (
+        f"reconciling the accepted invitation returned {response.status_code}, "
+        f"expected 200: {response.text[:400]}"
+    )
+    handoff = json_body(response)
+
+    assert handoff["applied"] == ["matched", "contacted", "confirmed"], (
+        f"the reconciliation applied {handoff['applied']}, not the three stages "
+        "the invitation evidences: created (matched), dispatched (contacted), "
+        "answered (confirmed)"
+    )
+    speaker = handoff["speaker"]
+    assert speaker["professional_id"] == accepted_professional_id, (
+        f"the hand-off returned {speaker['professional_id']}, not the speaker "
+        f"who accepted ({accepted_professional_id})"
+    )
+    assert speaker["current_stage"] == "confirmed", (
+        f"the speaker reads back at stage {speaker['current_stage']!r}"
+    )
+    assert speaker["confirmed_at"], "a confirmed speaker carries no confirmed_at"
+    assert speaker["attended_at"] is None and speaker["attendance_id"] is None, (
+        "the hand-off cited no attendance record, so Attended must stay unwritten: "
+        f"attended_at={speaker['attended_at']!r} attendance_id={speaker['attendance_id']!r}"
+    )
+
+    # A repeat writes nothing and says so, rather than replaying the stages.
+    repeated = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": _INVITATION_STATE["accepted_invitation_id"]},
+    )
+    assert repeated.status_code == 200, (
+        f"re-running the hand-off returned {repeated.status_code}: {repeated.text[:400]}"
+    )
+    assert json_body(repeated)["applied"] == [], (
+        "a repeated reconciliation reports stages it did not write: "
+        f"{json_body(repeated)['applied']}"
+    )
+
+    # The other side of the same rule: a decline evidences no confirmation.
+    declined_invitation_id = _INVITATION_STATE["declined_invitation_ids"][0]
+    refused = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": declined_invitation_id},
+    )
+    assert refused.status_code == 409, (
+        f"handing off a declined invitation returned {refused.status_code}, "
+        f"expected a 409 refusal: {refused.text[:400]}"
+    )
+    assert json_body(refused)["error"]["code"] == "cba_invitation_not_accepted", (
+        f"the refusal is coded {json_body(refused)['error']['code']!r}; without "
+        "that code a client cannot tell a decline from a missing invitation"
+    )
+
+    listed = json_body(
+        api.get(
+            f"/v1/units/{flow.unit_id}/cba/confirmed-speakers",
+            params={"event_id": event_id},
+        )
+    )
+    confirmed = {entry["professional_id"]: entry for entry in listed["speakers"]}
+
+    assert accepted_professional_id in confirmed, (
+        f"{nicknames[accepted_professional_id]} accepted and was reconciled, but "
+        f"the Event Host's confirmed-speakers list holds {sorted(confirmed)}"
+    )
+    assert confirmed[accepted_professional_id]["current_stage"] == "confirmed"
+    assert confirmed[accepted_professional_id]["event_id"] == event_id, (
+        "the confirmed speaker is filed against a different event than the one "
+        "the list was filtered to"
+    )
+
+    for declined_professional_id in _INVITATION_STATE["declined_professional_ids"]:
+        assert declined_professional_id not in confirmed, (
+            f"{nicknames[declined_professional_id]} declined this invitation and "
+            "still appears on the Event Host's confirmed-speaker surface "
+            "(OQ-CBA-042: the Host is handed the confirmed speaker and is told "
+            "nothing about the people who said no)"
+        )
+
+    for payload, surface in ((listed, "GET /cba/confirmed-speakers"), (handoff, "the hand-off")):
+        leaks = _handoff_leaks(payload)
+        assert not leaks, (
+            f"{surface} exposes a decline, a count of declines, or a batch total "
+            f"to the Event Host: {leaks}. OQ-CBA-042 takes the narrow reading — "
+            "even an unnamed arithmetic ('one of three') discloses that somebody "
+            "refused, and the batch tracking surface is the Speaker Connector's "
+            "by name and nobody else's"
+        )
+
+    print(
+        f"  the Event Host is handed {nicknames[accepted_professional_id]}; "
+        f"{len(_INVITATION_STATE['declined_professional_ids'])} decline(s) "
+        "disclosed nowhere on that surface"
+    )
