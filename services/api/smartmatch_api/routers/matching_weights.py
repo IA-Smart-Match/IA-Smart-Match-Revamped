@@ -66,8 +66,30 @@ yesterday reports yesterday's weights after a change made today, and
 rather than against a response.
 
 It also does not re-run anything. A new weighting applies to the next run
-submitted, and OQ-CBA-032 records the unanswered question of whether it should
-have to pass MM-005's shadow-evaluation gate first.
+submitted, and **OQ-CBA-032 is answered**: for the pilot there is no
+shadow-evaluation gate in front of this route, and none is faked.
+
+That answer narrows a ratified decision rather than filling a blank, which is
+worth stating where somebody reads this route.
+``docs/plans/workshops/g1-workshop-output-worksheet.md`` agenda item 4.2 --
+RATIFIED 2026-09-03 -- reads "Shadow-mode (MM-005) gates weight changes: Yes".
+But MM-005 in ``docs/migration/migration-manifest.yaml`` is
+``feedback/acceptance.py``, the *adaptive proposal* loop, whose shadow mode
+means a machine-proposed adjustment can never apply itself -- a control that is
+already satisfied and that has nothing to do with a coordinator editing a weight
+by hand through this route. The worksheet line conflates the two, and the
+manifest records MM-005's contract references as ``UNVERIFIABLE`` because v1.1
+Appendix B is not vendored here, so neither claim rests on text anybody in this
+repository has read.
+
+The compensating control is the audit trail, not an interlock: every change is
+versioned and attributed in ``match_weight_setting_revision`` (migration
+``0027``), that log is itself immutable, and no recorded run moves. Note the
+limit of the other half -- ``expected_version`` is **optional**, so a client
+that omits it gets last-write-wins and the 409 protects only a caller who sends
+one. The revision log records the change either way. The gate is revisited
+before a unit's weights are adjusted against a live cohort rather than a
+synthetic one; that trigger, not the gate, is what was written down.
 
 ## There is no frontend for this yet, on purpose
 
