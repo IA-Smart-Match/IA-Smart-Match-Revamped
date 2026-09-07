@@ -9,16 +9,28 @@
  * mode this whole plan exists to prevent is a matching page that looks like it
  * is working.
  *
- * ## What it deliberately does not do
+ * ## Where runs are submitted, and why not here
  *
- * There is no "run the matcher" form here. Submitting a run
- * (`POST /v1/units/{unit_id}/match-runs`) requires a candidate pool carrying
- * each professional's recorded expertise topics and coordinates, and this
- * legacy frontend has no authenticated, unit-scoped roster endpoint to
- * assemble one from. A form that asked a coordinator to type that roster in —
- * or, worse, that filled it from the legacy CSV surfaces — would be inventing
- * the evidence the score is computed from. So a run is submitted elsewhere
- * (API client, seed tooling) and this page reads the result.
+ * There is no "run the matcher" form on this page, and there is no longer any
+ * need for one: `pages/coordinator/CoordinatorMatchRuns.tsx` submits runs from
+ * the Connector portal, against a filed Speaker Request and a pool drawn from
+ * the unit's own §13 roster. That is the right home for it because the
+ * submission is a Connector's decision about their own contacts, and because
+ * the pool must be built from `professional_id`s the server returned rather
+ * than from anything a coordinator could type. A form here that asked for a
+ * roster — or, worse, filled one from the legacy CSV surfaces — would be
+ * inventing the evidence the score is computed from.
+ *
+ * This page stays a pure read: it renders whatever run its `?run=` names.
+ *
+ * ## ADR-0016's third factor state
+ *
+ * A factor value is `measured`, `policy_neutral`, or `unknown`. The middle one
+ * is a real number that a stated customer policy supplied, and it participates
+ * in the composite — so it renders as a number, attributed to the policy behind
+ * it, and never as "Unknown". Every factor row is driven by the registry's own
+ * `display_label`; this file names no CBA factor key, so a registry that gains
+ * a factor renders it without a frontend change.
  *
  * ## Three ratified presentation rules, and where each is enforced
  *
@@ -111,9 +123,26 @@ function ScoreValue({
   return <span className="tabular-nums text-gray-900">{formatScore(value)}</span>;
 }
 
-/** One factor, with its weight, its value or its absence, and its basis. */
+/**
+ * One factor, with its weight, its value or its absence, and its basis.
+ *
+ * Three states, not two. ADR-0016 added `policy_neutral` — a value a stated
+ * customer policy supplied rather than a measurement — and it is a real number
+ * that participates in the composite. A renderer that knew only `measured` and
+ * `unknown` would print "Unknown" beside it, which is the deflated-zero defect
+ * with the sign flipped: reporting an absence where a value exists. So the row
+ * shows the number and names the policy that produced it.
+ *
+ * The row is driven entirely by `display_label` and `factor_key` off the
+ * response. Nothing here knows the CBA vocabulary by name: a switch on the
+ * semantic-topic or industry factor keys would go stale the moment the registry
+ * gained a factor, and would render nothing at all for the one it had not been
+ * taught.
+ */
 function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
-  const measuredValue = factor.state === "measured" ? factor.value : null;
+  // Switched on `state`, never on `value === null` — the API sends the
+  // discriminator for exactly this reason (ADR-0011).
+  const shownValue = factor.state === "unknown" ? null : factor.value;
   return (
     <li className="flex flex-col gap-1 border-t border-[#eef2f9] py-2 first:border-t-0">
       <div className="flex items-baseline justify-between gap-3">
@@ -125,10 +154,10 @@ function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
           </span>
         </span>
         <span className="text-sm font-semibold">
-          {measuredValue === null ? (
+          {shownValue === null ? (
             <span className="text-gray-500">Unknown</span>
           ) : (
-            <span className="tabular-nums text-gray-900">{formatScore(measuredValue)}</span>
+            <span className="tabular-nums text-gray-900">{formatScore(shownValue)}</span>
           )}
         </span>
       </div>
@@ -136,6 +165,16 @@ function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
         {factor.basis}
         {factor.estimate_label ? ` — ${factor.estimate_label}` : ""}
       </p>
+      {factor.state === "policy_neutral" ? (
+        <p className="text-xs text-gray-500">
+          Stated customer policy, not a measurement
+          {factor.policy_id === null
+            ? ". The response named no policy id."
+            : ` (${factor.policy_id}${
+                factor.policy_version === null ? "" : ` ${factor.policy_version}`
+              }).`}
+        </p>
+      ) : null}
       {factor.zero_classification === "measured_zero" ? (
         <p className="text-xs text-gray-500">
           Measured zero: the evidence exists and the value really is zero.
@@ -180,9 +219,18 @@ function CandidateCard({
           </span>
         </p>
       </div>
+      {/* ADR-0016 Proposal 8: the approved caption is shown beside the score,
+          verbatim. Not paraphrased, not composed here, and not omitted — it is
+          the sentence the customer approved for this score, and a surface that
+          reworded it would be publishing a different claim. Rendered only when
+          the response carried one; there is no local default. */}
+      {candidate.caption ? (
+        <p className="mt-2 text-sm leading-6 text-gray-700">{candidate.caption}</p>
+      ) : null}
       <p className="mt-1 text-xs text-gray-500">
         Factor registry {candidate.registry_version || registryVersion} · formula{" "}
         {candidate.formula_version}
+        {candidate.scoring_mode ? ` · mode ${candidate.scoring_mode}` : ""}
       </p>
       <ul className="mt-3 list-none">
         {candidate.factors.map((factor) => (
