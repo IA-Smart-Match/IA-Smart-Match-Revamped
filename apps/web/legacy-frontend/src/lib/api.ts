@@ -4043,3 +4043,109 @@ export async function updateMatchingWeights(
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Pilot statistics for the Speaker Connector (TRACK 14)
+//
+// Two reads, both of which count server-side. That is the whole point of them:
+// the numbers a Connector's landing surface shows are numbers a query owns and
+// can be drilled into, not sums a browser produced from lists it happened to
+// have loaded (ADR-0011 rules 1 and 3).
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /v1/units/{unit_id}/metrics?surface=cba` — the register as CBA presents it.
+ *
+ * The same route {@link fetchUnitMetrics} calls, asked a different question.
+ * `surface` is a real query parameter and the **server** decides what `cba`
+ * means: `pipeline_member_inquiry` omitted, because
+ * `Capability.MEMBER_INQUIRY_NARRATIVE` is off under `ProductScope.CBA`, and
+ * the four funnel metrics relabelled for a surface whose subject is a speaker
+ * ("Speakers matched" rather than "Matched"). Asking for the default view and
+ * dropping the entry in the browser would be a second copy of that exclusion
+ * list, and the browser's copy is the one that goes stale after the register
+ * moves.
+ *
+ * Every `MetricSummary` it returns is measured or explicitly unknown, never
+ * both and never neither: `value` is `null` exactly when no evidence source
+ * exists, and `unknown_reason` says which. A caller that coerced that null to a
+ * zero would turn "we cannot answer" into "the answer is none" — the
+ * substitution ADR-0011 rule 1 exists to prevent — so read `value === null`
+ * first and render the reason.
+ *
+ * A measured `0` is a real answer and must render as one. "No `pipeline_record`
+ * rows exist for this unit" is what the funnel metrics currently measure
+ * everywhere, because no write path advances a funnel stage yet; that is a
+ * different claim from "no matching has happened", and nothing on either side
+ * of this call can tell the two apart.
+ *
+ * Aggregates are `admin`-tenant-wide and otherwise decided by subtree
+ * containment, per request against the loaded unit. A caller the server refuses
+ * gets {@link ApiRequestError} with status `403`, which is an answer to render
+ * rather than a state to hide.
+ */
+export async function fetchCbaUnitMetrics(unitId: string): Promise<MetricsResponse> {
+  return requestJson<MetricsResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/metrics?surface=cba`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * One unit's attendance evidence, counted. Never a roster.
+ *
+ * `total` is the sum of `by_method`, **folded server-side from the same counts
+ * this response carries**. It is a field rather than something a caller adds up
+ * for exactly the reason the route documents: a client-side total is a second
+ * calculation of a published number, and the two disagree the first time a
+ * method is added to `ck_attendance_record_method`.
+ *
+ * `by_method` always carries all three allowed mechanisms — `qr_scan`,
+ * `coordinator_entry`, `import` — and a mechanism with no rows is a measured
+ * `0`, not an absent key. `distinct_subjects` is a count and nothing more:
+ * there is no route that lists the accounts behind it while D8 is open, and
+ * this type has no field one could be put in.
+ *
+ * The two instants are `null` when nothing has been recorded, which is the one
+ * honest way to say "there is no earliest row".
+ */
+export interface AttendanceSummary {
+  unit_id: string;
+  /** Attendance rows recorded for this unit; the server's own fold of `by_method`. */
+  total: number;
+  /** Row count per allowed mechanism. All three keys are always present. */
+  by_method: Record<string, number>;
+  /** How many different accounts those rows belong to — a count, never a list. */
+  distinct_subjects: number;
+  /** How many different events those rows attest to. */
+  distinct_events: number;
+  /** When the earliest row was recorded, or `null` when there are none. */
+  first_recorded_at: string | null;
+  /** When the latest was recorded, or `null` when there are none. */
+  last_recorded_at: string | null;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/engagement/attendance-summary` — how much evidence
+ * this unit holds.
+ *
+ * A unit with nothing recorded answers `total: 0`, all three methods at `0`,
+ * and two null instants. That zero is *measured* — the query ran and found
+ * none — which is a different claim from "we did not look", and a surface that
+ * rendered the two the same way would be discarding the distinction the route
+ * was built to preserve.
+ *
+ * Authorization runs before any attendance row is read, against the unit the
+ * counts are scoped to. `admin` and `coordinator` only, with no tenant-wide
+ * widening: a caller the server refuses gets {@link ApiRequestError} with
+ * status `403`, and a unit in another tenant is a `404` rather than a `403`
+ * that would confirm the id names something real.
+ */
+export async function fetchAttendanceSummary(unitId: string): Promise<AttendanceSummary> {
+  return requestJson<AttendanceSummary>(
+    `/v1/units/${encodeURIComponent(unitId)}/engagement/attendance-summary`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}

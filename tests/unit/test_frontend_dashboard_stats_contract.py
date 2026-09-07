@@ -125,7 +125,7 @@ def test_api_lib_reads_attendance_evidence_as_the_server_counted_it() -> None:
     ):
         assert field in fields, f"AttendanceSummary is missing {field!r}"
 
-    for forbidden in ("subjects:", "attendees", "roster"):
+    for forbidden in ("subject_ids", "attendees", "roster", "[]"):
         assert forbidden not in fields, (
             f"AttendanceSummary carries {forbidden!r}; this response is counts only and "
             "returns no list of the accounts behind them while D8 is open"
