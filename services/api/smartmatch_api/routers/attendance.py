@@ -313,11 +313,16 @@ def _recorded_at(session: Session, *, attendance_id: uuid.UUID) -> datetime:
     carries a database default, and a second instant computed beside it would let
     the response disagree with the row the funnel reads.
     """
-    return session.execute(
+    value = session.execute(
         sa.select(schema.attendance_record.c.created_at).where(
             schema.attendance_record.c.id == attendance_id
         )
     ).scalar_one()
+    if not isinstance(value, datetime):
+        raise TypeError(
+            f"attendance_record.created_at read back as {type(value).__name__}, not datetime"
+        )
+    return value
 
 
 def _existing_credit(
