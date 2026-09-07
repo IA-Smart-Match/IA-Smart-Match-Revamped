@@ -347,11 +347,16 @@ def test_the_optional_pilot_login_seed_is_reported_but_never_required() -> None:
     assert "seed-logins" in _powershell_array(powershell_source, "script:ComposeServices")
 
     # ...and required by neither, nor by the health suite.
+    # `seed-principals` IS required, and is listed here to say so: it creates
+    # the student, Event Host and admin accounts three of the four dev bearer
+    # tokens resolve to, so a stack where it failed answers 401 on three of the
+    # four portals while otherwise looking healthy. That is the opposite of
+    # `seed-logins`, whose absence is a configured choice rather than a fault.
     required = _powershell_array(powershell_source, "script:OneShotServices")
-    assert set(required) == {"migrate", "seed", "seed-review"}, required
-    assert re.search(r"^      migrate\|seed\|seed-review\)$", bash_source, re.MULTILINE), (
-        "smartmatch.sh's required-one-shot case arm changed; check seed-logins is still out of it"
-    )
+    assert set(required) == {"migrate", "seed", "seed-principals", "seed-review"}, required
+    assert re.search(
+        r"^      migrate\|seed\|seed-principals\|seed-review\)$", bash_source, re.MULTILINE
+    ), "smartmatch.sh's required-one-shot case arm changed; check seed-logins is still out of it"
     assert not any(
         identifier.startswith("seed-logins")
         for identifier in _bash_array(health_source, "CHECK_IDS")

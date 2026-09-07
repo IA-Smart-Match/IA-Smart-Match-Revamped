@@ -26,6 +26,13 @@
 #                          means someone migrated by hand.
 #   seed-exited-ok         The one-shot pilot principal seed exited 0. Without
 #                          it the API has no principal to authenticate.
+#   seed-principals-exited-ok
+#                          The one-shot that seeds the student, Event Host and
+#                          admin principals exited 0. Without it three of the
+#                          four dev bearer tokens resolve to no account and
+#                          answer 401, so three of the four portals cannot be
+#                          entered — a failure a stakeholder would otherwise
+#                          find by clicking.
 #   seed-review-exited-ok  The one-shot demo review queue seed exited 0. It
 #                          drives a real import through dispatch, so its exit
 #                          code is a statement about the pipeline, not the data.
@@ -146,6 +153,7 @@ CHECK_IDS=(
   migrations-at-head
   migrate-exited-ok
   seed-exited-ok
+  seed-principals-exited-ok
   seed-review-exited-ok
   api-health
   worker-health
@@ -405,6 +413,7 @@ run_all_checks() {
   check_migrations_at_head
   check_one_shot_exited_ok migrate-exited-ok migrate
   check_one_shot_exited_ok seed-exited-ok seed
+  check_one_shot_exited_ok seed-principals-exited-ok seed-principals
   check_one_shot_exited_ok seed-review-exited-ok seed-review
   check_api_health
   check_worker_health
