@@ -1,15 +1,22 @@
 """``AttendanceRepository``, against a real PostgreSQL instance (Card 4).
 
 Proves ``python/smartmatch_persistence/smartmatch_persistence/attendance.py``'s
-own claim: this is the minimal ``attendance_record`` writer that lets the
-Attended funnel stage's own precondition
-(``ck_pipeline_record_attendance_evidence``) be satisfied with a real row,
-that the application-code refusal of an unknown ``method`` does not replace
-the database's own ``ck_attendance_record_method`` CHECK, that a second call
-naming a different ``owning_unit_id`` for the same subject and event is
+own claims: that it is the ``attendance_record`` writer letting the Attended
+funnel stage's own precondition (``ck_pipeline_record_attendance_evidence``) be
+satisfied with a real row, that it reports whether a given call is the one that
+inserted it, that the application-code refusal of an unknown ``method`` does not
+replace the database's own ``ck_attendance_record_method`` CHECK, that a second
+call naming a different ``owning_unit_id`` for the same subject and event is
 refused rather than silently kept under the first unit, and that
 ``PipelineRepository.advance_stage``'s Attended biconditional still holds
 end to end against a row this writer produced.
+
+The file keeps its name and its Card 4 heritage, but the writer it covers is no
+longer "minimal and synthetic": OQ-102 was closed on 7 September 2026 and
+``services/api/smartmatch_api/routers/attendance.py`` now calls the same
+repository for a coordinator's own entry. Everything below still exercises it
+directly, one layer under that route — the HTTP contract is
+``tests/contract/test_attendance_api.py``.
 
 Requires a live database, and is skipped when none is reachable.
 """

@@ -248,9 +248,7 @@ def _record(
 ):
     """POST one attendance, defaulting every part to the ordinary case."""
     client: TestClient = context["client"]  # type: ignore[assignment]
-    payload = (
-        body if body is not None else {"subject_id": str(subject_id or context["student_id"])}
-    )
+    payload = body if body is not None else {"subject_id": str(subject_id or context["student_id"])}
     bearer = context["token"] if token is None else token
     headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
     return client.post(
@@ -291,9 +289,7 @@ def test_a_coordinator_records_a_students_attendance_and_the_row_is_in_the_table
     assert uuid.UUID(body["attendance_id"])
     assert body["recorded_at"], "the response reports no instant for a row that has one"
 
-    assert (
-        _rows(attendance_context, "attendance_record", id=uuid.UUID(body["attendance_id"])) == 1
-    )
+    assert _rows(attendance_context, "attendance_record", id=uuid.UUID(body["attendance_id"])) == 1
 
 
 def test_the_same_request_twice_is_a_200_and_one_row(attendance_context) -> None:
