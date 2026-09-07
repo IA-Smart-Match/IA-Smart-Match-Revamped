@@ -93,6 +93,14 @@ that the fixture cannot score returns `unknown` and is excluded, while a speaker
 *without* any topic text gets the 0.50 `policy_neutral` and is shortlisted. Absence
 currently outranks presence.
 
+**This is worse in practice than the register records.** The research found that
+`FixtureSemanticTopicProvider` raises `TopicComparisonUnavailable` on any *unrecorded*
+pair. Under the pilot's fixture provider, a speaker **with** topic text is therefore
+unscorable and drops out of the shortlist, and only a speaker with **no** topic evidence
+— who receives the 0.50 `policy_neutral` — reaches a number at all. **The Topic factor is
+effectively inert outside the golden suite.** This will shape every match run the pilot
+demonstrates, and it needs a decision on its own, independent of any expansion.
+
 ---
 
 ## 4. What is reachable without an outcome loop
@@ -146,7 +154,26 @@ construction and `normalize_weights` already handles it.
 **Option 3 — fuse at pool assembly only.** Retrieval decides who is scored; Stage B is
 untouched. *No registry change at all.*
 
-### Recommendation: **Option 3 first, then Option 2. Not Option 1.**
+### Recommendation (revised 7 Sep 2026, after the research report)
+
+**Option 0 — grade the factors you already have — comes before all three.**
+
+The companion research (`docs/plans/research/2026-09-07-matching-expansion-options.md`)
+measured the distinct-composite count: **12 values under `cba-physical-1`, 4 under
+`cba-virtual-1`**. It also established that retrieval buys nothing here — the pool is
+caller-supplied and capped at `MAX_CANDIDATES = 200`, four orders of magnitude below the
+scale at which retrieval earns its keep.
+
+That undercuts the pool-assembly-first recommendation this brief originally made. The
+first move is not retrieval at all:
+
+**Grade `industry_match`, `role_match` and `proximity` from binary / step functions to
+continuous scores.** This buys roughly an order of magnitude more distinct composite
+values from data already in hand — no model, no vendor, no vector store, no new data
+collection, and no privacy decision. It costs a `3.0.0` registry bump, new golden cases
+and an approver, and nothing else.
+
+Only after that does the retrieval question become worth asking. Then:
 
 - **Option 3 first** because it is the only one that buys something immediately at zero
   registry risk, and it attacks OQ-CBA-059 — which must be answered anyway before any
@@ -214,7 +241,9 @@ which is as it should be.
 
 ## 7. What this brief asks for
 
-1. **Decide the fork** (§5). Recommendation: Option 3, then Option 2.
+0. **Grade the existing factors** (§5, Option 0). This is now the primary
+   recommendation and it depends on none of the others.
+1. **Decide the fork** (§5) — *after* Option 0. Recommendation: Option 3, then Option 2.
 2. **Rule on the score card** (§6). Recommendation: ship the reason line now, ship a
    band rather than a percentage, revisit the percentage only if calibration data ever
    exists.
@@ -222,4 +251,11 @@ which is as it should be.
 4. **Note for later:** the attendance route is one authorization decision, not a
    migration. Worth knowing when an outcome loop is next discussed.
 
-Nothing in this brief is implemented, and nothing should be until items 1–3 are answered.
+5. **Separately and urgently:** decide what the Topic factor does in the pilot (§3.3).
+   As shipped, it excludes the speakers who have topic evidence and rewards those who do
+   not.
+6. **Note:** `feedback.py`, the only shadow-mode weight tuner in the tree, is imported by
+   nothing but its own test and its `REASON_TO_FACTOR` map targets three factors absent
+   from `PROPOSED_FACTORS`. It is a trap for whoever wires it up next.
+
+Nothing in this brief is implemented, and nothing should be until items 0–3 are answered.
