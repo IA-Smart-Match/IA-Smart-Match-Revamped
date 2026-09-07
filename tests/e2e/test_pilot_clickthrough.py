@@ -2277,6 +2277,17 @@ def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
 
     A repeat is a ``200`` with an empty ``applied`` and an unchanged speaker:
     "they are confirmed" and "this request confirmed them" stay separable.
+
+    **The Attended stage is walked at the end, and it could not be before.** The
+    hand-off *cites* an ``attendance_record`` and never writes one, and until
+    OQ-102 was closed on 7 September 2026 nothing under ``/v1`` wrote one either
+    — so this step used to stop at Confirmed with ``attended_at`` null and no way
+    to move it that was not seeding the row behind the API. It now records the
+    speaker's attendance through the coordinator's own route and re-issues the
+    hand-off citing it, which is the whole funnel driven over HTTP. The
+    separation is asserted rather than assumed: the writing is a different
+    request to a different route, and the second hand-off applies ``attended``
+    **only**, because the other three stages were already evidenced.
     """
     if flow.unit_id is None or not _INVITATION_STATE.get("accepted_invitation_id"):
         pytest.skip("step 23 did not record an accepted invitation to hand off")
@@ -2378,10 +2389,77 @@ def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
             "by name and nobody else's"
         )
 
+    # The Attended stage, now that something writes the evidence it cites.
+    # OQ-102 was closed on 7 September 2026 and `POST .../events/{id}/attendance`
+    # is the coordinator's writer; before it, this half of the funnel could not
+    # be walked over HTTP at all, which is why `attended_at` is null above. The
+    # subject is the *speaker's* own account — the hand-off checks the cited row
+    # belongs to this speaker and this event — which is why the route accepts any
+    # `user_account` in the tenant and not only students.
+    recorded = api.post(
+        f"/v1/units/{flow.unit_id}/events/{event_id}/attendance",
+        json={"subject_id": accepted_professional_id},
+    )
+    assert recorded.status_code == 201, (
+        f"recording the speaker's attendance returned {recorded.status_code}, "
+        f"expected 201: {recorded.text[:400]}"
+    )
+    attendance = json_body(recorded)
+    assert attendance["method"] == "coordinator_entry", (
+        f"the row was recorded under method {attendance['method']!r}; the route "
+        "is a coordinator's entry and has no field a caller could use to claim a "
+        "scanner nobody used"
+    )
+    assert attendance["subject_id"] == accepted_professional_id
+
+    # A replay writes nothing and credits nothing a second time.
+    replayed = api.post(
+        f"/v1/units/{flow.unit_id}/events/{event_id}/attendance",
+        json={"subject_id": accepted_professional_id},
+    )
+    assert replayed.status_code == 200, (
+        f"re-recording the same attendance returned {replayed.status_code}, "
+        f"expected 200: {replayed.text[:400]}"
+    )
+    assert json_body(replayed)["attendance_id"] == attendance["attendance_id"]
+    assert json_body(replayed)["points_credited"] is False, (
+        "a replayed attendance reported crediting points a second time"
+    )
+
+    attended = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={
+            "invitation_id": _INVITATION_STATE["accepted_invitation_id"],
+            "attendance_id": attendance["attendance_id"],
+        },
+    )
+    assert attended.status_code == 200, (
+        f"re-issuing the hand-off with attendance returned {attended.status_code}: "
+        f"{attended.text[:400]}"
+    )
+    attended_body = json_body(attended)
+    assert attended_body["applied"] == ["attended"], (
+        f"the reconciliation applied {attended_body['applied']}; only the "
+        "Attended stage was newly evidenced by this request — the other three "
+        "were written by the call above and must not replay"
+    )
+    assert attended_body["speaker"]["attended_at"], (
+        "the speaker reads back with no attended_at after a hand-off citing a real attendance row"
+    )
+    assert attended_body["speaker"]["attendance_id"] == attendance["attendance_id"], (
+        "the Attended stage cites an attendance row other than the one recorded"
+    )
+    assert attended_body["speaker"]["current_stage"] == "attended"
+
+    assert not _handoff_leaks(attended_body), (
+        "the attended hand-off discloses a decline or a batch total the confirmed one did not"
+    )
+
     print(
         f"  the Event Host is handed {nicknames[accepted_professional_id]}; "
         f"{len(_INVITATION_STATE['declined_professional_ids'])} decline(s) "
-        "disclosed nowhere on that surface"
+        "disclosed nowhere on that surface; the speaker's attendance is "
+        f"recorded ({attendance['attendance_id']}) and the funnel reaches Attended"
     )
 
 
@@ -2390,26 +2468,29 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
 ) -> None:
     """A Connector gets a thresholded average and no way to reach one student.
 
-    **The submission itself still cannot be driven on this appliance, and is
-    skipped by name rather than faked.** One of the two gates that used to stop
-    it is gone; the other is not, and it is the one that matters here:
+    **Both gates that used to stop the submission are now closed, and the whole
+    step runs.** Neither was widened to get here; each was answered by something
+    the product now has:
 
-    1. *Closed.* The route is gated on the ``student`` role alone, and this
-       appliance used to map its single dev bearer to one ``coordinator``
-       principal. It now pre-loads a student, so the student's own surfaces are
-       reachable and are read below — while the coordinator stays refused them,
-       which is asserted first so the reachability cannot be mistaken for a
-       widening.
-    2. *Still standing.* Even as a student, the route requires an
-       ``attendance_record`` for the caller at that event, and **nothing in the
-       ``/v1`` surface creates one** — ``smartmatch_persistence/attendance.py``
-       says in its own docstring that no route imports it and none may. Step 24
-       left ``attended_at`` null for exactly this reason: the hand-off cites an
-       attendance row and never writes one.
+    1. The route is gated on the ``student`` role alone, and this appliance used
+       to map its single dev bearer to one ``coordinator`` principal. It now
+       pre-loads a student, so the student's own surfaces are reachable and are
+       read below — while the coordinator stays refused them, which is asserted
+       *first* so the reachability can never be mistaken for a widening.
+    2. Even as a student, the route requires an ``attendance_record`` for the
+       caller at that event, and nothing under ``/v1`` used to create one.
+       OQ-102 was closed on 7 September 2026 and the coordinator's own route
+       does. The order below is the proof that this gate is real rather than
+       incidental: the student is refused ``403
+       student_feedback_not_eligible`` **before** the attendance is recorded and
+       accepted ``201`` after it, through the same request.
 
-    Writing either row directly would be manufacturing the evidence the feature
-    exists to check, so this step asserts everything that *can* be reached over
-    HTTP and stops. What it proves is the half that matters for OQ-CBA-003:
+    Nothing is written behind the API. The attendance is recorded by the
+    coordinator, over HTTP, on a route with its own role gate — which is exactly
+    the evidence this feature exists to check, produced the way the product
+    produces it.
+
+    What the rest of the step proves is the half that matters for OQ-CBA-003:
     **no individual rating is retrievable by a Connector.**
 
     * The student's own read is refused to this principal too, so the surface
@@ -2481,9 +2562,9 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
         f"({student_read.status_code}): {student_read.text[:300]}"
     )
     assert json_body(student_read)["feedback"] == [], (
-        "the student's own listing carries ratings nobody submitted; on this "
-        "appliance no rating can be submitted at all, so anything here would "
-        "have been written around the route rather than through it"
+        "the student's own listing carries ratings nobody submitted; nothing has "
+        "been submitted at this point in the walk, so anything here would have "
+        "been written around the route rather than through it"
     )
 
     student_submit = student_api.post(
@@ -2496,17 +2577,76 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
         "had been accepted from someone with no attendance record at this event, "
         f"which is the check OQ-CBA-003 puts in front of it: {student_submit.text[:300]}"
     )
-    # The *reason* is what makes this the second gate rather than the first, and
-    # the API distinguishes them for exactly this purpose: `forbidden` is "you
-    # are not a student here", `student_feedback_not_eligible` is "you are, and
-    # you were not at this event". This step would be worthless if it could not
-    # tell them apart — a role gate that had quietly closed again would answer
-    # 403 too.
+    # The *reason* is what makes this the data gate rather than the role gate,
+    # and the API distinguishes them for exactly this purpose: `forbidden` is
+    # "you are not a student here", `student_feedback_not_eligible` is "you are,
+    # and you were not at this event". Asserted before the attendance exists, so
+    # the 201 below is attributable to the row and to nothing else.
     assert json_body(student_submit)["error"]["code"] == "student_feedback_not_eligible", (
         "the student's submission was refused with "
         f"{json_body(student_submit)['error']['code']!r}, not "
-        "'student_feedback_not_eligible'. This step exists to show the remaining "
-        "block is the missing attendance_record and not the student role gate"
+        "'student_feedback_not_eligible'. This step exists to separate the "
+        "missing attendance_record from the student role gate"
+    )
+
+    # The coordinator records the student's own attendance — a second subject at
+    # the same event, and the ordinary case the route was built for. OQ-102's
+    # closure is what makes this reachable; before it, the assertion above was
+    # where this step stopped.
+    student_user_id = json_body(student_api.get("/v1/me"))["user_id"]
+    student_attendance = api.post(
+        f"/v1/units/{flow.unit_id}/events/{event_id}/attendance",
+        json={"subject_id": student_user_id},
+    )
+    assert student_attendance.status_code == 201, (
+        f"recording the student's attendance returned {student_attendance.status_code}, "
+        f"expected 201: {student_attendance.text[:400]}"
+    )
+    assert json_body(student_attendance)["points_credited"] is True, (
+        "the recorded attendance credited no points; ADR-0013 derives them from "
+        "exactly this row, and a balance left `unknown` forever is the state "
+        "crediting-on-record exists to prevent"
+    )
+    # The write carries no balance and no score of its own — the balance has one
+    # home, and this is not it.
+    assert not {"balance", "points"} & set(json_body(student_attendance)), (
+        "the attendance response carries a balance or a points total: "
+        f"{sorted(json_body(student_attendance))}"
+    )
+
+    # A student still cannot record their own attendance. The role gate is the
+    # thing standing between a student and their own points, so it is asserted
+    # here rather than left to the contract tests alone.
+    self_recorded = student_api.post(
+        f"/v1/units/{flow.unit_id}/events/{event_id}/attendance",
+        json={"subject_id": student_user_id},
+    )
+    assert self_recorded.status_code == 403, (
+        "a student recorded their own attendance "
+        f"({self_recorded.status_code}); attendance is the only input to points, "
+        f"so this would be a student minting their own: {self_recorded.text[:300]}"
+    )
+
+    accepted = student_api.post(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        json={"rating": 4},
+    )
+    assert accepted.status_code == 201, (
+        "the student's submission answered "
+        f"{accepted.status_code} after their attendance was recorded, expected "
+        f"201: {accepted.text[:400]}"
+    )
+
+    read_back = student_api.get(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speaker-feedback"
+    )
+    assert read_back.status_code == 200, read_back.text[:300]
+    mine_now = json_body(read_back)["feedback"]
+    assert len(mine_now) == 1, (
+        f"the student's own listing holds {len(mine_now)} ratings after one submission"
+    )
+    assert mine_now[0]["rating"] == 4, (
+        f"the rating read back is {mine_now[0]['rating']!r}, not the 4 submitted"
     )
 
     summary = api.get(f"/v1/units/{flow.unit_id}/speakers/{speaker_id}/feedback-summary")
@@ -2536,6 +2676,23 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
     assert isinstance(threshold, int) and threshold > 0, (
         f"the summary publishes minimum_responses={threshold!r}; a surface has to "
         "be able to explain a suppression without hard-coding the number"
+    )
+
+    # Exactly one rating is stored now, and it was written by the student above
+    # rather than seeded. So the suppression is asserted against a real row: the
+    # threshold is more than one, the Connector is told nothing, and that is the
+    # case OQ-CBA-003 is actually about — not the empty one, where withholding
+    # and having nothing to withhold are indistinguishable.
+    assert threshold > 1, (
+        f"the server's minimum_responses is {threshold}; at 1 this step could "
+        "not tell a suppression from a publication and the assertion below "
+        "would be vacuous"
+    )
+    assert aggregate["suppressed"] is True, (
+        "the Connector was handed an aggregate over one stored rating "
+        f"(minimum_responses={threshold}); a single response is a single "
+        "student, and publishing it is the re-identification the threshold exists "
+        "to stop"
     )
 
     if aggregate["suppressed"]:
@@ -2586,23 +2743,10 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
         )
 
     print(
-        f"  the Connector reads {aggregate['display_text']!r} "
-        f"(suppressed={aggregate['suppressed']}, minimum_responses={threshold}) "
-        "and has no route to an individual rating"
-    )
-    pytest.skip(
-        "no student speaker feedback could be submitted on this appliance, so the "
-        "aggregate above is asserted over zero stored ratings rather than over a "
-        "rating this step wrote. ONE gate now, not two. The role gate is closed: "
-        "a student principal is pre-loaded, reads its own feedback listing (200, "
-        "empty) and reaches the submit route, while the coordinator is still "
-        "refused both — all asserted above. What still stands is the second gate: "
-        "the route requires an attendance_record for the caller at the event, and "
-        "no /v1 route creates one — smartmatch_persistence/attendance.py says no "
-        "route imports it and none may, and step 24's hand-off cites attendance "
-        "without writing it. Seeding that row directly would manufacture the "
-        "evidence the feature exists to check. The refusals, the student's own "
-        "reads, and the aggregate-only shape above did run and are asserted"
+        "  the student rated the confirmed speaker 4/5 after the coordinator "
+        "recorded their attendance; the Connector reads "
+        f"{aggregate['display_text']!r} (suppressed={aggregate['suppressed']}, "
+        f"minimum_responses={threshold}) and has no route to an individual rating"
     )
 
 

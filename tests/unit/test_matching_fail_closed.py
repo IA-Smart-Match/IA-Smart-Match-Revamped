@@ -273,6 +273,37 @@ R2_AUTHORIZED_ENGAGEMENT_PATHS = frozenset(
 )
 
 
+# OQ-102 — the exact unit-scoped attendance path the coordinator's writer
+# authorizes, and no others.
+#
+# It needs a list of its own, and the reason is worth stating because it is easy
+# to get wrong. No segment of this path is in any forbidden set: `attendance` is
+# in none of them, and `events` is in none of them either. What refuses it is the
+# *last* rule in `_forbidden_gate_for_path` — every unit-scoped path whose
+# segment after `units/{id}` is `events` is G3, whatever hangs below it. That
+# rule is what keeps a second event-catalog surface from arriving unnamed, and it
+# is doing its job here: this route does hang under a unit's events.
+#
+# So it is admitted by name, in the same shape as `G5_AUTHORIZED_CALENDAR_PATHS`
+# beside it, rather than by loosening that rule into a prefix. It is deliberately
+# *not* added to `G3_AUTHORIZED_EVENT_PATHS`: that set is pinned to
+# `events.router`'s own declared routes, and
+# `test_the_authorized_event_routes_are_read_only` holds every path in it to
+# being a read. This one is a write, in a different router, and merging the two
+# lists would quietly retire that read-only assertion.
+#
+# What it is not: not an event catalog, not a crawl, not a discovery surface. It
+# writes one `attendance_record` for one named subject at one event the unit
+# already hosts, and it returns no event the caller did not name. G3 guards the
+# arrival of external event acquisition; nothing on this path acquires anything.
+# See `docs/plans/open-questions/pipeline-stage-writers-deferred.md` OQ-102.
+OQ102_AUTHORIZED_ATTENDANCE_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events/{event_id}/attendance",
+    }
+)
+
+
 def _path_segments(path: str) -> list[str]:
     """Return literal path segments, ignoring ``{param}`` placeholders."""
     return [
@@ -320,6 +351,13 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     # and by exact path, so every *other* unit-scoped event path stays refused
     # — including one that differed from these by a single segment.
     if path in G3_AUTHORIZED_EVENT_PATHS:
+        return None
+
+    # OQ-102's exception, checked immediately before the rule that refuses it.
+    # Placed here rather than at the top because no segment rule touches this
+    # path — only the unit-scoped `events` rule below does, and this is the
+    # single by-name admission past it. See the constant's own comment.
+    if path in OQ102_AUTHORIZED_ATTENDANCE_PATHS:
         return None
 
     # G3 unit-scoped event catalog — distinct from durable-command job lifecycle events.

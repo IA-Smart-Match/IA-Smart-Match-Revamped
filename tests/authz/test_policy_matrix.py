@@ -6730,6 +6730,24 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_student_feedback_write",
         "_authorize_student_feedback_read",
         "_authorize_speaker_feedback_summary_read",
+        # The twenty-second (`routers/attendance.py`), on the same terms as
+        # every name before it: load the unit, then make exactly this call
+        # against that row's path with `_ATTENDANCE_WRITE_ROLES`.
+        #
+        # Its own name and its own constant even though `_ENGAGEMENT_READ_ROLES`
+        # holds the same two roles today, and here the usual rule is doing real
+        # work rather than being observed for form: reading how much attendance
+        # evidence a unit holds and *creating* a piece of it differ in
+        # consequence, because an `attendance_record` is the only input to
+        # points (ADR-0013). A widening of the summary must not be able to widen
+        # the writer by sharing its set.
+        #
+        # The event-host and subject-tenancy checks the route makes afterwards
+        # are not policy decisions and could not be ones — `evaluate` has no
+        # concept of which unit hosts an event — and are asserted over HTTP in
+        # `tests/contract/test_attendance_api.py`, the division of labour
+        # `_authorize_invite_read` already uses.
+        "_authorize_attendance_write",
     ):
         assert_allowed(
             resolved.principal,
