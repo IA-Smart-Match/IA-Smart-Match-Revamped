@@ -1615,3 +1615,789 @@ def test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to(
     )
 
     print("  send to a suppressed recipient was refused at submission / 403")
+
+
+# ---------------------------------------------------------------------------
+# Step 22-25 — the CBA extension: invite the shortlist, take the Speaker's own
+# answer, hand the Event Host the one who accepted, and read the aggregate a
+# Connector is allowed to see.
+# ---------------------------------------------------------------------------
+
+#: The invitation template the batch route composes from. Restated here for the
+#: reason ``SCORE_LABEL`` is: a caller cannot choose it, so a drift in what the
+#: server picked fails loudly here rather than passing unnoticed.
+INVITATION_TEMPLATE_ID = "cba.speaker_invitation.v1"
+
+#: The response link the invitation carries. The API composes it as
+#: ``{public_base_url}/i/{token}`` from a token minted per invitation, and this
+#: is how step 23 recovers the token a Speaker would click — out of the message
+#: the appliance actually composed, read back over HTTP.
+_RESPONSE_LINK = re.compile(r"/i/([A-Za-z0-9_\-]{16,})")
+
+#: Carried between steps 22-25 for the reason ``_MATCH_FIXTURE`` is: module
+#: state rather than new ``ClickThrough`` fields, so this extension does not
+#: reach into ``tests/e2e/conftest.py``, which every other step shares.
+_INVITATION_STATE: dict[str, Any] = {}
+
+
+def _invitation_address(nickname: str) -> str:
+    """The per-session ``.invalid`` address one seeded speaker is invited at.
+
+    RFC 2606's reserved TLD, exactly as ``OUTREACH_ADDRESS`` is: it cannot
+    resolve, so nothing composed here has a mailbox at the other end of it.
+    """
+    return f"e2e-speaker-{nickname}-{RUN_TAG}@synthetic.invalid"
+
+
+def _register_invitable_channel(
+    api: httpx.Client, unit_id: str, *, professional_id: str, address: str
+) -> str:
+    """Give one roster contact an address a batch may write to, through the API.
+
+    Two calls and no database write, which is the point: ``POST
+    /v1/units/{unit_id}/speaker-contacts/{professional_id}/channels`` records the
+    address with its consent source and evidence, and ``POST .../transitions``
+    activates it. Creating an ``active_candidate`` outright is refused by the
+    route — "activation is an act with an actor, not an initial value" — so the
+    two calls here are the shipped lifecycle rather than a convenience, and
+    ``send_eligible`` below is the appliance's own answer about the row rather
+    than this file's claim about it.
+
+    Contrast ``_seed_contact_channel`` above, which writes directly because
+    *nothing* creates a channel on the pre-CBA outreach surface. This one has a
+    route, so this one uses it.
+    """
+    created = api.post(
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels",
+        json={
+            "address": address,
+            "contact_state": "consented",
+            "consent_source": "self_service",
+            "consent_evidence": (
+                "synthetic consent recorded by tests/e2e/test_pilot_clickthrough.py"
+            ),
+            "reason": "e2e click-through: the speaker agreed to hear about opportunities",
+        },
+    )
+    assert created.status_code == 201, (
+        f"registering a channel for {professional_id} returned "
+        f"{created.status_code}, expected 201: {created.text[:400]}"
+    )
+    channel_id = json_body(created)["channel"]["contact_channel_id"]
+
+    activated = api.post(
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}"
+        f"/channels/{channel_id}/transitions",
+        json={
+            "to_state": "active_candidate",
+            "reason": "e2e click-through: the Connector opened outreach on this contact",
+        },
+    )
+    # ``201``, not ``200``: a transition is a new trail entry, and the route
+    # says so by creating one rather than by reporting an edit.
+    assert activated.status_code == 201, (
+        f"activating channel {channel_id} returned {activated.status_code}, "
+        f"expected 201: {activated.text[:400]}"
+    )
+    channel = json_body(activated)["channel"]
+    assert channel["send_eligible"] is True, (
+        f"the appliance reports channel {channel_id} is not send-eligible after "
+        f"activation: {channel}"
+    )
+    return str(channel_id)
+
+
+def test_22_the_shortlist_is_composed_into_an_invitation_batch(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The shortlist the match run produced becomes invitations, and nothing is sent.
+
+    The batch is composed from ``professional_ids`` — the §13 roster ids the run
+    itself shortlisted, read back off the recorded run rather than retyped — and
+    it carries ``match_run_id``, so the invitations stay traceable to the ranking
+    that proposed these people. There is no ``event_id`` argument on this route
+    at all: ``cba_invitation_batch`` holds the event as free text a Connector
+    typed, and the Host's own event id enters through the *path* in step 24.
+
+    ``201`` and not ``202``: the batch, its drafts and every outcome in it are
+    rows that can be read back when this returns. What has **not** happened is a
+    send — step 23 is the operation that genuinely defers work, and the
+    assertions below include the absence of anything a client could render as
+    one.
+
+    Three things a batch reporting only its good news would not do, asserted
+    together: every named recipient produces an outcome, the template is the
+    server's closed-registry choice rather than a caller's, and each invitation
+    starts at ``awaiting_response`` — the ordinary state of every invitation
+    until somebody reads their mail, and not a failure.
+    """
+    if flow.unit_id is None or flow.match_run_id is None:
+        pytest.skip("step 09 did not produce a match run to invite the shortlist of")
+
+    run = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
+    shortlist = [candidate["subject_id"] for candidate in run["shortlist"]]
+    assert MIN_SPEAKERS <= len(shortlist) <= MAX_SPEAKERS, (
+        f"the recorded run shortlisted {len(shortlist)} speakers; steps 22-24 "
+        f"need the ratified {MIN_SPEAKERS}-{MAX_SPEAKERS}"
+    )
+
+    # The nickname is for this file's own error messages only; the wire carries
+    # opaque ids and every request below sends one of those.
+    nicknames = {
+        professional_id: nickname
+        for nickname, professional_id in _seed_match_fixtures(flow.unit_id)["speakers"].items()
+    }
+    addresses = {
+        professional_id: _invitation_address(nicknames[professional_id])
+        for professional_id in shortlist
+    }
+    for professional_id, address in addresses.items():
+        _register_invitable_channel(
+            api, flow.unit_id, professional_id=professional_id, address=address
+        )
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/speaker-invitations/batches",
+        json={
+            "professional_ids": shortlist,
+            "match_run_id": flow.match_run_id,
+            "event_name": f"E2E virtual finance panel {RUN_TAG}",
+            "event_date": "Thursday, 4 March 2027",
+            "coordinator_name": "E2E Connector",
+        },
+        headers={"Idempotency-Key": f"e2e-batch-{RUN_TAG}-{uuid.uuid4().hex}"},
+    )
+    assert response.status_code == 201, (
+        f"composing the invitation batch returned {response.status_code}, "
+        f"expected 201: {response.text[:400]}"
+    )
+    batch = json_body(response)
+
+    assert batch["match_run_id"] == flow.match_run_id, (
+        f"the batch reports match_run_id {batch['match_run_id']!r} and not the "
+        f"run its shortlist came from ({flow.match_run_id})"
+    )
+    assert batch["template_id"] == INVITATION_TEMPLATE_ID, (
+        f"the batch composed from template {batch['template_id']!r}; the "
+        "invitation copy is a closed-registry decision, not a caller's"
+    )
+    assert batch["replayed"] is False, "a fresh idempotency key replayed a stored batch"
+    assert batch["skipped_count"] == 0, (
+        "a shortlisted speaker with an activated, consented channel was skipped: "
+        f"{[outcome for outcome in batch['invitations'] if outcome['skip_reason']]}"
+    )
+    assert batch["invited_count"] == len(shortlist)
+
+    outcomes = {outcome["professional_id"]: outcome for outcome in batch["invitations"]}
+    assert set(outcomes) == set(shortlist), (
+        f"the batch reported on {sorted(outcomes)} but was asked to invite "
+        f"{sorted(shortlist)}; a shorter list is a batch burying its decisions"
+    )
+    for professional_id, outcome in outcomes.items():
+        assert outcome["status"] == "pending", (
+            f"invitation {outcome['invitation_id']} came back {outcome['status']!r}; "
+            "composing a batch sends nothing, so nothing may be 'dispatched' yet"
+        )
+        assert outcome["recipient_address"] == addresses[professional_id], (
+            f"invitation {outcome['invitation_id']} names "
+            f"{outcome['recipient_address']!r}, not the channel just activated "
+            f"for this speaker ({addresses[professional_id]!r})"
+        )
+        assert outcome["delivery"] is None, (
+            "an invitation nobody has dispatched carries a delivery record: "
+            f"{outcome['delivery']}"
+        )
+        assert outcome["speaker_response"]["response"] == "awaiting_response", (
+            "a freshly composed invitation already records an answer: "
+            f"{outcome['speaker_response']}"
+        )
+
+    _INVITATION_STATE.update(
+        {
+            "batch_id": batch["batch_id"],
+            "addresses": addresses,
+            "outcomes": outcomes,
+            "shortlist": shortlist,
+            "nicknames": nicknames,
+        }
+    )
+    print(f"  composed batch {batch['batch_id']} inviting {sorted(addresses.values())}")
+
+
+def _response_tokens(api: httpx.Client, unit_id: str, addresses: dict[str, str]) -> dict[str, str]:
+    """Each invited speaker's response token, read out of the message composed for them.
+
+    The token is minted per invitation and stored only as a SHA-256 hash, so the
+    plaintext exists in exactly one readable place: the body of the draft the
+    batch composed, which ``GET /v1/units/{unit_id}/outreach/drafts`` returns.
+    That is a real surface a Connector reads, not a back door — and it is why
+    step 23 can follow the Speaker's own link where step 21 could not follow the
+    unsubscribe link (that token is minted inside the worker at delivery and
+    never lands in a row).
+
+    Paged rather than fetched in one shot, and bounded: a unit accumulates drafts
+    across sessions, and a single read that silently missed an older one would
+    fail this step with a confusing ``KeyError`` instead of a clear message.
+    """
+    wanted = {address: professional_id for professional_id, address in addresses.items()}
+    tokens: dict[str, str] = {}
+
+    limit = 200
+    for page in range(10):
+        listing = json_body(
+            api.get(
+                f"/v1/units/{unit_id}/outreach/drafts",
+                params={"limit": limit, "offset": page * limit},
+            )
+        )
+        drafts = listing["drafts"]
+        for draft in drafts:
+            professional_id = wanted.get(draft["recipient_address"])
+            if professional_id is None or professional_id in tokens:
+                continue
+            assert draft["template_id"] == INVITATION_TEMPLATE_ID, (
+                f"the draft for {draft['recipient_address']} was composed from "
+                f"{draft['template_id']!r}, not the invitation template"
+            )
+            found = _RESPONSE_LINK.search(draft["body"])
+            assert found is not None, (
+                f"the invitation composed for {draft['recipient_address']} carries "
+                f"no response link, so a Speaker has no way to answer it: "
+                f"{draft['body'][:400]}"
+            )
+            tokens[professional_id] = found.group(1)
+        if len(tokens) == len(addresses) or len(drafts) < limit:
+            break
+
+    missing = sorted(address for pid, address in addresses.items() if pid not in tokens)
+    assert not missing, f"no composed invitation was found for {missing}"
+    return tokens
+
+
+def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The batch goes out through the fixture provider, and the Speakers answer it.
+
+    Two facts are kept apart the whole way down, and this is the step where they
+    could most easily be confused. ``delivery.disposition`` is ``accepted`` — the
+    *provider* took custody. ``speaker_response.response`` is
+    ``accepted_invitation`` or ``declined_invitation`` — the *Speaker* answered.
+    The two vocabularies share no value, so no client can render one as the
+    other, and this step asserts both on the same invitation at once.
+
+    The dispatch runs through ``fixture-email`` and ``live_mode`` is asserted
+    false, exactly as step 20 does: a green run here is a run through the
+    deterministic fixture and never one bought by mailing a stranger. Every
+    address in the batch is under RFC 2606's reserved ``.invalid`` TLD, so there
+    is no mailbox at the other end of any of it.
+
+    The answers are given the way a Speaker gives them — ``POST
+    /v1/speaker-invitations/respond``, **unauthenticated**, carrying only the
+    token from the link in their own message. That is asserted rather than
+    assumed: the requests below strip the bearer, because a route that needed the
+    Connector's credentials to accept a Speaker's answer would not be a route a
+    Speaker could use. The stored answer therefore reads ``channel='speaker_link'``
+    with no ``recorded_by_user_id`` — a stronger evidentiary claim than a
+    coordinator retyping what they were told, and one that must not be spelled
+    the same way.
+
+    One accepts and the rest decline. The decline is not decoration: step 24
+    asserts the Event Host's surface does not expose it, and that assertion is
+    vacuous unless a decline exists to be leaked.
+    """
+    if flow.unit_id is None or not _INVITATION_STATE:
+        pytest.skip("step 22 did not compose an invitation batch to dispatch")
+
+    batch_id = _INVITATION_STATE["batch_id"]
+    addresses: dict[str, str] = _INVITATION_STATE["addresses"]
+    nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch"
+    )
+    assert response.status_code == 202, (
+        f"dispatching batch {batch_id} returned {response.status_code}, "
+        f"expected 202: {response.text[:400]}"
+    )
+    dispatch = json_body(response)
+    assert set(dispatch) == {"batch_id", "dispatched", "not_dispatched"}, (
+        f"the dispatch acknowledgement carried {sorted(dispatch)}; any field "
+        "beyond these three is one a client could render as 'sent'"
+    )
+    assert dispatch["not_dispatched"] == [], (
+        "an invitation composed for an activated, consented channel was refused "
+        f"at dispatch: {dispatch['not_dispatched']}"
+    )
+    assert len(dispatch["dispatched"]) == len(addresses), (
+        f"{len(dispatch['dispatched'])} of {len(addresses)} invitations were "
+        "submitted; a batch must not silently lose a recipient"
+    )
+
+    for entry in dispatch["dispatched"]:
+        assert entry["events_url"] == f"/v1/jobs/{entry['job_id']}/events", (
+            f"events_url is {entry['events_url']!r} and does not point at the job"
+        )
+        summary = _await_job(api, entry["job_id"])
+        assert summary["live_mode"] is False, (
+            "the appliance reports live_mode=true: this suite invites only "
+            "'.invalid' addresses, but a click-through must never run against a "
+            "provider that can reach a real mailbox"
+        )
+        assert summary["provider"] == "fixture-email", (
+            f"an invitation went through provider {summary['provider']!r}, not the fixture"
+        )
+        assert summary["disposition"] == "accepted", (
+            f"the invitation send reported disposition {summary['disposition']!r}"
+        )
+
+    tokens = _response_tokens(api, flow.unit_id, addresses)
+
+    # Deterministic, so a re-read of this file says which speaker did what: the
+    # lowest id accepts and every other invited speaker declines.
+    ordered = sorted(addresses)
+    answers = {ordered[0]: "accept"} | {pid: "decline" for pid in ordered[1:]}
+
+    for professional_id, answer in answers.items():
+        # No bearer. The Speaker holds a token from an email and no account —
+        # the respond route is unauthenticated by design, and sending the
+        # Connector's credentials here would prove nothing about the route a
+        # Speaker actually reaches.
+        answered = api.post(
+            "/v1/speaker-invitations/respond",
+            json={"token": tokens[professional_id], "response": answer},
+            headers={"Authorization": ""},
+        )
+        assert answered.status_code == 200, (
+            f"a Speaker answering '{answer}' with their own token got "
+            f"{answered.status_code}: {answered.text[:400]}"
+        )
+        assert json_body(answered) == {"recorded": True}, (
+            "the answer to a Speaker's response carries more than 'recorded'; a "
+            "body that distinguished a real token from an invented one would let "
+            "anyone holding a guess confirm who was invited to speak"
+        )
+
+    read_back = json_body(
+        api.get(f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}")
+    )
+    outcomes = {outcome["professional_id"]: outcome for outcome in read_back["invitations"]}
+
+    for professional_id, answer in answers.items():
+        want = "accepted_invitation" if answer == "accept" else "declined_invitation"
+        outcome = outcomes[professional_id]
+        speaker_response = outcome["speaker_response"]
+
+        assert speaker_response["response"] == want, (
+            f"{nicknames[professional_id]} answered {answer!r} through their own "
+            f"link, but the batch reads back {speaker_response['response']!r}"
+        )
+        assert speaker_response["channel"] == "speaker_link", (
+            f"the answer is recorded on channel {speaker_response['channel']!r}; "
+            "a Speaker's own click and a coordinator retyping what they were told "
+            "are different evidentiary claims and must not be stored alike"
+        )
+        assert speaker_response["recorded_by_user_id"] is None, (
+            "a Speaker's own answer names a coordinator as its recorder: "
+            f"{speaker_response['recorded_by_user_id']}"
+        )
+        assert speaker_response["recorded_at"], (
+            "an answered invitation carries no recorded_at, so nothing dates the answer"
+        )
+
+        assert outcome["status"] == "dispatched", (
+            f"invitation {outcome['invitation_id']} reads back {outcome['status']!r} "
+            "after a dispatch that reported it submitted"
+        )
+        # The provider's fact, on the same row as the Speaker's, and different.
+        assert outcome["delivery"]["disposition"] == "accepted", (
+            f"the delivery reads {outcome['delivery']['disposition']!r}"
+        )
+        assert outcome["delivery"]["provider"] == "fixture-email"
+        assert outcome["delivery"]["disposition"] != speaker_response["response"], (
+            "the delivery disposition and the Speaker's answer are spelled the "
+            "same way; one is what a mail provider did and the other is what a "
+            "person said, and a shared vocabulary is how the two get confused"
+        )
+
+    accepted_id = ordered[0]
+    declined_ids = ordered[1:]
+    _INVITATION_STATE.update(
+        {
+            "accepted_professional_id": accepted_id,
+            "accepted_invitation_id": outcomes[accepted_id]["invitation_id"],
+            "declined_professional_ids": declined_ids,
+            "declined_invitation_ids": [outcomes[pid]["invitation_id"] for pid in declined_ids],
+            "declined_addresses": [addresses[pid] for pid in declined_ids],
+        }
+    )
+    print(
+        f"  {nicknames[accepted_id]} accepted through their own link; "
+        f"{[nicknames[pid] for pid in declined_ids]} declined"
+    )
+
+
+#: Substrings that must not appear anywhere in the Event Host's hand-off — not
+#: as a key, not as a value. OQ-CBA-042 takes the narrow reading: an Event Host
+#: learns who accepted and is told nothing whatever about who did not.
+#:
+#: ``member_inquiry`` rides along because ``Capability.MEMBER_INQUIRY_NARRATIVE``
+#: is false under the CBA scope and ``ConfirmedSpeakerView`` carries no field for
+#: it — a structural absence worth pinning on the wire, since a filter applied
+#: only at the edge would pass every other assertion here.
+_FORBIDDEN_ON_THE_HANDOFF: tuple[str, ...] = (
+    "declin",
+    "member_inquiry",
+    "skipped",
+    "invited_count",
+    "batch",
+    "total",
+    "_count",
+)
+
+
+def _handoff_leaks(payload: Any, path: str = "") -> list[str]:
+    """Every place a hand-off payload names something an Event Host may not see.
+
+    Walks keys *and* string values, because the two failure modes differ: a
+    ``declined_count`` field is a schema that leaked, while a ``current_stage``
+    of ``declined_invitation`` is a value that leaked through an honest field.
+    Both are the same disclosure to the person reading the screen.
+    """
+    leaks: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            here = f"{path}.{key}" if path else key
+            for forbidden in _FORBIDDEN_ON_THE_HANDOFF:
+                if forbidden in key.lower():
+                    leaks.append(f"key {here!r}")
+            leaks.extend(_handoff_leaks(value, here))
+    elif isinstance(payload, list):
+        for index, item in enumerate(payload):
+            leaks.extend(_handoff_leaks(item, f"{path}[{index}]"))
+    elif isinstance(payload, str):
+        for forbidden in _FORBIDDEN_ON_THE_HANDOFF:
+            if forbidden in payload.lower():
+                leaks.append(f"value at {path!r}: {payload!r}")
+    return leaks
+
+
+def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The accepted speaker reaches the Event Host. The ones who said no do not.
+
+    The reconciliation writes no stage a request asserted: the body names an
+    invitation and nothing else, and ``matched``, ``contacted`` and ``confirmed``
+    are read out of that invitation's own ``created_at``, ``dispatched_at`` and
+    ``response_recorded_at``. There is no ``stage`` field to toggle and no
+    ``reached_at`` to backdate, so this step proves the funnel is derived from
+    stored evidence rather than typed beside it.
+
+    That the evidence is what matters is asserted from the other side too: a
+    hand-off naming a **declined** invitation is refused ``409
+    cba_invitation_not_accepted``. Confirmed is supplied by the Speaker's own
+    answer, so an invitation carrying the wrong answer has nothing to hand
+    anybody — and a route that accepted it would be manufacturing a confirmation
+    out of a refusal.
+
+    **The OQ-CBA-042 property, pinned here and not only in the unit tests.**
+    The narrow reading was taken deliberately: an Event Host learning that named
+    professionals declined them is a fact about those people's availability and
+    willingness that nobody agreed to share. So ``/cba/confirmed-speakers`` is
+    checked for three separate disclosures, each of which a plausible convenience
+    would introduce:
+
+    * the declining speakers themselves, by id — asserted absent;
+    * any **word** for a decline, anywhere in the payload, as a key or a value —
+      which is what would appear if a status field were widened to carry the
+      whole invitation vocabulary;
+    * any **count or total**, which is the subtler leak. "One confirmed of
+      three invited" discloses that two people said no without naming either,
+      and a batch size is not the Host's fact to have. The surface reports which
+      speakers, and no arithmetic about the ones it is not reporting.
+
+    A repeat is a ``200`` with an empty ``applied`` and an unchanged speaker:
+    "they are confirmed" and "this request confirmed them" stay separable.
+    """
+    if flow.unit_id is None or not _INVITATION_STATE.get("accepted_invitation_id"):
+        pytest.skip("step 23 did not record an accepted invitation to hand off")
+
+    event_id = _seed_match_fixtures(flow.unit_id)["event_id"]
+    accepted_professional_id = _INVITATION_STATE["accepted_professional_id"]
+    nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": _INVITATION_STATE["accepted_invitation_id"]},
+    )
+    assert response.status_code == 200, (
+        f"reconciling the accepted invitation returned {response.status_code}, "
+        f"expected 200: {response.text[:400]}"
+    )
+    handoff = json_body(response)
+
+    assert handoff["applied"] == ["matched", "contacted", "confirmed"], (
+        f"the reconciliation applied {handoff['applied']}, not the three stages "
+        "the invitation evidences: created (matched), dispatched (contacted), "
+        "answered (confirmed)"
+    )
+    speaker = handoff["speaker"]
+    assert speaker["professional_id"] == accepted_professional_id, (
+        f"the hand-off returned {speaker['professional_id']}, not the speaker "
+        f"who accepted ({accepted_professional_id})"
+    )
+    assert speaker["current_stage"] == "confirmed", (
+        f"the speaker reads back at stage {speaker['current_stage']!r}"
+    )
+    assert speaker["confirmed_at"], "a confirmed speaker carries no confirmed_at"
+    assert speaker["attended_at"] is None and speaker["attendance_id"] is None, (
+        "the hand-off cited no attendance record, so Attended must stay unwritten: "
+        f"attended_at={speaker['attended_at']!r} attendance_id={speaker['attendance_id']!r}"
+    )
+
+    # A repeat writes nothing and says so, rather than replaying the stages.
+    repeated = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": _INVITATION_STATE["accepted_invitation_id"]},
+    )
+    assert repeated.status_code == 200, (
+        f"re-running the hand-off returned {repeated.status_code}: {repeated.text[:400]}"
+    )
+    assert json_body(repeated)["applied"] == [], (
+        "a repeated reconciliation reports stages it did not write: "
+        f"{json_body(repeated)['applied']}"
+    )
+
+    # The other side of the same rule: a decline evidences no confirmation.
+    declined_invitation_id = _INVITATION_STATE["declined_invitation_ids"][0]
+    refused = api.post(
+        f"/v1/units/{flow.unit_id}/cba/events/{event_id}/speaker-handoff",
+        json={"invitation_id": declined_invitation_id},
+    )
+    assert refused.status_code == 409, (
+        f"handing off a declined invitation returned {refused.status_code}, "
+        f"expected a 409 refusal: {refused.text[:400]}"
+    )
+    assert json_body(refused)["error"]["code"] == "cba_invitation_not_accepted", (
+        f"the refusal is coded {json_body(refused)['error']['code']!r}; without "
+        "that code a client cannot tell a decline from a missing invitation"
+    )
+
+    listed = json_body(
+        api.get(
+            f"/v1/units/{flow.unit_id}/cba/confirmed-speakers",
+            params={"event_id": event_id},
+        )
+    )
+    confirmed = {entry["professional_id"]: entry for entry in listed["speakers"]}
+
+    assert accepted_professional_id in confirmed, (
+        f"{nicknames[accepted_professional_id]} accepted and was reconciled, but "
+        f"the Event Host's confirmed-speakers list holds {sorted(confirmed)}"
+    )
+    assert confirmed[accepted_professional_id]["current_stage"] == "confirmed"
+    assert confirmed[accepted_professional_id]["event_id"] == event_id, (
+        "the confirmed speaker is filed against a different event than the one "
+        "the list was filtered to"
+    )
+
+    for declined_professional_id in _INVITATION_STATE["declined_professional_ids"]:
+        assert declined_professional_id not in confirmed, (
+            f"{nicknames[declined_professional_id]} declined this invitation and "
+            "still appears on the Event Host's confirmed-speaker surface "
+            "(OQ-CBA-042: the Host is handed the confirmed speaker and is told "
+            "nothing about the people who said no)"
+        )
+
+    for payload, surface in ((listed, "GET /cba/confirmed-speakers"), (handoff, "the hand-off")):
+        leaks = _handoff_leaks(payload)
+        assert not leaks, (
+            f"{surface} exposes a decline, a count of declines, or a batch total "
+            f"to the Event Host: {leaks}. OQ-CBA-042 takes the narrow reading — "
+            "even an unnamed arithmetic ('one of three') discloses that somebody "
+            "refused, and the batch tracking surface is the Speaker Connector's "
+            "by name and nobody else's"
+        )
+
+    print(
+        f"  the Event Host is handed {nicknames[accepted_professional_id]}; "
+        f"{len(_INVITATION_STATE['declined_professional_ids'])} decline(s) "
+        "disclosed nowhere on that surface"
+    )
+
+
+def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """A Connector gets a thresholded average and no way to reach one student.
+
+    **The submission itself cannot be driven on this appliance, and is skipped
+    by name rather than faked.** Two independent gates stop it, and neither is a
+    defect:
+
+    1. ``POST .../student/events/{event_id}/speakers/{speaker_id}/feedback`` is
+       gated on the ``student`` role alone, and ``docker-compose.yml`` maps its
+       single dev bearer to one ``coordinator`` principal. This is the same D6
+       gate steps 14 and 15 skip on, asserted here the same way — as a *correct
+       refusal* rather than worked around.
+    2. Even as a student, the route requires an ``attendance_record`` for the
+       caller at that event, and **nothing in the ``/v1`` surface creates one**.
+       Step 24 left ``attended_at`` null for exactly this reason: the hand-off
+       cites an attendance row and never writes one.
+
+    Writing either row directly would be manufacturing the evidence the feature
+    exists to check, so this step asserts everything that *can* be reached over
+    HTTP and stops. What it proves is the half that matters for OQ-CBA-003:
+    **no individual rating is retrievable by a Connector.**
+
+    * The student's own read is refused to this principal too, so the surface
+      that returns per-student rows is not reachable by the role that reads the
+      aggregate. There is no parameter to aim it at another student in any case
+      — it is scoped by ``principal.user_id``.
+    * The Connector's summary answers, and answers *aggregate-only*: it carries
+      no field that can name a student, and the response model has none to
+      filter. Comments are absent entirely (OQ-CBA-054).
+    * Below the threshold it publishes **nothing** — ``mean_rating`` and
+      ``response_count`` are both null and never ``0.0`` (ADR-0011 rule 1: a
+      speaker nobody rated must not read as a speaker rated zero), with a
+      sentence in ``display_text`` so a reader can tell "we are not telling you"
+      from "the answer is nothing". The count is withheld *alongside* the mean
+      rather than published beside it, because in a class of thirty "two
+      students rated this speaker" narrows the field considerably.
+    * The threshold is read from ``minimum_responses`` in the response. This
+      file asserts the server publishes one and that its own suppression obeys
+      it; it does not hard-code the number, because a client that carried its
+      own copy would be a second place for the policy to live.
+
+    **OQ-CBA-053** is pinned at the end: no rating is a scoring input. The
+    recorded match run is re-read and asserted to carry no factor whose key
+    mentions a rating or feedback — a matching model that had quietly grown one
+    would fail here rather than in a review.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+    if not _INVITATION_STATE.get("accepted_professional_id"):
+        pytest.skip("step 23 did not confirm a speaker to read a feedback summary for")
+
+    event_id = _seed_match_fixtures(flow.unit_id)["event_id"]
+    speaker_id = _INVITATION_STATE["accepted_professional_id"]
+
+    # Gate 1, asserted as a correct refusal. A 200 here would mean the student
+    # surface had been widened to a coordinator, which is the thing OQ-CBA-003
+    # part 1 forbids.
+    submitted = api.post(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        json={"rating": 4},
+    )
+    assert submitted.status_code == 403, (
+        "the student-gated feedback submission answered "
+        f"{submitted.status_code} to a '{flow.role}' principal; rating a speaker "
+        f"is a student's act and deny-by-default makes this a refusal: {submitted.text[:300]}"
+    )
+    assert json_body(submitted)["error"]["code"] == "forbidden"
+
+    # And the student's own read of their ratings is refused to this principal
+    # as well: the per-student rows are not reachable from the role that reads
+    # the aggregate below.
+    mine = api.get(f"/v1/units/{flow.unit_id}/student/events/{event_id}/speaker-feedback")
+    assert mine.status_code == 403, (
+        "a coordinator could read the student-scoped feedback listing "
+        f"({mine.status_code}); individual ratings must not be reachable from "
+        f"the Connector's role: {mine.text[:300]}"
+    )
+
+    summary = api.get(f"/v1/units/{flow.unit_id}/speakers/{speaker_id}/feedback-summary")
+    assert summary.status_code == 200, (
+        f"the Connector's feedback summary answered {summary.status_code}, "
+        f"expected 200: {summary.text[:400]}"
+    )
+    aggregate = json_body(summary)
+
+    # Aggregate-only, held as a shape rather than as a discipline: there is no
+    # field here that could name a student, carry a comment, or list a row.
+    assert set(aggregate) == {
+        "speaker_professional_id",
+        "suppressed",
+        "response_count",
+        "mean_rating",
+        "display_text",
+        "minimum_responses",
+    }, (
+        f"the Connector's summary carries {sorted(aggregate)}; any field beyond "
+        "these six is one that could identify a student or republish their words "
+        "(OQ-CBA-003 part 1, OQ-CBA-054)"
+    )
+    assert aggregate["speaker_professional_id"] == speaker_id
+
+    threshold = aggregate["minimum_responses"]
+    assert isinstance(threshold, int) and threshold > 0, (
+        f"the summary publishes minimum_responses={threshold!r}; a surface has to "
+        "be able to explain a suppression without hard-coding the number"
+    )
+
+    if aggregate["suppressed"]:
+        # ADR-0011 rule 1, on both numbers at once. A zero here would say this
+        # speaker was rated badly; null says nobody has told us.
+        assert aggregate["mean_rating"] is None, (
+            f"a suppressed aggregate published mean_rating={aggregate['mean_rating']!r}; "
+            "an unknown must be null and never 0.0"
+        )
+        assert aggregate["response_count"] is None, (
+            "a suppressed aggregate published its response_count "
+            f"({aggregate['response_count']!r}); the count is withheld alongside "
+            "the mean, because a small one narrows the field of who was asked"
+        )
+        assert aggregate["display_text"] and not any(
+            character.isdigit() for character in aggregate["display_text"]
+        ), (
+            f"the suppressed display_text is {aggregate['display_text']!r}; a "
+            "sentence rather than a dash or a zero, and carrying no number that "
+            "would leak what is being withheld"
+        )
+    else:
+        assert aggregate["response_count"] >= threshold, (
+            f"an aggregate was published from {aggregate['response_count']} "
+            f"responses, below the server's own threshold of {threshold}"
+        )
+        assert 1.0 <= aggregate["mean_rating"] <= 5.0, (
+            f"the published mean {aggregate['mean_rating']!r} is off the 1-5 scale"
+        )
+
+    # OQ-CBA-053: an event outcome, and never a scoring input. No factor in the
+    # recorded run reads this table, and none may grow to.
+    if flow.match_run_id is not None:
+        run = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
+        factor_keys = {
+            factor["factor_key"]
+            for group in ("shortlist", "considered", "unscorable")
+            for candidate in run[group]
+            for factor in candidate["factors"]
+        }
+        rating_derived = sorted(
+            key for key in factor_keys if "rating" in key.lower() or "feedback" in key.lower()
+        )
+        assert not rating_derived, (
+            f"the match run scores on {rating_derived}; OQ-CBA-053 says student "
+            "speaker feedback is an event outcome and no rating is a scoring "
+            "input, so a factor reading it would need that decision reopened first"
+        )
+
+    print(
+        f"  the Connector reads {aggregate['display_text']!r} "
+        f"(suppressed={aggregate['suppressed']}, minimum_responses={threshold}) "
+        "and has no route to an individual rating"
+    )
+    pytest.skip(
+        "no student speaker feedback could be submitted on this appliance, so the "
+        "aggregate above is asserted over zero stored ratings rather than over a "
+        "rating this step wrote. Two gates, both left standing rather than worked "
+        "around: (1) the submit and student-read routes are gated on the 'student' "
+        "role and docker-compose.yml maps its one dev bearer to a single "
+        "coordinator principal (the D6 gate steps 14-15 also skip on); (2) even as "
+        "a student the route requires an attendance_record for the caller at the "
+        "event, and no /v1 route creates one — the hand-off cites attendance and "
+        "never writes it. Writing either row directly would manufacture the "
+        "evidence the feature exists to check. The refusals and the aggregate-only "
+        "shape above did run and are asserted"
+    )
