@@ -2225,3 +2225,179 @@ def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
         f"{len(_INVITATION_STATE['declined_professional_ids'])} decline(s) "
         "disclosed nowhere on that surface"
     )
+
+
+def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """A Connector gets a thresholded average and no way to reach one student.
+
+    **The submission itself cannot be driven on this appliance, and is skipped
+    by name rather than faked.** Two independent gates stop it, and neither is a
+    defect:
+
+    1. ``POST .../student/events/{event_id}/speakers/{speaker_id}/feedback`` is
+       gated on the ``student`` role alone, and ``docker-compose.yml`` maps its
+       single dev bearer to one ``coordinator`` principal. This is the same D6
+       gate steps 14 and 15 skip on, asserted here the same way — as a *correct
+       refusal* rather than worked around.
+    2. Even as a student, the route requires an ``attendance_record`` for the
+       caller at that event, and **nothing in the ``/v1`` surface creates one**.
+       Step 24 left ``attended_at`` null for exactly this reason: the hand-off
+       cites an attendance row and never writes one.
+
+    Writing either row directly would be manufacturing the evidence the feature
+    exists to check, so this step asserts everything that *can* be reached over
+    HTTP and stops. What it proves is the half that matters for OQ-CBA-003:
+    **no individual rating is retrievable by a Connector.**
+
+    * The student's own read is refused to this principal too, so the surface
+      that returns per-student rows is not reachable by the role that reads the
+      aggregate. There is no parameter to aim it at another student in any case
+      — it is scoped by ``principal.user_id``.
+    * The Connector's summary answers, and answers *aggregate-only*: it carries
+      no field that can name a student, and the response model has none to
+      filter. Comments are absent entirely (OQ-CBA-054).
+    * Below the threshold it publishes **nothing** — ``mean_rating`` and
+      ``response_count`` are both null and never ``0.0`` (ADR-0011 rule 1: a
+      speaker nobody rated must not read as a speaker rated zero), with a
+      sentence in ``display_text`` so a reader can tell "we are not telling you"
+      from "the answer is nothing". The count is withheld *alongside* the mean
+      rather than published beside it, because in a class of thirty "two
+      students rated this speaker" narrows the field considerably.
+    * The threshold is read from ``minimum_responses`` in the response. This
+      file asserts the server publishes one and that its own suppression obeys
+      it; it does not hard-code the number, because a client that carried its
+      own copy would be a second place for the policy to live.
+
+    **OQ-CBA-053** is pinned at the end: no rating is a scoring input. The
+    recorded match run is re-read and asserted to carry no factor whose key
+    mentions a rating or feedback — a matching model that had quietly grown one
+    would fail here rather than in a review.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+    if not _INVITATION_STATE.get("accepted_professional_id"):
+        pytest.skip("step 23 did not confirm a speaker to read a feedback summary for")
+
+    event_id = _seed_match_fixtures(flow.unit_id)["event_id"]
+    speaker_id = _INVITATION_STATE["accepted_professional_id"]
+
+    # Gate 1, asserted as a correct refusal. A 200 here would mean the student
+    # surface had been widened to a coordinator, which is the thing OQ-CBA-003
+    # part 1 forbids.
+    submitted = api.post(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        json={"rating": 4},
+    )
+    assert submitted.status_code == 403, (
+        "the student-gated feedback submission answered "
+        f"{submitted.status_code} to a '{flow.role}' principal; rating a speaker "
+        f"is a student's act and deny-by-default makes this a refusal: {submitted.text[:300]}"
+    )
+    assert json_body(submitted)["error"]["code"] == "forbidden"
+
+    # And the student's own read of their ratings is refused to this principal
+    # as well: the per-student rows are not reachable from the role that reads
+    # the aggregate below.
+    mine = api.get(f"/v1/units/{flow.unit_id}/student/events/{event_id}/speaker-feedback")
+    assert mine.status_code == 403, (
+        "a coordinator could read the student-scoped feedback listing "
+        f"({mine.status_code}); individual ratings must not be reachable from "
+        f"the Connector's role: {mine.text[:300]}"
+    )
+
+    summary = api.get(f"/v1/units/{flow.unit_id}/speakers/{speaker_id}/feedback-summary")
+    assert summary.status_code == 200, (
+        f"the Connector's feedback summary answered {summary.status_code}, "
+        f"expected 200: {summary.text[:400]}"
+    )
+    aggregate = json_body(summary)
+
+    # Aggregate-only, held as a shape rather than as a discipline: there is no
+    # field here that could name a student, carry a comment, or list a row.
+    assert set(aggregate) == {
+        "speaker_professional_id",
+        "suppressed",
+        "response_count",
+        "mean_rating",
+        "display_text",
+        "minimum_responses",
+    }, (
+        f"the Connector's summary carries {sorted(aggregate)}; any field beyond "
+        "these six is one that could identify a student or republish their words "
+        "(OQ-CBA-003 part 1, OQ-CBA-054)"
+    )
+    assert aggregate["speaker_professional_id"] == speaker_id
+
+    threshold = aggregate["minimum_responses"]
+    assert isinstance(threshold, int) and threshold > 0, (
+        f"the summary publishes minimum_responses={threshold!r}; a surface has to "
+        "be able to explain a suppression without hard-coding the number"
+    )
+
+    if aggregate["suppressed"]:
+        # ADR-0011 rule 1, on both numbers at once. A zero here would say this
+        # speaker was rated badly; null says nobody has told us.
+        assert aggregate["mean_rating"] is None, (
+            f"a suppressed aggregate published mean_rating={aggregate['mean_rating']!r}; "
+            "an unknown must be null and never 0.0"
+        )
+        assert aggregate["response_count"] is None, (
+            "a suppressed aggregate published its response_count "
+            f"({aggregate['response_count']!r}); the count is withheld alongside "
+            "the mean, because a small one narrows the field of who was asked"
+        )
+        assert aggregate["display_text"] and not any(
+            character.isdigit() for character in aggregate["display_text"]
+        ), (
+            f"the suppressed display_text is {aggregate['display_text']!r}; a "
+            "sentence rather than a dash or a zero, and carrying no number that "
+            "would leak what is being withheld"
+        )
+    else:
+        assert aggregate["response_count"] >= threshold, (
+            f"an aggregate was published from {aggregate['response_count']} "
+            f"responses, below the server's own threshold of {threshold}"
+        )
+        assert 1.0 <= aggregate["mean_rating"] <= 5.0, (
+            f"the published mean {aggregate['mean_rating']!r} is off the 1-5 scale"
+        )
+
+    # OQ-CBA-053: an event outcome, and never a scoring input. No factor in the
+    # recorded run reads this table, and none may grow to.
+    if flow.match_run_id is not None:
+        run = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
+        factor_keys = {
+            factor["factor_key"]
+            for group in ("shortlist", "considered", "unscorable")
+            for candidate in run[group]
+            for factor in candidate["factors"]
+        }
+        rating_derived = sorted(
+            key for key in factor_keys if "rating" in key.lower() or "feedback" in key.lower()
+        )
+        assert not rating_derived, (
+            f"the match run scores on {rating_derived}; OQ-CBA-053 says student "
+            "speaker feedback is an event outcome and no rating is a scoring "
+            "input, so a factor reading it would need that decision reopened first"
+        )
+
+    print(
+        f"  the Connector reads {aggregate['display_text']!r} "
+        f"(suppressed={aggregate['suppressed']}, minimum_responses={threshold}) "
+        "and has no route to an individual rating"
+    )
+    pytest.skip(
+        "no student speaker feedback could be submitted on this appliance, so the "
+        "aggregate above is asserted over zero stored ratings rather than over a "
+        "rating this step wrote. Two gates, both left standing rather than worked "
+        "around: (1) the submit and student-read routes are gated on the 'student' "
+        "role and docker-compose.yml maps its one dev bearer to a single "
+        "coordinator principal (the D6 gate steps 14-15 also skip on); (2) even as "
+        "a student the route requires an attendance_record for the caller at the "
+        "event, and no /v1 route creates one — the hand-off cites attendance and "
+        "never writes it. Writing either row directly would manufacture the "
+        "evidence the feature exists to check. The refusals and the aggregate-only "
+        "shape above did run and are asserted"
+    )
