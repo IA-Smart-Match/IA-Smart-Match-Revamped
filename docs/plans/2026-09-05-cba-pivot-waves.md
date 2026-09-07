@@ -322,7 +322,7 @@ Every implementation card starts from then-current `origin/main`, has one branch
 - **Precise file fence:** decision artifact if still pending (stop after it), then one migration, feedback domain/persistence/API, student submission and Connector read UI, authz/OpenAPI/tests. Do not reuse coordinator match feedback.
 - **Read first:** customer §§15–16, 26; OQ-CBA-003; `feedback.py` (contrast only); attendance/event schema; authz policy; ADR-0011.
 - **Deliverables:** approved minimal rating schema; student submission tied to attended event/speaker; Connector read; honest empty aggregate; privacy/edit/anonymity behavior from decision.
-- **First failing tests:** `tests/unit/test_student_speaker_feedback.py` (planned); `tests/integration/test_student_speaker_feedback.py` (planned); `tests/contract/test_student_feedback_api.py` (planned).
+- **First failing tests:** `tests/unit/test_cba_student_feedback_decision.py` (planned); `tests/integration/test_student_speaker_feedback.py` (planned); `tests/contract/test_student_feedback_api.py` (planned).
 - **Success criteria:** no implementation before OQ approval; only eligible student/event relationships submit; empty feedback is unknown, not zero; Connector access is tenant-scoped.
 - **Serial resources:** migration, OpenAPI, authz matrix.
 - **Demo-critical:** **P0 but can follow core demo path if decision remains open.**
