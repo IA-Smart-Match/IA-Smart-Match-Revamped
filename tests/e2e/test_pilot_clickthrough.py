@@ -1822,3 +1822,216 @@ def test_22_the_shortlist_is_composed_into_an_invitation_batch(
         }
     )
     print(f"  composed batch {batch['batch_id']} inviting {sorted(addresses.values())}")
+
+
+def _response_tokens(api: httpx.Client, unit_id: str, addresses: dict[str, str]) -> dict[str, str]:
+    """Each invited speaker's response token, read out of the message composed for them.
+
+    The token is minted per invitation and stored only as a SHA-256 hash, so the
+    plaintext exists in exactly one readable place: the body of the draft the
+    batch composed, which ``GET /v1/units/{unit_id}/outreach/drafts`` returns.
+    That is a real surface a Connector reads, not a back door — and it is why
+    step 23 can follow the Speaker's own link where step 21 could not follow the
+    unsubscribe link (that token is minted inside the worker at delivery and
+    never lands in a row).
+
+    Paged rather than fetched in one shot, and bounded: a unit accumulates drafts
+    across sessions, and a single read that silently missed an older one would
+    fail this step with a confusing ``KeyError`` instead of a clear message.
+    """
+    wanted = {address: professional_id for professional_id, address in addresses.items()}
+    tokens: dict[str, str] = {}
+
+    limit = 200
+    for page in range(10):
+        listing = json_body(
+            api.get(
+                f"/v1/units/{unit_id}/outreach/drafts",
+                params={"limit": limit, "offset": page * limit},
+            )
+        )
+        drafts = listing["drafts"]
+        for draft in drafts:
+            professional_id = wanted.get(draft["recipient_address"])
+            if professional_id is None or professional_id in tokens:
+                continue
+            assert draft["template_id"] == INVITATION_TEMPLATE_ID, (
+                f"the draft for {draft['recipient_address']} was composed from "
+                f"{draft['template_id']!r}, not the invitation template"
+            )
+            found = _RESPONSE_LINK.search(draft["body"])
+            assert found is not None, (
+                f"the invitation composed for {draft['recipient_address']} carries "
+                f"no response link, so a Speaker has no way to answer it: "
+                f"{draft['body'][:400]}"
+            )
+            tokens[professional_id] = found.group(1)
+        if len(tokens) == len(addresses) or len(drafts) < limit:
+            break
+
+    missing = sorted(address for pid, address in addresses.items() if pid not in tokens)
+    assert not missing, f"no composed invitation was found for {missing}"
+    return tokens
+
+
+def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The batch goes out through the fixture provider, and the Speakers answer it.
+
+    Two facts are kept apart the whole way down, and this is the step where they
+    could most easily be confused. ``delivery.disposition`` is ``accepted`` — the
+    *provider* took custody. ``speaker_response.response`` is
+    ``accepted_invitation`` or ``declined_invitation`` — the *Speaker* answered.
+    The two vocabularies share no value, so no client can render one as the
+    other, and this step asserts both on the same invitation at once.
+
+    The dispatch runs through ``fixture-email`` and ``live_mode`` is asserted
+    false, exactly as step 20 does: a green run here is a run through the
+    deterministic fixture and never one bought by mailing a stranger. Every
+    address in the batch is under RFC 2606's reserved ``.invalid`` TLD, so there
+    is no mailbox at the other end of any of it.
+
+    The answers are given the way a Speaker gives them — ``POST
+    /v1/speaker-invitations/respond``, **unauthenticated**, carrying only the
+    token from the link in their own message. That is asserted rather than
+    assumed: the requests below strip the bearer, because a route that needed the
+    Connector's credentials to accept a Speaker's answer would not be a route a
+    Speaker could use. The stored answer therefore reads ``channel='speaker_link'``
+    with no ``recorded_by_user_id`` — a stronger evidentiary claim than a
+    coordinator retyping what they were told, and one that must not be spelled
+    the same way.
+
+    One accepts and the rest decline. The decline is not decoration: step 24
+    asserts the Event Host's surface does not expose it, and that assertion is
+    vacuous unless a decline exists to be leaked.
+    """
+    if flow.unit_id is None or not _INVITATION_STATE:
+        pytest.skip("step 22 did not compose an invitation batch to dispatch")
+
+    batch_id = _INVITATION_STATE["batch_id"]
+    addresses: dict[str, str] = _INVITATION_STATE["addresses"]
+    nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch"
+    )
+    assert response.status_code == 202, (
+        f"dispatching batch {batch_id} returned {response.status_code}, "
+        f"expected 202: {response.text[:400]}"
+    )
+    dispatch = json_body(response)
+    assert set(dispatch) == {"batch_id", "dispatched", "not_dispatched"}, (
+        f"the dispatch acknowledgement carried {sorted(dispatch)}; any field "
+        "beyond these three is one a client could render as 'sent'"
+    )
+    assert dispatch["not_dispatched"] == [], (
+        "an invitation composed for an activated, consented channel was refused "
+        f"at dispatch: {dispatch['not_dispatched']}"
+    )
+    assert len(dispatch["dispatched"]) == len(addresses), (
+        f"{len(dispatch['dispatched'])} of {len(addresses)} invitations were "
+        "submitted; a batch must not silently lose a recipient"
+    )
+
+    for entry in dispatch["dispatched"]:
+        assert entry["events_url"] == f"/v1/jobs/{entry['job_id']}/events", (
+            f"events_url is {entry['events_url']!r} and does not point at the job"
+        )
+        summary = _await_job(api, entry["job_id"])
+        assert summary["live_mode"] is False, (
+            "the appliance reports live_mode=true: this suite invites only "
+            "'.invalid' addresses, but a click-through must never run against a "
+            "provider that can reach a real mailbox"
+        )
+        assert summary["provider"] == "fixture-email", (
+            f"an invitation went through provider {summary['provider']!r}, not the fixture"
+        )
+        assert summary["disposition"] == "accepted", (
+            f"the invitation send reported disposition {summary['disposition']!r}"
+        )
+
+    tokens = _response_tokens(api, flow.unit_id, addresses)
+
+    # Deterministic, so a re-read of this file says which speaker did what: the
+    # lowest id accepts and every other invited speaker declines.
+    ordered = sorted(addresses)
+    answers = {ordered[0]: "accept"} | {pid: "decline" for pid in ordered[1:]}
+
+    for professional_id, answer in answers.items():
+        # No bearer. The Speaker holds a token from an email and no account —
+        # the respond route is unauthenticated by design, and sending the
+        # Connector's credentials here would prove nothing about the route a
+        # Speaker actually reaches.
+        answered = api.post(
+            "/v1/speaker-invitations/respond",
+            json={"token": tokens[professional_id], "response": answer},
+            headers={"Authorization": ""},
+        )
+        assert answered.status_code == 200, (
+            f"a Speaker answering '{answer}' with their own token got "
+            f"{answered.status_code}: {answered.text[:400]}"
+        )
+        assert json_body(answered) == {"recorded": True}, (
+            "the answer to a Speaker's response carries more than 'recorded'; a "
+            "body that distinguished a real token from an invented one would let "
+            "anyone holding a guess confirm who was invited to speak"
+        )
+
+    read_back = json_body(
+        api.get(f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}")
+    )
+    outcomes = {outcome["professional_id"]: outcome for outcome in read_back["invitations"]}
+
+    for professional_id, answer in answers.items():
+        want = "accepted_invitation" if answer == "accept" else "declined_invitation"
+        outcome = outcomes[professional_id]
+        speaker_response = outcome["speaker_response"]
+
+        assert speaker_response["response"] == want, (
+            f"{nicknames[professional_id]} answered {answer!r} through their own "
+            f"link, but the batch reads back {speaker_response['response']!r}"
+        )
+        assert speaker_response["channel"] == "speaker_link", (
+            f"the answer is recorded on channel {speaker_response['channel']!r}; "
+            "a Speaker's own click and a coordinator retyping what they were told "
+            "are different evidentiary claims and must not be stored alike"
+        )
+        assert speaker_response["recorded_by_user_id"] is None, (
+            "a Speaker's own answer names a coordinator as its recorder: "
+            f"{speaker_response['recorded_by_user_id']}"
+        )
+        assert speaker_response["recorded_at"], (
+            "an answered invitation carries no recorded_at, so nothing dates the answer"
+        )
+
+        assert outcome["status"] == "dispatched", (
+            f"invitation {outcome['invitation_id']} reads back {outcome['status']!r} "
+            "after a dispatch that reported it submitted"
+        )
+        # The provider's fact, on the same row as the Speaker's, and different.
+        assert outcome["delivery"]["disposition"] == "accepted", (
+            f"the delivery reads {outcome['delivery']['disposition']!r}"
+        )
+        assert outcome["delivery"]["provider"] == "fixture-email"
+        assert outcome["delivery"]["disposition"] != speaker_response["response"], (
+            "the delivery disposition and the Speaker's answer are spelled the "
+            "same way; one is what a mail provider did and the other is what a "
+            "person said, and a shared vocabulary is how the two get confused"
+        )
+
+    accepted_id = ordered[0]
+    declined_ids = ordered[1:]
+    _INVITATION_STATE.update(
+        {
+            "accepted_professional_id": accepted_id,
+            "accepted_invitation_id": outcomes[accepted_id]["invitation_id"],
+            "declined_professional_ids": declined_ids,
+            "declined_invitation_ids": [outcomes[pid]["invitation_id"] for pid in declined_ids],
+            "declined_addresses": [addresses[pid] for pid in declined_ids],
+        }
+    )
+    print(
+        f"  {nicknames[accepted_id]} accepted through their own link; "
+        f"{[nicknames[pid] for pid in declined_ids]} declined"
+    )
