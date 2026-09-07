@@ -120,8 +120,8 @@ def test_the_floor_is_per_factor_not_per_proposal():
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
-    assert "travel_burden" in proposal.deltas
-    assert "role_fit" not in proposal.deltas
+    assert CBA_PROXIMITY_FACTOR_KEY in proposal.deltas
+    assert ROLE_MATCH_FACTOR_KEY not in proposal.deltas
 
 
 def test_no_proposal_when_there_are_no_categorized_declines():
@@ -138,7 +138,7 @@ def test_other_reason_moves_no_weight():
 def test_declines_raise_the_implicated_factor():
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 5))
     assert proposal is not None
-    assert proposal.deltas["travel_burden"] > 0.0
+    assert proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] > 0.0
 
 
 def test_each_reason_maps_to_its_documented_factor():
@@ -158,14 +158,14 @@ def test_delta_is_clamped_regardless_of_decline_volume():
     """
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 100))
     assert proposal is not None
-    assert proposal.deltas["travel_burden"] == pytest.approx(MAX_FACTOR_DELTA)
+    assert proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] == pytest.approx(MAX_FACTOR_DELTA)
 
 
 def test_every_delta_respects_the_bound():
     entries = [
         *_declines(DeclineReason.TOO_FAR, 40),
         *_declines(DeclineReason.WRONG_ROLE, 40),
-        *_declines(DeclineReason.OVERCOMMITTED, 40),
+        *_declines(DeclineReason.WRONG_TOPIC, 40),
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
@@ -175,10 +175,14 @@ def test_every_delta_respects_the_bound():
 def test_aggregate_movement_is_deliberately_unbounded():
     """Pins the absence of an aggregate bound, which is a deferral, not an oversight.
 
-    Each delta is bounded by ``MAX_FACTOR_DELTA``; their sum is not. Six
-    factors implicated at once propose +0.48 against weights that total 1.0,
-    and nothing here renormalizes — the legacy did both, clamping each factor
-    into a band around its baseline and then renormalizing the vector.
+    Each delta is bounded by ``MAX_FACTOR_DELTA``; their sum is not. The three
+    factors the map implicates propose +0.24 at once against weights that total
+    1.0, and nothing here renormalizes — the legacy did both, clamping each
+    factor into a band around its baseline and then renormalizing the vector.
+    The figures moved on 7 September 2026 only because the map was retargeted
+    from six names (three of them nonexistent, two retired) onto the three
+    active scoring keys that describe a decline reason; the absence of the
+    aggregate bound is unchanged, which is what this test pins.
 
     This is left as it is on purpose. The real defect (review finding F-25,
     ``docs/plans/defect-remediation.md`` §4.5) is that the number a human
@@ -199,9 +203,9 @@ def test_aggregate_movement_is_deliberately_unbounded():
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
-    assert len(proposal.deltas) == 6
+    assert len(proposal.deltas) == 3
     assert all(d == pytest.approx(MAX_FACTOR_DELTA) for d in proposal.deltas.values())
-    assert sum(proposal.deltas.values()) == pytest.approx(0.48)
+    assert sum(proposal.deltas.values()) == pytest.approx(0.24)
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +354,7 @@ def test_proposal_carries_a_human_readable_rationale():
     proposal = propose_weight_adjustments(_declines(DeclineReason.WRONG_TOPIC, 5))
     assert proposal is not None
     assert proposal.rationale
-    assert "topic_relevance" in proposal.rationale[0]
+    assert CBA_SEMANTIC_TOPIC_FACTOR_KEY in proposal.rationale[0]
 
 
 def test_proposal_records_the_aggregate_it_derived_from():
@@ -366,4 +370,4 @@ def test_deltas_mapping_is_immutable():
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 5))
     assert proposal is not None
     with pytest.raises(TypeError):
-        proposal.deltas["travel_burden"] = 1.0  # type: ignore[index]
+        proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] = 1.0  # type: ignore[index]
