@@ -3677,6 +3677,269 @@ export async function reconcileSpeakerHandoff(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Student speaker feedback (OQ-CBA-003) — customer §§15-16
+// ---------------------------------------------------------------------------
+
+/**
+ * What a student says about one speaker they heard.
+ *
+ * Two fields, because OQ-CBA-003 approved one overall dimension and customer
+ * §16 says not to over-design the requirement. There is no `student_id` here
+ * and there is none on any type below: every route takes the author from
+ * `principal.user_id` and accepts one in no body and no path, so a field for it
+ * would be a field the server has nothing to receive.
+ */
+export interface SpeakerFeedbackSubmission {
+  /**
+   * 1 through 5. Required, and there is no zero on this scale — a speaker
+   * nobody rated has no row, which is a different fact from a speaker rated
+   * badly. To take one back, call {@link withdrawSpeakerFeedback}; do not send
+   * a sentinel the server would reject anyway.
+   */
+  rating: number;
+  /**
+   * Optional free text. Omit it, or send `null`, when the student wrote
+   * nothing. A blank or whitespace-only string is normalized to absent
+   * server-side rather than stored, so there is no third state between "wrote
+   * nothing" and "wrote something".
+   */
+  comment?: string | null;
+}
+
+/**
+ * When a rating stops being its author's to change.
+ *
+ * Read `state`; never compare a date in the browser. The window closes seven
+ * days after the event and the server resolves it from the event's own anchor —
+ * a page doing its own arithmetic would be a second copy of the rule, and would
+ * get it wrong for every event whose date is not resolved.
+ */
+export interface StudentSpeakerFeedbackWindow {
+  /**
+   * `open`, `closed`, or `unknown`. `unknown` means the event carries no
+   * resolved date, so no cutoff can be measured — which is neither a cutoff
+   * that has not arrived nor one that has. Render it as the third thing it is.
+   */
+  state: string;
+  /** When the window shuts, ISO-8601, or `null` when the state is `unknown`. */
+  closes_at: string | null;
+}
+
+/**
+ * One of the caller's own ratings, as the server stored it.
+ *
+ * Carries no student identifier. Not because it would leak — these are the
+ * caller's own rows — but because a field that exists nowhere in this lane
+ * cannot be copied onto a Connector's surface later, which is where OQ-CBA-003
+ * part 1 would actually be lost.
+ */
+export interface StudentSpeakerFeedback {
+  speaker_professional_id: string;
+  /** `submitted` or `withdrawn`. */
+  status: string;
+  /**
+   * 1 to 5, or `null` on a withdrawn rating. Null is an absence, never a zero:
+   * the rating was taken back, not scored badly (ADR-0011 rule 1).
+   */
+  rating: number | null;
+  /**
+   * The student's words, or `null`. Null both when they wrote none and after a
+   * withdrawal took them back — a retraction takes back the words as well as
+   * the number.
+   */
+  comment: string | null;
+  submitted_at: string;
+  updated_at: string;
+  edit_window: StudentSpeakerFeedbackWindow;
+}
+
+/**
+ * The result of one submit or withdraw.
+ *
+ * `changed` is the field that keeps this honest. A repeat of an identical
+ * submission, and a withdrawal with nothing to withdraw, both return `false` —
+ * so "this is your rating" and "this request changed it" stay separable, and a
+ * page must not collapse them into one confirmation.
+ */
+export interface StudentSpeakerFeedbackResult {
+  /**
+   * The rating as it now stands, or `null` from a withdrawal by a student who
+   * never rated this speaker — which stores nothing rather than manufacturing a
+   * pre-withdrawn row.
+   */
+  feedback: StudentSpeakerFeedback | null;
+  changed: boolean;
+}
+
+/** What this student has already said about speakers at one event. */
+export interface StudentSpeakerFeedbackList {
+  unit_id: string;
+  event_id: string;
+  /**
+   * Withdrawn rows are included. "You withdrew this" and "you have not rated
+   * this speaker" are different states, and this is the one surface that has to
+   * tell them apart.
+   */
+  feedback: StudentSpeakerFeedback[];
+}
+
+/**
+ * `POST /v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback`
+ * — rate a speaker at an event you attended, or amend the rating you left.
+ *
+ * Submit and amend are the same call: the row is unique per student, event and
+ * speaker, so a second submission replaces the first rather than adding one.
+ *
+ * The server refuses, in words, every reason this is not allowed, and each
+ * refusal is about a fact the caller already has. {@link ApiRequestError}:
+ * `404 event_not_found` or `404 speaker_contact_not_found`;
+ * `403 student_feedback_not_eligible` when there is no attendance record for
+ * this caller at this event — feedback is limited to what you attended;
+ * `409 student_feedback_window_closed` once the cutoff has passed. Render the
+ * server's own message, which says which of those happened.
+ *
+ * `student` role only, authorized per request against the loaded unit. The
+ * author is taken from the session and cannot be supplied.
+ */
+export async function submitSpeakerFeedback(
+  unitId: string,
+  eventId: string,
+  speakerId: string,
+  payload: SpeakerFeedbackSubmission,
+): Promise<StudentSpeakerFeedbackResult> {
+  return requestJson<StudentSpeakerFeedbackResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events/` +
+      `${encodeURIComponent(eventId)}/speakers/${encodeURIComponent(speakerId)}/feedback`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `DELETE /v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback`
+ * — take a rating back.
+ *
+ * A route of its own rather than a submission carrying a sentinel. The row
+ * survives with its attribution — migration `0031` explains why dropping it
+ * would break retraction, de-duplication and abuse tracing at once — and the
+ * number and the words are cleared.
+ *
+ * Refuses the same way the submission does, with the same codes. Withdrawing
+ * something never rated is a `200` carrying `changed: false`, not an error:
+ * there is nothing wrong with the request, and nothing happened.
+ */
+export async function withdrawSpeakerFeedback(
+  unitId: string,
+  eventId: string,
+  speakerId: string,
+): Promise<StudentSpeakerFeedbackResult> {
+  return requestJson<StudentSpeakerFeedbackResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events/` +
+      `${encodeURIComponent(eventId)}/speakers/${encodeURIComponent(speakerId)}/feedback`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/student/events/{event_id}/speaker-feedback` — what
+ * you have already said about speakers at this event.
+ *
+ * Scoped to the caller by the server, which takes the student from the session:
+ * there is no parameter this could be aimed at somebody else with, and adding
+ * one to this signature would not create the route that honours it.
+ *
+ * Withdrawn rows come back too, because "you withdrew this" and "you have not
+ * rated this speaker" have to be told apart on the one surface that shows both.
+ *
+ * **A student surface's read.** It returns rows carrying ratings and comments,
+ * and it must not be called from a Connector page — the Connector's read is
+ * {@link fetchSpeakerFeedbackSummary} and nothing else (OQ-CBA-003 part 1).
+ */
+export async function fetchMySpeakerFeedback(
+  unitId: string,
+  eventId: string,
+): Promise<StudentSpeakerFeedbackList> {
+  return requestJson<StudentSpeakerFeedbackList>(
+    `/v1/units/${encodeURIComponent(unitId)}/student/events/` +
+      `${encodeURIComponent(eventId)}/speaker-feedback`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * How students rated one speaker, in aggregate. Three numbers and a sentence.
+ *
+ * There is no field here a student could be named in, and there is no route
+ * that would fill one. That is OQ-CBA-003 part 1 held as a type rather than as
+ * a discipline a reviewer has to remember.
+ */
+export interface SpeakerFeedbackSummary {
+  speaker_professional_id: string;
+  /**
+   * True when fewer than `minimum_responses` students have rated this speaker.
+   * Both numbers below are then `null` — the count is withheld along with the
+   * mean rather than published beside it, because "two students rated this
+   * speaker" narrows the field considerably in a class of thirty.
+   */
+  suppressed: boolean;
+  /** How many ratings the mean was computed from, or `null` when suppressed. */
+  response_count: number | null;
+  /**
+   * The average, to two decimals, or `null` when suppressed. Never coerce it to
+   * `0`: ADR-0011 rule 1, a value with no evidence is unknown, and a speaker
+   * nobody rated must not read as a speaker rated zero.
+   */
+  mean_rating: number | null;
+  /**
+   * What to render. Reads "not enough responses yet" when suppressed — a
+   * sentence rather than a dash or a zero, so a reader can tell "we are not
+   * telling you" from "the answer is nothing".
+   */
+  display_text: string;
+  /**
+   * The threshold below which nothing is published. Sent so a surface can
+   * explain a suppression without hard-coding the number, which is a decided
+   * value and can move.
+   */
+  minimum_responses: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary` — the
+ * Connector's read, and the only one they have.
+ *
+ * Customer §16's "Speaker Connectors/admin users must be able to view the
+ * feedback", read as an aggregate rather than a transcript. No student is
+ * named, no individual rating is returned, and there is deliberately no route
+ * that lists them: thirty rows carrying timestamps and free text re-identify
+ * their authors whether or not a column says so.
+ *
+ * These ratings are **not** a matching input. OQ-CBA-053 settles it: student
+ * speaker feedback is an event outcome, no factor reads the table, and nothing
+ * derived from it enters a score. A surface rendering this beside a roster must
+ * say so rather than leaving a reader to assume the obvious wrong thing.
+ *
+ * A speaker not on this unit's roster is a `404`, not an empty summary, so the
+ * route cannot be used to enumerate ids. `admin` and `coordinator` only; a
+ * caller the server refuses gets {@link ApiRequestError} with status `403`,
+ * which is an answer to render rather than a state to hide.
+ */
+export async function fetchSpeakerFeedbackSummary(
+  unitId: string,
+  speakerId: string,
+): Promise<SpeakerFeedbackSummary> {
+  return requestJson<SpeakerFeedbackSummary>(
+    `/v1/units/${encodeURIComponent(unitId)}/speakers/` +
+      `${encodeURIComponent(speakerId)}/feedback-summary`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+
 /**
  * What one scoring mode would actually score with, right now.
  *
