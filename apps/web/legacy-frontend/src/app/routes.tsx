@@ -48,6 +48,11 @@ const StudentConnect = lazy(() =>
 const StudentRewards = lazy(() =>
   import("./pages/student/StudentRewards").then((m) => ({ default: m.StudentRewards })),
 );
+const StudentSpeakerFeedback = lazy(() =>
+  import("./pages/student/StudentSpeakerFeedback").then((m) => ({
+    default: m.StudentSpeakerFeedback,
+  })),
+);
 
 const CoordinatorHome = lazy(() =>
   import("./pages/coordinator/CoordinatorHome").then((m) => ({ default: m.CoordinatorHome })),
@@ -176,6 +181,13 @@ export const router = createBrowserRouter([
       { path: "history", element: withSuspense(<StudentHistory />) },
       { path: "connect", element: withSuspense(<StudentConnect />) },
       { path: "rewards", element: withSuspense(<StudentRewards />) },
+      // Customer §§15-16's student rating surface (OQ-CBA-003). Mounted
+      // unconditionally like every other route in this shell: a route is a
+      // claim about what exists rather than a permission, and both
+      // `.../student/events/{event_id}/speaker-feedback` and the submit and
+      // withdraw pair beside it are `student`-scoped server-side, authorized
+      // per request against the loaded unit, whatever this router renders.
+      { path: "speaker-feedback", element: withSuspense(<StudentSpeakerFeedback />) },
     ],
   },
 
