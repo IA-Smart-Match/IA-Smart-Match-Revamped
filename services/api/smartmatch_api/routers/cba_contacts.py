@@ -97,12 +97,48 @@ a name did not move the derived key, so after ``"Dana Ryes"`` became
 guard passed it in silence — one person, two records. The hint compares
 **names**, which is the thing a rename changes.
 
+## The edit hints too, and says something else
+
+**OQ-CBA-049, decided 2026-09-06.** The create warns that you *may be about to
+duplicate somebody*. Renaming a contact into a name the unit already holds is
+the same hazard arriving from the other direction, and until this decision the
+edit said nothing about it at all — a Connector could turn one of two people
+into the other's namesake and read a clean ``200``.
+
+The edit now reports ``name_now_shared_with``, and the **different field name is
+the point** rather than a naming preference. The two messages are not the same
+message: a create's hint is *you may be about to duplicate*, and an edit's is
+*you may have just collided*. One is about a record that did not exist a moment
+ago; the other is about a record that has been on this roster for months and
+has just changed its label. A client that received both under one key would
+have to reconstruct which it was holding from the HTTP method, and a reader of
+either would be entitled to assume the wrong one. So ``same_name_contacts`` is
+the create's and stays the create's, ``name_now_shared_with`` is the edit's, and
+each is empty everywhere the other might speak.
+
+It fires only when the edit **changes** the name into one somebody else holds.
+An edit that leaves the name alone reports nothing, and neither does one that
+re-states the same name in different case or spacing — the comparison is the
+create's fold and the collision set has not moved. Otherwise every save of §13's
+form would re-announce a collision the Connector already knows about, and a
+warning that fires on every save is one nobody reads.
+
+Exact folded equality and nothing cleverer, which is **OQ-CBA-050** decided the
+same day: no similarity scoring, no edit distance, no cutoff to tune. That
+decision is revisitable when somebody has a roster large enough to measure a
+false-positive rate on, and not before.
+
 Not here, deliberately: no uniqueness constraint on
 ``(tenant_id, owning_unit_id, full_name)``, in any form, ever — OQ-CBA-021,
-argued in migration ``0030``. No hint on the edit route (**OQ-CBA-049**). And no
-request-level idempotency: a double-clicked form now adds the same person twice
-rather than resolving to one derived id, which is the cost of the decision and
-is recorded as **OQ-CBA-047** rather than papered over.
+argued in migration ``0030``. The edit hint is a hint on exactly the create's
+terms: the ``UPDATE`` has already committed by the time anybody reads it, and
+there is no status code, no ``409``, and no refusal anywhere on this surface.
+No merge either — no ``duplicate_of``, no "these are the same person" — because
+recording that two rows are one person is a product decision nobody has taken.
+What ships is the statement that two rows share a name. And no request-level
+idempotency: a double-clicked form now adds the same person twice rather than
+resolving to one derived id, which is the cost of the decision and is recorded
+as **OQ-CBA-047** rather than papered over.
 
 ## What this module does not do
 
@@ -128,6 +164,7 @@ from smartmatch_domain.cba_contacts import (
     WITHHELD_CONTACT_EMAIL_FIELD,
     ClassificationCorrection,
     SpeakerContactDraft,
+    folded_contact_name,
 )
 from smartmatch_domain.cba_role_categories import UnknownCbaRoleCategory
 from smartmatch_domain.naics_sectors import UnknownNaicsSector
@@ -353,7 +390,13 @@ class SpeakerContactClassificationSource(BaseModel):
 
 
 class SameNameContact(BaseModel):
-    """One contact this unit already holds under the name a create just used.
+    """One contact this unit already holds under a name a write just used.
+
+    Carried by both hints — the create's ``same_name_contacts`` and the edit's
+    ``name_now_shared_with`` — because "who else is called this" has one honest
+    answer and rendering it two ways would invite the two to drift. What differs
+    between the routes is the *claim being made*, and that lives in the field
+    name rather than in the shape underneath it.
 
     Enough to recognize a person and nothing more. The identifying fields are
     here because a bare "somebody has this name" is not something a Connector
@@ -458,6 +501,30 @@ class SpeakerContactResponse(BaseModel):
             "`truncated` gives. False on reads and edits."
         ),
     )
+    name_now_shared_with: list[SameNameContact] = Field(
+        default_factory=list,
+        description=(
+            "Other contacts in this unit that carry the name this **edit** just "
+            "moved the contact to, matched case- and space-insensitively. **A "
+            "hint, never a refusal** — the edit in this response is committed, "
+            "and this says who it collided with. Deliberately not "
+            "`same_name_contacts`: that field means *you may be about to "
+            "duplicate somebody* and this one means *you may have just collided "
+            "with somebody*, and a client holding one under the other's name "
+            "would be reading the wrong sentence. Empty on every create and "
+            "every read; empty on an edit that left the name alone, that only "
+            "re-cased or re-spaced it, or that moved it to a name nobody else "
+            "holds — which is the ordinary case."
+        ),
+    )
+    name_now_shared_with_truncated: bool = Field(
+        default=False,
+        description=(
+            "True when more contacts share the new name than this response "
+            "lists. Answered by reading one row past the cap, exactly as "
+            "`same_name_truncated` is. False on creates and reads."
+        ),
+    )
 
 
 class SpeakerContactListResponse(BaseModel):
@@ -525,6 +592,7 @@ def _view(
     *,
     withheld: list[str] | None = None,
     same_name: tuple[SpeakerContactRow, ...] | None = None,
+    name_now_shared_with: tuple[SpeakerContactRow, ...] | None = None,
 ) -> SpeakerContactResponse:
     """Render one stored contact.
 
@@ -532,19 +600,24 @@ def _view(
     request actually supplied — a read reports nothing withheld, because a read
     supplied nothing to withhold.
 
-    ``same_name`` is passed only by the **create**, for the same shape of
-    reason: the hint answers a question a create asks and a read does not, so an
-    empty list on a read is the absence of a question rather than a claim that
-    nobody shares the name. Passing it here rather than reading it inside means
-    a read cannot accidentally acquire an extra query.
+    ``same_name`` is passed only by the **create**, and
+    ``name_now_shared_with`` only by the **edit**, for the same shape of reason:
+    each hint answers a question its own route asks and a read asks neither, so
+    an empty list on a read is the absence of a question rather than a claim
+    that nobody shares the name. Passing them here rather than reading them
+    inside means a read cannot accidentally acquire an extra query, and it is
+    also what keeps the two mutually exclusive by construction — a route that
+    passes one passes ``None`` for the other, so no response can make both
+    claims at once (OQ-CBA-049).
 
-    Truncation is decided here rather than by the repository, which returns at
-    most what it was asked for and says nothing about the rest —
-    ``list_for_unit``'s arrangement. The caller asks for
+    Truncation is decided here for both, rather than by the repository, which
+    returns at most what it was asked for and says nothing about the rest —
+    ``list_for_unit``'s arrangement. Each caller asks for
     ``MAX_SAME_NAME_HINTS + 1``; this renders the first
     :data:`MAX_SAME_NAME_HINTS` and reports whether there were more.
     """
     matches = same_name or ()
+    collisions = name_now_shared_with or ()
     return SpeakerContactResponse(
         professional_id=row.professional_id,
         owning_unit_id=row.owning_unit_id,
@@ -582,6 +655,17 @@ def _view(
             for match in matches[:MAX_SAME_NAME_HINTS]
         ],
         same_name_truncated=len(matches) > MAX_SAME_NAME_HINTS,
+        name_now_shared_with=[
+            SameNameContact(
+                professional_id=match.professional_id,
+                full_name=match.full_name,
+                company=match.company,
+                title=match.title,
+                created_at=match.created_at.isoformat(),
+            )
+            for match in collisions[:MAX_SAME_NAME_HINTS]
+        ],
+        name_now_shared_with_truncated=len(collisions) > MAX_SAME_NAME_HINTS,
     )
 
 
@@ -820,21 +904,54 @@ def update_speaker_contact(
     point of the decision, since under the previous scheme the id stayed put
     while quietly ceasing to correspond to the name beside it.
 
-    This route reports no ``same_name_contacts``. Renaming somebody into a name
-    the unit already uses is the same hazard the create hints about, from the
-    other direction, and it is left unanswered on purpose rather than by
-    oversight: a Connector fixing a typo is not proposing a new person, so
-    "somebody else is called this" would mean something different here than it
-    does on a create. **OQ-CBA-049.**
+    **A rename into an existing name is reported, and the field is not the
+    create's.** This route answers ``name_now_shared_with`` where the create
+    answers ``same_name_contacts``, and the two names are deliberately different
+    because the two sentences are: a create says *you may be about to duplicate
+    somebody*, an edit says *you may have just collided with somebody*. The
+    module docstring argues that at length; what matters at this call site is
+    that a client can never be holding one while reading the other's meaning.
+
+    Neither field is a refusal. The ``UPDATE`` has already happened when the
+    hint is composed, the response is a ``200`` whatever it contains, and there
+    is no uniqueness constraint on ``(tenant_id, owning_unit_id, full_name)``
+    anywhere under this route (OQ-CBA-021) — a Connector who has looked and
+    decided these are two different people simply proceeds.
+
+    The hint is quiet unless the edit **moved** the name. The stored contact is
+    read before the write for exactly that reason, and the two names are
+    compared through ``folded_contact_name`` — the create's fold, so a save that
+    only re-cases or re-spaces the name is not a rename and the collision set it
+    belongs to has not changed. A hint on every save of §13's form, which posts
+    the whole record every time, would be noise a Connector learns to skip.
+
+    The lookup excludes this contact (``exclude_professional_id``). A row is not
+    a duplicate of itself, and after the write it carries the very name being
+    searched for — the create gets that guarantee free by reading before it
+    inserts, and this route has to ask for it.
 
     Raises:
         ApiError: 400 when a field is blank or a classification code is unknown;
-            404 when the contact is not in this unit.
+            404 when the contact is not in this unit. A rename that collides is
+            none of those — it is a ``200`` carrying a hint.
     """
     charge_quota(session, principal, SPEAKER_CONTACT_WRITE_RATE_LIMIT)
 
     owning_unit_id = _authorize_speaker_contacts(session, principal, unit_id)
     draft = _draft_or_400(body)
+
+    # Read before the write, and only for the name: the hint has to know whether
+    # this edit *changed* it, and the UPDATE's RETURNING can only say what the
+    # name is now. A miss here is the same 404 the write would have produced, so
+    # the extra read costs a query rather than a behaviour.
+    stored = _contacts.get(
+        session,
+        tenant_id=principal.tenant_id,
+        owning_unit_id=owning_unit_id,
+        professional_id=professional_id,
+    )
+    if stored is None:
+        raise _not_found()
 
     row = _contacts.update(
         session,
@@ -847,11 +964,25 @@ def update_speaker_contact(
     if row is None:
         raise _not_found()
 
+    shared: tuple[SpeakerContactRow, ...] = ()
+    if folded_contact_name(row.full_name) != folded_contact_name(stored.full_name):
+        shared = _contacts.list_same_name(
+            session,
+            tenant_id=principal.tenant_id,
+            owning_unit_id=owning_unit_id,
+            full_name=row.full_name,
+            # One past the cap, so `name_now_shared_with_truncated` is answered
+            # by the read itself rather than by a second count — the create's
+            # arrangement, and the roster listing's before it.
+            limit=MAX_SAME_NAME_HINTS + 1,
+            exclude_professional_id=professional_id,
+        )
+
     # Explicit, for the reason the create states. Placed after the 404 guard so
     # a miss commits nothing.
     session.commit()
 
-    return _view(row, withheld=_withheld_fields(body))
+    return _view(row, withheld=_withheld_fields(body), name_now_shared_with=shared)
 
 
 # ---------------------------------------------------------------------------
