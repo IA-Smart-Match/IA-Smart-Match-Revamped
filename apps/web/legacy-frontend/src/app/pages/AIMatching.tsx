@@ -61,6 +61,7 @@
  * surface got wrong.
  */
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { AlertCircle, Info } from "lucide-react";
 
 import { AccountableValue } from "@/app/components/provenance";
@@ -451,6 +452,20 @@ export function AIMatching() {
           heuristic and are shown as they were measured — never as a percentage, and never with an
           unknown reported as a zero.
         </p>
+        {run !== null && runId ? (
+          // The one hand-off out of this page, and it carries the run id rather
+          // than asking anybody to retype it. Composing invitations happens in
+          // the Connector portal against this run's own shortlist; nothing is
+          // sent from there either.
+          <p className="mt-2 text-sm">
+            <Link
+              className="font-medium text-blue-700 underline"
+              to={`/coordinator-portal/invitations?run=${encodeURIComponent(runId)}`}
+            >
+              Compose speaker invitations from this shortlist
+            </Link>
+          </p>
+        ) : null}
       </div>
       {body}
     </div>
