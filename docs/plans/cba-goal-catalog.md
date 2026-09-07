@@ -454,10 +454,10 @@
 </read_first>
 <non_negotiables>Do not reuse coordinator match feedback. Implement only approved scale/fields/edit/anonymity/retention/aggregation. Tie submission to eligible student/event/speaker evidence. Empty aggregate is unknown.</non_negotiables>
 <deliverables>Approved decision reference; one migration; domain/persistence/API; student form; Connector read; OpenAPI/authz/tests.</deliverables>
-<test_first>Create tests/unit/test_student_speaker_feedback.py, tests/integration/test_student_speaker_feedback.py, and tests/contract/test_student_feedback_api.py (planned) before production code.</test_first>
+<test_first>Create tests/unit/test_cba_student_feedback_decision.py, tests/integration/test_student_speaker_feedback.py, and tests/contract/test_student_feedback_api.py (planned) before production code.</test_first>
 <deferral_policy>If OQ-CBA-003 is unresolved, do not implement or mark complete. Record exact missing decisions.</deferral_policy>
 <anti_patterns>No invented 1–5 default, local-state success, public aggregate with no privacy decision, or zero for empty feedback.</anti_patterns>
-<success_criteria>python -m pytest tests/unit/test_student_speaker_feedback.py tests/integration/test_student_speaker_feedback.py tests/contract/test_student_feedback_api.py tests/authz/test_policy_matrix.py passes; OpenAPI regenerated; make check where supported.</success_criteria>
+<success_criteria>python -m pytest tests/unit/test_cba_student_feedback_decision.py tests/integration/test_student_speaker_feedback.py tests/contract/test_student_feedback_api.py tests/authz/test_policy_matrix.py passes; OpenAPI regenerated; make check where supported.</success_criteria>
 <output_format>PR URL | OQ/decision | migration head | operations/authz | tests | privacy behavior</output_format>
 ```
 

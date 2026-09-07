@@ -1381,6 +1381,33 @@
         "title": "DraftResponse",
         "type": "object"
       },
+      "EditWindowView": {
+        "description": "When this rating stops being its author's to change.",
+        "properties": {
+          "closes_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the window shuts, ISO-8601. Null when the state is 'unknown'. Never a fabricated date: a surface with no cutoff to show says so.",
+            "title": "Closes At"
+          },
+          "state": {
+            "description": "'open', 'closed', or 'unknown'. 'unknown' means the event carries no resolved date, so no cutoff can be measured \u2014 which is not the same as a cutoff that has not arrived, and not the same as one that has.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "EditWindowView",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The inner error object.",
         "properties": {
@@ -1763,6 +1790,36 @@
           "basis"
         ],
         "title": "FactorExplanationView",
+        "type": "object"
+      },
+      "FeedbackSubmission": {
+        "description": "What a student says about one speaker.\n\nTwo fields. There are no sub-criteria: OQ-CBA-003 approved one overall\ndimension and customer \u00a716 says not to over-design the requirement, so a\nsecond axis is a product decision rather than a field.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free text. Absent means the student wrote nothing; a blank or whitespace-only value is normalized to absent rather than stored, so there is no third state between 'wrote nothing' and 'wrote something'.",
+            "title": "Comment"
+          },
+          "rating": {
+            "description": "Overall rating, 1 to 5. Required. There is no zero on this scale: a speaker nobody rated has no row, which is a different fact from a speaker rated badly.",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "FeedbackSubmission",
         "type": "object"
       },
       "ImportRequest": {
@@ -4407,6 +4464,63 @@
         "title": "SpeakerContactUpdate",
         "type": "object"
       },
+      "SpeakerFeedbackSummaryResponse": {
+        "description": "What a Connector is told about one speaker.\n\nThree numbers and a sentence, and **no field that can name a student**. That\nis part 1 of OQ-CBA-003 held as a type rather than as a discipline.",
+        "properties": {
+          "display_text": {
+            "description": "What to render. 'not enough responses yet' when suppressed \u2014 a sentence rather than a dash or a zero, so a reader can tell 'we are not telling you' from 'the answer is nothing'.",
+            "title": "Display Text",
+            "type": "string"
+          },
+          "mean_rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The average, to two decimals, or null when suppressed. Null and never 0.0 \u2014 ADR-0011 rule 1: a value with no evidence is unknown, and a speaker nobody rated must not read as a speaker rated zero.",
+            "title": "Mean Rating"
+          },
+          "minimum_responses": {
+            "description": "The threshold below which nothing is published, so a surface can explain the suppression without hard-coding the number.",
+            "title": "Minimum Responses",
+            "type": "integer"
+          },
+          "response_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many ratings the mean was computed from, or null when suppressed. Withheld along with the mean rather than published beside it: in a class of thirty, 'two students rated this speaker' narrows the field considerably.",
+            "title": "Response Count"
+          },
+          "speaker_professional_id": {
+            "format": "uuid",
+            "title": "Speaker Professional Id",
+            "type": "string"
+          },
+          "suppressed": {
+            "description": "True when fewer than the threshold of students have rated this speaker. Both numbers below are then null.",
+            "title": "Suppressed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "speaker_professional_id",
+          "suppressed",
+          "display_text",
+          "minimum_responses"
+        ],
+        "title": "SpeakerFeedbackSummaryResponse",
+        "type": "object"
+      },
       "SpeakerHandoffRequest": {
         "description": "Which invitation to reconcile, and optionally which attendance it cites.\n\nNo ``stage`` field and no ``reached_at`` field, and their absence is the\ndesign rather than an omission: every stage and every timestamp this request\ncan cause to be written is read out of the invitation or the attendance row.\nA request cannot assert that something happened, only name the record that\nalready says so.",
         "properties": {
@@ -5234,6 +5348,120 @@
           "precision"
         ],
         "title": "StudentEventTimeView",
+        "type": "object"
+      },
+      "StudentFeedbackListResponse": {
+        "description": "What this student has said about speakers at one event.",
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/StudentFeedbackView"
+            },
+            "title": "Feedback",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "event_id",
+          "feedback"
+        ],
+        "title": "StudentFeedbackListResponse",
+        "type": "object"
+      },
+      "StudentFeedbackResponse": {
+        "description": "The result of one submit or withdraw.",
+        "properties": {
+          "changed": {
+            "description": "Whether this request moved anything. False for a repeat of an identical submission and for a withdrawal with nothing to withdraw, so a response never claims an edit that did not happen.",
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentFeedbackView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The rating as it now stands. Null only from a withdrawal by a student who never rated this speaker, which stores nothing rather than manufacturing a pre-withdrawn row."
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "title": "StudentFeedbackResponse",
+        "type": "object"
+      },
+      "StudentFeedbackView": {
+        "description": "One of the caller's own ratings.\n\nCarries no ``student_id``. Not because it would leak here \u2014 these are the\ncaller's own rows \u2014 but because the field exists on no response model in this\nmodule, which is what stops one appearing on the Connector's by a later\ncopy-paste.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The student's words, or null. Null both when they wrote none and after a withdrawal took them back: a retraction takes back the words as well as the number.",
+            "title": "Comment"
+          },
+          "edit_window": {
+            "$ref": "#/components/schemas/EditWindowView"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 to 5, or null on a withdrawn rating. Null is an absence, never a zero \u2014 the rating was taken back, not scored badly.",
+            "title": "Rating"
+          },
+          "speaker_professional_id": {
+            "format": "uuid",
+            "title": "Speaker Professional Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "'submitted' or 'withdrawn'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker_professional_id",
+          "status",
+          "submitted_at",
+          "updated_at",
+          "edit_window"
+        ],
+        "title": "StudentFeedbackView",
         "type": "object"
       },
       "StudentRegistrationResponse": {
@@ -13371,6 +13599,146 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary": {
+      "get": {
+        "description": "The mean and the count, or a sentence saying there are too few to publish.\n\n\u00a716's \"Speaker Connectors/admin users must be able to view the feedback\",\nread as an aggregate rather than a transcript. **No student is named, and no\nindividual rating is returned** \u2014 see the module docstring for why the list\nroute a reader might expect does not exist.\n\nBelow :data:`MIN_RESPONSES_FOR_AGGREGATE` responses both numbers are null and\n``display_text`` reads \"not enough responses yet\". A speaker nobody has rated\nis suppressed for the same reason a speaker two people rated is: zero is not\nthe average of nothing.\n\nA speaker who is not on this unit's roster is a ``404`` rather than an empty\nsummary, so this route cannot be used to enumerate ids \u2014 an empty aggregate\nfor every unknown id would answer \"does this id exist here?\" for free.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator here.\n    404: ``unit_not_found`` or ``speaker_contact_not_found``.",
+        "operationId": "read_speaker_feedback_summary_v1_units__unit_id__speakers__speaker_id__feedback_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerFeedbackSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "How students rated a speaker, in aggregate",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/student/agenda": {
       "get": {
         "description": "Return the caller's own events in this unit (customer \u00a715, fix #10).\n\n\"Own\" means either link: an active ``event_registration`` naming them and the\nevent, or an ``attendance_record`` doing the same. Before migration ``0026``\nonly the second existed, which is why this list was documented as \"events you\nare recorded at\" and why ``on_my_agenda`` is still not called ``registered``\n\u2014 the narrower name would drop every event a student attended without ever\nclicking anything, which a coordinator entry or an imported roster produces.\n\nThe two links stay two tables. Registering writes no ``attendance_record``:\nADR-0013 makes attendance the only input to points, so a row written when\nsomebody signs up would credit them for an event they have not been to. That\nis the refusal ``CBA-STUDENT-EVENTS`` made and migration ``0026`` ended\nproperly rather than cheaply.\n\nSelf-scoping is in the query, and now in both halves of it. ``subject_id``\ncomes from the verified principal and appears in the ``WHERE`` clause of the\nattendance select *and* of the registration select, so there is no request\nfield naming a subject and no post-filter a later edit could drop \u2014 the\ncaller-selected identity shape (MM-A01) has nowhere to enter.\n\nUnlike the browse route this does **not** filter on ``publication_status``:\nan event a student attended or holds a place at is theirs to see on their own\nagenda whether or not the unit still publishes it, and withholding it would\nmake their own history disagree with itself. Unresolved-date rows are still\nexcluded \u2014 they have no position on a time-ordered list \u2014 and counted.\n\nOnly ``student`` may read this (:func:`_authorize_student_event_read`), and\nauthorization runs before any row is read.",
@@ -13909,6 +14277,454 @@
         "summary": "Register this student for an event",
         "tags": [
           "student-events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events/{event_id}/speaker-feedback": {
+      "get": {
+        "description": "This caller's own ratings at one event, whatever their status.\n\nWithdrawn rows are returned too. The form has to render \"you withdrew this\"\ndifferently from \"you have not rated this speaker\", and dropping withdrawn\nrows here would make the two indistinguishable on the one surface that has to\ntell them apart.\n\nScoped to the caller by ``principal.user_id``, so this route cannot be aimed\nat another student: there is no parameter to aim it with.\n\nOne window is resolved for the whole listing rather than one per row: the\ncutoff depends on the event, not on the speaker, so resolving it per row\nwould issue N identical queries to reach N identical answers.\n\nRaises:\n    403: ``forbidden`` for a caller who is not a student in this unit.\n    404: ``unit_not_found`` or ``event_not_found``.",
+        "operationId": "list_my_speaker_feedback_v1_units__unit_id__student_events__event_id__speaker_feedback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "What you have already said about speakers at this event",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback": {
+      "delete": {
+        "description": "Take this student's rating back.\n\nThe row survives and its status moves \u2014 a withdrawal is a transition, not a\n``DELETE``, so \"withdrawn\" and \"never rated\" stay distinguishable. Both the\nrating and the comment are cleared, because a retraction that took back the\nnumber and left the words would be half-honoured.\n\nWithdrawing something that was never rated is not an error: it writes nothing\nand reports ``changed: false`` with a null ``feedback``. Answering ``409`` to\na request whose outcome is already the one the caller wanted would be a worse\nsurface than saying \"there is nothing there\".\n\nRaises:\n    403: ``forbidden``, or ``student_feedback_not_eligible``.\n    404: ``unit_not_found``, ``event_not_found``, or\n        ``speaker_contact_not_found``.\n    409: ``student_feedback_window_closed`` \u2014 a locked rating cannot be\n        withdrawn either, which is what \"then locked\" means.\n    429: over the write quota.",
+        "operationId": "withdraw_speaker_feedback_v1_units__unit_id__student_events__event_id__speakers__speaker_id__feedback_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Withdraw your rating of a speaker",
+        "tags": [
+          "student-speaker-feedback"
+        ]
+      },
+      "post": {
+        "description": "Record this student's rating, or amend the one already there.\n\nOne route for both, because it is one row: the natural key\n``(tenant, student, event, speaker)`` means a second submission is an edit of\nthe caller's own rating rather than a second vote. Editing is part 3 of\nOQ-CBA-003 and needs no separate verb.\n\n``201`` when this created the rating, ``200`` when it amended or repeated\none. A repeat that changes nothing writes nothing and reports\n``changed: false``, so ``updated_at`` keeps meaning \"when this last moved\".\n\nRaises:\n    403: ``forbidden`` for a caller who is not a student in this unit;\n        ``student_feedback_not_eligible`` for a student with no attendance\n        record at this event.\n    404: ``unit_not_found``, ``event_not_found``, or\n        ``speaker_contact_not_found``.\n    409: ``student_feedback_window_closed`` once the cutoff has passed.\n    422: ``invalid_request`` for a rating off the 1-5 scale.\n    429: over the write quota.",
+        "operationId": "submit_speaker_feedback_v1_units__unit_id__student_events__event_id__speakers__speaker_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentFeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Rate a speaker at an event you attended, or amend your rating",
+        "tags": [
+          "student-speaker-feedback"
         ]
       }
     },

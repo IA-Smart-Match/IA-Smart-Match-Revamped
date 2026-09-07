@@ -595,6 +595,30 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK (((status <> 'skipped'::text) OR ((response_status = 'awaiting_response'::text) "
         "AND (response_token_hash IS NULL))))"
     ),
+    # --- Student speaker feedback (migration 0031) ----------------------
+    #
+    # OQ-CBA-003, decided 6 September 2026. The rating bound is the constraint
+    # most worth pinning as text: the decision approved *one* dimension scored
+    # 1-5, and a widened range is exactly the kind of product change that would
+    # otherwise arrive silently in DDL. Two of the five are equivalences, so
+    # neither half can be relaxed alone — exactly the submitted rows carry a
+    # rating, and a withdrawal takes the free text with it.
+    ("student_speaker_feedback", "ck_student_speaker_feedback_status"): (
+        "CHECK ((status = ANY (ARRAY['submitted'::text, 'withdrawn'::text])))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_range"): (
+        "CHECK (((rating IS NULL) OR ((rating >= 1) AND (rating <= 5))))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_present"): (
+        "CHECK (((status = 'submitted'::text) = (rating IS NOT NULL)))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_comment_shape"): (
+        "CHECK (((comment IS NULL) OR ((length(btrim(comment)) > 0) AND "
+        "(length(comment) <= 2000))))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_withdrawn_is_silent"): (
+        "CHECK (((status <> 'withdrawn'::text) OR (comment IS NULL)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -994,6 +1018,52 @@ BEHAVIOURAL_COVERAGE = {
         "person anything, so a row saying they accepted answers a message that does not "
         "exist. The permitted half is every skipped row in the file, all of which are "
         "awaiting_response with no token"
+    ),
+    # --- Student speaker feedback (migration 0031) ----------------------
+    #
+    # All five are exercised in test_student_speaker_feedback.py, the card's own
+    # integration file, rather than duplicated here — the arrangement the
+    # outreach, weight-settings and invitation constraints already use.
+    ("student_speaker_feedback", "ck_student_speaker_feedback_status"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_the_status_vocabulary_is_"
+        "exactly_two_values, which inserts 'retracted' — a word a reader would expect to "
+        "work and which the decision does not admit. The permitted half is every write in "
+        "the file, which store both 'submitted' and 'withdrawn'"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_range"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_rating_outside_one_to_five_"
+        "is_refused, parametrized over 0, 6 and -1 so both ends of OQ-CBA-003's scale are "
+        "attempted. The permitted half is ::test_every_admitted_rating_is_storable, "
+        "parametrized over all five of 1..5 — which is the half that catches an inverted "
+        "expression, since a bound reading `rating < 1 OR rating > 5` would refuse 0 for "
+        "the wrong reason and would also refuse 3"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_present"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_submitted_row_must_carry_a_"
+        "rating and ::test_a_withdrawn_row_cannot_still_carry_one — both arms of the "
+        "equivalence, attempted separately, because relaxing either one alone is the "
+        "failure it exists to prevent. The permitted half is every ordinary submit and "
+        "every withdrawal in TestWithdrawalIsATransitionAndNotADelete"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_comment_shape"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_blank_comment_is_refused_"
+        "rather_than_stored_as_a_third_state (inserts '' and '   ') and "
+        "::test_a_comment_past_the_length_bound_is_refused. The permitted half is "
+        "::test_a_rating_may_carry_no_comment_at_all (NULL) and every submit in the file "
+        "that writes real text"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_withdrawn_is_silent"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestWithdrawalIsATransitionAndNotADelete::test_a_withdrawal_takes_the_words_back_"
+        "too, which attempts a withdrawn row that kept its comment. This is the constraint "
+        "that stops a retraction being half-honoured — the rating would go and the free "
+        "text, which is the part that names people, would survive it. The permitted half "
+        "is ::test_a_withdrawn_rating_keeps_its_row_and_its_student, which stores a "
+        "withdrawn row with no comment"
     ),
 }
 

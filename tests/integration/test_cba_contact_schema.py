@@ -99,12 +99,23 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``ix_speaker_profile_unit_folded_name``; the uniqueness on
 #: ``(tenant_id, owning_unit_id, full_name)`` that ``0025`` declined is still
 #: declined, now under OQ-CBA-021.
-_HEAD_REVISION = "0030_cba_opaque_speaker_identity"
+#: Updated again by ``CBA-STUDENT-FEEDBACK``: ``0031_student_speaker_feedback``
+#: chains to ``0030_cba_opaque_speaker_identity`` and is the head. Both touch
+#: this file's surface, and in opposite directions. ``0030`` re-keys
+#: ``speaker_profile.professional_id`` from the ``uuid5`` this card derived from
+#: a folded name to an opaque id — the change OQ-CBA-017 ratified. ``0031`` then
+#: adds ``student_speaker_feedback``, whose only reach into this surface is a
+#: single ``ON DELETE RESTRICT`` foreign key on
+#: ``(tenant_id, speaker_professional_id)`` — by id, never by name — so no
+#: contact row this file writes can be removed by it, and nothing it stores
+#: depends on that id being derivable from anything.
+_HEAD_REVISION = "0031_student_speaker_feedback"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0030_cba_opaque_speaker_identity",
     "0029_cba_speaker_invitation",
     "0028_classification_provenance",
     "0027_match_weight_setting",

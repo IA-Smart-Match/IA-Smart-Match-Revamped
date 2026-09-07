@@ -150,6 +150,20 @@ _TENANT_SCOPED_TABLES = (
     # `user_account` rather than beside it.
     "pilot_session",
     "pilot_credential",
+    # Migration 0031. Holds ON DELETE RESTRICT references to `org_unit`,
+    # `speaker_profile` *and* `attendance_record`, so it goes above all three —
+    # the ordering failure PR #26 had to fix for `match_run`/`job`, with one
+    # more parent than `event_registration` has.
+    #
+    # `attendance_record` is still deliberately absent from this tuple (see the
+    # note above `event`), and that is exactly why this entry cannot be the whole
+    # story: a feedback row deleted here leaves its attendance row behind for the
+    # module that wrote it. `test_student_speaker_feedback.py` therefore deletes
+    # both in its own fixture, feedback first, and this entry is the belt to that
+    # braces — one row left by a test that exercises the student write routes
+    # makes the whole tenant undeletable, which is the argument
+    # `event_registration` is listed on.
+    "student_speaker_feedback",
     # Migration 0024. Holds ON DELETE RESTRICT references to *both*
     # `user_account` and `org_unit`, so it goes above the pair — getting this
     # order wrong is the failure PR #26 had to fix for `match_run`/`job`.

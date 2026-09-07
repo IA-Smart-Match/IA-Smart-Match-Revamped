@@ -354,6 +354,17 @@ class TestTheStudentSurfaceLinksToTheRouteRatherThanReimplementingIt:
         download it — which is a change to that route's *input*, not a second
         implementation of it. The one ``.ics`` surface is still the one
         :data:`INVITE_PATH` names.
+
+        The two speaker-feedback paths joined them in ``CBA-STUDENT-FEEDBACK``,
+        and they are the furthest from a calendar surface of anything on this
+        list: they are reached *after* an event rather than before it, they read
+        and write ``student_speaker_feedback``, and unlike the registration path
+        they do not even change the ``.ics`` route's input — an attendance record
+        is what that route reads, and rating a speaker neither creates one nor
+        withdraws one. They are listed here for the same reason the other three
+        are: this assertion is an inventory of the student surface, so a route
+        added to it must be looked at once and written down, and the list is
+        exhaustive rather than a sample.
         """
         from smartmatch_api.main import app
 
@@ -363,6 +374,8 @@ class TestTheStudentSurfaceLinksToTheRouteRatherThanReimplementingIt:
             "/v1/units/{unit_id}/student/agenda",
             "/v1/units/{unit_id}/student/events",
             "/v1/units/{unit_id}/student/events/{event_id}/registration",
+            "/v1/units/{unit_id}/student/events/{event_id}/speaker-feedback",
+            "/v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
         ]
         for path in student_paths:
             assert not any(marker in str(path).lower() for marker in _CALENDAR_MARKERS)
