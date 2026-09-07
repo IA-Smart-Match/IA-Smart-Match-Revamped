@@ -2,6 +2,8 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   CalendarDays,
+  Target,
+  Send,
   Mail,
   Users,
   Video,
@@ -20,6 +22,12 @@ import { principalDisplayName, principalInitials } from "../../lib/principal";
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
+  // The §13 pipeline, in the order it is walked: a match run against a filed
+  // Speaker Request produces a shortlist, and the shortlist links onward to
+  // the compose step with `?run={id}`. Both `/v1` routes are deny-by-default
+  // and `admin`/`coordinator` only — the link being visible is not a grant.
+  { name: "Run a match", href: "/coordinator-portal/match-runs", icon: Target },
+  { name: "Compose invitations", href: "/coordinator-portal/invitations", icon: Send },
   { name: "CBA Contact", href: "/coordinator-portal/outreach", icon: Mail },
   // Customer §13's roster of professionals this unit knows. Distinct from "CBA
   // Contact" above, which is outreach over `contact_channel`: this one records
