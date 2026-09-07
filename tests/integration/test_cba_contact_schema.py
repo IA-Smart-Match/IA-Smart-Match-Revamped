@@ -114,11 +114,13 @@ _PARENT_REVISION = "0024_cba_classification"
 #: and is the head. It closes OQ-CBA-028 by adding ``scoring_mode`` and
 #: ``scoring_mode_version`` to ``match_run``, and it does not reach this file's
 #: surface at all: ``speaker_profile`` is neither read nor written by it, and
-#: the one table it alters is one this card never referenced. The composability
-#: question it does raise is about ``0018``, not ``0025`` — ``0032`` disables
-#: ``match_run_is_immutable`` for the single UPDATE that backfills the two new
-#: columns and re-enables it in the same transaction — and that is answered
-#: where the trigger is exercised, ``test_match_run_snapshot.py``, not here.
+#: the one table it alters is one this card never referenced. It is also the
+#: quietest bump this file has taken: ``0032`` writes no rows anywhere. A
+#: backfill of the two new columns was written and rejected, because reaching
+#: pre-``0032`` rows needs an UPDATE and ``0018``'s ``match_run_is_immutable``
+#: refuses every UPDATE — so nothing in ``0032`` disables a trigger, and
+#: ``tests/integration/test_match_run_scoring_mode_migration.py`` is what holds
+#: that to account.
 _HEAD_REVISION = "0032_match_run_scoring_mode"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
