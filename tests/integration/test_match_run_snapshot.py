@@ -25,6 +25,8 @@ import pytest
 pytest.importorskip("sqlalchemy")
 
 from conftest import ensure_owning_unit
+from smartmatch_domain.factor_registry import SCORING_MODE_VERSION
+from smartmatch_domain.factors.proximity import CBA_SCORING_MODES
 from smartmatch_domain.match_run import MatchRunPins, inputs_fingerprint, weights_fingerprint
 from smartmatch_persistence.match_runs import MatchRunRepository
 from sqlalchemy import Engine, text
@@ -107,6 +109,8 @@ def _insert_run(
     route_estimate_version: str = "1.0.0-straight-line",
     portfolio_status: str = "optimal",
     supersedes_run_id: uuid.UUID | None = None,
+    scoring_mode: str | None = None,
+    scoring_mode_version: str | None = None,
 ) -> uuid.UUID:
     """Insert one run, defaulting everything the test under way is not about.
 
@@ -121,10 +125,11 @@ def _insert_run(
             "inputs_hash, portfolio_size, random_seed, registry_version, registry_hash, "
             "weights, optimizer_model_version, solver_name, solver_version, "
             "route_estimate_source, route_estimate_version, portfolio_status, "
-            "supersedes_run_id) "
+            "supersedes_run_id, scoring_mode, scoring_mode_version) "
             "VALUES (:id, :tid, :unit, :job, :need, :inputs_hash, :size, :seed, "
             ":registry_version, :registry_hash, CAST(:weights AS jsonb), :model, :solver, "
-            ":solver_version, :route_source, :route_version, :status, :supersedes)"
+            ":solver_version, :route_source, :route_version, :status, :supersedes, "
+            ":scoring_mode, :scoring_mode_version)"
         ),
         {
             "id": identifier,
@@ -147,6 +152,13 @@ def _insert_run(
             "route_version": route_estimate_version,
             "status": portfolio_status,
             "supersedes": supersedes_run_id,
+            # Defaulting to None rather than to a mode: every test in this file
+            # that predates migration 0032 therefore writes an unlabelled run,
+            # which is the pre-ADR-0016 shape the partial CHECK exists to keep
+            # storable. If that arm were ever dropped, this whole file goes red
+            # rather than only the three tests below.
+            "scoring_mode": scoring_mode,
+            "scoring_mode_version": scoring_mode_version,
         },
     )
     return identifier
@@ -341,6 +353,109 @@ def test_an_unrecognised_portfolio_status_is_refused(engine, tenant_id, job_id):
         engine.begin() as conn,
     ):
         _insert_run(conn, tenant_id, job_id, portfolio_status="no_result")
+
+
+# ---------------------------------------------------------------------------
+# The scoring mode (migration 0032, OQ-CBA-028)
+#
+# Three tests, and the middle one is the one that matters. A vocabulary CHECK is
+# usually proved by the value it refuses; this one is *partial*, so what it
+# really claims is "a recorded mode is a real mode, and a run with no mode is
+# fine" — and only the accepted-NULL case can fail if that second half is ever
+# dropped in a well-meant tightening to a plain IN.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", sorted(CBA_SCORING_MODES))
+def test_every_released_scoring_mode_is_storable(engine, tenant_id, job_id, mode):
+    """Parametrized over the domain's vocabulary, not over a literal.
+
+    Migration ``0032`` transcribes the two mode strings into its CHECK rather
+    than importing them, for the reason every vocabulary CHECK in this schema
+    gives: a migration describes the database as of the moment it ran, and an
+    import would let a later edit to
+    :data:`~smartmatch_domain.factors.proximity.CBA_SCORING_MODES` silently
+    change what a historical revision meant.
+
+    This is what catches the two copies drifting apart. A third mode added in
+    Python without a migration fails *here*, at a name a developer recognises,
+    rather than in a coordinator's report months later.
+    """
+    with engine.begin() as conn:
+        _insert_run(
+            conn,
+            tenant_id,
+            job_id,
+            scoring_mode=mode,
+            scoring_mode_version=SCORING_MODE_VERSION,
+        )
+
+    with engine.connect() as conn:
+        stored = conn.execute(
+            text("SELECT scoring_mode, scoring_mode_version FROM match_run WHERE job_id = :job"),
+            {"job": job_id},
+        ).one()
+
+    assert stored.scoring_mode == mode
+    assert stored.scoring_mode_version == SCORING_MODE_VERSION
+
+
+def test_a_run_with_no_mode_at_all_is_accepted(engine, tenant_id, job_id):
+    """NULL is a pre-ADR-0016 run, and that is a fact the table must be able to hold.
+
+    This is the half of ``ck_match_run_scoring_mode`` an inverted or narrowed
+    expression would remove. OQ-CBA-028 rejected the alternative — a ``NOT NULL``
+    column carrying a ``legacy-pre-adr-0016`` sentinel — because ADR-0016
+    Proposal 5's mode vocabulary is closed and a third value would reopen it in
+    DDL. The consequence of that decision is exactly this row, and a constraint
+    that refused it would have made migration ``0032`` unapplicable to any
+    database that already held a run.
+
+    Both columns, not just the mode: a version with no mode is a version of
+    nothing, and the row below asserts the pair is storable as a pair of
+    absences.
+    """
+    with engine.begin() as conn:
+        run_id = _insert_run(conn, tenant_id, job_id, scoring_mode=None, scoring_mode_version=None)
+
+    with engine.connect() as conn:
+        stored = conn.execute(
+            text("SELECT scoring_mode, scoring_mode_version FROM match_run WHERE id = :id"),
+            {"id": run_id},
+        ).one()
+
+    assert stored.scoring_mode is None
+    assert stored.scoring_mode_version is None
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # The sentinel OQ-CBA-028 rejected. Named as a case rather than as a
+        # comment, so the value that would have reopened the closed vocabulary
+        # is the value proved unstorable.
+        "legacy-pre-adr-0016",
+        # A typo in a real mode. This is the one that would otherwise be found
+        # by a report that quietly returned nothing.
+        "cba-virtual",
+        # The empty string: NOT NULL is not the constraint here, and a blank is
+        # neither a mode nor the honest absence of one.
+        "",
+    ],
+)
+def test_a_mode_outside_the_vocabulary_is_refused(engine, tenant_id, job_id, mode):
+    """The vocabulary is closed (ADR-0016 Proposal 5), and the database says so."""
+    with (
+        pytest.raises(IntegrityError, match="ck_match_run_scoring_mode"),
+        engine.begin() as conn,
+    ):
+        _insert_run(
+            conn,
+            tenant_id,
+            job_id,
+            scoring_mode=mode,
+            scoring_mode_version=SCORING_MODE_VERSION,
+        )
 
 
 @pytest.mark.parametrize(
