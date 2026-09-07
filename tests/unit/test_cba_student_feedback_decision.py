@@ -483,12 +483,14 @@ class TestUnitAggregate:
         """Over the pooled list, not an average of per-speaker averages.
 
         A mean of means weights a speaker with one rating like a speaker with
-        ten, and is a different number nobody asked for.
+        ten, and is a different number nobody asked for. Both speakers are
+        published in their own right here, so the residual is zero and the only
+        thing under test is the arithmetic.
         """
-        aggregate = aggregate_unit_feedback({uuid.uuid4(): [1, 2, 2], uuid.uuid4(): [5, 5]})
+        aggregate = aggregate_unit_feedback({uuid.uuid4(): [1, 2, 2], uuid.uuid4(): [5, 5, 5]})
         assert aggregate.suppressed is False
-        assert aggregate.mean_rating == round(15 / 5, 2)
-        assert aggregate.response_count == 5
+        assert aggregate.mean_rating == round(20 / 6, 2)
+        assert aggregate.response_count == 6
 
     def test_a_suppressed_unit_aggregate_carries_no_numbers(self) -> None:
         """Inherited from :class:`SpeakerFeedbackAggregate`, asserted here anyway.
@@ -508,12 +510,10 @@ class TestUnitAggregate:
         other, which is how a differencing guard rots.
         """
         below = MIN_RESPONSES_FOR_AGGREGATE - 1
-        assert aggregate_unit_feedback(self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE)).suppressed is (
-            False
-        )
+        assert aggregate_unit_feedback(
+            self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE)
+        ).suppressed is (False)
         assert (
-            aggregate_unit_feedback(
-                self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE, below)
-            ).suppressed
+            aggregate_unit_feedback(self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE, below)).suppressed
             is True
         )
