@@ -155,6 +155,16 @@ migrate-check: ## Verify migrations apply cleanly from an empty database
 seed-pilot: ## Seed one synthetic local-pilot principal; set SEED_PILOT_ARGS="--subject ... --email ... --role ..."
 	PYTHONPATH="$(DOMAIN_PATH):services/api" $(PY) tools/seed_pilot.py $(SEED_PILOT_ARGS)
 
+.PHONY: seed-pilot-principals
+seed-pilot-principals: ## Seed the student, Event Host and admin principals the compose dev tokens resolve to
+	# The compose `seed-principals` one-shot runs this same script; this target
+	# is for a database migrated by hand, where `seed-pilot` above has already
+	# created the coordinator. It takes no identity arguments on purpose: the
+	# subjects must match docker-compose.yml's SMARTMATCH_DEV_PRINCIPALS
+	# exactly, so they live in the script's own table rather than in a variable
+	# a caller could set to something the API would then 401.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_principals.py $(SEED_PILOT_PRINCIPAL_ARGS)
+
 .PHONY: seed-pilot-logins
 seed-pilot-logins: ## Seed the four pilot logins from SMARTMATCH_PILOT_*_EMAIL/_PASSWORD in .env
 	# Credentials come from the environment and nowhere else. A role whose pair
