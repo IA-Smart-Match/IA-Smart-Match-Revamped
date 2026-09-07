@@ -30,19 +30,54 @@ no shared decisions behind them. Rebuilding without a standard reproduces that.
 
 **2. The generated client does not exist yet.** Architecture v1.1 §5.1 requires
 the frontend consume a **generated** TypeScript client, never a hand-maintained
-one. The client is generated from `contracts/openapi/smartmatch.json`, which
-currently describes seven endpoints. Building screens now means hand-writing API
+one. The client is generated from `contracts/openapi/smartmatch.json`, which now
+describes 54 paths and 66 operations. Building screens now means hand-writing API
 calls and rewriting them later — recreating exactly the coupling the contract
 forbids.
 
-**3. Match scoring is not implemented yet.** Gate G1 closed 2026-09-03 with an
-approved registry (`topic_relevance` 0.70, `travel_burden` 0.30), but factor
-implementations and match runs are **M2+** work. Legacy-frontend paths
-(metrics truthfulness, discovery feed, events calendar) proceed on synthetic
-data per program direction. The **new product UI** control center's thirteen
-views (v1.1 §5.2) still have no truthful match-run data — building those screens
-now would mean placeholder content, and placeholder content that looks real is
-the single habit this whole revamp exists to end.
+**3. Match scoring is implemented; the new product UI is still on hold.** This
+reason has partly expired and is kept because the conclusion it supports has
+not. Gate G1 closed 2026-09-03 on a two-factor registry, and that is no longer
+what scores: `smartmatch_domain.factor_registry` is now
+`2.0.0-approved-oq-cba-004`, its four CBA factors are implemented in
+`smartmatch_domain.factors`, and `POST /v1/units/{unit_id}/match-runs` composes
+them through `smartmatch_domain.scoring.rank_cba_candidates`. Match-run data is
+therefore real, and the CBA surfaces below were built against it. What has not
+changed is the **new product UI** control center's thirteen views (v1.1 §5.2):
+they remain unbuilt pending the Part 2 decisions, not for want of data.
+Legacy-frontend paths (metrics truthfulness, discovery feed, events calendar)
+continue on synthetic data per program direction. Placeholder content that
+looks real is still the single habit this whole revamp exists to end.
+
+## The CBA matching surfaces that exist today
+
+Three legacy-frontend pages read the match-run and invitation routes. Each is
+listed with the path it is mounted at and the file that implements it, so a
+reader can check the claim rather than take it:
+
+| Route | Page | What it does |
+|---|---|---|
+| `/coordinator-portal/match-runs` | `src/app/pages/coordinator/CoordinatorMatchRuns.tsx` | Speaker Request queue, roster pick, and match-run submission |
+| `/coordinator-portal/invitations` | `src/app/pages/coordinator/CoordinatorInvitations.tsx` | Composes an invitation batch from a shortlist |
+| `/volunteer-portal/confirmed-speaker` | `src/app/pages/volunteer/VolunteerConfirmedSpeaker.tsx` | The confirmed speaker for an Event Host's event |
+
+Three constraints bind anything further built on these, and none of them is a
+style preference:
+
+- **No prominent overall match percentage** (OQ-CBA-005). Rank internally and
+  show factor-level provenance; a percentage reads as a precision the evidence
+  does not carry.
+- **No weight literals in the UI.** The four CBA weights live only in
+  `factor_registry` and the persisted matching-weight overrides. A number typed
+  into a component is a second source of truth that will drift.
+- **No client-side scoring.** The server scores; the page renders the stored
+  explanation. Recomputing on read would show something other than what was
+  scored.
+
+Scoring mode is resolved from the filed Speaker Request's virtual/physical
+switch, never chosen by the caller — so there is no mode control to build. A
+candidate whose location cannot be resolved is **unknown**, and is excluded and
+reported rather than shown at zero or in the Far band.
 
 ---
 
@@ -273,7 +308,7 @@ From `docs/plans/remaining-foundation-r1-work.md`:
 4. **W3** — port presentational components (MM-F01), confirming licensing, and
    leaving the legacy's mock data behind
 5. **W6** — accessibility tests in CI
-6. **W5** — matching control center, once match runs exist (M2+, post-G1)
+6. **W5** — matching control center in the new product UI. Match runs now exist and are scored by the CBA four, so W5 no longer waits on them; it waits on W2 and the Part 2 decisions. The CBA surfaces listed above are legacy-frontend pages for the synthetic pilot and are not W5.
 
 Note the ordering of W4 before W3 and W5. That is deliberate: the provenance
 components are the ones enforcing §1.1, and everything built before them will
