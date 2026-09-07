@@ -24,6 +24,7 @@ from smartmatch_providers.cba_classification import (
 )
 from smartmatch_providers.topic_semantics import (
     FixtureSemanticTopicProvider,
+    LocalEmbeddingSemanticTopicProvider,
     TopicComparisonUnavailable,
     build_semantic_topic_provider,
 )
@@ -203,12 +204,14 @@ def test_classroom_isolation_holds_under_every_product_scope():
 
 @pytest.mark.parametrize("edition", list(Edition))
 def test_every_edition_gets_the_fixture_topic_semantics_provider(edition: Edition):
-    """Customer §9 asks for an AI comparison; no approved model exists yet.
+    """The fixture stays the default even after ADR-0017 approves an offline model.
 
-    ``ALLOW_LIVE_PROVIDERS=false`` is the standing default, and OQ-CBA-026
-    (which model, whose credentials, under whose terms) is unanswered, so the
-    safe outcome is what a caller gets by writing nothing — in every edition,
-    not only the classroom one.
+    ADR-0017 closes OQ-CBA-026 by approving an offline, in-process embedding
+    provider — but only for a caller who opts in with
+    ``use_local_embedding=True``. The safe outcome remains what a caller gets
+    by writing nothing, in every edition, not only the classroom one, so
+    existing golden pins and CI stay reproducible with no model file on the
+    runner.
     """
     provider = build_semantic_topic_provider(edition)
 
@@ -283,6 +286,103 @@ def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
     provider = build_semantic_topic_provider(Edition.CLASSROOM)
 
     assert provider.is_semantic_model is False
+
+
+# ---------------------------------------------------------------------------
+# ADR-0017: the offline, in-process embedding path is opt-in, genuinely
+# semantic, and does not weaken the live-vendor refusal above.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_the_local_embedding_provider_is_reached_only_by_opting_in(edition: Edition):
+    """``use_local_embedding=True`` is the only way in, under every edition."""
+    provider = build_semantic_topic_provider(edition, use_local_embedding=True)
+
+    assert isinstance(provider, LocalEmbeddingSemanticTopicProvider)
+    assert provider.name == "local-embedding-topic-semantics"
+
+
+def test_the_local_embedding_provider_scores_a_pair_the_fixture_never_recorded():
+    """The whole point of ADR-0017: real topic text now gets a measured score.
+
+    ``supply chain analytics`` and ``logistics optimization`` share no tokens
+    at all — a lexical comparator would see nothing in common — but a
+    semantic one should score them well above the low end, which is the
+    property that actually distinguishes this provider from the rejected
+    token-overlap comparator.
+    """
+    provider = build_semantic_topic_provider(Edition.PRODUCTION, use_local_embedding=True)
+
+    result = provider.compare(
+        "An event about supply chain analytics and logistics optimization.",
+        "logistics optimization and inventory management",
+    )
+
+    assert 0.0 <= result.score <= 1.0
+    assert result.score > 0.6
+    assert result.is_semantic_model is True
+    assert result.model_id == "glove-wiki-gigaword-50-20k-v1"
+    assert result.provider == "local-embedding-topic-semantics"
+
+
+def test_the_local_embedding_provider_is_a_genuine_semantic_model():
+    """Unlike the fixture, this provider's semantic claim is actually true."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+
+    assert provider.is_semantic_model is True
+
+
+def test_the_local_embedding_provider_refuses_text_with_no_recognized_words():
+    """No recognized vocabulary is an unknown, never a guessed default score."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+
+    with pytest.raises(TopicComparisonUnavailable):
+        provider.compare("zzqxv wibbleflorp", "supply chain analytics")
+
+
+def test_the_local_embedding_provider_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """The offline path makes no network call either — it is a vendored file."""
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "the local-embedding topic-semantics provider must not touch the network"
+        )
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+    result = provider.compare("supply chain analytics", "logistics optimization")
+
+    assert 0.0 <= result.score <= 1.0
+
+
+def test_a_topic_model_credential_still_fails_closed_with_local_embedding_requested():
+    """A found credential is still a deployment defect, even asking for the offline path.
+
+    The offline path needs no credential at all; a caller passing one anyway
+    is exactly the misconfiguration ``api_key`` exists to catch.
+    """
+    with pytest.raises(ProviderConfigurationError, match="credential"):
+        build_semantic_topic_provider(
+            Edition.PRODUCTION, api_key="live-key", use_local_embedding=True
+        )
+
+
+def test_the_live_vendor_refusal_survives_the_offline_path_being_approved():
+    """ADR-0017 approves an offline model; it does not reopen the vendor question."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(Edition.PRODUCTION, use_fixture=False)
+
+
+def test_cba_semantic_topic_factor_key_still_resolves_in_the_registry():
+    """The registry key this factor binds to is untouched by the provider change."""
+    from smartmatch_domain.factor_registry import implemented_scoring_keys
+    from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
+
+    assert CBA_SEMANTIC_TOPIC_FACTOR_KEY in implemented_scoring_keys()
 
 
 # ---------------------------------------------------------------------------
