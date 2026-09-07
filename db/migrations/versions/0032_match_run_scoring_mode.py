@@ -71,67 +71,68 @@ discipline — ``tests/integration/test_match_run_snapshot.py`` parametrizes ove
 to be storable, so a third mode added in Python without a migration fails there
 rather than in a report.
 
-The backfill, and why it disables a trigger
-=============================================
-``0018`` installed ``match_run_is_immutable``, a ``BEFORE UPDATE`` trigger that
-raises on every UPDATE. A backfill is an UPDATE, so it would be refused —
-correctly, because that trigger is what makes "a correction is a new run" true
-of a psql session and not only of the repository. The backfill therefore
-disables the trigger for the duration of one statement and re-enables it in the
-same transaction, which is narrower than every alternative:
+There is no backfill, and that is the decision
+===============================================
+Every ``match_run`` row that existed before this revision keeps ``scoring_mode``
+NULL. **A backfill was written, reviewed, and rejected on 6 September 2026 by
+Danny Tran, program owner of record.** This section is the record of that, so a
+later reader finds the decision rather than a silence where one would have been.
 
-* ``session_replication_role = replica`` needs superuser and silences every
-  trigger *and* every foreign key in the session, so a mistake in this
-  statement would be uncheckable rather than merely wrong.
-* Dropping and recreating the trigger would leave a window in which the table is
-  mutable if this migration failed between the two statements.
-* Leaving the historical rows unlabelled and backfilling from application code
-  later would mean the column's meaning depended on whether that code had run.
+The backfill was possible. The mode of a pre-``0032`` run is recoverable from the
+stored explanation payload — ``job.payload -> 'explanations'``, the array
+``explanation_to_payload`` produced for the pool that was actually scored — and a
+statement that copied it across where every entry agreed would have been correct
+for the rows it touched.
 
-Immutability is not being relaxed. The row's *recorded facts* do not change: the
-backfill writes into two columns that did not exist a moment ago, copying a mode
-the run already recorded elsewhere into the place it should always have been.
-Nothing a coordinator was shown moves.
+What made it unaffordable was the one thing it required. ``0018`` installed
+``match_run_is_immutable``, a ``BEFORE UPDATE`` trigger that raises on every
+UPDATE, and a backfill is an UPDATE. Reaching those rows means switching that
+trigger off — by name, by ``session_replication_role``, or by dropping and
+recreating it — and all three have the same shape: a migration that turns off the
+guarantee ``0018`` exists to provide.
 
-Where the backfill reads from, and when it declines
-=====================================================
-The stored explanation payload on the run's own job — ``job.payload ->
-'explanations'``, the array ``explanation_to_payload`` produced for the pool that
-was actually scored. It is used **only when the run's mode is unambiguous**:
-exactly one distinct ``scoring_mode`` across the array, non-null, non-blank, and
-a member of the closed vocabulary, with exactly one distinct
-``scoring_mode_version`` beside it. Anything else leaves both columns NULL.
+That trigger is load-bearing. ``0018``'s docstring makes it a deliberate
+exception to this codebase's argument against triggers, precisely because it is
+what makes "a correction is a new run, never an UPDATE" true of a hand-written
+statement in a psql session and not merely of a repository that declines to offer
+an update method. A migration that switches it off, however briefly and however
+well-argued in its own docstring, is a **permanent precedent**: the next revision
+that wants to "just fix these few rows" would cite this one, and it would be
+citing it correctly. The cost is paid once here and collected forever after.
 
-Every way that can fail leaves NULL rather than a guess, and each is a real
-shape rather than a hypothetical:
+Against that, the gain is small, and it is small because **nothing is lost**. The
+mode of a pre-``0032`` run stays exactly as recoverable as it is today, through
+the same three routes OQ-CBA-028 catalogued: the job summary event, the stored
+explanation payload, and ``registry_hash``, which differs between the two modes
+by construction. The explanation payload remains the system of record for those
+runs. What this revision buys is that **every run from now on is queryable**, and
+that is the whole of what the card asked for; retrofitting the runs that came
+before it was never the requirement.
 
-* **no job payload, or no ``explanations`` key, or one that is not an array** —
-  the payload is durable but a release that predates the explanation layer wrote
-  it, so there is nothing to read;
-* **every entry's mode is null** — a genuine pre-ADR-0016 run, and NULL is the
-  correct and final answer for it, not a failure;
-* **entries disagree** — a payload assembled from two scoring passes. A run
-  whose candidates were not all scored under one model has no single mode, and
-  picking the majority would invent one;
-* **a mode outside the vocabulary** — a typo, or a value from a release this
-  database does not know. Refusing it here is the same judgement
-  ``_read_match_run_command`` makes at the front door, where an unrecognised
-  mode is a failure rather than a fall-through to the default.
+And NULL on those rows is not a gap to be filled — it is the honest reading. A
+run recorded before ADR-0016 has no mode, so a NULL is the true statement about
+it whether or not anyone ever looks the mode up elsewhere. A backfilled value
+would have been a *reconstruction* presented in the same column, and
+indistinguishable from a mode the run itself recorded.
 
-``registry_hash`` is deliberately **not** a backfill source, even though it does
-distinguish the two modes. It distinguishes them only by being different from
-each other, and mapping a digest back to the mode that produced it means
-recomputing today's weight sets and hoping the unit had no overrides — a
-reconstruction that would be silently wrong for any unit that did (migration
-``0027``). A payload that says ``"cba-virtual-1"`` says it; a hash merely differs.
+If a report one day genuinely needs the historical rows labelled, the honest
+instrument is a read-side view or a report-time join against the payload — not a
+rewrite of immutable rows, and not this migration.
+
+``registry_hash`` would not have been an acceptable source in any case, even
+though it does distinguish the two modes. It distinguishes them only by being
+different from each other, and mapping a digest back to the mode that produced it
+means recomputing today's weight sets and hoping the unit had no overrides — a
+reconstruction that is silently wrong for any unit that did (migration ``0027``).
 
 Expand only
 =============
-Two nullable columns, one partial CHECK over one of them, one partial index, and
-an UPDATE that touches only rows whose mode is already recorded elsewhere.
-Nothing is dropped, renamed or narrowed, and no existing constraint is widened,
-so the previous release runs unchanged against this schema (v1.1 §4.2,
-ADR-0009): it neither writes these columns nor reads them.
+Two nullable columns, one partial CHECK over one of them, and one partial index.
+**No UPDATE, no DML of any kind, and no trigger is created, dropped, disabled or
+enabled.** Nothing is dropped, renamed or narrowed, and no existing constraint is
+widened, so the previous release runs unchanged against this schema (v1.1 §4.2,
+ADR-0009): it neither writes these columns nor reads them. On a populated
+database this revision is three catalog changes and touches no row.
 """
 
 from __future__ import annotations
@@ -150,31 +151,41 @@ depends_on = None
 #: catches the two copies drifting apart.
 _SCORING_MODES = ("cba-physical-1", "cba-virtual-1")
 
-#: The vocabulary as a SQL list, spelled once so the CHECK below and the
-#: backfill's own filter cannot disagree about what a mode is.
-_SCORING_MODES_SQL = "'" + "','".join(_SCORING_MODES) + "'"
-
 #: Partial by construction: it says what a recorded mode may be, and nothing
-#: about a run that recorded none. Widening ``ck_match_run_pins_present`` to
-#: cover this column instead would have put every stored row in violation, which
-#: is why that constraint is untouched.
-_SCORING_MODE_IS_KNOWN = f"scoring_mode IS NULL OR scoring_mode IN ({_SCORING_MODES_SQL})"
+#: about a run that recorded none. That ``IS NULL`` arm is what lets this
+#: constraint be added to a populated table at all — every row stored before this
+#: revision satisfies it, and none is rewritten to make that true. Widening
+#: ``ck_match_run_pins_present`` to cover this column instead would have put every
+#: one of them in violation, which is why that constraint is untouched.
+#:
+#: The one place the vocabulary is rendered into SQL. It had a second consumer
+#: while this revision carried a backfill; the backfill was rejected (see the
+#: module docstring) and the constant went with it, so there is now exactly one
+#: statement in this file that can disagree with ``CBA_SCORING_MODES``.
+_SCORING_MODE_IS_KNOWN = (
+    "scoring_mode IS NULL OR scoring_mode IN ('" + "','".join(_SCORING_MODES) + "')"
+)
 
 
 def upgrade() -> None:
-    """Add the two mode columns, backfill the unambiguous rows, then constrain."""
+    """Add the two mode columns and constrain them. No row is written.
+
+    Adding a nullable column with no default is a catalog change in PostgreSQL,
+    so this does not rewrite the table and does not fire ``match_run``'s
+    ``BEFORE UPDATE`` trigger. That is not a happy accident — it is why this
+    revision can leave the trigger completely alone. See the module docstring on
+    why the backfill that would have needed it was rejected.
+    """
     # Nullable, no server default. A default would put every existing row into a
-    # mode nobody chose, which is the whole of what OQ-CBA-028 rejected.
+    # mode nobody chose, which is the whole of what OQ-CBA-028 rejected. Every
+    # row that exists when this runs keeps NULL, permanently and on purpose.
     op.add_column("match_run", sa.Column("scoring_mode", sa.Text, nullable=True))
     op.add_column("match_run", sa.Column("scoring_mode_version", sa.Text, nullable=True))
 
-    # Backfill before constraining. The order does not matter for correctness
-    # here — the statement below writes only vocabulary members — but it matters
-    # for the failure mode: if that read ever produced something outside the
-    # vocabulary, the constraint should refuse to be created rather than the
-    # backfill silently succeeding.
-    _backfill_from_explanation_payloads()
-
+    # Adding this to a populated table is safe *because* nothing was backfilled:
+    # the constraint's `scoring_mode IS NULL` arm is satisfied by every existing
+    # row without PostgreSQL having to read one, and a value it could refuse can
+    # only arrive from a writer after this point.
     op.create_check_constraint(
         "ck_match_run_scoring_mode",
         "match_run",
@@ -195,66 +206,6 @@ def upgrade() -> None:
     )
 
 
-def _backfill_from_explanation_payloads() -> None:
-    """Copy each run's already-recorded mode onto its row, where it is unambiguous.
-
-    One statement, wrapped in the trigger disable/enable pair the module
-    docstring explains. The trigger is named rather than switched off wholesale
-    with ``DISABLE TRIGGER USER``, so a trigger some later revision adds to this
-    table is not silently disabled by this one.
-    """
-    op.execute("ALTER TABLE match_run DISABLE TRIGGER match_run_is_immutable")
-    op.execute(
-        f"""
-        WITH recorded AS (
-            SELECT
-                run.id                                           AS run_id,
-                run.tenant_id                                    AS tenant_id,
-                -- COUNT(DISTINCT ...) ignores NULLs, so these counts read
-                -- together are what "unambiguous" means: exactly one mode was
-                -- named, and it was named on every candidate. A payload mixing
-                -- a labelled entry with an unlabelled one makes `entries`
-                -- exceed `labelled_entries` and is declined below.
-                COUNT(DISTINCT entry ->> 'scoring_mode')         AS distinct_modes,
-                COUNT(DISTINCT entry ->> 'scoring_mode_version') AS distinct_versions,
-                COUNT(*)                                         AS entries,
-                COUNT(entry ->> 'scoring_mode')                  AS labelled_entries,
-                MIN(entry ->> 'scoring_mode')                    AS mode,
-                MIN(entry ->> 'scoring_mode_version')            AS mode_version
-              FROM match_run AS run
-              JOIN job
-                ON job.tenant_id = run.tenant_id
-               AND job.id = run.job_id
-              CROSS JOIN LATERAL
-                   jsonb_array_elements(job.payload -> 'explanations') AS entry
-             WHERE run.scoring_mode IS NULL
-               AND job.payload IS NOT NULL
-               -- Guards the LATERAL: jsonb_array_elements raises on a scalar or
-               -- an object, and a migration that failed on one malformed
-               -- payload would be a migration nobody can run.
-               AND jsonb_typeof(job.payload -> 'explanations') = 'array'
-             GROUP BY run.id, run.tenant_id
-        )
-        UPDATE match_run AS target
-           SET scoring_mode = recorded.mode,
-               scoring_mode_version = recorded.mode_version
-          FROM recorded
-         WHERE target.id = recorded.run_id
-           AND target.tenant_id = recorded.tenant_id
-           AND recorded.entries > 0
-           -- Exactly one mode, on every entry, with exactly one version beside
-           -- it. See the module docstring for each way this declines.
-           AND recorded.distinct_modes = 1
-           AND recorded.distinct_versions = 1
-           AND recorded.labelled_entries = recorded.entries
-           AND length(btrim(recorded.mode)) > 0
-           AND length(btrim(recorded.mode_version)) > 0
-           AND recorded.mode IN ({_SCORING_MODES_SQL})
-        """
-    )
-    op.execute("ALTER TABLE match_run ENABLE TRIGGER match_run_is_immutable")
-
-
 def downgrade() -> None:
     """Drop the index, the constraint, then the two columns.
 
@@ -262,8 +213,11 @@ def downgrade() -> None:
     path (v1.1 §4.2): running this discards every run's recorded mode from the
     row. It is not, however, a loss of the fact — the job summary event and the
     stored explanation payload still say what each run was scored under, which
-    is precisely the state OQ-CBA-028 described before this revision, and the
-    reason the backfill above was possible at all.
+    is precisely the state OQ-CBA-028 described before this revision.
+
+    Symmetric with ``upgrade`` in the way that matters here: dropping a column
+    writes no row either, so a rollback does not touch ``match_run_is_immutable``
+    any more than the upgrade did.
     """
     op.drop_index("ix_match_run_scoring_mode", table_name="match_run")
     op.drop_constraint("ck_match_run_scoring_mode", "match_run", type_="check")
