@@ -1615,3 +1615,210 @@ def test_21_a_recipient_who_unsubscribes_after_approval_is_not_written_to(
     )
 
     print("  send to a suppressed recipient was refused at submission / 403")
+
+
+# ---------------------------------------------------------------------------
+# Step 22-25 — the CBA extension: invite the shortlist, take the Speaker's own
+# answer, hand the Event Host the one who accepted, and read the aggregate a
+# Connector is allowed to see.
+# ---------------------------------------------------------------------------
+
+#: The invitation template the batch route composes from. Restated here for the
+#: reason ``SCORE_LABEL`` is: a caller cannot choose it, so a drift in what the
+#: server picked fails loudly here rather than passing unnoticed.
+INVITATION_TEMPLATE_ID = "cba.speaker_invitation.v1"
+
+#: The response link the invitation carries. The API composes it as
+#: ``{public_base_url}/i/{token}`` from a token minted per invitation, and this
+#: is how step 23 recovers the token a Speaker would click — out of the message
+#: the appliance actually composed, read back over HTTP.
+_RESPONSE_LINK = re.compile(r"/i/([A-Za-z0-9_\-]{16,})")
+
+#: Carried between steps 22-25 for the reason ``_MATCH_FIXTURE`` is: module
+#: state rather than new ``ClickThrough`` fields, so this extension does not
+#: reach into ``tests/e2e/conftest.py``, which every other step shares.
+_INVITATION_STATE: dict[str, Any] = {}
+
+
+def _invitation_address(nickname: str) -> str:
+    """The per-session ``.invalid`` address one seeded speaker is invited at.
+
+    RFC 2606's reserved TLD, exactly as ``OUTREACH_ADDRESS`` is: it cannot
+    resolve, so nothing composed here has a mailbox at the other end of it.
+    """
+    return f"e2e-speaker-{nickname}-{RUN_TAG}@synthetic.invalid"
+
+
+def _register_invitable_channel(
+    api: httpx.Client, unit_id: str, *, professional_id: str, address: str
+) -> str:
+    """Give one roster contact an address a batch may write to, through the API.
+
+    Two calls and no database write, which is the point: ``POST
+    /v1/units/{unit_id}/speaker-contacts/{professional_id}/channels`` records the
+    address with its consent source and evidence, and ``POST .../transitions``
+    activates it. Creating an ``active_candidate`` outright is refused by the
+    route — "activation is an act with an actor, not an initial value" — so the
+    two calls here are the shipped lifecycle rather than a convenience, and
+    ``send_eligible`` below is the appliance's own answer about the row rather
+    than this file's claim about it.
+
+    Contrast ``_seed_contact_channel`` above, which writes directly because
+    *nothing* creates a channel on the pre-CBA outreach surface. This one has a
+    route, so this one uses it.
+    """
+    created = api.post(
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels",
+        json={
+            "address": address,
+            "contact_state": "consented",
+            "consent_source": "self_service",
+            "consent_evidence": (
+                "synthetic consent recorded by tests/e2e/test_pilot_clickthrough.py"
+            ),
+            "reason": "e2e click-through: the speaker agreed to hear about opportunities",
+        },
+    )
+    assert created.status_code == 201, (
+        f"registering a channel for {professional_id} returned "
+        f"{created.status_code}, expected 201: {created.text[:400]}"
+    )
+    channel_id = json_body(created)["channel"]["contact_channel_id"]
+
+    activated = api.post(
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}"
+        f"/channels/{channel_id}/transitions",
+        json={
+            "to_state": "active_candidate",
+            "reason": "e2e click-through: the Connector opened outreach on this contact",
+        },
+    )
+    # ``201``, not ``200``: a transition is a new trail entry, and the route
+    # says so by creating one rather than by reporting an edit.
+    assert activated.status_code == 201, (
+        f"activating channel {channel_id} returned {activated.status_code}, "
+        f"expected 201: {activated.text[:400]}"
+    )
+    channel = json_body(activated)["channel"]
+    assert channel["send_eligible"] is True, (
+        f"the appliance reports channel {channel_id} is not send-eligible after "
+        f"activation: {channel}"
+    )
+    return str(channel_id)
+
+
+def test_22_the_shortlist_is_composed_into_an_invitation_batch(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The shortlist the match run produced becomes invitations, and nothing is sent.
+
+    The batch is composed from ``professional_ids`` — the §13 roster ids the run
+    itself shortlisted, read back off the recorded run rather than retyped — and
+    it carries ``match_run_id``, so the invitations stay traceable to the ranking
+    that proposed these people. There is no ``event_id`` argument on this route
+    at all: ``cba_invitation_batch`` holds the event as free text a Connector
+    typed, and the Host's own event id enters through the *path* in step 24.
+
+    ``201`` and not ``202``: the batch, its drafts and every outcome in it are
+    rows that can be read back when this returns. What has **not** happened is a
+    send — step 23 is the operation that genuinely defers work, and the
+    assertions below include the absence of anything a client could render as
+    one.
+
+    Three things a batch reporting only its good news would not do, asserted
+    together: every named recipient produces an outcome, the template is the
+    server's closed-registry choice rather than a caller's, and each invitation
+    starts at ``awaiting_response`` — the ordinary state of every invitation
+    until somebody reads their mail, and not a failure.
+    """
+    if flow.unit_id is None or flow.match_run_id is None:
+        pytest.skip("step 09 did not produce a match run to invite the shortlist of")
+
+    run = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
+    shortlist = [candidate["subject_id"] for candidate in run["shortlist"]]
+    assert MIN_SPEAKERS <= len(shortlist) <= MAX_SPEAKERS, (
+        f"the recorded run shortlisted {len(shortlist)} speakers; steps 22-24 "
+        f"need the ratified {MIN_SPEAKERS}-{MAX_SPEAKERS}"
+    )
+
+    # The nickname is for this file's own error messages only; the wire carries
+    # opaque ids and every request below sends one of those.
+    nicknames = {
+        professional_id: nickname
+        for nickname, professional_id in _seed_match_fixtures(flow.unit_id)["speakers"].items()
+    }
+    addresses = {
+        professional_id: _invitation_address(nicknames[professional_id])
+        for professional_id in shortlist
+    }
+    for professional_id, address in addresses.items():
+        _register_invitable_channel(
+            api, flow.unit_id, professional_id=professional_id, address=address
+        )
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/speaker-invitations/batches",
+        json={
+            "professional_ids": shortlist,
+            "match_run_id": flow.match_run_id,
+            "event_name": f"E2E virtual finance panel {RUN_TAG}",
+            "event_date": "Thursday, 4 March 2027",
+            "coordinator_name": "E2E Connector",
+        },
+        headers={"Idempotency-Key": f"e2e-batch-{RUN_TAG}-{uuid.uuid4().hex}"},
+    )
+    assert response.status_code == 201, (
+        f"composing the invitation batch returned {response.status_code}, "
+        f"expected 201: {response.text[:400]}"
+    )
+    batch = json_body(response)
+
+    assert batch["match_run_id"] == flow.match_run_id, (
+        f"the batch reports match_run_id {batch['match_run_id']!r} and not the "
+        f"run its shortlist came from ({flow.match_run_id})"
+    )
+    assert batch["template_id"] == INVITATION_TEMPLATE_ID, (
+        f"the batch composed from template {batch['template_id']!r}; the "
+        "invitation copy is a closed-registry decision, not a caller's"
+    )
+    assert batch["replayed"] is False, "a fresh idempotency key replayed a stored batch"
+    assert batch["skipped_count"] == 0, (
+        "a shortlisted speaker with an activated, consented channel was skipped: "
+        f"{[outcome for outcome in batch['invitations'] if outcome['skip_reason']]}"
+    )
+    assert batch["invited_count"] == len(shortlist)
+
+    outcomes = {outcome["professional_id"]: outcome for outcome in batch["invitations"]}
+    assert set(outcomes) == set(shortlist), (
+        f"the batch reported on {sorted(outcomes)} but was asked to invite "
+        f"{sorted(shortlist)}; a shorter list is a batch burying its decisions"
+    )
+    for professional_id, outcome in outcomes.items():
+        assert outcome["status"] == "pending", (
+            f"invitation {outcome['invitation_id']} came back {outcome['status']!r}; "
+            "composing a batch sends nothing, so nothing may be 'dispatched' yet"
+        )
+        assert outcome["recipient_address"] == addresses[professional_id], (
+            f"invitation {outcome['invitation_id']} names "
+            f"{outcome['recipient_address']!r}, not the channel just activated "
+            f"for this speaker ({addresses[professional_id]!r})"
+        )
+        assert outcome["delivery"] is None, (
+            "an invitation nobody has dispatched carries a delivery record: "
+            f"{outcome['delivery']}"
+        )
+        assert outcome["speaker_response"]["response"] == "awaiting_response", (
+            "a freshly composed invitation already records an answer: "
+            f"{outcome['speaker_response']}"
+        )
+
+    _INVITATION_STATE.update(
+        {
+            "batch_id": batch["batch_id"],
+            "addresses": addresses,
+            "outcomes": outcomes,
+            "shortlist": shortlist,
+            "nicknames": nicknames,
+        }
+    )
+    print(f"  composed batch {batch['batch_id']} inviting {sorted(addresses.values())}")
