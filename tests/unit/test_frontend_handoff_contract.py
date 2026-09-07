@@ -229,7 +229,7 @@ def test_the_page_counts_nothing_it_was_not_handed() -> None:
 
 
 def test_the_empty_state_says_only_that_nobody_is_confirmed_yet() -> None:
-    """"No speaker is confirmed yet" — and nothing about why.
+    """ "No speaker is confirmed yet" — and nothing about why.
 
     An empty state that explained itself would explain the one thing this page
     may not say. The wording is pinned so a later "helpful" rewrite has to
