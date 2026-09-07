@@ -4,7 +4,7 @@
   "status": "ratified",
   "registry_version_referenced": "1.1.0-approved-g1",
   "registry_status_at_authoring": "approved",
-  "ratifier_required": "Danny Tran (@dangt)",
+  "ratifier_required": "Danny Tran (@BrooklynD23)",
   "ratified": true,
   "ratified_on": "2026-09-03",
   "source_packet": "docs/plans/workshops/g1-factor-registry-workshop-packet.md",
@@ -128,7 +128,7 @@
     },
     {
       "id": "GOV-1",
-      "answer": "Danny Tran (@dangt), program owner"
+      "answer": "Danny Tran (@BrooklynD23), program owner"
     },
     {
       "id": "GOV-2",
