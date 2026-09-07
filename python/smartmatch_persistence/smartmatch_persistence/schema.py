@@ -1103,6 +1103,16 @@ event = sa.Table(
     # discovery path it exists to make deterministic.
     sa.Column("location_city", sa.Text, nullable=True),
     sa.Column("location_postal_code", sa.Text, nullable=True),
+    # Migration 0033, OQ-CBA-014. The account that typed this request, taken
+    # from the verified principal and never from a body. Nullable, and the NULL
+    # means **unknown filer** -- never "no filer" and never "the caller". Every
+    # row that existed before 0033 keeps NULL and none was backfilled: writing
+    # the unit's coordinator, or its only volunteer, would be a reconstruction
+    # indistinguishable from a recorded fact (ADR-0011 rule 1, applied to an
+    # identity rather than a number). The consequence is that a host cannot list
+    # a request they filed before 0033, which is a true statement about what
+    # this database knows.
+    sa.Column("filed_by_user_id", _UUID, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="event_pkey"),
@@ -1123,6 +1133,19 @@ event = sa.Table(
         ["tenant_id", "host_org_unit_id"],
         ["org_unit.tenant_id", "org_unit.id"],
         ondelete="RESTRICT",
+    ),
+    # Migration 0033. Composite, like every account reference in this schema
+    # (attendance_record.subject_id is the standing example): a single-column
+    # key would accept an account from another tenant -- the row exists, it is
+    # simply somebody else's -- and tenant isolation here is structural rather
+    # than a predicate each reader has to remember. RESTRICT, so deleting an
+    # account that has filed a request is an error rather than a silent
+    # orphaning; the same trade attendance_record already makes.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "filed_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_event_filed_by_user",
     ),
     sa.CheckConstraint(
         "time_precision IN ('exact','date_only','unresolved')",
@@ -1194,6 +1217,16 @@ event = sa.Table(
         "(location_city IS NULL OR length(btrim(location_city)) > 0) "
         "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0)",
         name="ck_event_location_present",
+    ),
+    # Migration 0033. The mirror of ck_event_provenance_evidence above, which
+    # says a source URL may exist only on an 'extraction' row: this says a filer
+    # may exist only on a 'coordinator_entry' one. An extracted event has no
+    # author, and a filer on a crawled row would attribute a fetch to a person.
+    # Partial by construction, which is what let it be added to a populated
+    # table -- every pre-0033 row satisfies the IS NULL arm without being read.
+    sa.CheckConstraint(
+        "filed_by_user_id IS NULL OR origin = 'coordinator_entry'",
+        name="ck_event_filed_by_manual_origin",
     ),
 )
 

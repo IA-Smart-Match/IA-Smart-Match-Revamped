@@ -172,6 +172,7 @@ class SpeakerRequestRepository:
         tenant_id: uuid.UUID,
         host_org_unit_id: uuid.UUID,
         draft: SpeakerRequestDraft,
+        filed_by_user_id: uuid.UUID,
     ) -> SpeakerRequestWriteResult:
         """Store this Speaker Request, or update the one its key already names.
 
@@ -192,6 +193,17 @@ class SpeakerRequestRepository:
             draft: The validated request. Every rule it enforces is stated in
                 ``smartmatch_domain.speaker_requests``; nothing is re-checked
                 here, so a rule has one place to be read from.
+            filed_by_user_id: The account that typed this request, from the
+                verified principal and never from a body (migration ``0033``,
+                OQ-CBA-014). **Required**, with no default: a filing whose filer
+                nobody supplied would store ``NULL``, and ``NULL`` in that column
+                means *the filer is unknown* — a state only the rows written
+                before ``0033`` are entitled to be in. A default here would let a
+                new filing quietly join them, and a host would never see it.
+
+                On a **resubmission** this is *not* written: the first filer is
+                kept. See :meth:`EventRepository.upsert_returning_outcome` for
+                why, and OQ-CBA-065 for the collision that leaves open.
 
         Returns:
             A :class:`SpeakerRequestWriteResult`.
@@ -208,6 +220,7 @@ class SpeakerRequestRepository:
             is_virtual=draft.is_virtual,
             location_city=draft.location_city,
             location_postal_code=draft.location_postal_code,
+            filed_by_user_id=filed_by_user_id,
         )
 
         classifications = classifications_of(draft)
@@ -265,6 +278,57 @@ class SpeakerRequestRepository:
             session,
             tenant_id=tenant_id,
             extra=(schema.event.c.host_org_unit_id == host_org_unit_id,),
+            limit=limit,
+        )
+
+    def list_filed_by(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        host_org_unit_id: uuid.UUID,
+        filed_by_user_id: uuid.UUID,
+        limit: int,
+    ) -> tuple[SpeakerRequestRow, ...]:
+        """One Event Host's own filings under one unit, soonest first (OQ-CBA-014).
+
+        A **different query** from :meth:`list_for_unit`, not a narrower call of
+        it, which is exactly what OQ-CBA-014's closure required: the queue is the
+        Speaker Connector's and holds every host's request text for the unit,
+        while this returns only the rows the named account filed. The two methods
+        stay separate for the reason the two authorizers do — one method taking
+        the predicate as an option would make a single call site the place both
+        could be widened from.
+
+        ``filed_by_user_id`` is an **equality predicate and nothing else**. There
+        is no ``IS NULL OR`` arm and no fallback to ``host_org_unit_id`` when the
+        filer is unknown: a row whose filer is ``NULL`` was filed before migration
+        ``0033`` recorded one, ``NULL`` there means *unknown* rather than *this
+        caller*, and either softening would republish the whole queue through this
+        method. So a request filed before ``0033`` is listed by nobody, which is
+        the true statement about what the database knows and is asserted in
+        ``tests/integration/test_speaker_request_persistence.py``.
+
+        ``host_org_unit_id`` is kept alongside the filer rather than dropped as
+        redundant. It is not redundant: an account can hold a ``volunteer``
+        membership in more than one unit, and the route authorizes one unit at a
+        time — so filtering on the filer alone would return rows from a unit this
+        caller was not authorized against on this request.
+
+        Inherits the tenant scope and the ``origin = 'coordinator_entry'``
+        restriction from :meth:`_rows`, so an extracted event cannot appear here
+        any more than it can in the queue.
+
+        The caller passes ``limit`` and decides what to do about a full page, for
+        the reason :meth:`list_for_unit` gives.
+        """
+        return self._rows(
+            session,
+            tenant_id=tenant_id,
+            extra=(
+                schema.event.c.host_org_unit_id == host_org_unit_id,
+                schema.event.c.filed_by_user_id == filed_by_user_id,
+            ),
             limit=limit,
         )
 

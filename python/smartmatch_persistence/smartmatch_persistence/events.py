@@ -301,6 +301,7 @@ class EventRepository:
         is_virtual: bool = False,
         location_city: str | None = None,
         location_postal_code: str | None = None,
+        filed_by_user_id: uuid.UUID | None = None,
     ) -> EventUpsertOutcome:
         """Insert this event, or update the one its identity key already names.
 
@@ -324,6 +325,21 @@ class EventRepository:
         exactly ``0024``'s column defaults, so a caller that says nothing about
         location writes what it wrote before these parameters existed.
 
+        ``filed_by_user_id`` (migration ``0033``, OQ-CBA-014) is the account that
+        typed this row, and it is the **one column that does not join
+        ``_temporal_columns``' discipline**: it is named on the insert and
+        deliberately withheld from the update, so a resubmission keeps the
+        *first* filer. ADR-0012's identity key is host unit, folded title and
+        resolved date, and it does not include the filer — so two hosts in one
+        unit filing the same title on the same date are one request, and
+        last-writer-wins would let either take the other's request over by
+        retyping its title. The cost is real and is registered as **OQ-CBA-065**
+        rather than solved here: the second host's call answers ``200`` against a
+        row they cannot then list. Defaults to ``None``, which the database reads
+        as *unknown filer* — never as *no filer*, and never as "the caller"; the
+        extraction path leaves it alone and ``ck_event_filed_by_manual_origin``
+        refuses it a value there in any case.
+
         Returns:
             An :class:`EventUpsertOutcome` naming the row and whether this call
             inserted it.
@@ -344,6 +360,7 @@ class EventRepository:
             "is_virtual": is_virtual,
             "location_city": location_city,
             "location_postal_code": location_postal_code,
+            "filed_by_user_id": filed_by_user_id,
             **_temporal_columns(event_time),
             **_provenance_columns(origin, provenance),
         }
@@ -369,7 +386,24 @@ class EventRepository:
             # The four identity columns are what was matched on; rewriting
             # them with the same values would be noise, and rewriting them
             # with different ones is impossible by construction.
-            if key not in ("tenant_id", "host_org_unit_id", "normalized_title", "resolved_date")
+            #
+            # `filed_by_user_id` is excluded for a different reason and the
+            # difference matters: it is *not* an identity column, and it very
+            # much could be rewritten with a different value. That is precisely
+            # why it must not be. The key does not include the filer, so a
+            # second host filing the same title on the same date lands on the
+            # first host's row; overwriting the filer there would hand them
+            # somebody else's request by retyping its title. First filer is
+            # kept, the collision is visible rather than resolved, and it is
+            # registered as OQ-CBA-065. See this method's docstring.
+            if key
+            not in (
+                "tenant_id",
+                "host_org_unit_id",
+                "normalized_title",
+                "resolved_date",
+                "filed_by_user_id",
+            )
         }
         updated["updated_at"] = sa.func.now()
         row = session.execute(
