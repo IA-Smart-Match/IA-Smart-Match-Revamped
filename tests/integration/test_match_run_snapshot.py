@@ -52,7 +52,15 @@ def _inputs_hash() -> str:
     )
 
 
-def _pins() -> MatchRunPins:
+def _pins(
+    *, scoring_mode: str | None = None, scoring_mode_version: str | None = None
+) -> MatchRunPins:
+    """Pins for a run, unlabelled by default.
+
+    The mode defaults to ``None`` — the pre-ADR-0016 shape — so a caller that
+    wants a labelled run has to say which label, and no test acquires one by
+    accident.
+    """
     return MatchRunPins(
         registry_version="1.1.1-approved-g1-m6j",
         registry_hash=weights_fingerprint(WEIGHTS),
@@ -61,6 +69,8 @@ def _pins() -> MatchRunPins:
         solver_version="9.99.0",
         route_estimate_source="straight_line",
         route_estimate_version="1.0.0-straight-line",
+        scoring_mode=scoring_mode,
+        scoring_mode_version=scoring_mode_version,
     )
 
 
@@ -617,6 +627,57 @@ def test_the_repository_stores_every_pin_it_was_given(session_factory, tenant_id
     # Readable as well as hashed: a digest cannot answer "which weights were in
     # force", and that is a question a coordinator will ask.
     assert stored.weights == WEIGHTS
+    # `_pins()` names no mode, so this run is the pre-ADR-0016 shape and the
+    # columns migration 0032 added stay NULL. The repository writes the pair
+    # through as it arrives rather than defaulting the absent half.
+    assert stored.scoring_mode is None
+    assert stored.scoring_mode_version is None
+
+
+@pytest.mark.parametrize("mode", sorted(CBA_SCORING_MODES))
+def test_the_repository_stores_the_mode_the_pins_carried(
+    session_factory, tenant_id, job_id, engine, mode
+):
+    """A run recorded under a mode says so on its own row, not only in its payload.
+
+    This is the whole of OQ-CBA-028 seen from the write side. Before migration
+    ``0032`` the mode reached storage through the job summary event, the stored
+    explanation payload, and ``registry_hash`` — enough to recover a run's mode
+    one run at a time, and not enough to write ``GROUP BY scoring_mode``.
+
+    Asserted through the repository rather than through ``_insert_run``,
+    deliberately: the constraint tests above prove what the *database* accepts,
+    and this proves the one writer actually fills the columns. A column nothing
+    populates is a column every report reads as empty.
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+
+    pins = _pins(scoring_mode=mode, scoring_mode_version=SCORING_MODE_VERSION)
+    with session_factory() as session:
+        record = MatchRunRepository().record(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            job_id=job_id,
+            event_need_id=NEED,
+            inputs_hash=_inputs_hash(),
+            portfolio_size=1,
+            random_seed=0,
+            weights=WEIGHTS,
+            pins=pins,
+            portfolio_status="optimal",
+        )
+        session.commit()
+
+    with engine.connect() as conn:
+        stored = conn.execute(
+            text("SELECT scoring_mode, scoring_mode_version FROM match_run WHERE id = :id"),
+            {"id": record.id},
+        ).one()
+
+    assert stored.scoring_mode == mode
+    assert stored.scoring_mode_version == SCORING_MODE_VERSION
 
 
 def test_the_repository_offers_no_way_to_update_a_run():

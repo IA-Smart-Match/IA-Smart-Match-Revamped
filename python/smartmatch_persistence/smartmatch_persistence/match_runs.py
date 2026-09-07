@@ -145,7 +145,11 @@ class MatchRunRepository:
             pins: Every version this run is pinned to. Validated by
                 :class:`~smartmatch_domain.match_run.MatchRunPins` before it
                 arrives, so this method never has to decide what a blank
-                version means.
+                version means. That includes ``scoring_mode`` and
+                ``scoring_mode_version`` since migration ``0032``: a ``None``
+                pair is stored as a ``NULL`` pair, which is the true statement
+                that the run predates ADR-0016's mode vocabulary rather than a
+                field the writer forgot.
             portfolio_status: The solver's verdict, as
                 :class:`smartmatch_domain.optimizer.PortfolioStatus`'s value.
                 Passed through rather than narrowed here — ``0018``'s CHECK
@@ -182,6 +186,15 @@ class MatchRunRepository:
                 solver_version=pins.solver_version,
                 route_estimate_source=pins.route_estimate_source,
                 route_estimate_version=pins.route_estimate_version,
+                # Written through as they arrive, ``None`` included. A writer
+                # that substituted the physical mode for a missing one would
+                # relabel a pre-ADR-0016 run as scored under a rulebook that had
+                # no modes at all — the mislabelling migration 0032's nullable
+                # columns exist to make unrepresentable. `MatchRunPins` already
+                # refuses a mode without its version, so nothing here has to
+                # decide what half a pair would mean.
+                scoring_mode=pins.scoring_mode,
+                scoring_mode_version=pins.scoring_mode_version,
                 portfolio_status=portfolio_status,
                 supersedes_run_id=supersedes_run_id,
             )

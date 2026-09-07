@@ -33,6 +33,7 @@ from conftest import ensure_owning_unit
 from smartmatch_domain.factor_registry import (
     CBA_PHYSICAL_MODEL,
     REGISTRY_VERSION,
+    SCORING_MODE_VERSION,
     SUPERSEDED_G1_MODEL,
     SUPERSEDED_REGISTRY_VERSION,
     normalize_weights,
@@ -233,7 +234,10 @@ def test_two_modes_of_one_registry_share_a_version_and_differ_in_hash(
     with engine.connect() as conn:
         rows = {
             str(job): conn.execute(
-                text("SELECT registry_version, registry_hash FROM match_run WHERE job_id = :job"),
+                text(
+                    "SELECT registry_version, registry_hash, scoring_mode, "
+                    "scoring_mode_version FROM match_run WHERE job_id = :job"
+                ),
                 {"job": job},
             ).one()
             for job in (physical_job, virtual_job)
@@ -244,6 +248,15 @@ def test_two_modes_of_one_registry_share_a_version_and_differ_in_hash(
 
     assert physical.registry_version == virtual.registry_version == REGISTRY_VERSION
     assert physical.registry_hash != virtual.registry_hash
+    # And since migration 0032 the mode is on the row, rather than only
+    # inferable from the fact that the two hashes differ. That inference was
+    # always the weak half of this test: differing hashes can say *these two
+    # runs used different weight sets* and never which model either one was.
+    # OQ-CBA-028 is closed by these two columns, and this is the end-to-end
+    # proof that the worker fills them.
+    assert physical.scoring_mode == "cba-physical-1"
+    assert virtual.scoring_mode == "cba-virtual-1"
+    assert physical.scoring_mode_version == virtual.scoring_mode_version == SCORING_MODE_VERSION
 
 
 def test_the_snapshot_pins_the_optimizer_and_the_route_estimate(session_factory, tenant_id, engine):
@@ -382,9 +395,11 @@ def test_the_terminal_event_names_the_run_and_its_pins(session_factory, tenant_i
     assert completed["state"] == JobState.SUCCEEDED.value
 
     summary = completed["summary"]
-    # No mode on the payload, so the run is pre-ADR-0016 and says so. The
-    # summary is also where a client following the job reads the mode, since
-    # `match_run` has no column for it (OQ-CBA-028).
+    # No mode on the payload, so the run is pre-ADR-0016 and says so — in the
+    # summary here, and as a NULL pair on the row since migration 0032
+    # (OQ-CBA-028). The summary keeps reporting it because it is what a client
+    # following the job reads without a second lookup, which is a different
+    # question from the one the column answers.
     assert summary["registry_version"] == SUPERSEDED_REGISTRY_VERSION
     assert summary["scoring_mode"] is None
     assert summary["scoring_mode_version"] is None
