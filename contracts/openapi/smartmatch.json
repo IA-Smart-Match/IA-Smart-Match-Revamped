@@ -11556,7 +11556,7 @@
         ]
       },
       "post": {
-        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\n**A name this unit already holds is not an error.** The identity is opaque\n(OQ-CBA-017), so this create stores a second, distinct person and reports\nthe ones already carrying the name in ``same_name_contacts``. There is no\n``409`` on this route any more, and there is no circumstance in which the\nhint prevents the write \u2014 see the module docstring.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is outside\n        its closed taxonomy. Nothing else; a same-name create is a ``201``.",
+        "description": "Record one professional this unit knows (customer \u00a713).\n\n``201``: this has completed when it returns. Three rows exist \u2014 the\nprofessional's ``user_account``, their link to this unit, and the\n``speaker_profile`` holding what the Connector typed.\n\nNo ``contact_channel`` row is written and no consent is recorded. If the body\ncarried ``contact_email``, it was discarded and is named in\n``withheld_fields``.\n\n**A name this unit already holds is not an error.** The identity is opaque\n(OQ-CBA-017), so this create stores a second, distinct person and reports\nthe ones already carrying the name in ``same_name_contacts``. There is no\n``409`` on the name, there is no uniqueness constraint on\n``(tenant_id, owning_unit_id, full_name)`` in any form, and there is no\ncircumstance in which the hint prevents the write \u2014 see the module\ndocstring.\n\n**``Idempotency-Key`` is optional and answers a different question**\n(OQ-CBA-047). The hint warns that this *name* is already here; the key\nsettles whether this *request* already happened. They are not substitutes:\nthe hint cannot stop a double click, and the key says nothing at all about\ntwo Connectors adding two different people who share a name. Sending the\nsame key with the same body twice returns the first contact under the\noriginal ``201`` rather than making a second row. Sending the same key with\na different body is ``409 idempotency_key_reused``, because answering with\nthe earlier contact would silently discard what the caller actually asked\nfor. Sending two *different* keys with two identical bodies creates two\ncontacts, which is the correct answer and is exactly the case a name-based\nrule would get wrong.\n\nRaises:\n    ApiError: 400 when a field is blank, when a classification code is\n        outside its closed taxonomy, or when a supplied ``Idempotency-Key``\n        is longer than :data:`MAX_IDEMPOTENCY_KEY_LENGTH`.\n    IdempotencyConflictError: 409 when a key is reused with a different\n        request. Rendered by ``errors.idempotency_conflict_handler``.",
         "operationId": "create_speaker_contact_v1_units__unit_id__speaker_contacts_post",
         "parameters": [
           {
@@ -11567,6 +11567,24 @@
               "format": "uuid",
               "title": "Unit Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional. Send the same key with the same body to make a retried or double-clicked create resolve to the one contact it already made, answered with the original 201 and the original body. Reusing a key with a different body is 409. Omit it and this route behaves exactly as it always has.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional. Send the same key with the same body to make a retried or double-clicked create resolve to the one contact it already made, answered with the original 201 and the original body. Reusing a key with a different body is 409. Omit it and this route behaves exactly as it always has.",
+              "title": "Idempotency-Key"
             }
           },
           {

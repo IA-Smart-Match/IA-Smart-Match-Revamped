@@ -135,10 +135,51 @@ terms: the ``UPDATE`` has already committed by the time anybody reads it, and
 there is no status code, no ``409``, and no refusal anywhere on this surface.
 No merge either — no ``duplicate_of``, no "these are the same person" — because
 recording that two rows are one person is a product decision nobody has taken.
-What ships is the statement that two rows share a name. And no request-level
-idempotency: a double-clicked form now adds the same person twice rather than
-resolving to one derived id, which is the cost of the decision and is recorded
-as **OQ-CBA-047** rather than papered over.
+What ships is the statement that two rows share a name.
+
+## The create takes an ``Idempotency-Key``, and it is not a duplicate check
+
+**OQ-CBA-047, decided 2026-09-06.** Removing the name-derived identity left the
+create with no way to collapse a repeat of the *same request* into one row, so a
+double-clicked form added the same person twice. The interim answer was the hint
+above, and the hint was never enough for this: it warns, it does not repair, and
+with no merge surface anywhere in this product — still none, and building one is
+a separate decision nobody has taken (OQ-CBA-049) — the failure mode is not "a
+duplicate appears" but *two rows for one person that cannot be combined*.
+
+``POST /v1/units/{unit_id}/speaker-contacts`` therefore accepts an
+``Idempotency-Key`` header. It is routed through
+``smartmatch_persistence.idempotency`` — the same ``reserve`` /
+``fingerprint_request`` the command path uses, under
+``uq_idempotency_scope``'s ``(tenant_id, command_type, idempotency_key)`` — and
+not through a second scheme grown here. The command type is
+:data:`SPEAKER_CONTACT_CREATE_COMMAND_TYPE`, so a key cannot cross between this
+route and a job submission.
+
+* **No key** — exactly the behaviour that shipped before, hint and all. The
+  header is **optional** and stays optional: §13's form posts without one, and
+  requiring it would turn every existing caller into a ``400`` in exchange for a
+  guarantee they never asked for. ``submit_command`` and ``redrive.py`` require
+  theirs because they start durable background work; this route does not.
+* **Same key, same body** — a replay. The original ``201`` and the original
+  contact, no second row. See :func:`_replayed_create` for what "the original
+  body" can and cannot promise, which is stated there rather than implied.
+* **Same key, different body** — ``409 idempotency_key_reused``, the substrate's
+  own rule. Answering with the earlier contact would silently discard the
+  request the caller actually made.
+* **Different keys, identical bodies** — two contacts, because two people can
+  share a name and nothing here has changed about that.
+
+The last bullet is the load-bearing one. **A key is taken off the request, never
+off the name.** Nothing about this reintroduces a uniqueness rule on
+``(tenant_id, owning_unit_id, full_name)`` in any form — no constraint, no
+application-level refusal, no ``409`` on a name — and nothing deduplicates by
+name anywhere. The old scheme was never idempotency: it deduplicated by name, so
+it stopped working the moment anybody corrected one, and it refused two
+genuinely different people who happened to share one.
+
+Still no merge, and still no ``duplicate_of``: a key prevents a second row from
+being created and does nothing whatever about two rows that already exist.
 
 ## What this module does not do
 
@@ -157,7 +198,7 @@ import uuid
 from datetime import timedelta
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Header, Path, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.cba_contacts import (
@@ -172,6 +213,10 @@ from smartmatch_persistence.cba_contacts import (
     SpeakerContactRepository,
     SpeakerContactRow,
 )
+from smartmatch_persistence.idempotency import (
+    IdempotencyRepository,
+    fingerprint_request,
+)
 from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
@@ -183,6 +228,14 @@ from smartmatch_api.utils import utc_now
 router = APIRouter(prefix="/v1/units", tags=["speaker-contacts"])
 
 _contacts: Final[SpeakerContactRepository] = SpeakerContactRepository()
+
+#: The idempotency substrate, shared with the command path rather than
+#: reimplemented here. ``reserve`` is ``INSERT ... ON CONFLICT DO NOTHING``
+#: followed by a read, so two concurrent submissions of one key are arbitrated
+#: by ``uq_idempotency_scope`` rather than by a check this module would have to
+#: get right — which is the whole reason OQ-CBA-047 was answered by reaching for
+#: this and not by growing a second scheme inside a router.
+_idempotency: Final[IdempotencyRepository] = IdempotencyRepository()
 
 #: Who may manage a unit's speaker contacts. Customer §13 gives the roster to the
 #: **Speaker Connector**, which is the stored ``admin``/``coordinator`` persona,
@@ -231,6 +284,29 @@ MAX_ROWS: Final[int] = 200
 #: professionals sharing a name are two contacts (OQ-CBA-017), and a hundred of
 #: them would be a hundred contacts.
 MAX_SAME_NAME_HINTS: Final[int] = 10
+
+
+#: The idempotency scope this route reserves under (OQ-CBA-047).
+#:
+#: A key is honored within ``(tenant_id, command_type, idempotency_key)`` —
+#: ``uq_idempotency_scope``, the substrate's own scope and not a second one
+#: invented here. Naming a command type distinct from every ``job.*`` type is
+#: what keeps a key a Connector reused from an import submission from resolving
+#: to a contact, and the other way round: the same string under two command
+#: types is two operations, not a replay.
+#:
+#: Deliberately parallel to ``import.create`` / ``job.redrive`` / ``job.abandon``
+#: in shape, and deliberately *not* routed through ``submit_command``: this
+#: route creates rows synchronously and answers ``201``, so there is no job to
+#: submit and no ``202`` to return.
+SPEAKER_CONTACT_CREATE_COMMAND_TYPE: Final[str] = "speaker_contact.create"
+
+#: The longest ``Idempotency-Key`` this route accepts, matching
+#: ``submit_command`` and ``redrive.py`` rather than picking a third number.
+#: The column is unbounded ``text``; the cap is about not storing an unbounded
+#: string a caller controls, and it is the same cap everywhere so a client can
+#: mint one key format for the whole API.
+MAX_IDEMPOTENCY_KEY_LENGTH: Final[int] = 255
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +798,162 @@ def _draft_or_400(body: SpeakerContactCreate) -> SpeakerContactDraft:
         ) from exc
 
 
+def _optional_idempotency_key(idempotency_key: str | None) -> str | None:
+    """Normalize the ``Idempotency-Key`` header, or report that none was sent.
+
+    **Optional, and that is the decision rather than an oversight** (OQ-CBA-047).
+    ``submit_command`` and ``redrive.py`` both *require* a key, and both are
+    right to: they start durable, possibly paid background work, and a caller
+    who cannot retry safely there has no safe move at all. This route is not
+    that. It is §13's form, every existing caller posts it without a header, and
+    making one mandatory would turn every one of them into a ``400`` in exchange
+    for a guarantee they never asked for. A create without a key therefore
+    behaves exactly as it did before this function existed — same rows, same
+    ``201``, same ``same_name_contacts`` hint.
+
+    Whitespace-only is treated as absent rather than as a key, for the reason
+    ``submit_command`` treats it as an error: a key that is one space is a
+    client that failed to fill a template in, and binding a contact to ``" "``
+    would make the *next* such client a replay of this one.
+
+    Returns:
+        The stripped key, or ``None`` when the caller sent none.
+
+    Raises:
+        ApiError: 400 when a key was sent but is longer than
+            :data:`MAX_IDEMPOTENCY_KEY_LENGTH`. Refused rather than truncated —
+            truncating would silently collapse two distinct keys sharing a
+            prefix into one, which is the exact accident a key exists to
+            prevent.
+    """
+    if idempotency_key is None or not idempotency_key.strip():
+        return None
+
+    if len(idempotency_key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="idempotency_key_too_long",
+            message=f"Idempotency-Key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters.",
+        )
+
+    return idempotency_key.strip()
+
+
+def _create_fingerprint(body: SpeakerContactCreate, *, owning_unit_id: uuid.UUID) -> str:
+    """Hash what this create is *asking for*, so a replay can be told from a reuse.
+
+    **Keyed off the request, never off the name** — the distinction OQ-CBA-017
+    and OQ-CBA-021 turn on. Two Connectors submitting "Dana Reyes" under two
+    different keys are two people and get two rows; one Connector submitting the
+    same body twice under one key is one request and gets one row. Nothing here
+    reads a name to decide whether a contact may exist; ``full_name`` enters the
+    hash as one field among ten, exactly as ``company`` does.
+
+    ``owning_unit_id`` is hashed alongside the body and it is a safety property,
+    not tidiness. The substrate's scope is ``(tenant, command_type, key)`` and
+    does **not** include the unit, so a key replayed against a *different*
+    department with an otherwise identical body would otherwise be resolved as a
+    replay and answered with the first department's contact — a row the caller
+    may be authorized to see but did not ask for. Including the unit turns that
+    into the ``409`` it is.
+
+    Two things it deliberately does not cover, both inherited from the substrate
+    and both left alone:
+
+    * **The actor.** A key is tenant-scoped, so a second Connector in the same
+      unit replaying an identical body receives the first one's contact rather
+      than a second row. That is the right answer — one request, one row — and
+      it is the same trade ``submit_command`` documents about jobs.
+    * **``contact_email``.** It is hashed because it was *sent*, even though it
+      is discarded (OQ-CBA-015). A retry that drops the field is a different
+      request: the first response said ``withheld_fields: ["contact_email"]``
+      and the second would not, so answering the second with the first's body
+      would be a lie about what happened to the caller's data.
+    """
+    return fingerprint_request(
+        {
+            "owning_unit_id": str(owning_unit_id),
+            "body": body.model_dump(mode="json"),
+        }
+    )
+
+
+def _replayed_create(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    owning_unit_id: uuid.UUID,
+    professional_id: uuid.UUID,
+    body: SpeakerContactCreate,
+    draft: SpeakerContactDraft,
+) -> SpeakerContactResponse:
+    """Answer a replayed create with the contact the first one stored.
+
+    **What a replay returns: the original ``201`` and the original body.** Not a
+    ``200``, not a ``409``, not an empty body with a ``Location`` — the second
+    click gets the same answer the first click got, because from the caller's
+    side one request happened. That is the substrate's existing contract
+    (``submit_command`` answers a replay with the original job and the original
+    status) applied to a route that answers ``201`` instead of ``202``.
+
+    The body is **recomputed, not replayed from storage**, and the honest
+    statement of the limit is this: ``idempotency_record`` has nowhere to keep a
+    response — ``result_generation`` is one integer, and this card owns no
+    migration to add a column — so the three parts are re-derived instead.
+
+    * The **contact** is re-read by id. It is the same row, so every stored field
+      matches unless somebody edited the contact between the two clicks.
+    * ``withheld_fields`` is derived from the request body, and the fingerprint
+      has already established that the request body is identical. Byte-identical
+      by construction.
+    * ``same_name_contacts`` is re-asked, with the replayed contact excluded from
+      its own answer — the same exclusion OQ-CBA-049 gave the edit path, needed
+      here for the same reason: the original read happened *before* the insert
+      and so could not see itself, and a read happening after it can.
+
+    So the guarantee is exact for the failure this closes — a double-clicked
+    form, milliseconds apart, on a roster nothing else touched — and is a
+    re-answer of the same question, not a stale snapshot, when the roster has
+    moved since. A stored snapshot would be the other trade and would need DDL.
+
+    ``draft`` rather than the stored row supplies the name the hint is asked
+    about, so a replay answers the question the *request* asked even if the
+    contact has since been renamed through the edit route.
+
+    Raises:
+        ApiError: 404 when the reserved contact is no longer readable in this
+            unit. Nothing deletes a speaker contact today, so this is a
+            defensive arm rather than a reachable one; it fails closed rather
+            than fabricating a body for a row that is not there.
+    """
+    contact = _contacts.get(
+        session,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        professional_id=professional_id,
+    )
+    if contact is None:  # pragma: no cover - no surface deletes a speaker contact
+        raise _not_found()
+
+    same_name = _contacts.list_same_name(
+        session,
+        tenant_id=tenant_id,
+        owning_unit_id=owning_unit_id,
+        full_name=draft.full_name,
+        limit=MAX_SAME_NAME_HINTS + 1,
+        # The row this key already created must not be reported as a duplicate
+        # of itself. The original hint was read before the insert and could not
+        # see it; this one is read after and would.
+        exclude_professional_id=professional_id,
+    )
+
+    # No commit, and none is owed: this path read three rows and wrote none. The
+    # retry's own quota was charged and committed by `charge_quota` before the
+    # key was looked at, so there is nothing here that `get_session`'s rollback
+    # would lose.
+    return _view(contact, withheld=_withheld_fields(body), same_name=same_name)
+
+
 def _not_found() -> ApiError:
     """The 404 every by-id route raises.
 
@@ -752,6 +984,19 @@ def create_speaker_contact(
     session: DbSession,
     body: SpeakerContactCreate,
     unit_id: Annotated[uuid.UUID, Path()],
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            description=(
+                "Optional. Send the same key with the same body to make a retried "
+                "or double-clicked create resolve to the one contact it already "
+                "made, answered with the original 201 and the original body. "
+                "Reusing a key with a different body is 409. Omit it and this "
+                "route behaves exactly as it always has."
+            ),
+        ),
+    ] = None,
 ) -> SpeakerContactResponse:
     """Record one professional this unit knows (customer §13).
 
@@ -766,40 +1011,137 @@ def create_speaker_contact(
     **A name this unit already holds is not an error.** The identity is opaque
     (OQ-CBA-017), so this create stores a second, distinct person and reports
     the ones already carrying the name in ``same_name_contacts``. There is no
-    ``409`` on this route any more, and there is no circumstance in which the
-    hint prevents the write — see the module docstring.
+    ``409`` on the name, there is no uniqueness constraint on
+    ``(tenant_id, owning_unit_id, full_name)`` in any form, and there is no
+    circumstance in which the hint prevents the write — see the module
+    docstring.
+
+    **``Idempotency-Key`` is optional and answers a different question**
+    (OQ-CBA-047). The hint warns that this *name* is already here; the key
+    settles whether this *request* already happened. They are not substitutes:
+    the hint cannot stop a double click, and the key says nothing at all about
+    two Connectors adding two different people who share a name. Sending the
+    same key with the same body twice returns the first contact under the
+    original ``201`` rather than making a second row. Sending the same key with
+    a different body is ``409 idempotency_key_reused``, because answering with
+    the earlier contact would silently discard what the caller actually asked
+    for. Sending two *different* keys with two identical bodies creates two
+    contacts, which is the correct answer and is exactly the case a name-based
+    rule would get wrong.
 
     Raises:
-        ApiError: 400 when a field is blank or a classification code is outside
-            its closed taxonomy. Nothing else; a same-name create is a ``201``.
+        ApiError: 400 when a field is blank, when a classification code is
+            outside its closed taxonomy, or when a supplied ``Idempotency-Key``
+            is longer than :data:`MAX_IDEMPOTENCY_KEY_LENGTH`.
+        IdempotencyConflictError: 409 when a key is reused with a different
+            request. Rendered by ``errors.idempotency_conflict_handler``.
     """
     charge_quota(session, principal, SPEAKER_CONTACT_WRITE_RATE_LIMIT)
 
     owning_unit_id = _authorize_speaker_contacts(session, principal, unit_id)
+    # Both refusals run before the key is reserved, deliberately. A body that
+    # cannot be stored must not consume a key: binding one to a request that
+    # ends in a `400` would turn the caller's corrected retry into a `409`
+    # against a contact that was never created.
     draft = _draft_or_400(body)
+    key = _optional_idempotency_key(idempotency_key)
+
+    if key is None:
+        # Unchanged from before this route learned about keys, down to the
+        # identity still being generated inside the repository. Every existing
+        # caller is on this path and none of them can tell the difference.
+        created = _contacts.create(
+            session,
+            tenant_id=principal.tenant_id,
+            owning_unit_id=owning_unit_id,
+            draft=draft,
+            # §19's step five, satisfied at the moment the value is set: a code
+            # typed into §13's form is this Connector's judgment, so it is
+            # stored as `human` with them named rather than left for a review
+            # that has already happened.
+            actor_id=principal.user_id,
+            # One past the cap, so `same_name_truncated` is answered by the read
+            # itself rather than by a second count — the shape the roster
+            # listing uses for its own `truncated`.
+            same_name_limit=MAX_SAME_NAME_HINTS + 1,
+        )
+
+        # `get_session` rolls back unconditionally on the way out — a route that
+        # changes state commits explicitly, and committing by default would turn
+        # a half-finished request into a persisted one. All three rows land here
+        # or none of them do.
+        session.commit()
+
+        return _view(
+            created.contact,
+            withheld=_withheld_fields(body),
+            same_name=created.same_name,
+        )
+
+    # Minted here rather than inside the repository, and minted by the *server*
+    # rather than taken from the request — `submit_command`'s `job_id =
+    # uuid.uuid4()`, for its reason. `reserve` has to record which row this key
+    # owns before the row exists, because a reservation written afterwards would
+    # leave a window in which a replay holds a key and has no contact to answer
+    # with. MM-A01 is untouched: there is still no body field for an identity,
+    # and a caller still cannot choose one.
+    professional_id = uuid.uuid4()
+
+    # Raises `IdempotencyConflictError` -> 409 when the key is reused with a
+    # different request. Nothing is committed on that path and nothing needs to
+    # be: `reserve` is `ON CONFLICT DO NOTHING` followed by a read, and this
+    # request's quota was already committed by `charge_quota`.
+    reservation = _idempotency.reserve(
+        session,
+        tenant_id=principal.tenant_id,
+        command_type=SPEAKER_CONTACT_CREATE_COMMAND_TYPE,
+        idempotency_key=key,
+        request_fingerprint=_create_fingerprint(body, owning_unit_id=owning_unit_id),
+        # The column is named for the command path's jobs and carries "the row
+        # this key owns"; here that row is the speaker contact. Storing the
+        # contact id is what makes a replay answerable at all — it is the only
+        # place a reservation can remember what it created, and the column
+        # carries no foreign key to `job` precisely because it is that slot.
+        job_id=professional_id,
+    )
+
+    if reservation.is_replay:
+        assert reservation.job_id is not None
+        return _replayed_create(
+            session,
+            tenant_id=principal.tenant_id,
+            owning_unit_id=owning_unit_id,
+            professional_id=reservation.job_id,
+            body=body,
+            draft=draft,
+        )
 
     created = _contacts.create(
         session,
         tenant_id=principal.tenant_id,
         owning_unit_id=owning_unit_id,
         draft=draft,
-        # §19's step five, satisfied at the moment the value is set: a code
-        # typed into §13's form is this Connector's judgment, so it is stored
-        # as `human` with them named rather than left for a review that has
-        # already happened.
         actor_id=principal.user_id,
-        # One past the cap, so `same_name_truncated` is answered by the read
-        # itself rather than by a second count — the shape the roster listing
-        # uses for its own `truncated`.
+        # The reserved identity, so the reservation and the contact name the
+        # same row. Server-minted, not caller-supplied: see above.
+        professional_id=professional_id,
         same_name_limit=MAX_SAME_NAME_HINTS + 1,
     )
 
-    # `get_session` rolls back unconditionally on the way out — a route that
-    # changes state commits explicitly, and committing by default would turn a
-    # half-finished request into a persisted one. All three rows land here or
-    # none of them do.
+    # **One commit for the reservation and all three contact rows.** They are in
+    # one transaction on purpose and must stay that way: a reservation committed
+    # without its contact would answer every later replay with a 404, and a
+    # contact committed without its reservation would let the next double click
+    # make a second one. `get_session` rolls back unconditionally, so without
+    # this line the route returns a clean 201 having stored nothing.
     session.commit()
 
+    # `record_result` is deliberately not called. It stores the *generation* a
+    # command produced, and a speaker contact has no generation — the situation
+    # `idempotency.py` names for `job.abandon`, and the reason `submit_command`
+    # does not call it either. Inventing an integer to put there would be a
+    # second scheme wearing the substrate's clothes; a replay here is answered
+    # from `job_id`, which `reserve` records at reservation time.
     return _view(
         created.contact,
         withheld=_withheld_fields(body),
