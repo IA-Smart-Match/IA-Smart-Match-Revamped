@@ -2034,7 +2034,7 @@ export async function fetchMetricDrillDown(
  * a `null` is one `?? 0` away from becoming a fabricated zero. Read `state`
  * first; read `value` only in the `"measured"` branch.
  */
-export type MatchScoreState = "measured" | "unknown";
+export type MatchScoreState = "measured" | "policy_neutral" | "unknown";
 
 /** One factor's contribution to one candidate's score, or its absence. */
 export interface MatchFactorExplanation {
@@ -2045,7 +2045,14 @@ export interface MatchFactorExplanation {
   /** The normalized Stage B weight actually applied for this run. */
   weight: number;
   state: MatchScoreState;
-  /** null when `state` is "unknown": absent evidence, never a measured zero. */
+  /**
+   * The factor value in [0, 1], or null when `state` is `"unknown"`.
+   *
+   * A null is an absence of evidence and is never a zero. A `"policy_neutral"`
+   * value is a stated customer policy rather than a measurement — it is a real
+   * number, and rendering it as "Unknown" would be as wrong as rendering an
+   * unknown as `0`.
+   */
   value: number | null;
   /** `measured_zero`, `unknown`, or null when the value is neither. */
   zero_classification: string | null;
@@ -2053,6 +2060,14 @@ export interface MatchFactorExplanation {
   basis: string;
   /** Set when the value is an explicitly coarse estimate. */
   estimate_label: string | null;
+  /**
+   * The customer policy behind a `"policy_neutral"` value, null otherwise.
+   * Carried so a neutral default is attributable rather than indistinguishable
+   * from a measurement that happened to land there (ADR-0016).
+   */
+  policy_id: string | null;
+  /** The policy's version. Set exactly when `policy_id` is. */
+  policy_version: string | null;
 }
 
 /** One candidate's heuristic score and every factor behind it. */
@@ -2067,6 +2082,28 @@ export interface MatchCandidateExplanation {
   registry_version: string;
   formula_version: string;
   unknown_factor_keys: string[];
+  /**
+   * The factors whose value came from a stated customer policy rather than a
+   * measurement, in registry order. Listed so a consumer can say which parts of
+   * a score were policy without comparing floats to a constant.
+   */
+  policy_neutral_factor_keys?: string[];
+  /**
+   * The approved caption a surface must show beside this score, **verbatim**,
+   * or null when none applies (ADR-0016 Proposal 8). Not a sentence this client
+   * composes and not one it may paraphrase.
+   */
+  caption?: string | null;
+  /**
+   * The model this score was produced under — `cba-virtual-1`,
+   * `cba-physical-1`, or null for a run stored before the vocabulary existed.
+   * A null is **not** `cba-physical-1`: a pre-ADR-0016 run never asked the
+   * question, and reading it as physical would claim a proximity factor was
+   * scored.
+   */
+  scoring_mode?: string | null;
+  /** The mode vocabulary's version. Set exactly when `scoring_mode` is. */
+  scoring_mode_version?: string | null;
   factors: MatchFactorExplanation[];
 }
 
@@ -2119,6 +2156,247 @@ export async function fetchMatchRun(
     undefined,
     { authenticated: true },
   );
+}
+
+/**
+ * One match-run submission: which filed request, and whom to consider.
+ *
+ * These three fields are the whole of `MatchRunRequest` in
+ * `contracts/openapi/smartmatch.json`, and the omissions are the contract.
+ * There is no field here for a speaker's expertise, sector, seniority or
+ * whereabouts, and none for the event's own description or its virtual/
+ * physical switch: every one of those is read server-side from this tenant's
+ * rows (`smartmatch_api.match_run_evidence`). A body that could state what a
+ * speaker is good at is a body that can decide its own shortlist — OQ-CBA-031.
+ *
+ * Nor does it name a tenant, an actor, or the unit. The unit travels in the
+ * authorized path; the other two come off the verified bearer token (MM-A01).
+ */
+export interface MatchRunSubmission {
+  /** The filed Speaker Request this run answers, by the id the queue reported. */
+  speaker_request_id: string;
+  /**
+   * The professionals to consider, at most 200, each a `professional_id` the
+   * §13 roster reported. Never an identifier derived from a name.
+   */
+  candidate_subject_ids: string[];
+  /**
+   * How many speakers to shortlist. The server bounds this to 2-3 per the
+   * ratified presentation rule and refuses anything else, so a caller that
+   * sends 5 gets a refusal rather than a quietly trimmed answer.
+   */
+  portfolio_size?: number;
+  /** Seed handed to the solver. Same pool, size and seed give the same picks. */
+  random_seed?: number;
+}
+
+/** One named subject that never entered the pool, and the server's word for why. */
+export interface ExcludedMatchCandidate {
+  subject_id: string;
+  /**
+   * A stable token — `speaker_profile_not_found`,
+   * `industry_classification_awaiting_review`, and the rest of the vocabulary
+   * `ExcludedCandidateView` documents. Distinct from *unscorable*: an
+   * unscorable candidate was evaluated and some factor had no evidence, an
+   * excluded one was never evaluated at all. Collapsing the two would tell a
+   * Connector somebody scored poorly when nobody has looked at their record.
+   */
+  reason: string;
+}
+
+/**
+ * The `202` acknowledgement. **Nothing has been matched when this arrives.**
+ *
+ * No `match_run` row exists yet and there is no run id in this body — only a
+ * job id and the counts the server could answer at submission. A client
+ * rendering this may say "queued" and may say how large the pool turned out to
+ * be; it may not say a shortlist exists, and it cannot link to one, because
+ * the run id does not arrive until the job completes.
+ */
+export interface MatchRunAccepted {
+  status: string;
+  job_id: string;
+  /** Where to follow the work: `/v1/jobs/{job_id}/events`. */
+  events_url: string;
+  /** True when an identical request under the same key was already accepted. */
+  replayed: boolean;
+  /** The factor registry version the pool was scored under. */
+  registry_version: string;
+  /** The model within that registry, resolved from the request's own switch. */
+  scoring_mode: string;
+  scoring_mode_version: string;
+  /** The only label these scores may be displayed under. Never a percentage. */
+  score_label: string;
+  /** Candidates with complete evidence, entered into the pool. */
+  scored_candidates: number;
+  /** Evaluated, composite unknown. Reported, never entered at zero (ADR-0011). */
+  unscorable_candidates: number;
+  /** Named subjects never evaluated at all, each with the reason. */
+  excluded_candidates: ExcludedMatchCandidate[];
+}
+
+/**
+ * `POST /v1/units/{unit_id}/match-runs` — submit one match-run command.
+ *
+ * Resolves on `202` with a job id. It does **not** resolve with a shortlist,
+ * and the absence is deliberate: the command is recorded and dispatched, and
+ * the run appears later. Callers must render the acceptance as queued work.
+ *
+ * Rejects with {@link ApiRequestError} on a 4xx, so a caller renders the
+ * server's own refusal — `422` when fewer candidates can be scored than the
+ * requested shortlist needs (the physical model's ordinary answer for a roster
+ * whose ZIPs are missing, since an unresolved distance is unknown and never
+ * Far), `400` for an oversized or duplicated pool, `404` for a request that is
+ * not this unit's, `503` while the registry is not ready.
+ *
+ * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID`, the
+ * same way {@link submitOutreachSend} does it: a retry of *this* attempt is
+ * safe, and a deliberate resubmission is a new command rather than a silently
+ * swallowed one.
+ */
+export async function createMatchRun(
+  unitId: string,
+  submission: MatchRunSubmission,
+): Promise<MatchRunAccepted> {
+  return requestJson<MatchRunAccepted>(
+    `/v1/units/${encodeURIComponent(unitId)}/match-runs`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify(submission),
+    },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Durable jobs (`GET /v1/jobs/{job_id}`, `GET /v1/jobs/{job_id}/events`)
+// ---------------------------------------------------------------------------
+//
+// Every `202` in this file becomes one of these. A job is the only honest
+// answer to "did it work?" for an accepted command, and it is the *server's*
+// answer: nothing here infers a state from elapsed time or from the fact that
+// a request returned.
+
+/** Every state a durable job may occupy (`JobState` in the OpenAPI contract). */
+export type JobState =
+  | "queued"
+  | "dispatched"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed_provider"
+  | "failed_budget"
+  | "failed_policy"
+  | "cancelled"
+  | "timed_out"
+  | "redrive_pending"
+  | "abandoned";
+
+/** The states a job never leaves. Anything else is still in flight. */
+const TERMINAL_JOB_STATES: readonly JobState[] = [
+  "succeeded",
+  "partial",
+  "failed_provider",
+  "failed_budget",
+  "failed_policy",
+  "cancelled",
+  "timed_out",
+  "abandoned",
+];
+
+/** Whether this job has settled. A `redrive_pending` job has not. */
+export function isTerminalJobState(state: JobState): boolean {
+  return TERMINAL_JOB_STATES.includes(state);
+}
+
+/** One job's current state. */
+export interface JobStatus {
+  id: string;
+  command_type: string;
+  status: JobState;
+  latest_sequence: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /v1/jobs/{job_id}` — the server's own word on an accepted command. */
+export async function fetchJobStatus(jobId: string): Promise<JobStatus> {
+  return requestJson<JobStatus>(
+    `/v1/jobs/${encodeURIComponent(jobId)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * The terminal `job.completed` summary, or null when the stream carries none.
+ *
+ * `GET /v1/jobs/{job_id}/events` is Server-Sent Events, not JSON, so this is
+ * the one helper in this file that reads a response body as text. Each frame is
+ * `data: {"sequence": n, "payload": {...}, "occurred_at": "..."}`; the terminal
+ * frame's payload has `type: "job.completed"` and carries the summary the
+ * handler recorded. For a match run that summary holds `match_run_id`, and it
+ * is the **only** place a client can learn it — no route maps a job to its run,
+ * and `tests/e2e/test_pilot_clickthrough.py` recovers the id the same way.
+ *
+ * Returns null rather than throwing when no completion frame is present: a job
+ * that has not finished has no summary, which is a state and not an error. A
+ * caller must therefore branch on null instead of treating a missing summary as
+ * a failure — or as a success.
+ */
+export async function fetchJobCompletionSummary(
+  jobId: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`/v1/jobs/${encodeURIComponent(jobId)}/events`, {
+    headers: { ...smartmatchAuthHeaders() },
+  });
+
+  if (!response.ok) {
+    await throwApiRequestError(response);
+  }
+
+  const body = await response.text();
+  for (const line of body.split("\n")) {
+    if (!line.startsWith("data: ")) {
+      continue;
+    }
+    let frame: unknown;
+    try {
+      frame = JSON.parse(line.slice("data: ".length));
+    } catch {
+      // A malformed frame is skipped rather than failing the whole read: the
+      // summary may still arrive on a later one, and a parse error here is not
+      // evidence about the job.
+      continue;
+    }
+    const payload = toObjectRecord(toObjectRecord(frame).payload);
+    if (payload.type === "job.completed") {
+      const summary = payload.summary;
+      return summary && typeof summary === "object" && !Array.isArray(summary)
+        ? (summary as Record<string, unknown>)
+        : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads a match run's id off a completion summary, or null when it has none.
+ *
+ * Typed as `unknown` on the way in and narrowed here, because a summary is a
+ * handler-shaped JSON blob rather than a schema in the OpenAPI document. The
+ * narrowing is the point: a caller must not be able to interpolate whatever the
+ * summary happened to hold into a URL.
+ */
+export function readMatchRunIdFromSummary(
+  summary: Record<string, unknown> | null,
+): string | null {
+  if (summary === null) {
+    return null;
+  }
+  const value = summary.match_run_id;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 export interface AgentStepEvent {
@@ -2719,6 +2997,39 @@ export async function submitSpeakerRequest(
   );
 }
 
+/**
+ * A unit's incoming Speaker Requests, soonest event first (customer §13).
+ *
+ * `truncated` is an **answer**, not a hint. The server reads one row past its
+ * cap and reports the overflow from the same query that produced the rows, so a
+ * full page never reads as a complete queue. A client that dropped the flag
+ * would show a Connector a partial queue as though it were the whole one.
+ */
+export interface SpeakerRequestList {
+  unit_id: string;
+  requests: SpeakerRequest[];
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-requests` — what hosts actually asked for.
+ *
+ * Only requests. The repository restricts the query to
+ * `origin = 'coordinator_entry'`, so an extracted event never appears here —
+ * a queue promising "what hosts asked for" must not answer with something a
+ * crawler produced. There is correspondingly nothing for a caller to merge in.
+ *
+ * `admin` and `coordinator` only, and authorization runs before any request row
+ * is read. Rejects with {@link ApiRequestError} on a 4xx.
+ */
+export async function fetchSpeakerRequests(unitId: string): Promise<SpeakerRequestList> {
+  return requestJson<SpeakerRequestList>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-requests`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
 //
@@ -2785,6 +3096,26 @@ export interface SpeakerContact {
   role_taxonomy_version: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Whether customer §19's review step has been satisfied on both axes, and
+   * therefore whether this contact may enter matching. False for an
+   * unclassified contact **and** for one carrying a classifier's proposal
+   * nobody has reviewed.
+   *
+   * Read it; never re-derive it. Inferring eligibility from a null
+   * `primary_industry_code` would be a second copy of §19's rule living in a
+   * bundle nobody versions, and it cannot tell an unreviewed proposal from an
+   * absent one — which are the two states this field exists to separate.
+   */
+  match_eligible: boolean;
+  /**
+   * Why this contact may not enter matching yet, or null when it may. A stable
+   * token rather than a sentence, so a screen can tell "the classifier proposed
+   * Finance and nobody has checked" from "we have no idea where this person
+   * works" — two states that call for different actions and would otherwise be
+   * one greyed-out row.
+   */
+  match_ineligibility_reason: string | null;
   /**
    * Fields this request supplied that were deliberately not stored. Empty on
    * reads. **Render it.** An unrendered discard is indistinguishable from a
