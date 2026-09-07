@@ -35,6 +35,7 @@ from smartmatch_persistence import attendance as attendance_module
 from smartmatch_persistence.attendance import (
     ATTENDANCE_METHODS,
     AttendanceRepository,
+    AttendanceWriteResult,
     ConflictingOwningUnitError,
 )
 from smartmatch_persistence.engine import create_session_factory
@@ -168,7 +169,7 @@ def test_record_attendance_writes_one_row_and_returns_its_id(
             subject_id=subject_id,
             event_id=event_id,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
     with engine.begin() as conn:
@@ -199,7 +200,7 @@ def test_record_attendance_is_idempotent_for_the_same_subject_and_event(
             subject_id=subject_id,
             event_id=event_id,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
     with db_session_factory() as session:
@@ -210,10 +211,75 @@ def test_record_attendance_is_idempotent_for_the_same_subject_and_event(
             subject_id=subject_id,
             event_id=event_id,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
     assert second_id == first_id
+
+    with engine.begin() as conn:
+        count = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM attendance_record "
+                "WHERE tenant_id = :tid AND subject_id = :sid AND event_id = :eid"
+            ),
+            {"tid": tenant_id, "sid": subject_id, "eid": event_id},
+        ).scalar_one()
+    assert count == 1
+
+
+def test_record_attendance_reports_whether_it_inserted(
+    tenant_id: uuid.UUID,
+    engine: Engine,
+    repo: AttendanceRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """``created`` separates "this call wrote the row" from "a row was there".
+
+    The id alone cannot answer that question — it is the same id either way —
+    and the route above this repository has to answer it, because a first
+    recording is a ``201`` and a replay is a ``200``. The flag is read from
+    ``RETURNING id`` on the ``ON CONFLICT DO NOTHING`` insert, so it is decided
+    by the one statement that did or did not insert, never by a ``SELECT``
+    beforehand that a concurrent writer could invalidate between the two
+    questions — the discipline
+    :meth:`~smartmatch_persistence.events.EventRepository.upsert_returning_outcome`
+    already applies for the same reason.
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+        subject_id = _make_user(conn, tenant_id)
+        event_id = ensure_event(conn, tenant_id)
+
+    with db_session_factory() as session:
+        first = repo.record_attendance(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            event_id=event_id,
+            method="coordinator_entry",
+        )
+        session.commit()
+
+    with db_session_factory() as session:
+        second = repo.record_attendance(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            event_id=event_id,
+            method="coordinator_entry",
+        )
+        session.commit()
+
+    assert isinstance(first, AttendanceWriteResult)
+    assert first.created is True, "the first call inserted the row and must say so"
+    assert second.created is False, (
+        "the second call inserted nothing — ON CONFLICT DO NOTHING absorbed it — "
+        "and reporting created=True would make a replay indistinguishable from a "
+        "first recording"
+    )
+    assert second.attendance_id == first.attendance_id
 
     with engine.begin() as conn:
         count = conn.execute(
@@ -248,7 +314,7 @@ def test_record_attendance_writes_a_second_row_for_a_different_event(
             subject_id=subject_id,
             event_id=first_event,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
         second_id = repo.record_attendance(
@@ -258,7 +324,7 @@ def test_record_attendance_writes_a_second_row_for_a_different_event(
             subject_id=subject_id,
             event_id=second_event,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
     assert second_id != first_id
@@ -316,7 +382,7 @@ def test_record_attendance_accepts_every_legal_method_but_the_synthetic_path_use
                 subject_id=subject_id,
                 event_id=events[method],
                 method=method,
-            )
+            ).attendance_id
             session.commit()
             assert record_id is not None
 
@@ -508,7 +574,7 @@ def test_advance_stage_to_attended_requires_and_accepts_this_writers_evidence(
             subject_id=cj.subject_id,
             event_id=cj.opportunity_event_id,
             method="coordinator_entry",
-        )
+        ).attendance_id
         session.commit()
 
         outcome = pipeline_repo.advance_stage(
