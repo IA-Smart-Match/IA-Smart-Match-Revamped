@@ -50,25 +50,20 @@ WEIGHTS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorMatc
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
 
 
+#: A float literal in the program text — the shape a weight takes.
+#:
+#: The lookbehind keeps Tailwind's own decimals out of it (``gap-1.5``,
+#: ``opacity-0.5`` are always preceded by a hyphen) and keeps dotted
+#: identifiers out too, so this fires on a number and not on a class name.
+_FLOAT_LITERAL = re.compile(r"(?<![\w.\-/])\d+\.\d+")
+
+
 def _code_only(source: str) -> str:
     """Strip block comments and line comments. Prose is not code."""
     without_blocks = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
     return "\n".join(
         line for line in without_blocks.splitlines() if not line.lstrip().startswith("//")
     )
-
-
-def _without_strings(source: str) -> str:
-    """Strip string and template literals from already-comment-free code.
-
-    Tailwind class names and copy carry digits that say nothing about a weight
-    (``sm:grid-cols-2``, ``rounded-xl``). What this file hunts for is a *number*
-    in the program, so the text is removed before the scan rather than being
-    special-cased afterwards.
-    """
-    without_double = re.sub(r'"(?:[^"\\]|\\.)*"', '""', source)
-    without_single = re.sub(r"'(?:[^'\\]|\\.)*'", "''", without_double)
-    return re.sub(r"`(?:[^`\\]|\\.)*`", "``", without_single)
 
 
 def _helper_body(source: str, name: str) -> str:
@@ -141,10 +136,10 @@ def test_the_response_type_mirrors_what_the_route_returns() -> None:
 
 def test_the_client_types_carry_no_weight_literal() -> None:
     """No ``= 0.25`` default hiding in a client type."""
-    source = _without_strings(_code_only(API_LIB.read_text(encoding="utf-8")))
+    source = _code_only(API_LIB.read_text(encoding="utf-8"))
     for name in ("MatchingWeights", "ScoringModeWeights", "MatchingWeightsUpdatePayload"):
         body = _interface_body(source, name)
-        assert re.search(r"\d*\.\d+", body) is None, (
+        assert _FLOAT_LITERAL.search(body) is None, (
             f"{name} carries a numeric literal; a weight belongs to the registry and to the "
             "unit's stored overrides, never to a client type"
         )
@@ -165,9 +160,11 @@ def test_the_panel_contains_no_weight_literal() -> None:
     A float in this file is either a placeholder default, a renormalization
     constant, or a percentage — and all three are forbidden. There is no fourth
     kind, so the whole class is refused rather than each instance argued about.
+    Copy is scanned along with code: "the industry weight is normally 0.30"
+    prints the default just as effectively as an input's ``placeholder`` does.
     """
-    code = _without_strings(_code_only(WEIGHTS_PAGE.read_text(encoding="utf-8")))
-    found = re.findall(r"\d*\.\d+", code)
+    code = _code_only(WEIGHTS_PAGE.read_text(encoding="utf-8"))
+    found = _FLOAT_LITERAL.findall(code)
     assert found == [], (
         f"the weights panel contains numeric literal(s) {found}; every weight it shows must "
         "come from the server's response, and a printed default is the duplication the "
