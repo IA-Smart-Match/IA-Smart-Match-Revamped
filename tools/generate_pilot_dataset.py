@@ -386,7 +386,7 @@ class RunReport:
     student_attendances: int = 0
     ledger_credits: int = 0
     students_left_uncredited: int = 0
-    speaker_contacts_created: int = 0
+    speaker_contacts_on_roster: int = 0
     speaker_contacts_reviewed: int = 0
     speaker_contacts_left_unreviewed: int = 0
     speaker_contacts_unclassifiable: int = 0
@@ -427,7 +427,7 @@ class RunReport:
             f"student attendance records  {self.student_attendances}",
             f"point ledger credits        {self.ledger_credits}",
             f"  attended but uncredited   {self.students_left_uncredited} (deliberate: unknown)",
-            f"speaker contacts created    {self.speaker_contacts_created}",
+            f"speaker contacts on roster {self.speaker_contacts_on_roster} (whole unit)",
             f"  classifications reviewed  {self.speaker_contacts_reviewed} (§19, now matchable)",
             f"  left unreviewed           {self.speaker_contacts_left_unreviewed} (deliberate)",
             f"  nothing to review         {self.speaker_contacts_unclassifiable} (unclassified)",
@@ -1739,7 +1739,7 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
     contacts = list_speaker_contacts(
         api_base=api_base, bearer_token=args.bearer_token, unit_id=unit_id
     )
-    report.speaker_contacts_created = len(contacts)
+    report.speaker_contacts_on_roster = len(contacts)
 
     # -- Phase A.5: customer §19's review step ------------------------------
     review_classifications(
