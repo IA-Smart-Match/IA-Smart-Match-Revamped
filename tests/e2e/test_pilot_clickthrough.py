@@ -260,61 +260,192 @@ def _pending_item_id(unit_id: str, name: str) -> str:
     )
 
 
-def _submit_match_run(
-    api: httpx.Client, unit_id: str, *, weak_topics: list[str]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+#: The released taxonomy versions the CBA factors score against, restated here
+#: for the reason ``SCORE_LABEL`` and ``MIN_SPEAKERS`` are: this module writes
+#: ``speaker_profile`` rows directly, and a classification stamped with a
+#: version the API no longer scores against is *excluded* rather than silently
+#: rescored. Drift therefore fails loudly here, naming the version, instead of
+#: quietly changing what these steps prove.
+INDUSTRY_TAXONOMY_VERSION = "cba-naics-2026-09-04"
+ROLE_TAXONOMY_VERSION = "cba-roles-2026-09-04"
+
+#: The Speaker Request's targets. One sector and one role, so each factor is the
+#: two-valued comparison customer sections 7-8 describe and a candidate's score
+#: is readable by eye.
+REQUESTED_SECTOR = "52"
+REQUESTED_ROLE = "finance"
+
+#: Populated by :func:`_seed_match_fixtures` on first use: the Speaker Request's
+#: event id, and each seeded speaker's ``professional_id`` by nickname. Module
+#: state rather than a new ``ClickThrough`` field, so this module's rework does
+#: not reach into ``tests/e2e/conftest.py``, which every other step shares.
+_MATCH_FIXTURE: dict[str, Any] = {}
+
+
+def _seed_speaker(
+    unit_id: str,
+    *,
+    nickname: str,
+    industry_code: str,
+    role_code: str,
+    source: str,
+    topic_text: str | None,
+) -> str:
+    """Create one professional and their ``speaker_profile``, returning its id.
+
+    Written through the database for the same reason ``_seed_contact_channel``
+    is: **this appliance's seed creates no speaker profiles**, and the customer
+    section 13 contact surface is another card's route whose failure would
+    surface here as a match-run failure. Nothing is faked — the row goes in
+    through the shipped schema, so ``ck_speaker_profile_industry_provenance``
+    and the two closed code vocabularies are enforced on it exactly as they
+    would be on a row the application wrote.
+
+    The id is whatever the database generated, and it is never derived from
+    ``nickname``: OQ-CBA-017 is re-keying ``professional_id`` to an opaque
+    generated id, and a test that computed one from a name would be asserting
+    the property that decision removes.
+
+    ``industry_classified_by_user_id`` is left NULL even on a ``human`` row —
+    migration 0028's third arm permits exactly that, and this appliance has no
+    Speaker Connector account this step is entitled to name as the reviewer.
+    """
+    topic_sql = "null" if topic_text is None else f"'{topic_text}'"
+    return psql_scalar(
+        f"""
+        with acct as (
+            insert into user_account (id, tenant_id, external_subject, email)
+            select gen_random_uuid(), tenant_id,
+                   'e2e-speaker-{RUN_TAG}-{nickname}',
+                   'e2e-speaker-{RUN_TAG}-{nickname}@example.invalid'
+              from org_unit where id = '{unit_id}'
+            returning id, tenant_id
+        ), profile as (
+            insert into speaker_profile (
+                tenant_id, professional_id, owning_unit_id, full_name,
+                primary_industry_code, industry_taxonomy_version,
+                primary_role_code, role_taxonomy_version, topic_text,
+                industry_classification_source, industry_classified_at,
+                role_classification_source, role_classified_at
+            )
+            select tenant_id, id, '{unit_id}', 'E2E Speaker {nickname} {RUN_TAG}',
+                   '{industry_code}', '{INDUSTRY_TAXONOMY_VERSION}',
+                   '{role_code}', '{ROLE_TAXONOMY_VERSION}', {topic_sql},
+                   '{source}', now(), '{source}', now()
+              from acct
+            returning professional_id
+        )
+        select professional_id from profile
+        """
+    )
+
+
+def _seed_match_fixtures(unit_id: str) -> dict[str, Any]:
+    """File one virtual Speaker Request and five speakers, once per session.
+
+    Virtual on purpose, and not a limitation of the test: customer section 11
+    removes Proximity from the virtual model, so ``cba-virtual-1`` scores end to
+    end with no coordinate table. A physical request is refused by the API until
+    OQ-CBA-024's ZIP-centroid table exists — step 09b asserts that refusal
+    rather than working around it.
+
+    Each speaker exists to make one distinction visible through the appliance:
+
+    * ``strong``   — sector and role both match, no topic text. Customer section
+      9's observed absence, so its topic factor is a stated policy value rather
+      than an unknown, and the candidate is shortlistable.
+    * ``mid``      — sector matches, role does not.
+    * ``weak``     — neither matches. The knob step 10 turns.
+    * ``unknown``  — both match, but topic text is on file and the fixture topic
+      provider holds no recorded comparison for it, so the comparison is an
+      unknown rather than a guess (OQ-CBA-026). Unscorable.
+    * ``proposal`` — both codes present but ``inferred``. Customer section 19
+      orders review before availability, so this contact is absent from the pool
+      entirely rather than ranked last in it.
+    """
+    if _MATCH_FIXTURE:
+        return _MATCH_FIXTURE
+
+    title = f"E2E virtual finance panel {RUN_TAG}"
+    event_id = psql_scalar(
+        f"""
+        with created as (
+            insert into event (
+                id, tenant_id, host_org_unit_id, title, normalized_title, description,
+                time_precision, on_date, time_zone, resolved_date, origin, is_virtual
+            )
+            select gen_random_uuid(), tenant_id, '{unit_id}', '{title}', lower('{title}'),
+                   'A panel on how finance teams evaluate analytics investments.',
+                   'date_only', date '2027-03-04', 'America/Los_Angeles',
+                   date '2027-03-04', 'coordinator_entry', true
+              from org_unit where id = '{unit_id}'
+            returning id
+        )
+        select id from created
+        """
+    )
+    for kind, code, version in (
+        ("industry", REQUESTED_SECTOR, INDUSTRY_TAXONOMY_VERSION),
+        ("role", REQUESTED_ROLE, ROLE_TAXONOMY_VERSION),
+    ):
+        psql_scalar(
+            f"""
+            insert into speaker_request_classification
+                (id, tenant_id, event_id, kind, code, taxonomy_version)
+            select gen_random_uuid(), tenant_id, '{event_id}', '{kind}', '{code}', '{version}'
+              from org_unit where id = '{unit_id}'
+            """
+        )
+
+    speakers = {
+        nickname: _seed_speaker(
+            unit_id,
+            nickname=nickname,
+            industry_code=industry,
+            role_code=role,
+            source=source,
+            topic_text=topic,
+        )
+        for nickname, industry, role, source, topic in (
+            ("strong", REQUESTED_SECTOR, REQUESTED_ROLE, "human", None),
+            ("mid", REQUESTED_SECTOR, "marketing", "human", None),
+            ("weak", "11", "marketing", "human", None),
+            (
+                "unknown",
+                REQUESTED_SECTOR,
+                REQUESTED_ROLE,
+                "human",
+                "Twelve years of treasury analytics and forecasting.",
+            ),
+            ("proposal", REQUESTED_SECTOR, REQUESTED_ROLE, "inferred", None),
+        )
+    }
+
+    _MATCH_FIXTURE.update({"event_id": event_id, "speakers": speakers})
+    return _MATCH_FIXTURE
+
+
+def _submit_match_run(api: httpx.Client, unit_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Submit one match run and return (acknowledgement, the persisted run).
 
-    The pool is four synthetic candidates whose evidence differs deliberately:
-
-    * ``strong``  — every required and preferred topic, next to the venue.
-    * ``mid``     — the required topic only, an hour out.
-    * ``weak``    — *weak_topics* (``[]`` in the first run: a record that exists
-      and is empty, so a measured zero), far away.
-    * ``unknown`` — ``expertise_topics: null``: no expertise record at all, so
-      unscorable. Not the same thing as ``[]``, and the API must not treat it
-      as though it were.
-
-    ``weak_topics`` is the one knob
-    :func:`test_10_a_changed_evidence_changes_the_score` turns, so that two
-    otherwise identical runs differ in exactly one candidate's evidence.
+    The body carries **no evidence** — a Speaker Request id, a shortlist size, a
+    seed and five subject ids. Everything scored is read server-side off the
+    rows seeded above, which is OQ-CBA-031's whole point: a client naming a
+    speaker cannot also state what that speaker is like.
     """
+    fixture = _seed_match_fixtures(unit_id)
     body = {
-        "event_need_id": f"e2e-need-{RUN_TAG}",
-        "required_topics": ["robotics"],
-        "preferred_topics": ["mentoring"],
-        "event_location": {"latitude": 45.52, "longitude": -122.68},
+        "speaker_request_id": fixture["event_id"],
         "portfolio_size": MIN_SPEAKERS,
         "random_seed": 7,
-        "candidates": [
-            {
-                "subject_id": "strong",
-                "expertise_topics": ["robotics", "mentoring"],
-                "location": {"latitude": 45.53, "longitude": -122.66},
-            },
-            {
-                "subject_id": "mid",
-                "expertise_topics": ["robotics"],
-                "location": {"latitude": 45.90, "longitude": -123.40},
-            },
-            {
-                "subject_id": "weak",
-                "expertise_topics": weak_topics,
-                "location": {"latitude": 47.60, "longitude": -122.30},
-            },
-            {
-                "subject_id": "unknown",
-                "expertise_topics": None,
-                "location": {"latitude": 45.50, "longitude": -122.60},
-            },
-        ],
+        "candidate_subject_ids": list(fixture["speakers"].values()),
     }
     response = api.post(
         f"/v1/units/{unit_id}/match-runs",
         json=body,
         headers={"Idempotency-Key": f"e2e-match-{RUN_TAG}-{uuid.uuid4().hex}"},
     )
-    if response.status_code == 503:
+    if response.status_code == 503 and "registry_not_ready" in response.text:
         pytest.skip(
             "match scoring is unavailable: the API answered 503 registry_not_ready, "
             "so the factor registry is not approved or not fully implemented on this "
@@ -330,6 +461,18 @@ def _submit_match_run(
     match_run_id = summary["match_run_id"]
     run = json_body(api.get(f"/v1/units/{unit_id}/match-runs/{match_run_id}"))
     return accepted, run
+
+
+def _by_nickname(unit_id: str, run: dict[str, Any]) -> dict[str, float | None]:
+    """Every seeded speaker's score, keyed by the nickname this file uses.
+
+    The wire carries opaque ``professional_id`` values, which is correct and
+    unreadable; this translates them back so an assertion can say "strong
+    outscored weak" rather than comparing two UUIDs.
+    """
+    scores = _scores(run)
+    speakers = _seed_match_fixtures(unit_id)["speakers"]
+    return {nickname: scores.get(pid) for nickname, pid in speakers.items()}
 
 
 def _scores(run: dict[str, Any]) -> dict[str, float | None]:
@@ -681,27 +824,50 @@ def test_08c_a_metric_drill_down_shows_the_rows_behind_the_number(
 def test_09_match_run_scores_are_computed(api: httpx.Client, flow: ClickThrough) -> None:
     """A submitted pool is scored, shortlisted, and explained factor by factor.
 
-    Four things a mock would not do, asserted together:
+    Six things a mock would not do, asserted together:
 
     * the scores are not all the same value;
-    * they order by evidence — the candidate matching every topic next to the
-      venue outscores the one matching none from two hundred kilometres away;
+    * they order by evidence — the speaker whose stored sector and role both
+      match the request outscores the one whose record matches neither;
+    * the run is produced under the CBA registry in the virtual model, which is
+      the surface OQ-CBA-031 built and the thing no client could reach before;
+    * a contact whose classifications are still a machine's proposal is absent
+      from the pool with a reason, not ranked last in it;
     * every score carries the registry version it was produced under; and
     * every factor names its own basis, so the number can be argued with.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
 
-    accepted, run = _submit_match_run(api, flow.unit_id, weak_topics=[])
+    accepted, run = _submit_match_run(api, flow.unit_id)
     flow.match_run_id = run["id"]
 
     assert accepted["registry_version"], "the acknowledgement named no registry version"
+    assert accepted["scoring_mode"] == "cba-virtual-1", (
+        "the run was not scored under the virtual CBA model; the appliance "
+        f"reported scoring_mode={accepted.get('scoring_mode')!r}"
+    )
+    assert accepted["scoring_mode_version"], (
+        "a run naming a scoring mode must name the vocabulary version too; the "
+        "two are set together or not at all"
+    )
     assert accepted["scored_candidates"] == 3, (
         f"expected 3 scorable candidates, got {accepted['scored_candidates']}"
     )
     assert accepted["unscorable_candidates"] == 1, (
-        "the candidate with no expertise record should be reported unscorable, not "
-        f"scored: {accepted}"
+        "the speaker whose topic evidence could not be compared should be "
+        f"reported unscorable, not scored: {accepted}"
+    )
+
+    proposal_id = _seed_match_fixtures(flow.unit_id)["speakers"]["proposal"]
+    excluded = {entry["subject_id"]: entry["reason"] for entry in accepted["excluded_candidates"]}
+    assert excluded.get(proposal_id) == "industry_classification_awaiting_review", (
+        "a contact whose classifications are still a proposal must be absent "
+        f"from the pool with its reason; the API reported {excluded!r}"
+    )
+    assert proposal_id not in _scores(run), (
+        "an unreviewed contact was scored rather than held out of the pool; "
+        "review comes before availability (customer section 19)"
     )
 
     assert run["portfolio_status"] in {"optimal", "feasible"}, (
@@ -715,16 +881,16 @@ def test_09_match_run_scores_are_computed(api: httpx.Client, flow: ClickThrough)
         f"the shortlist could not be reconstructed: {run['shortlist_unavailable_reason']}"
     )
 
-    scores = _scores(run)
+    scores = _by_nickname(flow.unit_id, run)
     measured = {name: value for name, value in scores.items() if value is not None}
     assert len(set(measured.values())) > 1, (
         f"every scored candidate got the identical score {measured}; that is a "
         "constant, not a computation"
     )
     assert measured["strong"] > measured["mid"] > measured["weak"], (
-        "the ranking does not follow the evidence — every-topic-and-nearby "
-        f"{measured['strong']}, one-topic-and-distant {measured['mid']}, "
-        f"no-topic-and-far {measured['weak']}"
+        "the ranking does not follow the stored evidence — sector-and-role "
+        f"{measured['strong']}, sector-only {measured['mid']}, neither "
+        f"{measured['weak']}"
     )
 
     for group in ("shortlist", "considered", "unscorable"):
@@ -744,33 +910,110 @@ def test_09_match_run_scores_are_computed(api: httpx.Client, flow: ClickThrough)
     print(f"  scores: {scores}")
 
 
+def test_09b_a_physical_speaker_request_is_refused_rather_than_degraded(
+    api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The other half of virtual-first: the path that cannot be scored is refused.
+
+    Customer section 10 measures Proximity in miles from the CPP campus, and
+    resolving a city or ZIP to a coordinate needs OQ-CBA-024's static offline
+    centroid table, which is not built. The API could have shipped a physical
+    run anyway — every candidate's distance unknown, therefore every composite
+    unknown, therefore every speaker sorted last — and it would have looked
+    broken while being worse than broken: a confident shortlist about people
+    nobody measured. It refuses instead, and the refusal names the capability
+    rather than blaming the request.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+
+    title = f"E2E on-campus finance panel {RUN_TAG}"
+    physical_request_id = psql_scalar(
+        f"""
+        with created as (
+            insert into event (
+                id, tenant_id, host_org_unit_id, title, normalized_title, description,
+                time_precision, on_date, time_zone, resolved_date, origin,
+                is_virtual, location_city
+            )
+            select gen_random_uuid(), tenant_id, '{flow.unit_id}', '{title}', lower('{title}'),
+                   'A panel on how finance teams evaluate analytics investments.',
+                   'date_only', date '2027-03-05', 'America/Los_Angeles',
+                   date '2027-03-05', 'coordinator_entry', false, 'Pomona'
+              from org_unit where id = '{flow.unit_id}'
+            returning id
+        )
+        select id from created
+        """
+    )
+    fixture = _seed_match_fixtures(flow.unit_id)
+
+    response = api.post(
+        f"/v1/units/{flow.unit_id}/match-runs",
+        json={
+            "speaker_request_id": physical_request_id,
+            "portfolio_size": MIN_SPEAKERS,
+            "random_seed": 7,
+            "candidate_subject_ids": list(fixture["speakers"].values()),
+        },
+        headers={"Idempotency-Key": f"e2e-physical-{RUN_TAG}-{uuid.uuid4().hex}"},
+    )
+
+    assert response.status_code == 503, (
+        "a physical Speaker Request was not refused; the appliance answered "
+        f"{response.status_code}: {response.text[:400]}"
+    )
+    error = json_body(response)["error"]
+    assert error["code"] == "match_run_physical_scoring_unavailable", (
+        f"the refusal is coded {error['code']!r}, which does not name the "
+        "missing capability a reader has to act on"
+    )
+    assert error["details"]["owner_question"] == "OQ-CBA-024"
+    assert error["details"]["missing_capability"] == "zip_centroid_table"
+
+
 def test_10_a_changed_evidence_changes_the_score(api: httpx.Client, flow: ClickThrough) -> None:
     """The strongest anti-mock check: turn one knob, watch that one score move.
 
-    The second run is identical to the first except that ``weak`` is given the
-    required topic. Its score must rise, and — because nothing else about the
-    pool changed — ``strong``'s must not. A fixture, a canned response, or a
-    score derived from anything but the submitted evidence fails one half or
-    the other.
+    The knob is now the **stored record**, not a request field, which is what
+    OQ-CBA-031 changed: ``weak``'s ``primary_industry_code`` is corrected to the
+    sector the request targets, exactly as a Speaker Connector correcting a
+    classification would. The second run submits the identical body.
+
+    ``weak``'s score must rise, and — because nothing else about the roster
+    changed — ``strong``'s must not. A fixture, a canned response, or a score
+    derived from anything but the stored evidence fails one half or the other.
+    Stronger than the old version of this check, because a caller can no longer
+    state the evidence at all: the only way to move a score is to move a row.
     """
     if flow.match_run_id is None:
         pytest.skip("step 09 did not produce a match run to compare against")
     assert flow.unit_id is not None
 
     first = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
-    _, second = _submit_match_run(api, flow.unit_id, weak_topics=["robotics"])
 
-    before, after = _scores(first), _scores(second)
+    weak_id = _seed_match_fixtures(flow.unit_id)["speakers"]["weak"]
+    psql_scalar(
+        f"""
+        update speaker_profile
+           set primary_industry_code = '{REQUESTED_SECTOR}'
+         where professional_id = '{weak_id}'
+        """
+    )
+    _, second = _submit_match_run(api, flow.unit_id)
+
+    before = _by_nickname(flow.unit_id, first)
+    after = _by_nickname(flow.unit_id, second)
     assert after["weak"] is not None and before["weak"] is not None
     assert after["weak"] > before["weak"], (
-        "giving a candidate the required topic did not change its score "
-        f"({before['weak']} -> {after['weak']}); the score is not a function of "
-        "the submitted evidence"
+        "correcting a speaker's stored sector to the one the request targets did "
+        f"not change their score ({before['weak']} -> {after['weak']}); the score "
+        "is not a function of the stored evidence"
     )
     assert after["strong"] == before["strong"], (
-        "a candidate whose evidence did not change scored differently "
+        "a speaker whose record did not change scored differently "
         f"({before['strong']} -> {after['strong']}); the score depends on "
-        "something other than that candidate's own evidence"
+        "something other than that speaker's own evidence"
     )
     assert second["id"] != first["id"], "the second run reused the first run's id"
 
@@ -813,36 +1056,43 @@ def test_12_an_unknown_factor_is_null_and_a_real_zero_is_zero(
 ) -> None:
     """ADR-0011, both halves, in one response.
 
-    ``unknown`` submitted ``expertise_topics: null`` — no expertise record
-    exists — and must come back unscorable with a null score and a factor whose
-    state is ``unknown``. ``weak`` submitted ``[]`` — the record exists and is
-    empty — and must come back with a real, classified ``measured_zero``.
+    ``unknown`` has topic text on file that the fixture provider holds no
+    recorded comparison for, so the comparison could not be made: it must come
+    back unscorable with a null score and a factor whose state is ``unknown``.
+    ``weak``'s sector genuinely is not one the request named: it must come back
+    with a real, classified ``measured_zero``.
 
     A system that renders the first as 0 passes neither assertion, and a system
     that renders the second as unknown fails just as loudly. The whole point is
     that the two are different facts.
+
+    Read against the run step 09 produced, before step 10's correction. That is
+    deliberate rather than incidental: the snapshot is immutable and its stored
+    explanations are what was actually scored, so correcting a record afterwards
+    must not change what an earlier run says about it.
     """
     if flow.match_run_id is None:
         pytest.skip("step 09 did not produce a match run to inspect")
     assert flow.unit_id is not None
 
     run = json_body(api.get(f"/v1/units/{flow.unit_id}/match-runs/{flow.match_run_id}"))
+    speakers = _seed_match_fixtures(flow.unit_id)["speakers"]
 
     unscorable = {candidate["subject_id"]: candidate for candidate in run["unscorable"]}
-    assert "unknown" in unscorable, (
-        "the candidate with no expertise record was scored rather than reported "
-        f"unscorable; unscorable holds {sorted(unscorable)}"
+    assert speakers["unknown"] in unscorable, (
+        "the speaker whose topic evidence could not be compared was scored "
+        f"rather than reported unscorable; unscorable holds {sorted(unscorable)}"
     )
-    absent = unscorable["unknown"]
+    absent = unscorable[speakers["unknown"]]
     assert absent["heuristic_score"] is None, (
-        f"a candidate with no evidence scored {absent['heuristic_score']!r}; an "
-        "absence of evidence is never a zero"
+        f"a candidate with an unevaluable factor scored {absent['heuristic_score']!r}; "
+        "an absence of evidence is never a zero"
     )
     assert absent["state"] == "unknown"
-    assert "topic_relevance" in absent["unknown_factor_keys"]
+    assert "cba_semantic_topic" in absent["unknown_factor_keys"]
 
     absent_factor = next(
-        factor for factor in absent["factors"] if factor["factor_key"] == "topic_relevance"
+        factor for factor in absent["factors"] if factor["factor_key"] == "cba_semantic_topic"
     )
     assert absent_factor["state"] == "unknown"
     assert absent_factor["value"] is None, (
@@ -855,17 +1105,32 @@ def test_12_an_unknown_factor_is_null_and_a_real_zero_is_zero(
         for group in ("shortlist", "considered")
         for candidate in run[group]
     }
-    assert "weak" in scored, "the candidate with an empty-but-present record was not scored"
+    assert speakers["weak"] in scored, (
+        "the speaker whose stored sector simply does not match was not scored; a "
+        "mismatch is a measurement, not an absence"
+    )
     measured_zero = next(
-        factor for factor in scored["weak"]["factors"] if factor["factor_key"] == "topic_relevance"
+        factor
+        for factor in scored[speakers["weak"]]["factors"]
+        if factor["factor_key"] == "industry_match"
     )
     assert measured_zero["state"] == "measured"
     assert measured_zero["value"] == 0.0
     assert measured_zero["zero_classification"] == "measured_zero", (
-        "an empty-but-present expertise record must be a measured zero, not "
-        f"{measured_zero['zero_classification']!r} — otherwise it is "
+        "a sector that is classified and simply does not match must be a measured "
+        f"zero, not {measured_zero['zero_classification']!r} — otherwise it is "
         "indistinguishable from the unknown above"
     )
+
+    # Proximity is not in the factor list at all: customer section 11 removes it
+    # from the virtual model, so there is no number to report and no absence to
+    # explain. Absent is a third thing, and this is where it has to be visible.
+    for candidate in run["shortlist"] + run["considered"] + run["unscorable"]:
+        keys = {factor["factor_key"] for factor in candidate["factors"]}
+        assert "cba_proximity" not in keys, (
+            f"{candidate['subject_id']} carries a proximity factor under the "
+            "virtual model, which scores three factors and not four"
+        )
 
 
 # ---------------------------------------------------------------------------
