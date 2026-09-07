@@ -560,6 +560,83 @@ def test_03_the_caller_cannot_choose_its_own_role(api: httpx.Client, flow: Click
     assert json_body(response)["error"]["code"] == "forbidden"
 
 
+#: The four pre-loaded principals, keyed by the fixture that carries each one's
+#: bearer, and what ``GET /v1/me/portals`` must say about it. Written out here
+#: rather than derived from the response, because a table built from the answer
+#: would agree with any answer: what is being asserted is that the appliance
+#: seeds *these four* and that each opens *exactly one* portal.
+#:
+#: The stored role and the portal id are the server's own strings
+#: (``routers/portals.py::_PORTAL_FOR_ROLE``). The display names are deliberately
+#: not restated — ``smartmatch_domain.role_presentation`` owns that map, and a
+#: second copy here would be a second place for a label to drift.
+_PORTAL_PRINCIPALS: dict[str, tuple[str, str, str]] = {
+    # fixture name -> (stored role, portal id, frontend home path)
+    "api": ("coordinator", "coordinator", "/coordinator-portal"),
+    "student_api": ("student", "student", "/student-portal"),
+    "host_api": ("volunteer", "volunteer", "/volunteer-portal"),
+    "admin_api": ("admin", "admin", "/dashboard"),
+}
+
+
+@pytest.mark.parametrize("fixture_name", sorted(_PORTAL_PRINCIPALS))
+def test_03b_every_portal_type_has_a_principal_that_opens_it_and_no_other(
+    fixture_name: str, request: pytest.FixtureRequest
+) -> None:
+    """A stakeholder can enter every portal, and each principal enters one.
+
+    This is the step the pre-loaded principal set exists for. Before it the
+    appliance mapped one bearer to one coordinator, so three of the four portals
+    could not be opened at all and several steps below skipped saying so.
+
+    Both halves are asserted on purpose. That each portal *has* a principal is
+    the deliverable; that each principal has *only its own* portal is what keeps
+    the deliverable from having been bought by widening something. Four
+    single-membership accounts are four identities, not one identity with four
+    roles, and ``GET /v1/me/portals`` reports what the server read from
+    ``membership`` rows rather than anything a client sent.
+
+    ``home_path`` is asserted because it is the server's answer to "where does
+    this shell live": the frontend navigates to a portal it was granted rather
+    than deriving a path from a role it read for itself.
+    """
+    expected_role, expected_portal, expected_home = _PORTAL_PRINCIPALS[fixture_name]
+    client: httpx.Client = request.getfixturevalue(fixture_name)
+
+    body = json_body(client.get("/v1/me/portals"))
+    portals = body["portals"]
+
+    assert len(portals) == 1, (
+        f"the {expected_role!r} principal was handed {len(portals)} portals "
+        f"({[entry['portal'] for entry in portals]}). Each pilot principal holds "
+        "one membership carrying one role; more than one portal here would mean "
+        "a role set or a membership had been widened to make a click work"
+    )
+    descriptor = portals[0]
+    assert descriptor["role"] == expected_role, (
+        f"the portal was opened by the stored role {descriptor['role']!r}, not "
+        f"{expected_role!r}; the seeded membership is not the one this token is "
+        "documented to resolve to"
+    )
+    assert descriptor["portal"] == expected_portal
+    assert descriptor["home_path"] == expected_home
+    assert body["default_portal"] == expected_portal, (
+        f"default_portal is {body['default_portal']!r}; it must name a portal "
+        "already in the list, never a suggestion of one that is not"
+    )
+    assert descriptor["org_unit_path"] == UNIT_PATH
+    assert descriptor["units"], (
+        "the granting membership resolved to no org unit rows, so the portal "
+        "carries no unit_id that any unit-scoped route could be called with"
+    )
+    assert descriptor["default_unit_id"] == descriptor["units"][0]["unit_id"]
+
+    print(
+        f"  {expected_role}: {descriptor['display_name']!r} at "
+        f"{descriptor['home_path']} over '{descriptor['org_unit_path']}'"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Step 4 — the columns.yaml import contract
 # ---------------------------------------------------------------------------
@@ -1203,57 +1280,142 @@ def test_13_events_and_the_tag_quarantine_are_readable(
 # ---------------------------------------------------------------------------
 
 
-def test_14_the_rewards_catalog_is_refused_to_a_coordinator(
-    api: httpx.Client, flow: ClickThrough
+def test_14_the_rewards_catalog_is_a_students_to_read_and_nobody_elses(
+    api: httpx.Client, student_api: httpx.Client, flow: ClickThrough
 ) -> None:
-    """The refusal is asserted; the catalog walk is skipped by name.
+    """The student walks the catalog; the coordinator is still refused it.
 
-    Rewards operations are gated on the ``student`` role alone. The only
-    principal this appliance can authenticate is a coordinator, so the catalog,
-    the balance, and the redemption request cannot be exercised at all. The
-    refusal itself is verified — a widening would be caught here — and then the
-    step skips naming the decision it is waiting on. Nothing about
-    authorization is changed to make this pass.
+    Rewards operations are gated on the ``student`` role alone. This appliance
+    now pre-loads a student principal, so the walk that used to skip runs — and
+    it runs *without* the gate having moved, which is the half worth asserting.
+    The coordinator's ``403`` is checked first for exactly that reason: a step
+    that only proved the student could read would pass equally well if the route
+    had been opened to everyone.
+
+    What the catalog reports is asserted as a *shape*, not as a number. On a
+    freshly seeded appliance nothing has funded a reward and nothing has earned
+    a point, so an honest answer is an empty list beside a balance that says
+    which kind of nothing it is. ``state`` is carried next to ``points`` for
+    ADR-0011's reason — a consumer that had to reconstruct "unknown" from an
+    absent number is one ``?? 0`` away from rendering a fabricated zero — and
+    this step pins that both are present and agree.
+
+    ``earn_policy_ratified`` is read back rather than expected to be true: D6
+    has not ratified an earn policy, and a run that asserted it had would be
+    this test claiming a decision the project has not made.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
 
-    catalog = api.get(f"/v1/units/{flow.unit_id}/rewards")
-    assert catalog.status_code == 403, (
-        f"the rewards catalog answered {catalog.status_code} to a '{flow.role}' "
-        f"principal, not the expected 403: {catalog.text[:300]}"
+    catalog_refused = api.get(f"/v1/units/{flow.unit_id}/rewards")
+    assert catalog_refused.status_code == 403, (
+        f"the rewards catalog answered {catalog_refused.status_code} to a "
+        f"'{flow.role}' principal, not the expected 403. Rewards is gated on "
+        f"'student' alone and a wider answer here is a widening: "
+        f"{catalog_refused.text[:300]}"
     )
-    redemptions = api.get(f"/v1/units/{flow.unit_id}/redemptions")
-    assert redemptions.status_code == 403, (
-        f"the redemption self-read answered {redemptions.status_code} to a "
-        f"'{flow.role}' principal, not the expected 403: {redemptions.text[:300]}"
+    redemptions_refused = api.get(f"/v1/units/{flow.unit_id}/redemptions")
+    assert redemptions_refused.status_code == 403, (
+        f"the redemption self-read answered {redemptions_refused.status_code} to "
+        f"a '{flow.role}' principal, not the expected 403: "
+        f"{redemptions_refused.text[:300]}"
     )
 
-    pytest.skip(
-        "coordinator cannot read the rewards catalog or request a redemption "
-        "pending the D6 role decision (rewards is gated on the 'student' role "
-        "alone, PR #32); the refusal above is asserted, the catalog walk is not run"
+    catalog = student_api.get(f"/v1/units/{flow.unit_id}/rewards")
+    assert catalog.status_code == 200, (
+        f"the rewards catalog answered {catalog.status_code} to the pre-loaded "
+        f"student principal: {catalog.text[:400]}"
+    )
+    body = json_body(catalog)
+    assert body["unit_id"] == flow.unit_id
+
+    balance = body["balance"]
+    assert balance["state"] in {"measured", "unknown"}, (
+        f"the balance reports state={balance['state']!r}; ADR-0011 allows two "
+        "values and no third — there is no 'stale', 'partial' or 'estimated'"
+    )
+    if balance["state"] == "measured":
+        assert isinstance(balance["points"], int) and balance["points"] >= 0
+        assert balance["unknown_reason"] is None
+    else:
+        assert balance["points"] is None, (
+            f"an unknown balance published points={balance['points']!r}; an "
+            "unknown must be null and never 0"
+        )
+        assert balance["unknown_reason"], (
+            "the balance is unknown and says nothing about why; a consumer "
+            "cannot tell 'we are not telling you' from 'the answer is nothing'"
+        )
+
+    assert isinstance(body["items"], list)
+    assert isinstance(body["earn_policy_ratified"], bool)
+    for item in body["items"]:
+        assert item["points_cost"] > 0
+
+    own = student_api.get(f"/v1/units/{flow.unit_id}/redemptions")
+    assert own.status_code == 200, (
+        f"the student's own redemption listing answered {own.status_code}: {own.text[:300]}"
+    )
+    assert json_body(own)["redemptions"] == [], (
+        "a freshly seeded appliance handed the student redemptions nobody "
+        "requested; this listing is the caller's own tickets and there are none"
+    )
+
+    print(
+        f"  the student reads {len(body['items'])} funded reward(s) against a "
+        f"{balance['state']} balance; the '{flow.role}' principal reads neither"
     )
 
 
 def test_15_a_redemption_decision_has_nothing_to_decide(
-    api: httpx.Client, flow: ClickThrough
+    api: httpx.Client, student_api: httpx.Client, flow: ClickThrough
 ) -> None:
-    """The coordinator half of rewards, unreachable for want of the student half.
+    """The gate moved; the catalog did not fill. Asserted, then skipped by name.
 
-    ``POST /v1/units/{id}/redemptions/{id}/decision`` *is* gated on
-    ``coordinator``, so this principal could act on a redemption — but only a
-    student can create one, and no student principal exists on this appliance.
-    The step is therefore blocked by the same D6 decision from the other side.
+    ``POST /v1/units/{id}/redemptions/{id}/decision`` is gated on
+    ``coordinator``, and a student principal now exists to create the redemption
+    it would act on — so the role gate that blocked this step is gone. What
+    blocks it now is data, not authorization: **no funded reward item exists on
+    this appliance**, because nothing seeds one and no ``/v1`` route creates
+    one. A student with a balance and no catalog has nothing to ask for.
+
+    That is asserted rather than assumed. The request is issued against an item
+    id that does not exist and the answer is required to be a ``404`` — which
+    proves the route is reachable by this principal (it is not a ``403``) and
+    that the appliance holds no such item. Inserting a reward row and a ledger
+    entry to force a ticket into existence would manufacture the evidence the
+    decision route exists to check, so the step stops here and says which half
+    is missing.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
 
+    catalog = json_body(student_api.get(f"/v1/units/{flow.unit_id}/rewards"))
+    assert catalog["items"] == [], (
+        "a funded reward item now exists on this appliance, so this step can "
+        f"stop skipping and walk the request/decide path: {catalog['items']}"
+    )
+
+    invented = student_api.post(
+        f"/v1/units/{flow.unit_id}/redemptions",
+        json={"item_id": str(uuid.uuid4())},
+    )
+    assert invented.status_code == 404, (
+        f"a redemption request for an item id nobody issued answered "
+        f"{invented.status_code}. 403 would mean the student gate had closed "
+        f"again; 201 would mean an item had been conjured: {invented.text[:300]}"
+    )
+    assert json_body(invented)["error"]["code"] == "reward_item_not_found"
+
     pytest.skip(
-        "no redemption exists to decide on: creating one requires the 'student' "
-        "role, which no compose principal holds, pending the D6 role decision. "
-        "The coordinator-gated decision route is left unexercised rather than "
-        "fed a fabricated redemption id"
+        "no redemption exists to decide on, and the reason is no longer the "
+        "role: a student principal is pre-loaded and reaches the request route "
+        "(the 404 above proves it, where a 403 would have meant the gate). What "
+        "is missing is a funded reward item — nothing seeds a rewards catalog "
+        "and no /v1 route creates one, so there is nothing to request and "
+        "therefore nothing for the coordinator-gated decision route to act on. "
+        "Seeding a reward and a points ledger directly would manufacture the "
+        "ticket this step exists to watch move"
     )
 
 
@@ -1686,8 +1848,7 @@ def _register_invitable_channel(
     channel_id = json_body(created)["channel"]["contact_channel_id"]
 
     activated = api.post(
-        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}"
-        f"/channels/{channel_id}/transitions",
+        f"/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels/{channel_id}/transitions",
         json={
             "to_state": "active_candidate",
             "reason": "e2e click-through: the Connector opened outreach on this contact",
@@ -1804,8 +1965,7 @@ def test_22_the_shortlist_is_composed_into_an_invitation_batch(
             f"for this speaker ({addresses[professional_id]!r})"
         )
         assert outcome["delivery"] is None, (
-            "an invitation nobody has dispatched carries a delivery record: "
-            f"{outcome['delivery']}"
+            f"an invitation nobody has dispatched carries a delivery record: {outcome['delivery']}"
         )
         assert outcome["speaker_response"]["response"] == "awaiting_response", (
             "a freshly composed invitation already records an answer: "
@@ -1913,9 +2073,7 @@ def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
     addresses: dict[str, str] = _INVITATION_STATE["addresses"]
     nicknames: dict[str, str] = _INVITATION_STATE["nicknames"]
 
-    response = api.post(
-        f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch"
-    )
+    response = api.post(f"/v1/units/{flow.unit_id}/speaker-invitations/batches/{batch_id}/dispatch")
     assert response.status_code == 202, (
         f"dispatching batch {batch_id} returned {response.status_code}, "
         f"expected 202: {response.text[:400]}"
@@ -2228,23 +2386,26 @@ def test_24_the_event_host_is_handed_the_confirmed_speaker_and_no_declines(
 
 
 def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
-    api: httpx.Client, flow: ClickThrough
+    api: httpx.Client, student_api: httpx.Client, flow: ClickThrough
 ) -> None:
     """A Connector gets a thresholded average and no way to reach one student.
 
-    **The submission itself cannot be driven on this appliance, and is skipped
-    by name rather than faked.** Two independent gates stop it, and neither is a
-    defect:
+    **The submission itself still cannot be driven on this appliance, and is
+    skipped by name rather than faked.** One of the two gates that used to stop
+    it is gone; the other is not, and it is the one that matters here:
 
-    1. ``POST .../student/events/{event_id}/speakers/{speaker_id}/feedback`` is
-       gated on the ``student`` role alone, and ``docker-compose.yml`` maps its
-       single dev bearer to one ``coordinator`` principal. This is the same D6
-       gate steps 14 and 15 skip on, asserted here the same way — as a *correct
-       refusal* rather than worked around.
-    2. Even as a student, the route requires an ``attendance_record`` for the
-       caller at that event, and **nothing in the ``/v1`` surface creates one**.
-       Step 24 left ``attended_at`` null for exactly this reason: the hand-off
-       cites an attendance row and never writes one.
+    1. *Closed.* The route is gated on the ``student`` role alone, and this
+       appliance used to map its single dev bearer to one ``coordinator``
+       principal. It now pre-loads a student, so the student's own surfaces are
+       reachable and are read below — while the coordinator stays refused them,
+       which is asserted first so the reachability cannot be mistaken for a
+       widening.
+    2. *Still standing.* Even as a student, the route requires an
+       ``attendance_record`` for the caller at that event, and **nothing in the
+       ``/v1`` surface creates one** — ``smartmatch_persistence/attendance.py``
+       says in its own docstring that no route imports it and none may. Step 24
+       left ``attended_at`` null for exactly this reason: the hand-off cites an
+       attendance row and never writes one.
 
     Writing either row directly would be manufacturing the evidence the feature
     exists to check, so this step asserts everything that *can* be reached over
@@ -2283,9 +2444,10 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
     event_id = _seed_match_fixtures(flow.unit_id)["event_id"]
     speaker_id = _INVITATION_STATE["accepted_professional_id"]
 
-    # Gate 1, asserted as a correct refusal. A 200 here would mean the student
+    # The Connector's refusal, asserted first. A 200 here would mean the student
     # surface had been widened to a coordinator, which is the thing OQ-CBA-003
-    # part 1 forbids.
+    # part 1 forbids — and it is asserted *before* the student's reads below so
+    # that a reachable student surface can never be mistaken for an open one.
     submitted = api.post(
         f"/v1/units/{flow.unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
         json={"rating": 4},
@@ -2305,6 +2467,46 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
         "a coordinator could read the student-scoped feedback listing "
         f"({mine.status_code}); individual ratings must not be reachable from "
         f"the Connector's role: {mine.text[:300]}"
+    )
+
+    # The student's side of the same two routes, now that a student principal
+    # exists. The read answers; the write does not, and the reason it does not
+    # is gate 2 rather than the role — which is the distinction this step used
+    # to be unable to draw at all.
+    student_read = student_api.get(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speaker-feedback"
+    )
+    assert student_read.status_code == 200, (
+        "the pre-loaded student could not read their own speaker feedback "
+        f"({student_read.status_code}): {student_read.text[:300]}"
+    )
+    assert json_body(student_read)["feedback"] == [], (
+        "the student's own listing carries ratings nobody submitted; on this "
+        "appliance no rating can be submitted at all, so anything here would "
+        "have been written around the route rather than through it"
+    )
+
+    student_submit = student_api.post(
+        f"/v1/units/{flow.unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback",
+        json={"rating": 4},
+    )
+    assert student_submit.status_code == 403, (
+        "the student's own submission answered "
+        f"{student_submit.status_code}, expected 403. A 201 would mean a rating "
+        "had been accepted from someone with no attendance record at this event, "
+        f"which is the check OQ-CBA-003 puts in front of it: {student_submit.text[:300]}"
+    )
+    # The *reason* is what makes this the second gate rather than the first, and
+    # the API distinguishes them for exactly this purpose: `forbidden` is "you
+    # are not a student here", `student_feedback_not_eligible` is "you are, and
+    # you were not at this event". This step would be worthless if it could not
+    # tell them apart — a role gate that had quietly closed again would answer
+    # 403 too.
+    assert json_body(student_submit)["error"]["code"] == "student_feedback_not_eligible", (
+        "the student's submission was refused with "
+        f"{json_body(student_submit)['error']['code']!r}, not "
+        "'student_feedback_not_eligible'. This step exists to show the remaining "
+        "block is the missing attendance_record and not the student role gate"
     )
 
     summary = api.get(f"/v1/units/{flow.unit_id}/speakers/{speaker_id}/feedback-summary")
@@ -2391,13 +2593,110 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
     pytest.skip(
         "no student speaker feedback could be submitted on this appliance, so the "
         "aggregate above is asserted over zero stored ratings rather than over a "
-        "rating this step wrote. Two gates, both left standing rather than worked "
-        "around: (1) the submit and student-read routes are gated on the 'student' "
-        "role and docker-compose.yml maps its one dev bearer to a single "
-        "coordinator principal (the D6 gate steps 14-15 also skip on); (2) even as "
-        "a student the route requires an attendance_record for the caller at the "
-        "event, and no /v1 route creates one — the hand-off cites attendance and "
-        "never writes it. Writing either row directly would manufacture the "
-        "evidence the feature exists to check. The refusals and the aggregate-only "
-        "shape above did run and are asserted"
+        "rating this step wrote. ONE gate now, not two. The role gate is closed: "
+        "a student principal is pre-loaded, reads its own feedback listing (200, "
+        "empty) and reaches the submit route, while the coordinator is still "
+        "refused both — all asserted above. What still stands is the second gate: "
+        "the route requires an attendance_record for the caller at the event, and "
+        "no /v1 route creates one — smartmatch_persistence/attendance.py says no "
+        "route imports it and none may, and step 24's hand-off cites attendance "
+        "without writing it. Seeding that row directly would manufacture the "
+        "evidence the feature exists to check. The refusals, the student's own "
+        "reads, and the aggregate-only shape above did run and are asserted"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step 26 — the Event Host: one write, and nothing to read back
+# ---------------------------------------------------------------------------
+
+
+def test_26_the_event_host_files_a_request_and_can_read_nothing_back(
+    api: httpx.Client, host_api: httpx.Client, flow: ClickThrough
+) -> None:
+    """The Event Host portal's whole reachable surface, and its whole gap.
+
+    Run last, deliberately: filing a Speaker Request creates an ``event`` row,
+    and an extra unpublished event ahead of the match-run and metrics steps
+    would move numbers those steps assert against.
+
+    What the Event Host can do is one thing — ``POST`` a request — and this step
+    proves it works from the pre-loaded ``volunteer`` principal rather than only
+    from a contract test's in-process client. What the Event Host **cannot** do
+    is read anything at all, including the request they just filed: the queue
+    listing is gated on ``{admin, coordinator}`` and no per-host listing exists.
+    That is **OQ-CBA-014**, and it is asserted here as a refusal rather than
+    closed by adding ``volunteer`` to a read set — a host-scoped read is a
+    different query, not a wider permit, and inventing the permit would hand one
+    host every other host's request text for the unit.
+
+    The Connector's read is exercised too, on the same request, because that is
+    what makes the host's ``403`` a *routing* gap rather than a lost write: the
+    filing landed in a queue somebody can work, and only the host cannot see it.
+    """
+    if flow.unit_id is None:
+        pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
+
+    filed = host_api.post(
+        f"/v1/units/{flow.unit_id}/speaker-requests",
+        json={
+            "title": "Analytics Careers Panel",
+            "time_zone": "America/Los_Angeles",
+            "on_date": "2026-10-14",
+            "is_virtual": False,
+            "location_city": "Pomona",
+            "industry_codes": ["52"],
+            "role_codes": ["finance"],
+            "description": (
+                "Synthetic Speaker Request filed by tests/e2e/test_pilot_clickthrough.py"
+            ),
+        },
+        headers={"Idempotency-Key": f"e2e-speaker-request-{uuid.uuid4()}"},
+    )
+    # 201 the first time this appliance sees the request, 200 when it has seen
+    # it before. The route treats a resubmission of the same filing as the same
+    # filing and returns it again rather than opening a second one, so a rerun
+    # against a standing stack is a 200 and not a duplicate — accepted here for
+    # that reason, and not because either code would do.
+    assert filed.status_code in {200, 201}, (
+        "the Event Host could not file a Speaker Request "
+        f"({filed.status_code}); this is the one write the volunteer role "
+        f"carries, and without it the portal has no reachable surface at all: "
+        f"{filed.text[:400]}"
+    )
+    request_body = json_body(filed)
+    request_id = request_body["request_id"]
+    # The host chose a title, a date and a taxonomy — never a unit, a tenant, an
+    # actor, or a publication status. The last of those is the server's and comes
+    # back unpublished, which is what keeps a filed request out of the student
+    # browse surface until somebody decides otherwise.
+    assert request_body["publication_status"] == "unpublished", (
+        "a freshly filed Speaker Request came back "
+        f"{request_body['publication_status']!r}; a host does not publish their "
+        "own event by asking for it"
+    )
+
+    listing_refused = host_api.get(f"/v1/units/{flow.unit_id}/speaker-requests")
+    assert listing_refused.status_code == 403, (
+        "the Speaker Request queue answered "
+        f"{listing_refused.status_code} to the Event Host. Customer §13 gives "
+        "the queue to the Speaker Connector and names nobody else; the queue "
+        "holds every host's request text for the unit, so a 200 here would hand "
+        f"one host the others' filings: {listing_refused.text[:300]}"
+    )
+    assert json_body(listing_refused)["error"]["code"] == "forbidden"
+
+    queue = api.get(f"/v1/units/{flow.unit_id}/speaker-requests")
+    assert queue.status_code == 200, (
+        f"the Connector's own queue read answered {queue.status_code}: {queue.text[:300]}"
+    )
+    filed_ids = {entry["request_id"] for entry in json_body(queue)["requests"]}
+    assert request_id in filed_ids, (
+        f"the request the Event Host just filed ({request_id}) is not in the "
+        "Connector's queue; the write reported 201 and reached nobody"
+    )
+
+    print(
+        f"  the Event Host filed {request_id} and is refused every read of it; "
+        "the Connector sees it in the queue (OQ-CBA-014)"
     )
