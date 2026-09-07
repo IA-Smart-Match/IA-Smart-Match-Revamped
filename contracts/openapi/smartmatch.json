@@ -3613,7 +3613,7 @@
         "type": "object"
       },
       "SameNameContact": {
-        "description": "One contact this unit already holds under the name a create just used.\n\nEnough to recognize a person and nothing more. The identifying fields are\nhere because a bare \"somebody has this name\" is not something a Connector\ncan act on, and \"Dana Reyes, Principal Analyst at Reyes Analytics\" is \u2014 that\nwas the removed ``409``'s one virtue and it is the part kept.\n\nWhat is **not** here is everything else on the row: no classification, no\nprovenance, no match eligibility, no email of any kind. This is a prompt to\nlook, not a second way to read a contact \u2014 the roster and the by-id read are\nthat, and both are one call away with their own authorization already\napplied.",
+        "description": "One contact this unit already holds under a name a write just used.\n\nCarried by both hints \u2014 the create's ``same_name_contacts`` and the edit's\n``name_now_shared_with`` \u2014 because \"who else is called this\" has one honest\nanswer and rendering it two ways would invite the two to drift. What differs\nbetween the routes is the *claim being made*, and that lives in the field\nname rather than in the shape underneath it.\n\nEnough to recognize a person and nothing more. The identifying fields are\nhere because a bare \"somebody has this name\" is not something a Connector\ncan act on, and \"Dana Reyes, Principal Analyst at Reyes Analytics\" is \u2014 that\nwas the removed ``409``'s one virtue and it is the part kept.\n\nWhat is **not** here is everything else on the row: no classification, no\nprovenance, no match eligibility, no email of any kind. This is a prompt to\nlook, not a second way to read a contact \u2014 the roster and the by-id read are\nthat, and both are one call away with their own authorization already\napplied.",
         "properties": {
           "company": {
             "anyOf": [
@@ -4200,6 +4200,20 @@
             ],
             "description": "Why this contact may not enter matching yet, or null when it may. A stable token rather than a sentence, and a reason rather than a bare false, so a screen can tell 'the classifier proposed Finance and nobody has checked' from 'we have no idea where this person works' \u2014 two states that call for different actions and would otherwise be one greyed-out row.",
             "title": "Match Ineligibility Reason"
+          },
+          "name_now_shared_with": {
+            "description": "Other contacts in this unit that carry the name this **edit** just moved the contact to, matched case- and space-insensitively. **A hint, never a refusal** \u2014 the edit in this response is committed, and this says who it collided with. Deliberately not `same_name_contacts`: that field means *you may be about to duplicate somebody* and this one means *you may have just collided with somebody*, and a client holding one under the other's name would be reading the wrong sentence. Empty on every create and every read; empty on an edit that left the name alone, that only re-cased or re-spaced it, or that moved it to a name nobody else holds \u2014 which is the ordinary case.",
+            "items": {
+              "$ref": "#/components/schemas/SameNameContact"
+            },
+            "title": "Name Now Shared With",
+            "type": "array"
+          },
+          "name_now_shared_with_truncated": {
+            "default": false,
+            "description": "True when more contacts share the new name than this response lists. Answered by reading one row past the cap, exactly as `same_name_truncated` is. False on creates and reads.",
+            "title": "Name Now Shared With Truncated",
+            "type": "boolean"
           },
           "owning_unit_id": {
             "format": "uuid",
@@ -11820,7 +11834,7 @@
         ]
       },
       "patch": {
-        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity.\n``professional_id`` is generated rather than derived (OQ-CBA-017), so there\nis no longer any sense in which a rename *could* move it \u2014 which is the\npoint of the decision, since under the previous scheme the id stayed put\nwhile quietly ceasing to correspond to the name beside it.\n\nThis route reports no ``same_name_contacts``. Renaming somebody into a name\nthe unit already uses is the same hazard the create hints about, from the\nother direction, and it is left unanswered on purpose rather than by\noversight: a Connector fixing a typo is not proposing a new person, so\n\"somebody else is called this\" would mean something different here than it\ndoes on a create. **OQ-CBA-049.**\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit.",
+        "description": "Replace what this unit records about one contact.\n\nThe body states the record in full, so an omitted optional field clears the\nstored value rather than preserving it \u2014 \u00a713's form posts every box, and a\nConnector who empties one means it is empty.\n\nChanging ``full_name`` changes the displayed name and **not** the identity.\n``professional_id`` is generated rather than derived (OQ-CBA-017), so there\nis no longer any sense in which a rename *could* move it \u2014 which is the\npoint of the decision, since under the previous scheme the id stayed put\nwhile quietly ceasing to correspond to the name beside it.\n\n**A rename into an existing name is reported, and the field is not the\ncreate's.** This route answers ``name_now_shared_with`` where the create\nanswers ``same_name_contacts``, and the two names are deliberately different\nbecause the two sentences are: a create says *you may be about to duplicate\nsomebody*, an edit says *you may have just collided with somebody*. The\nmodule docstring argues that at length; what matters at this call site is\nthat a client can never be holding one while reading the other's meaning.\n\nNeither field is a refusal. The ``UPDATE`` has already happened when the\nhint is composed, the response is a ``200`` whatever it contains, and there\nis no uniqueness constraint on ``(tenant_id, owning_unit_id, full_name)``\nanywhere under this route (OQ-CBA-021) \u2014 a Connector who has looked and\ndecided these are two different people simply proceeds.\n\nThe hint is quiet unless the edit **moved** the name. The stored contact is\nread before the write for exactly that reason, and the two names are\ncompared through ``folded_contact_name`` \u2014 the create's fold, so a save that\nonly re-cases or re-spaces the name is not a rename and the collision set it\nbelongs to has not changed. A hint on every save of \u00a713's form, which posts\nthe whole record every time, would be noise a Connector learns to skip.\n\nThe lookup excludes this contact (``exclude_professional_id``). A row is not\na duplicate of itself, and after the write it carries the very name being\nsearched for \u2014 the create gets that guarantee free by reading before it\ninserts, and this route has to ask for it.\n\nRaises:\n    ApiError: 400 when a field is blank or a classification code is unknown;\n        404 when the contact is not in this unit. A rename that collides is\n        none of those \u2014 it is a ``200`` carrying a hint.",
         "operationId": "update_speaker_contact_v1_units__unit_id__speaker_contacts__professional_id__patch",
         "parameters": [
           {

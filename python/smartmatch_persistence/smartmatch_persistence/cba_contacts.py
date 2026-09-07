@@ -72,6 +72,15 @@ can recognize them and stop — which is the one thing the ``409`` did well and
 the only part worth keeping. Read *before* the insert rather than afterwards and
 filtered, so the new row cannot appear in its own hint by construction.
 
+The **edit** path asks the same question from the other side, and
+:meth:`SpeakerContactRepository.list_same_name` grew
+``exclude_professional_id`` to let it (**OQ-CBA-049**, decided 2026-09-06). A
+rename cannot read before it writes the way a create can — the row it is about
+has been stored since long before this request — so the row being edited is
+left out in SQL rather than dropped afterwards, and a contact is never reported
+as sharing a name with itself. Same fold, same cap, same refusal to refuse; the
+route names the field differently because the message differs.
+
 **No uniqueness constraint may ever be added on
 ``(tenant_id, owning_unit_id, full_name)``** — OQ-CBA-021, argued in migration
 ``0030``. It would make the name identifying again, which is precisely what
@@ -610,6 +619,7 @@ class SpeakerContactRepository:
         owning_unit_id: uuid.UUID,
         full_name: str,
         limit: int,
+        exclude_professional_id: uuid.UUID | None = None,
     ) -> tuple[SpeakerContactRow, ...]:
         """This unit's contacts whose folded name matches ``full_name``.
 
@@ -650,6 +660,29 @@ class SpeakerContactRepository:
         reason. A route that wants to report truncation asks for one more row
         than it intends to show.
 
+        **``exclude_professional_id`` is the edit path's argument** (OQ-CBA-049,
+        decided 2026-09-06). A create reads before it inserts, so the row it is
+        about cannot appear in its own hint — the create needs no exclusion and
+        passes none. An edit has no such luxury: the contact being renamed is
+        already stored under the unit, so an unfiltered read of the new name
+        would return the very row the caller just changed and report that it
+        shares a name with itself. That is not a warning about anything, and a
+        warning that fires on every rename is a warning a Connector learns to
+        click past — which would cost the ones that mean something.
+
+        Excluded in SQL rather than filtered in Python for the reason the fold
+        is: a caller that dropped the row afterwards would still have consumed
+        one of its ``limit`` slots, so a hint capped at ten could show nine
+        while claiming to be full. The predicate keeps the cap honest.
+
+        Still no uniqueness of any kind, here or anywhere: this reads names and
+        decides nothing (OQ-CBA-017, OQ-CBA-021).
+
+        Args:
+            exclude_professional_id: A contact to leave out of the answer, or
+                ``None`` to read the unit's matches unfiltered. The edit path
+                passes the row it is editing.
+
         Raises:
             ValueError: ``limit`` is less than 1, for :meth:`list_for_unit`'s
                 reason.
@@ -658,18 +691,18 @@ class SpeakerContactRepository:
             raise ValueError("limit must be at least 1")
 
         folded = sa.func.lower(sa.func.btrim(schema.speaker_profile.c.full_name))
+        query = sa.select(*_PROFILE_COLUMNS).where(
+            schema.speaker_profile.c.tenant_id == tenant_id,
+            schema.speaker_profile.c.owning_unit_id == owning_unit_id,
+            folded == folded_contact_name(full_name),
+        )
+        if exclude_professional_id is not None:
+            query = query.where(schema.speaker_profile.c.professional_id != exclude_professional_id)
         rows = session.execute(
-            sa.select(*_PROFILE_COLUMNS)
-            .where(
-                schema.speaker_profile.c.tenant_id == tenant_id,
-                schema.speaker_profile.c.owning_unit_id == owning_unit_id,
-                folded == folded_contact_name(full_name),
-            )
-            .order_by(
+            query.order_by(
                 schema.speaker_profile.c.created_at.desc(),
                 schema.speaker_profile.c.professional_id,
-            )
-            .limit(limit)
+            ).limit(limit)
         ).all()
         return tuple(SpeakerContactRow(*row) for row in rows)
 
@@ -765,14 +798,24 @@ class SpeakerContactRepository:
         **names**, which is the thing a rename actually changes, and reports a
         match instead of silently missing one.
 
-        Note what is still true and still deliberate: a rename does **not** hint
-        at same-name contacts. Only :meth:`create` does. An edit that renames
-        somebody into an existing name is the same hazard from the other
-        direction and is recorded as **OQ-CBA-049** rather than answered here,
-        because a hint on an edit needs a surface decision — a Connector
-        correcting a typo is not proposing a new person, and telling them
-        "somebody else is called this" mid-correction is a different message
-        with a different meaning.
+        A rename now hints too, and it is **not** this method that does it.
+        **OQ-CBA-049, decided 2026-09-06**: renaming somebody into a name the
+        unit already holds is the create's hazard from the other direction, and
+        it was unanswered until that decision. The route composes the answer —
+        it knows the stored name because it read the contact first, so it can
+        tell a rename from an edit that left the name alone, and it calls
+        :meth:`list_same_name` with ``exclude_professional_id`` set to the row
+        it just changed. Composed there rather than folded in here so that this
+        method keeps returning what it always returned: a write does one thing,
+        and a caller that wants no hint pays for no second read.
+
+        The message the route sends is deliberately *not* the create's. A create
+        says "you may be about to duplicate somebody"; an edit says "you may
+        have just collided with somebody", which is why the response field is
+        named ``name_now_shared_with`` rather than reusing
+        ``same_name_contacts``. Neither refuses: this ``UPDATE`` has already
+        happened by the time anybody is told, and there is no uniqueness
+        constraint here or anywhere (OQ-CBA-021).
 
         **An edit re-states the provenance, and this is where a Connector
         correction beats a proposal.** The draft carries the whole record, so a
