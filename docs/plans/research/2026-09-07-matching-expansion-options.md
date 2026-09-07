@@ -359,3 +359,414 @@ the registry is going to `3.0.0`, that bump should be planned once and carry
 everything the owner wants at the same time.
 
 ---
+
+## Part 2 — BakedSoups/NextSteamGame, and how far the analogy carries
+
+### 2.1 What I was able to verify, and how
+
+I fetched the repository landing page, its `README.md`, the `backend/` directory
+listing, and the raw sources of `backend/retrieval.py` and
+`backend/recommender.py`. Those fetches succeeded and what follows is drawn from
+them.
+
+One caveat stated plainly rather than buried: these fetches return the page
+rendered and summarised, not a byte-exact checkout. I am therefore confident about
+the *architecture* — the stores queried, the pipeline stages, the shape of the
+scoring formula, the named constants — and I am **not** offering line numbers, and
+I have not read `pg_store.py`, `api_models.py`, `coercion.py`, the `db_creation/`
+pipeline sources, or the test suite. Where I state a specific numeric constant
+below, it came back from the raw-source fetch and I believe it; where I would be
+guessing, I say so instead.
+
+The `backend/` directory contains `__init__.py`, `api_models.py`, `coercion.py`,
+`pg_store.py`, `recommender.py`, `retrieval.py`, with the listing indicating
+further files not shown.
+
+### 2.2 What it actually does
+
+**Offline pipeline.** Five stages. Metadata and reviews are collected from the
+Steam APIs and SteamSpy — up to 2,000 reviews per game across roughly 80,000 games
+— and filtered for quality (regex spam removal, review-quality scoring,
+word-diversity scoring, insightful-phrase detection). An extraction stage produces
+four *focus vectors* per game (mechanics, narrative, vibe, structure_loop) plus
+identity metadata (signature tags, niche anchors, identity tags, music tags,
+micro-tags), using ModernBERT classification over the reviews. A canonicalisation
+stage collapses tags that describe the same concept in different words — "Fast
+Action" / "Quick Action" / "High-Speed Combat" — using heuristics, fuzzy matching,
+embedding similarity and vector search. A final stage precomputes candidate
+relationships offline, because "computing similarity between every game at runtime
+would be expensive."
+
+**Retrieval.** Two parallel sources: a Chroma vector index, and a "prescreen"
+store used when non-default parameters are set. The Chroma query uses stored
+embeddings under default settings and a dynamically built query text otherwise.
+Candidate lists are merged **round-robin** with deduplication rather than by a
+blended relevance score. The limits are `chroma_limit = 300`,
+`prescreen_limit = 450`, `merged_limit = 300`.
+
+**Ranking.** This is the part worth the owner's attention, and it is not what the
+phrase "hybrid RAG" suggests. The re-ranker is a **hand-weighted linear composite
+of static constants**:
+
+```
+total_score = vector(0.54) + genre(0.18) + appeal(0.14) + music(0.14)
+```
+
+with per-context multipliers inside the vector term (mechanics 1.22, narrative
+0.46, vibe 0.62, structure_loop 1.12), branch weights inside the genre term
+(primary 0.8, sub 0.9, sub_sub 0.95), a two-signal blend inside appeal
+(`raw_appeal * 0.62 + metadata_signal * 0.38`), identity-tag boosts (signature
+2.15, niche anchor 1.55, micro-tag 0.65), zero-overlap genre penalties
+(0.90/0.93/0.96), anchor-match boosts (1.08–1.12), and finally a confidence
+multiplier derived from review count, owner estimates, positive-review ratio and
+Metacritic, clamped to `[0.55, 1.20]`.
+
+**There is no learned model, no feedback loop, and no trained re-ranker.** Every
+multiplier is a static constant. The README's own framing is that the project
+deliberately avoids player-overlap collaborative filtering ("Players who liked X
+also liked Y") because it fails on niche preferences, and instead operates on
+semantic identity so a user can see *why* a game was recommended and adjust the
+weights themselves.
+
+### 2.3 Where the analogy holds
+
+More than one might expect, and in the direction that flatters SmartMatch rather
+than the comparison.
+
+- **The ranking philosophy is the one we already implement.** A transparent,
+  hand-weighted linear composite over interpretable components, with the weights
+  exposed rather than learned, chosen specifically so the system can explain itself
+  and so a human can adjust it. That is `factor_registry.py` and
+  `weight_settings.py`. The owner is, without knowing it, pointing at a project
+  that validates the architecture we already have.
+- **The cold-start motivation is shared.** NextSteamGame rejects collaborative
+  filtering because behavioural overlap fails on the long tail. We have no
+  behavioural data at all, so we are in that regime permanently, not temporarily.
+- **Explainability as a first-class product goal.** Their "understand *why*" is our
+  `basis` strings and `CandidateExplanation`.
+- **Offline precomputation to keep the request path cheap and deterministic.**
+  Directly transferable if we ever do embed text: embed on write, not on match.
+- **Canonicalising synonymous tags** is a real, borrowable idea. Our
+  `naics_sectors` and `cba_role_categories` modules explicitly defer alias and
+  fuzzy matching as "inference rules learned from pilot data and a later versioned
+  decision" (`industry_match.py:54-60`). Their Stage 4 is one worked answer to that
+  deferral, and it is the single most directly applicable thing in the repository.
+
+### 2.4 Where it breaks
+
+- **Corpus size and provenance.** They mine ~80,000 items × up to 2,000 free-text
+  reviews each — millions of documents of third-party opinion. Our per-speaker
+  corpus is `topic_text` and `prior_talk`: two nullable `Text` columns (migration
+  `0024_cba_classification_schema.py:247-248`), self-declared, often one sentence,
+  often absent. There is no review corpus and there never will be. Their semantic
+  richness comes from the reviews, not from the algorithm.
+- **Candidate pool size.** Their retrieval narrows ~80,000 to 300. `POST
+  /match-runs` accepts a pool of at most `MAX_CANDIDATES = 200`
+  (`routers/match_runs.py:236`), supplied by the coordinator as
+  `candidate_subject_ids` (`:286-296`). We do not have a retrieval problem; see
+  §3.4.
+- **Consequence asymmetry.** A bad game recommendation costs a user a click. A bad
+  speaker match costs a named professional an unwanted approach, a classroom a
+  wasted session, and the program a relationship. That asymmetry is why our engine
+  refuses rather than guesses in the many branches catalogued in Part 1.
+- **Consented contact.** Games do not consent to being recommended. Our candidates
+  are named people whose contact is gated by consent state and whose profile text
+  OQ-CBA-026 will not let us send to a third party without a named privacy owner's
+  decision. "Just embed the corpus" runs into a person, not a dataset.
+- **Behavioural telemetry.** They have review counts, owner estimates, positive
+  ratios and Metacritic feeding a confidence multiplier. We have none of these and
+  — per Part 3 — are forbidden from building the closest equivalents.
+- **What "unknown" means.** Their confidence multiplier *degrades* a thin-data game
+  to `0.55×` and keeps ranking it. Ours refuses to produce a number at all. Theirs
+  is the right call for games; ours is the right call for people. This is the
+  deepest structural difference and it is not reconcilable by tuning.
+- **Interactive weight adjustment.** Their users retune weights per query and
+  re-rank live. Ours are unit-scoped, validated, refused-not-repaired
+  (`weight_settings.py:31-39`), and pinned onto every stored run — a
+  regulatory-style constraint their product has no reason to carry.
+
+### 2.5 The honest conclusion of the comparison
+
+The most useful finding is a deflationary one. **Strip away the offline pipeline
+and NextSteamGame's ranker is the same species of thing as ours** — a weighted
+linear composite of interpretable features with hand-set constants. What it has
+that we lack is not a smarter algorithm; it is *dozens of graded features derived
+from a large text corpus*, where we have three binary-or-banded features and one
+that cannot fire. The lesson to take is about **feature richness and gradation**,
+not about vector databases.
+
+---
+
+## Part 3 — What stops a hybrid-RAG-style recommender here
+
+The owner's question: "what is stopping us from doing something similar to a
+Hybrid RAG type of recommendation system — wouldn't our situation apply?"
+
+Direct answer: **four things, of very unequal size.** One is a decision that could
+be taken next week. One is a modest build. One is a design constraint that is
+solvable. And one is a wall that no amount of engineering gets over, because it is
+about evidence that does not exist and that this system has repeatedly decided not
+to collect.
+
+### 3.1 Blocker 1 — there is no semantic provider, and the seam is deliberately shut
+
+`cba_semantic_topic`'s provider is a `Protocol` seam
+(`factors/cba_semantic_topic.py:182-202`). The only implementation is a playback
+fixture reporting `is_semantic_model = False` (`topic_semantics.py:146`, `:178`).
+`build_semantic_topic_provider` refuses a live client under **every** edition, not
+merely the classroom one, and `ALLOW_LIVE_PROVIDERS=false` is the standing
+environment default — explicitly "necessary but not sufficient here — flipping it
+reaches an adapter that still does not exist" (`topic_semantics.py:20-22`).
+
+OQ-CBA-026 records why, and it is not a technical shortfall. The open question is
+"which semantic model performs customer §9's Topic comparison, on whose
+credentials, under which vendor terms, and at what per-run cost… may a speaker's
+`topic_text` and `prior_talk` be sent to a third party at all, and under what
+retention?" It requires "CBA product owner with a named privacy owner." And it
+closes one door in advance:
+
+> Do **not** answer this by adding a token-overlap scorer and calling it semantic —
+> a lexical comparison shipped under a semantic name puts an untrue claim about how
+> every stored match was produced into the data permanently, which is why the
+> fixture reports `is_semantic_model = False`.
+
+**What clearing it takes.** An owner decision plus a named privacy owner, an
+ADR-0014 field set, a vendor and terms, a per-run cost ceiling, and then an
+adapter. It is a governance item first and an engineering item second. It is **not**
+a step to be taken casually, and this report does not propose enabling live
+providers.
+
+Note the corollary from §1.3: this blocker is *currently the binding constraint on
+the engine's usefulness*, not only on its future. A speaker with topic text on file
+is unscorable today. Whatever else the owner decides, that is worth surfacing on
+its own.
+
+### 3.2 Blocker 2 — there is no store, no index, and barely a corpus
+
+There is no embedding store, no vector index, no corpus, and no ingestion job. On
+"what would we even embed", the honest inventory is three nullable text columns:
+
+| Field | Table | Type | Source |
+|---|---|---|---|
+| `topic_text` | `speaker_profile` | `Text`, nullable | migration `0024_cba_classification_schema.py:247` |
+| `prior_talk` | `speaker_profile` | `Text`, nullable | migration `0024:248` |
+| `description` | `event` (the Speaker Request) | `Text`, nullable | migration `0017_event_persistence.py:174` |
+
+`ck_speaker_profile_text_present` (migration `0024:322`) forbids blank strings, so
+a value that exists has content. The domain joins `topic_text` and `prior_talk`
+rather than ranking them (`cba_semantic_topic.py:263-277`), and the request
+description is the query side (`score_cba_candidate(request_description=…)`,
+`scoring.py:448`).
+
+That is the entire corpus: one short self-declared paragraph per speaker, matched
+against one coordinator-written description per request. It is not nothing — it is
+exactly the input §9 asks about — but it will not support the representation
+learning NextSteamGame gets from two thousand reviews a title. An embedding of a
+one-line self-description is a paraphrase detector, and it should be sold as one.
+
+**What clearing it takes.** A pgvector column or a sidecar index; an embed-on-write
+job with a pinned model id; a backfill; re-embedding on every profile edit. Modest
+work, and entirely downstream of 3.1 — you cannot embed text you are not permitted
+to send anywhere, and a local model is still a model choice OQ-CBA-026 covers.
+
+### 3.3 Blocker 3 — no outcome loop at all. This is the wall.
+
+Everything above is buildable. This is not, and it is why the honest answer to the
+owner's question is "the model is the easy part."
+
+A recommender that is *tuned* — never mind trained — needs relevance judgements:
+some record of which past matches were good. This system has **none**, and not by
+oversight. Four decisions and one schema gap each remove one candidate source.
+
+**No appearance relation (OQ-CBA-051).** "What persisted evidence proves that a
+particular speaker appeared at a particular event? … the current schema has no
+speaker-to-event appearance relation; `cba_invitation_batch.event_name` is free
+text and cannot supply one." The decision: "Require the speaker to be on the
+feedback unit's roster, and state the limitation. Do not claim roster membership
+proves an appearance and do not derive the speaker from a name." So the schema
+cannot express the fact "this match resulted in this speaker actually speaking."
+
+**Nothing writes the attendance table either.** `attendance_record` exists —
+`db/migrations/versions/0009_engagement_schema.py:184-235`, with columns `id`,
+`tenant_id`, `owning_unit_id`, `subject_id`, `event_id`, `method`, `created_at` —
+and **no `/v1` route creates one.** `routers/student_events.py` states outright
+that "Nothing is written to `attendance_record`"; `routers/cba_handoff.py` and
+`routers/pipeline.py` *cite* an `attendance_record` for the Attended stage but do
+not create one. Every write path found is outside the `/v1` API. So even the weaker
+proxy — "somebody attended this event" — has no API-driven writer.
+
+**Declines are recorded and never scored (OQ-CBA-040).**
+"`cba_invitation.response_status` is not a scoring input, and no factor in the
+registry knows the table exists." Decision: "Recorded, never scored. A decline is
+one data point about one event on one date, and the reasons for it — a diary clash,
+a topic mismatch, a bad month — are invisible to this system. Treating it as a
+standing signal would quietly demote somebody for being busy in June, and it would
+do so through a factor nobody approved."
+
+**Ratings are barred (OQ-CBA-053).** "Should a student's rating of a speaker
+influence later matching? … **No.** Student speaker feedback is an event outcome
+and remains separate from coordinator match-outcome feedback; no rating is a
+scoring input and no factor reads this table." And even if reopened, aggregates
+below three responses publish nothing at all (`student_speaker_feedback.py:92`,
+`:331-333`) — so a per-speaker signal would be suppressed for exactly the long-tail
+speakers a recommender most needs to learn about.
+
+**And the one loop that does exist is orphaned and mis-wired.**
+`smartmatch_domain/feedback.py` implements precisely the mechanism a tuner would
+want: coordinator accept/decline decisions aggregated into bounded weight-delta
+proposals, `min(MAX_FACTOR_DELTA, PER_REASON_BUMP × count)` with
+`MAX_FACTOR_DELTA = 0.08` (`:64`), `PER_REASON_BUMP = 0.03` (`:68`),
+`MIN_DECLINES_PER_FACTOR = 5` (`:78`), held deliberately shadow-mode: "it proposes
+weight deltas, and a human approves them. Generative AI never chooses ranking
+weights" (`:31-34`). Two problems. First, **nothing imports it** — a repo-wide grep
+for `smartmatch_domain.feedback` returns only `tests/unit/test_feedback.py:8` and a
+disambiguating docstring reference at `student_speaker_feedback.py:8`. Second, its
+`REASON_TO_FACTOR` map (`:108-119`) targets `topic_relevance`, `role_fit`,
+`travel_burden`, `availability`, `engagement_load`, `repeat_penalty` — of which
+`topic_relevance` and `travel_burden` are **retired**, and `role_fit`,
+`engagement_load` and `repeat_penalty` **do not exist in `PROPOSED_FACTORS` at
+all**. The one tuning loop in the codebase is wired to a factor set the CBA pivot
+replaced.
+
+**And the pilot cannot supply the missing signal.** The pilot runs entirely on
+synthetic data on a VM with pre-loaded logins, demonstrating that a Connector can
+see events needing matching, produce a match, and that a dashboard renders
+statistics. That is a functional demonstration and a good one. It is *not* a source
+of relevance judgements, and the distinction is absolute rather than a matter of
+volume: synthetic accept/decline decisions are made by people testing a workflow,
+and they measure whether the button works, not whether the match was good. **No
+quantity of synthetic pilot data produces a single true label.** A model tuned on it
+would be fitted to the fixture generator. This is worth stating because "we will
+have data after the pilot" is the natural assumption and it is false.
+
+**What clearing it takes.** In order: an owner decision to reopen OQ-CBA-051 and
+design a speaker-appearance relation; a `/v1` writer for whatever that relation is,
+and separately for `attendance_record`; a decision on whether coordinator
+accept/decline may become a *learning* signal rather than only a shadow proposal,
+which is OQ-CBA-040 territory; re-pointing `feedback.py`'s reason map at the CBA
+factor set; and then **real matches, made by real Connectors, over real events, for
+long enough to accumulate labels**. That last item is measured in program cycles,
+not sprints, and nothing in engineering shortens it.
+
+Until then, any "learned" component would be fitted to constants somebody chose —
+which is what we already have, minus the auditability.
+
+### 3.4 Is retrieval even the bottleneck? No.
+
+It is not, and this is the most actionable finding in Part 3.
+
+`POST /match-runs` takes `candidate_subject_ids` from the caller, capped at
+`MAX_CANDIDATES = 200` (`routers/match_runs.py:236`, `:286-296`). The pool
+assembler reads exactly those rows in one query and decides per subject
+(`match_run_evidence.py:353-419`). There is no retrieval stage in this engine at
+all — the coordinator names the pool. Compare NextSteamGame narrowing 80,000 to
+300: they need retrieval because the corpus is four orders of magnitude larger.
+Scanning 200 rows of a CBA roster is a query, not an information-retrieval problem,
+and a vector index over 200 documents buys nothing an in-memory scan does not.
+
+The real problem is **scoring resolution**: those 200 candidates collapse onto 12
+distinct composite values (§1.3), and in practice onto far fewer, because a pool
+assembled for one sector and one role shares its two heaviest factors by
+construction. The engine cannot tell its candidates apart. That is a *feature
+gradation* problem, and it is exactly the problem NextSteamGame solves with dozens
+of graded features — not with Chroma.
+
+So: the owner's instinct that something is missing is correct. The diagnosis "we
+need retrieval / RAG" is the wrong one. **We need more graded factors, or finer
+ones, over the pool we already have.**
+
+### 3.5 Determinism, and what an embedding model does to it
+
+Every stored run pins `registry_version`, `formula_version` and `applied_weights`
+(`StageBScore`, `scoring.py:165-174`; `MatchRunPins` per ADR-0016 Proposal 9, which
+adds `scoring_mode` and `scoring_mode_version` and keeps `registry_hash` as the
+fingerprint over the weights actually applied). The submission API takes an explicit
+solver `seed` and documents the contract: "the same pool, size and seed always
+produce the same selection" (`routers/match_runs.py:280-285`). The golden suite
+pins exact composites — G-CBA-11 asserts `0.9175` and `0.925`, not "A ranks above
+B."
+
+A live embedding model breaks this in four distinct ways, worth separating because
+they have different fixes:
+
+1. **Model drift.** A hosted endpoint silently re-versioned changes every score.
+   *Fix:* pin an immutable model id and refuse to score if the served id differs.
+   `TopicComparison` already carries `model_id` (`cba_semantic_topic.py:166-167`);
+   the field exists precisely for this.
+2. **Nondeterministic inference.** Batching, GPU non-associativity and
+   floating-point ordering perturb embeddings run to run. *Fix:* embed once on
+   write, store the vector, and score from the stored vector — never embed at match
+   time. This also makes the request path cheap, and it is the one NextSteamGame
+   lesson that transfers cleanly.
+3. **Reproducibility of a stored run.** Re-scoring a run a year later must reproduce
+   it. *Fix:* treat the vector as evidence rather than as model state — store it and
+   the resulting comparison alongside the run, the way `basis` already stores the
+   provenance of every factor value.
+4. **Provenance honesty.** `is_semantic_model`, `provider` and `model_id` must
+   travel onto the stored score, or a future reader cannot tell a fixture from a
+   model. The seam already requires this (`cba_semantic_topic.py:483-494`).
+
+Conclusion: determinism is a **solvable** constraint, and the codebase has already
+put most of the fields in place. It costs a versioning discipline —
+`CBA_SEMANTIC_TOPIC_FACTOR_VERSION` (`:117`) would have to move with the model —
+not a redesign. It is not the reason to say no.
+
+### 3.6 A staged path, if the owner wants one
+
+Ordered by cost, each stage independently abandonable. These are **proposals**, not
+decisions.
+
+**Stage 0 — surface the fixture problem (no decision needed, no registry change).**
+Report how often, on realistic data, a candidate with topic text is rendered
+unscorable by `TopicComparisonUnavailable`. My reading of
+`topic_semantics.py:194-200` says: always, outside a recorded pair. If that is
+right, the Topic factor is effectively inert in any non-fixture run, and the owner
+is choosing between the 12-value engine and something else — not between a good
+engine and a better one. *Buys:* the owner learns what he actually has. *Costs:* an
+afternoon.
+
+**Stage 1 — fix the resolution problem inside the existing factors (registry change,
+but a small and well-understood one).** The gradation deficit is in Industry, Role
+and Proximity, and it is fixable without any model. Graded industry match — exact
+sector 1.0, related sector within a shared NAICS parent 0.6, unrelated 0.0 — is the
+alias/fuzzy work `industry_match.py:54-60` already defers, and it is
+NextSteamGame's Stage 4 idea applied to a taxonomy we control. Finer proximity
+bands, or interpolation within a band, do the same for the 0.30 that is currently
+three-valued. *Buys:* an order of magnitude more distinct composite values, from
+data we already hold, with no provider, no vendor and no privacy question. *Costs:*
+a `3.0.0` registry bump, an owner decision per change, new golden cases, and stored
+`2.x` runs becoming non-comparable. **This is the highest value-per-risk option in
+this report, and it does not appear anywhere in the owner's original question.**
+
+**Stage 2 — lexical/BM25 blending inside the existing Topic factor (no registry
+change — but read the caveat).** Mechanically this is attractive: BM25 over
+`topic_text || prior_talk` against the request `description` is deterministic,
+local, cheap, needs no vendor and no privacy decision, and would be a *provider
+behind the existing seam*, so `APPROVED_SCORING_KEYS` is untouched and
+`assert_scoring_ready` still passes. **But OQ-CBA-026 forbids the obvious form of
+it**: shipping a lexical scorer under the `cba_semantic_topic` name is precisely
+what the decision names and refuses. There are two honest ways round it and both
+need the owner. Either a new adapter that reports `is_semantic_model = False`, is
+labelled lexical in every `basis` string it writes, and is admitted by an explicit
+amendment to OQ-CBA-026 recording that a labelled lexical provider is acceptable in
+the Topic slot; or a genuinely separate lexical factor, which is a registry change
+and lands in Stage 1's bump. *Buys:* a continuous Topic signal without a vendor.
+*Costs:* an OQ amendment; a real risk of the naming confusion the ADR authors were
+right to fear; and BM25 over one self-written sentence is a weak signal that will
+look more precise than it is.
+
+**Stage 3 — embeddings.** Only after 3.1 is answered by the owner and a named
+privacy owner, with an embed-on-write store per §3.5. *Buys:* real paraphrase
+tolerance on Topic. *Costs:* the governance work of OQ-CBA-026, a store, a backfill,
+a pinned model id, and a versioning discipline.
+
+**Stage 4 — anything learned.** Blocked on §3.3 and not schedulable. Revisit when an
+appearance relation exists and has accumulated real outcomes over real program
+cycles.
+
+**Also worth doing independently of all four:** re-point `feedback.py`'s
+`REASON_TO_FACTOR` at the CBA factor set, or delete the module. Leaving a
+shadow-mode weight tuner wired to three factor keys that do not exist is a trap for
+whoever wires it up next.
+
+---
