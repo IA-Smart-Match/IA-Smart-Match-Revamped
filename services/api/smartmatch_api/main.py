@@ -49,6 +49,7 @@ from smartmatch_api.routers import (
     calendar,
     cba_contact_channels,
     cba_contacts,
+    cba_handoff,
     cba_invitations,
     engagement,
     events,
@@ -419,6 +420,15 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # answer: gating the answer with the send is what keeps the pair coherent.
     (cba_invitations.router, Capability.CONSENTED_OUTREACH),
     (cba_invitations.public_router, Capability.CONSENTED_OUTREACH),
+    # The speaker handoff (customer §6 step 8, §23). Rides `CONSENTED_OUTREACH`
+    # rather than `DISCOVERY_METRICS` even though it writes funnel stages,
+    # because the fact it writes them *from* is an invitation's stored answer: a
+    # deployment without consented outreach has no `cba_invitation` rows, so
+    # this surface would have nothing to reconcile and would only be able to
+    # report 404. Gating the handoff with the invitation is what keeps the pair
+    # coherent, the same argument the Speaker's own accept/decline route above
+    # is mounted on.
+    (cba_handoff.router, Capability.CONSENTED_OUTREACH),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:

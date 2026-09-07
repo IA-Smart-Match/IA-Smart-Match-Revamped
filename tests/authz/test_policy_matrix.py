@@ -1639,6 +1639,42 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The CBA speaker handoff, ``routers/cba_handoff.py``: bringing a speaker's
+    # funnel journey up to whatever the stored invitation/attendance evidence
+    # supports, and reading the confirmed speakers a unit can hand its Event
+    # Hosts. Both share one authorizer, ``_authorize_handoff`` — the module's
+    # own docstring gives the reason ``pipeline.record.read`` and
+    # ``pipeline.stage.advance`` share theirs above: a coordinator who may
+    # record a handoff may obviously read the one they just recorded, and
+    # splitting the read from the write would give a widening two places to
+    # happen instead of one. ``_HANDOFF_ROLES`` is ``{admin, coordinator}``,
+    # the same pair ``_PIPELINE_ROLES`` and ``_OUTREACH_ROLES`` use — this is
+    # coordinator machinery, not a surface any Speaker, Connector, or Student
+    # role reaches.
+    Operation(
+        key="cba_handoff.speaker.reconcile",
+        method="POST",
+        path="/v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff",
+        module="smartmatch_api.routers.cba_handoff",
+        authorizer="_authorize_handoff",
+        roles_constant="_HANDOFF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="cba_handoff.confirmed_speakers.read",
+        method="GET",
+        path="/v1/units/{unit_id}/cba/confirmed-speakers",
+        module="smartmatch_api.routers.cba_handoff",
+        authorizer="_authorize_handoff",
+        roles_constant="_HANDOFF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -5846,6 +5882,133 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # The CBA speaker handoff. Both operations below call the identical
+    # `_authorize_handoff` against the identical `org_unit` resource, so their
+    # rows are the same shape as `pipeline.record.read` /
+    # `pipeline.stage.advance` above for the identical reason: a coordinator
+    # who may reconcile a handoff may obviously read the confirmed speakers it
+    # produces, and giving the read a looser row than the write would let a
+    # widening happen in one cell without the other noticing.
+    "cba_handoff.speaker.reconcile": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the shape this operation exists for: the coordinator who runs "
+                "the program reconciles a speaker's funnel stages from the "
+                "invitation and attendance evidence already on file"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a sibling department's coordinator has no business writing this "
+                "unit's speaker journey; containment is not satisfied"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="§15 gives a Student no part in confirming or handing off a speaker",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set. The Event Host "
+                "is the party who *receives* the handoff (§6 step 9), not the "
+                "party who records the evidence behind it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "cba_handoff.confirmed_speakers.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="containment is inclusive; this is the coordinator whose unit owns the speakers",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a confirmed-speaker list is this unit's own funnel output. A "
+                "sibling department's coordinator has no business reading it, and "
+                "no `tenant_wide_roles` is passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="§15 gives a Student no part in which speakers a unit hands its Event Hosts",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "refusal is the role alone. The Event Host is handed a confirmed "
+                "speaker (§6 step 9); they do not query the roster themselves"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -6043,6 +6206,14 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # asserted over HTTP in `tests/contract/test_cba_invitations_api.py`, the
         # division of labour `_authorize_invite_read` already uses.
         "_authorize_speaker_invitations",
+        # The eighteenth (`routers/cba_handoff.py`), on the same terms with
+        # `_HANDOFF_ROLES`. One name for both operations, the
+        # `_authorize_pipeline` arrangement directly above: reconciling a
+        # speaker's funnel stages from stored evidence and reading the
+        # confirmed speakers that produces are one decision — may this caller
+        # act on this unit's CBA handoff — against the identical `org_unit`
+        # resource, so a widening reaches both or neither.
+        "_authorize_handoff",
     ):
         assert_allowed(
             resolved.principal,
