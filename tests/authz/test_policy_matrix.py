@@ -6660,15 +6660,30 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_outreach",
         "_authorize_pipeline",
         "_authorize_invite_read",
-        # The eleventh and twelfth names (`routers/speaker_requests.py`), on
-        # the same terms as every one before them: load the unit, then make
-        # exactly this call against that row's path. Two names rather than one
-        # because they are two decisions — customer §12 admits the Event Host
-        # to the create, §13 admits only the Speaker Connector to the queue —
-        # and a shared helper taking the role set as an argument would make one
-        # call site the place both are widened from.
+        # The eleventh, twelfth and twenty-second names
+        # (`routers/speaker_requests.py`), on the same terms as every one before
+        # them: load the unit, then make exactly this call against that row's
+        # path. Three names rather than one because they are three decisions —
+        # customer §12 admits the Event Host to the create, §13 admits only the
+        # Speaker Connector to the queue, and OQ-CBA-014's closure admits only
+        # the Event Host to their own filings — and a shared helper taking the
+        # role set as an argument would make one call site the place all three
+        # are widened from.
+        #
+        # The third one's role set is *disjoint* from the second's rather than
+        # wider or narrower, which is the sharpest form of that argument this
+        # file holds: `{volunteer}` against `{admin, coordinator}`.
+        #
+        # What the third name's runner cannot express, and what therefore is not
+        # a policy decision: the host list returns only rows whose
+        # `filed_by_user_id` equals `principal.user_id`. `evaluate` has no
+        # concept of a self-scope, so that half is asserted over HTTP in
+        # `tests/contract/test_speaker_requests_api.py` — the division of labour
+        # `_authorize_invite_read` already uses. A permit here means "may call
+        # this route against this unit", never "and these rows are yours".
         "_authorize_speaker_request_create",
         "_authorize_speaker_request_read",
+        "_authorize_speaker_request_own_read",
         # The thirteenth (`routers/cba_contacts.py`), on the same terms. One
         # name for five operations, which is the `_authorize_outreach`
         # arrangement rather than the two-name split directly above it: all
