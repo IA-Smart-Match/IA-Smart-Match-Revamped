@@ -47,15 +47,24 @@ done, for reasons stated here rather than left in a commit message:
    worked around, and this is recorded rather than patched", and assigns the
    answer to the CBA product owner with the matching lead, alongside
    OQ-CBA-026.
+5. It would not change a pilot demo today in any case. The generator's own
+   match-run submission is still on the pre-CBA contract and is rejected before
+   any comparison is reached — see
+   :func:`test_the_pilot_generators_match_run_body_is_on_the_pre_cba_contract`,
+   which is a separate defect this file pins rather than fixes.
 """
 
 from __future__ import annotations
 
 import re
+import sys
+import uuid
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from smartmatch_api.pipeline_provisioning import _PROFESSIONAL_PROFILE_KEYS
+from smartmatch_api.routers.match_runs import MatchRunRequest
 from smartmatch_domain.factors.cba_semantic_topic import (
     NEUTRAL_TOPIC_POLICY_ID,
     SpeakerTopicEvidence,
@@ -145,6 +154,66 @@ def test_the_pilot_exercises_many_pairs_and_not_a_recordable_few():
         f"would hand-record a judgement for; got {len(topics)}"
     )
     assert len(descriptions) >= 5
+
+
+# ---------------------------------------------------------------------------
+# The nearer defect: the pilot generator cannot submit a CBA match run at all
+# ---------------------------------------------------------------------------
+
+
+def _generator_module():
+    """Import ``tools/generate_pilot_dataset.py``, which needs ``tools/`` on the path.
+
+    It does a bare ``from pilot_dataset_plan import ...`` rather than
+    ``from tools import ...``, so the package import alone is not enough. The
+    insertion is undone before returning so nothing else in the session sees a
+    widened path.
+    """
+    tools_dir = str(Path(__file__).resolve().parents[2] / "tools")
+    sys.path.insert(0, tools_dir)
+    try:
+        from tools import generate_pilot_dataset
+
+        return generate_pilot_dataset
+    finally:
+        if sys.path and sys.path[0] == tools_dir:
+            sys.path.pop(0)
+
+
+def test_the_pilot_generators_match_run_body_is_on_the_pre_cba_contract():
+    """``generate_pilot_dataset`` submits a body the CBA route no longer accepts.
+
+    This sits *in front of* OQ-CBA-061 and is a separate defect: before the
+    Topic factor can be wrong about a seeded speaker, a match run has to reach
+    it, and ``POST /v1/units/{unit_id}/match-runs`` now takes
+    ``speaker_request_id`` and ``candidate_subject_ids`` while
+    :func:`generate_pilot_dataset.match_run_body` still builds the pre-CBA shape
+    (a string ``event_need_id``, ``required_topics``, and candidates carrying
+    their own ``expertise_topics``). OQ-CBA-031 is why the body carries no
+    evidence any more.
+
+    Pinned rather than fixed here: the generator is outside this change's fence,
+    and the fix is a rewrite of its final phase — it must file a Speaker
+    Request, learn the ``speaker_profile.professional_id`` values the import
+    minted, and name those — not a field rename.
+    """
+    generator = _generator_module()
+    body = generator.match_run_body(
+        plan.build_professionals(5, seed=plan.DEFAULT_SEED),
+        tenant_id=uuid.uuid4(),
+        unit_id=uuid.uuid4(),
+        limit=5,
+        seed=plan.DEFAULT_SEED,
+    )
+
+    assert "speaker_request_id" not in body
+    assert "candidate_subject_ids" not in body
+
+    with pytest.raises(ValidationError) as raised:
+        MatchRunRequest.model_validate(body)
+
+    missing = {error["loc"][0] for error in raised.value.errors() if error["type"] == "missing"}
+    assert missing == {"speaker_request_id", "candidate_subject_ids"}
 
 
 # ---------------------------------------------------------------------------
