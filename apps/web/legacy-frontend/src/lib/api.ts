@@ -3500,3 +3500,179 @@ export async function fetchSpeakerContactChannels(
     { authenticated: true },
   );
 }
+
+// CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
+//
+// The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked
+// for a speaker, a Connector matched and invited one, and this is where the
+// Host is handed whoever agreed to come.
+//
+// Two properties of `routers/cba_handoff.py` decide what a caller may render,
+// and both are easy to lose in a refactor.
+//
+// **The Host is handed acceptances, and nothing about the people who did not
+// accept.** OQ-CBA-042 settles that narrowly and on purpose: an Event Host
+// learning that three named professionals turned them down learns a fact about
+// those people that nobody agreed to share. Neither shape below carries an
+// invitation answer, a count of them, or a batch total, and a caller must not
+// reconstruct one from another surface — the invitation tracking is the Speaker
+// Connector's by name.
+//
+// **Nothing here is asserted by the browser.** `SpeakerHandoffPayload` names an
+// invitation and, optionally, an attendance row; every funnel step and every
+// timestamp written is read out of those stored rows server-side. There is
+// deliberately nothing in the body for a browser to toggle.
+// ---------------------------------------------------------------------------
+
+/**
+ * One step of a speaker's funnel journey, beside the stored row that makes it
+ * true.
+ *
+ * `occurred_at` is the evidencing row's own timestamp — an invitation's
+ * `dispatched_at`, an attendance record's own clock — never a server reading
+ * taken when the handoff was reconciled. So rendering it as "when this
+ * happened" is honest, and rendering it as "when we recorded it" is not.
+ *
+ * Empty on the list surface, which reads stored rows rather than re-deriving
+ * the plan behind them. A caller must treat `[]` as "not reported here", never
+ * as "no evidence exists".
+ */
+export interface SpeakerHandoffStageEvidence {
+  stage: string;
+  /**
+   * Which kind of stored row supports it: `invitation_composed`,
+   * `invitation_dispatched`, `invitation_accepted` or `attendance_record`.
+   */
+  evidence: string;
+  occurred_at: string;
+}
+
+/**
+ * One confirmed speaker, as an Event Host is handed them.
+ *
+ * Carries no member-inquiry field, mirroring `ConfirmedSpeakerView`: the
+ * capability is off under `ProductScope.CBA` and the API honours that
+ * structurally rather than by filtering at the edge, so there is no field here
+ * for a surface to render by accident.
+ *
+ * The three identity fields are `null` when the tenant holds no
+ * `speaker_profile` for the id — an honest unknown, never a blank name standing
+ * in for one. The speaker is identified by `professional_id`; the name is for
+ * display and nothing is derived from it.
+ */
+export interface ConfirmedSpeaker {
+  record_id: string;
+  professional_id: string;
+  event_id: string;
+  full_name: string | null;
+  company: string | null;
+  title: string | null;
+  /** The furthest CBA step reached, derived server-side from the timestamps below. */
+  current_stage: string;
+  matched_at: string;
+  contacted_at: string | null;
+  confirmed_at: string;
+  attended_at: string | null;
+  attendance_id: string | null;
+  stages: SpeakerHandoffStageEvidence[];
+}
+
+/** The confirmed speakers a unit can hand its Event Hosts. */
+export interface ConfirmedSpeakerList {
+  unit_id: string;
+  /** The event this list was filtered to, or `null` when it covers the unit. */
+  event_id: string | null;
+  speakers: ConfirmedSpeaker[];
+}
+
+/**
+ * `GET /v1/units/{unit_id}/cba/confirmed-speakers` — who agreed to come.
+ *
+ * Speakers whose `confirmed_at` is set, ordered by it, so a Host reads them in
+ * the order they said yes. Optionally narrowed to one event.
+ *
+ * An empty `speakers` array means exactly one thing: nobody is confirmed. It is
+ * not a report about invitations and a caller must not explain it as one —
+ * "nobody has accepted yet" and "four people were asked" are different facts,
+ * and the second belongs to the Connector (OQ-CBA-042).
+ *
+ * `admin` and `coordinator` only, authorized per request against the loaded
+ * unit. A caller the server refuses gets {@link ApiRequestError} with status
+ * `403`, which is an answer to render rather than a state to hide.
+ */
+export async function fetchConfirmedSpeakers(
+  unitId: string,
+  eventId?: string,
+): Promise<ConfirmedSpeakerList> {
+  const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
+  return requestJson<ConfirmedSpeakerList>(
+    `/v1/units/${encodeURIComponent(unitId)}/cba/confirmed-speakers${query}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * What to reconcile: an invitation, and optionally the attendance a presented
+ * talk is cited from.
+ *
+ * There is no `stage` field and no `reached_at` field, and their absence is the
+ * contract rather than an omission. A request names a record that already says
+ * something happened; it cannot say so itself.
+ */
+export interface SpeakerHandoffPayload {
+  /**
+   * The `cba_invitation` whose stored answer is the evidence for Confirmed.
+   * Must belong to this unit, and must record an accepted invitation — an
+   * invitation carrying any other answer is a `409`, not a confirmation.
+   */
+  invitation_id: string;
+  /**
+   * The `attendance_record` an Attended journey cites. Optional: a speaker who
+   * has agreed but not yet presented is the ordinary state. It is cited here
+   * and never created here.
+   */
+  attendance_id?: string;
+}
+
+/**
+ * What the reconciliation wrote, and the speaker it leaves behind.
+ *
+ * `applied` is only the stages *this* request wrote, so a replay returns an
+ * empty array beside an unchanged speaker. "They are confirmed" and "this
+ * request confirmed them" stay separable, and a caller must render the
+ * distinction rather than reporting a write it did not cause.
+ */
+export interface SpeakerHandoffResult {
+  applied: string[];
+  speaker: ConfirmedSpeaker;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` — bring one
+ * speaker's journey up to whatever the stored evidence already supports.
+ *
+ * `200`, not `202`: the writes land in this request or they do not, and the
+ * speaker returned is read back through the same query the Host's own list
+ * uses. There is no `Idempotency-Key` — the operation is idempotent in the
+ * data, because every step and every timestamp derives from a stored row.
+ *
+ * Rejects with {@link ApiRequestError}: `404` when the invitation is not in this
+ * unit or the event not in this tenant; `409` when the invitation records no
+ * acceptance (`cba_invitation_not_accepted`), when the cited attendance is not
+ * this journey's, or when the stored timestamps cannot be ordered into the
+ * funnel; `403` when the server does not grant this account the operation.
+ * Render the server's own message — it says which of those happened.
+ */
+export async function reconcileSpeakerHandoff(
+  unitId: string,
+  eventId: string,
+  payload: SpeakerHandoffPayload,
+): Promise<SpeakerHandoffResult> {
+  return requestJson<SpeakerHandoffResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/cba/events/` +
+      `${encodeURIComponent(eventId)}/speaker-handoff`,
+    { method: "POST", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
