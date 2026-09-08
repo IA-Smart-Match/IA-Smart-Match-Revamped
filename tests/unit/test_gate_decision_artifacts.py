@@ -84,10 +84,23 @@ def test_g3_threat_model_names_required_controls_and_signoff() -> None:
 
 
 def test_d6_worksheet_retains_do_not_seed_warning() -> None:
-    """D6 worksheet must warn engineering not to seed placeholder catalog rows."""
+    """D6 worksheet must still refuse invented catalog values, seeded or not.
+
+    Until 7 September 2026 this asserted a literal "do not seed" — no operator
+    tool existed, so any seed was an invented one. The 7 September decision
+    (`docs/plans/open-questions/cba-phase-deferred.md`, "Decision taken
+    2026-09-07 — Rewards catalog seeding", recorded beside D6 rather than by
+    editing it) authorized exactly one seeding path: an operator tool whose
+    every value is owner-supplied, with no default. So "do not seed" is no
+    longer the true rule; "do not *invent*" still is, and is what this test
+    pins now — together with the worksheet still pointing at the one
+    authorized command, so a reader cannot mistake this for an open door to
+    any other writer.
+    """
     text = D6_WORKSHEET.read_text(encoding="utf-8").lower()
-    assert "do not seed" in text
     assert "human completion required" in text
+    assert "must not invent" in text
+    assert "make seed-pilot-rewards" in text
 
 
 def test_d6_worksheet_names_required_catalog_and_calibration_fields() -> None:
