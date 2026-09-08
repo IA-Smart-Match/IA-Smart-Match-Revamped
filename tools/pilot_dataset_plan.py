@@ -41,9 +41,23 @@ behaviour completely — the demo would look full and would prove nothing. So a
 fixed fraction of this plan carries no evidence *on purpose*:
 :data:`UNKNOWN_TOPIC_SHARE` of professionals have no expertise record at all
 (``topics=None``, which is not ``()``), :data:`UNKNOWN_LOCATION_SHARE` have no
-coordinates, and :data:`UNRESOLVED_EVENT_SHARE` of events have no resolvable
-date (ADR-0010 ``unresolved``). :func:`plan_summary` reports those fractions so
-a run can say out loud how much of what it wrote is deliberately unmeasured.
+coordinates, :data:`UNCLASSIFIED_INDUSTRY_SHARE` and
+:data:`UNCLASSIFIED_ROLE_SHARE` have no §7/§8 classification on one axis or the
+other, and :data:`UNRESOLVED_EVENT_SHARE` of events have no resolvable date
+(ADR-0010 ``unresolved``). :func:`plan_summary` reports those fractions so a run
+can say out loud how much of what it wrote is deliberately unmeasured.
+
+Where the classification codes come from
+----------------------------------------
+:attr:`ProfessionalPlan.industry_code` and :attr:`ProfessionalPlan.role_code`
+are drawn from the **released** taxonomies —
+``smartmatch_domain.naics_sectors.SECTOR_CODES`` (customer §7) and
+``smartmatch_domain.cba_role_categories.ROLE_CATEGORY_CODES`` (§8) — imported
+rather than restated. A second copy of those lists here would drift, and a code
+this module invented would be dropped by
+``smartmatch_api.pipeline_provisioning._stated_code`` on the way in: the
+professional would arrive unclassified, §19 would hold them out of every pool,
+and the plan would have no way to know it had happened.
 """
 
 from __future__ import annotations
@@ -53,6 +67,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Final
+
+from smartmatch_domain.cba_role_categories import ROLE_CATEGORY_CODES
+from smartmatch_domain.naics_sectors import SECTOR_CODES
 
 __all__ = [
     "CALENDAR_ANCHOR",
@@ -96,6 +113,22 @@ UNKNOWN_TOPIC_SHARE: Final[float] = 0.12
 #: Share of professionals with no coordinates on file, so ``travel_burden`` is
 #: unknown for them for the opposite reason.
 UNKNOWN_LOCATION_SHARE: Final[float] = 0.10
+
+#: Share of professionals whose export states no customer §7 sector, and share
+#: whose export states no §8 role category. Two shares rather than one, drawn
+#: independently, because the two axes really do arrive separately: §18 says the
+#: source data "is scattered across multiple people and systems", and a contact
+#: whose sector is known and whose role is not is the ordinary case rather than
+#: a corner one.
+#:
+#: These are the states customer §19 opens with — a contact is recorded first
+#: and classified afterwards — and they are the reason a generated run reports
+#: ``industry_classification_missing`` / ``role_classification_missing`` against
+#: some of its named candidates. Set either to zero and that reporting becomes
+#: unreachable from generated data, which is the demo losing an honest state
+#: rather than gaining a fuller shortlist.
+UNCLASSIFIED_INDUSTRY_SHARE: Final[float] = 0.15
+UNCLASSIFIED_ROLE_SHARE: Final[float] = 0.08
 
 #: Share of events whose date cannot be resolved (ADR-0010 ``unresolved``).
 #: These have no identity key, never publish, and are withheld from the
@@ -307,9 +340,17 @@ class ProfessionalPlan:
     """One planned professional, with the evidence it does and does not carry.
 
     ``topics`` is ``None`` when this professional has **no expertise record at
-    all**, which is a different claim from an empty tuple and is carried
-    through to the match-run contract's own ``expertise_topics`` as ``null``
-    rather than ``[]``. ``location`` is ``None`` on the same terms.
+    all**, which is a different claim from an empty tuple: it becomes an absent
+    ``expertise_tags`` cell in the import, and therefore a NULL
+    ``speaker_profile.topic_text`` rather than an empty one. ``location`` is
+    ``None`` on the same terms.
+
+    ``industry_code`` and ``role_code`` are customer §7's and §8's codes as this
+    professional's export states them, and ``None`` means the export states
+    nothing on that axis. They are **not** a classification: an import states a
+    value, a Speaker Connector reviews it, and only a reviewed value makes
+    somebody match-eligible (§19). Nothing in this module decides that; see
+    ``tools/generate_pilot_dataset.py::reviews_classification``.
     """
 
     index: int
@@ -319,6 +360,8 @@ class ProfessionalPlan:
     region: str
     topics: tuple[str, ...] | None
     location: tuple[float, float] | None
+    industry_code: str | None
+    role_code: str | None
 
     @property
     def initials(self) -> str:
@@ -382,6 +425,7 @@ class PlanSummary:
     professionals: int
     professionals_without_topics: int
     professionals_without_location: int
+    professionals_without_classification: int
     events: int
     events_unresolved: int
     events_quarantined: int
@@ -420,6 +464,13 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
     and one declaring a rare topic finds few — which is what makes a shortlist's
     scores actually differ from one another.
 
+    Classification evidence is uneven on the same principle and on its own
+    random stream, so adding it did not move a single topic, region or name in
+    any previously generated plan. :data:`UNCLASSIFIED_INDUSTRY_SHARE` state no
+    sector and :data:`UNCLASSIFIED_ROLE_SHARE` state no role category; the rest
+    are drawn from the released §7/§8 taxonomies, weighted toward the head of
+    each so a Speaker Request's targets actually find people.
+
     Raises:
         ValueError: ``count`` is negative, or exceeds the number of distinct
             names this module can produce.
@@ -439,6 +490,7 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
     topic_rng = _rng(seed, "professional-topics")
     place_rng = _rng(seed, "professional-places")
     org_rng = _rng(seed, "professional-orgs")
+    code_rng = _rng(seed, "professional-classification")
 
     planned: list[ProfessionalPlan] = []
     for index in range(count):
@@ -462,6 +514,22 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
 
         location = None if place_rng.random() < UNKNOWN_LOCATION_SHARE else (latitude, longitude)
 
+        # Weighted the same way the topics are, and for the same reason: a
+        # uniform draw over twenty sectors would give a Speaker Request's target
+        # a handful of matches in a roster of sixty and flatten the §7 factor
+        # into noise. A triangular draw makes a few sectors common, which is
+        # also what a real alumni roster looks like.
+        industry_code = (
+            None
+            if code_rng.random() < UNCLASSIFIED_INDUSTRY_SHARE
+            else SECTOR_CODES[int(code_rng.triangular(0, len(SECTOR_CODES) - 1, 0))]
+        )
+        role_code = (
+            None
+            if code_rng.random() < UNCLASSIFIED_ROLE_SHARE
+            else ROLE_CATEGORY_CODES[int(code_rng.triangular(0, len(ROLE_CATEGORY_CODES) - 1, 0))]
+        )
+
         planned.append(
             ProfessionalPlan(
                 index=index,
@@ -471,6 +539,8 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
                 region=region,
                 topics=topics,
                 location=location,
+                industry_code=industry_code,
+                role_code=role_code,
             )
         )
     return tuple(planned)
@@ -601,6 +671,9 @@ def plan_summary(
         professionals=len(professionals),
         professionals_without_topics=sum(1 for p in professionals if p.topics is None),
         professionals_without_location=sum(1 for p in professionals if p.location is None),
+        professionals_without_classification=sum(
+            1 for p in professionals if p.industry_code is None or p.role_code is None
+        ),
         events=len(events),
         events_unresolved=sum(1 for e in events if not e.resolved),
         events_quarantined=sum(1 for e in events if e.off_vocabulary_tags),

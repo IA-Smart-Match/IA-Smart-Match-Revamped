@@ -47,11 +47,22 @@ done, for reasons stated here rather than left in a commit message:
    worked around, and this is recorded rather than patched", and assigns the
    answer to the CBA product owner with the matching lead, alongside
    OQ-CBA-026.
-5. It would not change a pilot demo today in any case. The generator's own
-   match-run submission is still on the pre-CBA contract and is rejected before
-   any comparison is reached — see
-   :func:`test_the_pilot_generators_match_run_body_is_on_the_pre_cba_contract`,
-   which is a separate defect this file pins rather than fixes.
+5. *Superseded on 7 September 2026, and left standing so the record reads
+   honestly.* As written on 6 September this said: "It would not change a pilot
+   demo today in any case. The generator's own match-run submission is still on
+   the pre-CBA contract and is rejected before any comparison is reached." That
+   was true then and it is false now — TRACK 17 rewrote the generator's final
+   phase, and a generated run submits, scores, and reaches the §9 comparison.
+   See :func:`test_the_pilot_generators_match_run_body_is_on_the_cba_contract`,
+   which is that same assertion inverted.
+
+   **This strengthens reasons 1-4 rather than weakening them.** The demo now
+   reaches the comparison and the comparison is unavailable, so the defect this
+   file records is no longer hypothetical: on a live appliance, 56 of 100 named
+   candidates were evaluated and came back unscorable, every one of them on
+   ``cba_semantic_topic: unknown``. A recorded corpus is still not the remedy,
+   for reasons 1-4 unchanged; what has changed is that the cost is now visible
+   on screen rather than hidden behind a rejected submission.
 """
 
 from __future__ import annotations
@@ -62,7 +73,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 from smartmatch_api.pipeline_provisioning import _PROFESSIONAL_PROFILE_KEYS
 from smartmatch_api.routers.match_runs import MatchRunRequest
 from smartmatch_domain.factors.cba_semantic_topic import (
@@ -157,7 +167,7 @@ def test_the_pilot_exercises_many_pairs_and_not_a_recordable_few():
 
 
 # ---------------------------------------------------------------------------
-# The nearer defect: the pilot generator cannot submit a CBA match run at all
+# The nearer defect, since fixed: the generator's own match-run submission
 # ---------------------------------------------------------------------------
 
 
@@ -180,40 +190,55 @@ def _generator_module():
             sys.path.pop(0)
 
 
-def test_the_pilot_generators_match_run_body_is_on_the_pre_cba_contract():
-    """``generate_pilot_dataset`` submits a body the CBA route no longer accepts.
+def test_the_pilot_generators_match_run_body_is_on_the_cba_contract():
+    """``generate_pilot_dataset`` submits a body the CBA route accepts.
 
-    This sits *in front of* OQ-CBA-061 and is a separate defect: before the
-    Topic factor can be wrong about a seeded speaker, a match run has to reach
-    it, and ``POST /v1/units/{unit_id}/match-runs`` now takes
-    ``speaker_request_id`` and ``candidate_subject_ids`` while
-    :func:`generate_pilot_dataset.match_run_body` still builds the pre-CBA shape
-    (a string ``event_need_id``, ``required_topics``, and candidates carrying
-    their own ``expertise_topics``). OQ-CBA-031 is why the body carries no
-    evidence any more.
+    **Inverted on 7 September 2026, not deleted.** As written on 6 September this
+    was ``..._is_on_the_pre_cba_contract`` and asserted the opposite: that
+    :func:`generate_pilot_dataset.match_run_body` built the pre-CBA shape (a
+    string ``event_need_id``, ``required_topics``, and candidates carrying their
+    own ``expertise_topics``) and raised two ``missing`` errors against
+    :class:`MatchRunRequest`. That was true, and it was a defect — pinned here
+    rather than fixed because the generator sat outside that change's fence.
+    TRACK 17 rewrote the generator's final phase and closed it, so the assertion
+    is turned around rather than dropped: the property under guard is the same
+    one watched from the other side, and a regression to the pre-CBA shape must
+    still fail somewhere.
 
-    Pinned rather than fixed here: the generator is outside this change's fence,
-    and the fix is a rewrite of its final phase — it must file a Speaker
-    Request, learn the ``speaker_profile.professional_id`` values the import
-    minted, and name those — not a field rename.
+    Why it stays in *this* file and not only in
+    ``tests/unit/test_pilot_generator_match_run.py``: paragraph 5 of the module
+    docstring above used to argue that recording fixture comparisons "would not
+    change a pilot demo today in any case", because the submission was rejected
+    before any comparison was reached. That argument is now void — the run
+    submits, scores, and drops most of its pool on the §9 factor — and this test
+    is what fails if the submission ever breaks again and quietly restores the
+    old excuse.
+
+    OQ-CBA-031 is why the body carries no evidence: the server assembles every
+    scored fact from this tenant's own rows, so there is no field here in which a
+    caller could state a speaker's expertise.
     """
     generator = _generator_module()
+    request_id = uuid.uuid4()
+    candidates = (uuid.uuid4(), uuid.uuid4())
+
     body = generator.match_run_body(
-        plan.build_professionals(5, seed=plan.DEFAULT_SEED),
-        tenant_id=uuid.uuid4(),
-        unit_id=uuid.uuid4(),
-        limit=5,
+        speaker_request_id=request_id,
+        candidate_subject_ids=candidates,
         seed=plan.DEFAULT_SEED,
     )
 
-    assert "speaker_request_id" not in body
-    assert "candidate_subject_ids" not in body
+    assert "speaker_request_id" in body
+    assert "candidate_subject_ids" in body
 
-    with pytest.raises(ValidationError) as raised:
-        MatchRunRequest.model_validate(body)
+    validated = MatchRunRequest.model_validate(body)
+    assert validated.speaker_request_id == request_id
+    assert validated.candidate_subject_ids == list(candidates)
 
-    missing = {error["loc"][0] for error in raised.value.errors() if error["type"] == "missing"}
-    assert missing == {"speaker_request_id", "candidate_subject_ids"}
+    # The other half of OQ-CBA-031, and the half a field rename alone would have
+    # satisfied: no evidence of any kind travels in the body.
+    for banned in ("event_need_id", "required_topics", "expertise_topics", "candidates"):
+        assert banned not in body
 
 
 # ---------------------------------------------------------------------------
