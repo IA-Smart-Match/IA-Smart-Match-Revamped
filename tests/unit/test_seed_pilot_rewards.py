@@ -26,10 +26,10 @@ import pytest
 # import shape the script never runs under.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-import seed_pilot_rewards  # noqa: E402
-from seed_pilot import SeedConflictError  # noqa: E402
-from smartmatch_api.config import Settings  # noqa: E402
-from smartmatch_providers import Edition  # noqa: E402
+import seed_pilot_rewards
+from seed_pilot import SeedConflictError
+from smartmatch_api.config import Settings
+from smartmatch_providers import Edition
 
 
 class _Result:
@@ -67,7 +67,16 @@ REQUIRED_FLAGS = (
     ["--name", "x", "--fulfilment-cost", "0", "--budget-owner-subject", "sub", "--funded"],
     ["--name", "x", "--points-cost", "1", "--budget-owner-subject", "sub", "--funded"],
     ["--name", "x", "--points-cost", "1", "--fulfilment-cost", "0", "--funded"],
-    ["--name", "x", "--points-cost", "1", "--fulfilment-cost", "0", "--budget-owner-subject", "sub"],
+    [
+        "--name",
+        "x",
+        "--points-cost",
+        "1",
+        "--fulfilment-cost",
+        "0",
+        "--budget-owner-subject",
+        "sub",
+    ],
 )
 
 
@@ -136,9 +145,7 @@ def test_funded_and_unfunded_are_mutually_exclusive_and_one_is_required():
 
 def test_main_checks_settings_before_touching_the_database(monkeypatch: pytest.MonkeyPatch):
     events: list[str] = []
-    monkeypatch.setattr(
-        seed_pilot_rewards, "Settings", lambda: Settings(edition=Edition.STAGING)
-    )
+    monkeypatch.setattr(seed_pilot_rewards, "Settings", lambda: Settings(edition=Edition.STAGING))
     monkeypatch.setattr(
         seed_pilot_rewards,
         "create_db_engine",
@@ -176,15 +183,15 @@ def test_main_acquires_the_lock_before_seeding(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         seed_pilot_rewards, "create_db_engine", lambda url: events.append(url) or engine
     )
-    monkeypatch.setattr(
-        seed_pilot_rewards, "acquire_seed_lock", lambda conn: events.append("lock")
-    )
+    monkeypatch.setattr(seed_pilot_rewards, "acquire_seed_lock", lambda conn: events.append("lock"))
     monkeypatch.setattr(
         seed_pilot_rewards,
         "seed_reward_item",
-        lambda conn, **kwargs: events.append("seed")
-        or seed_pilot_rewards.SeedRewardOutcome(
-            created=True, item_id=ITEM_ID, satisfies_calibration=True
+        lambda conn, **kwargs: (
+            events.append("seed")
+            or seed_pilot_rewards.SeedRewardOutcome(
+                created=True, item_id=ITEM_ID, satisfies_calibration=True
+            )
         ),
     )
 

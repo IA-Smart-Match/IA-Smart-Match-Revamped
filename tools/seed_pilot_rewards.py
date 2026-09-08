@@ -126,9 +126,7 @@ def _tenant_id(connection: Connection, *, tenant_slug: str) -> uuid.UUID:
     return uuid.UUID(str(row.id))
 
 
-def _budget_owner_id(
-    connection: Connection, *, tenant_id: uuid.UUID, subject: str
-) -> uuid.UUID:
+def _budget_owner_id(connection: Connection, *, tenant_id: uuid.UUID, subject: str) -> uuid.UUID:
     row = connection.execute(
         sa.select(schema.user_account.c.id, schema.user_account.c.tenant_id).where(
             schema.user_account.c.external_subject == subject
@@ -171,7 +169,9 @@ def seed_reward_item(
             or ``funded``.
     """
     tenant_id = _tenant_id(connection, tenant_slug=tenant_slug)
-    budget_owner_id = _budget_owner_id(connection, tenant_id=tenant_id, subject=budget_owner_subject)
+    budget_owner_id = _budget_owner_id(
+        connection, tenant_id=tenant_id, subject=budget_owner_subject
+    )
 
     existing = connection.execute(
         sa.select(
@@ -216,7 +216,8 @@ def seed_reward_item(
     return SeedRewardOutcome(
         created=created,
         item_id=item_id,
-        satisfies_calibration=points_cost <= CALIBRATION_N_TENTATIVE * POINTS_PER_VERIFIED_ATTENDANCE,
+        satisfies_calibration=points_cost
+        <= CALIBRATION_N_TENTATIVE * POINTS_PER_VERIFIED_ATTENDANCE,
     )
 
 

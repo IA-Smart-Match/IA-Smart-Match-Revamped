@@ -1437,8 +1437,7 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
     if response.status_code == 409:
         code = json_body(response)["error"]["code"]
         assert code in {"balance_unknown", "insufficient_balance"}, (
-            f"a redemption request refused with an unexpected code {code!r}: "
-            f"{response.text[:300]}"
+            f"a redemption request refused with an unexpected code {code!r}: {response.text[:300]}"
         )
         pytest.skip(
             f"a funded reward item exists, but the student's balance does not "
@@ -1453,8 +1452,7 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
     )
     requested = json_body(response)
     assert requested["state"] == "requested", (
-        f"a freshly opened redemption reported state={requested['state']!r}, "
-        "not 'requested'"
+        f"a freshly opened redemption reported state={requested['state']!r}, not 'requested'"
     )
 
     decision = api.post(
