@@ -18,6 +18,28 @@ to volunteer_fatigue in service.py — so there was no single mapping to carry
 forward. The closed-enum redesign is defensible, but it is a replacement;
 calling it retention hid the decision. See MM-005 ``behavior_replaced``.
 
+Corrected 7 September 2026. The replacement mapping named factors this
+repository does not score with. ``topic_relevance`` and ``travel_burden`` were
+retired by OQ-CBA-027 and OQ-CBA-025 when the registry moved to
+``2.0.0-approved-oq-cba-004``; ``role_fit``, ``engagement_load`` and
+``repeat_penalty`` never existed here at all; and ``availability`` is a Stage A
+eligibility filter whose weight is fixed at zero. ``REASON_TO_FACTOR`` now
+resolves its targets by importing the key constants from the factor modules
+that define them, and ``tests/unit/test_feedback.py`` pins every target to
+``factor_registry.implemented_scoring_keys()`` so the next retirement fails a
+test instead of stranding the map again. Four reasons map to ``None``, which is
+a statement that no current factor describes them — see the note on
+``REASON_TO_FACTOR`` for each. No weight, no registry version and no behaviour
+changed: nothing consumes this module.
+
+**This module is unwired, and that is deliberate.** OQ-CBA-032's closure
+(``docs/plans/open-questions/cba-phase-deferred.md``) rests on it: "Nothing in
+this repository consumes those proposals", and its obligation reads "Do not add
+an advisory shadow run, a stored evaluation record, or a 'validated' flag on a
+weight set without reopening this." A corrected map is not an invitation to
+wire it up; importing this module from a route or a worker reopens a closed
+decision.
+
 Rejected: the Streamlit imports and ``render_*`` functions (presentation in a
 domain module); ``st.session_state`` as authoritative storage; the CSV/JSONL
 append in ``_persist_to_csv`` (business writes to repository-local files are
@@ -43,6 +65,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, final
+
+from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
+from smartmatch_domain.factors.proximity import CBA_PROXIMITY_FACTOR_KEY
+from smartmatch_domain.factors.role_match import ROLE_MATCH_FACTOR_KEY
 
 __all__ = [
     "MAX_FACTOR_DELTA",
@@ -103,16 +129,45 @@ class DeclineReason(StrEnum):
     OTHER = "other"
 
 
-#: Which factor a decline reason implicates. ``OTHER`` maps to nothing on
-#: purpose — an uncategorized decline must not move any weight.
+#: Which factor a decline reason implicates, resolved by importing each key
+#: from the factor module that defines it rather than by repeating a string.
+#: Every non-``None`` target is an active Stage B scoring key of the
+#: ``2.0.0-approved-oq-cba-004`` registry, and
+#: ``tests/unit/test_feedback.py`` asserts that against
+#: :func:`smartmatch_domain.factor_registry.implemented_scoring_keys` so a
+#: retirement cannot strand this map the way OQ-CBA-027 and OQ-CBA-025 once
+#: did.
+#:
+#: Four reasons map to nothing, and the ``None`` is the honest answer rather
+#: than a gap waiting to be filled:
+#:
+#: * ``OTHER`` — an uncategorized decline says something is wrong, not which
+#:   factor; it must not move any weight.
+#: * ``UNAVAILABLE`` — ``availability`` is in the registry, but as an
+#:   ``ELIGIBILITY`` factor with ``proposed_weight=0.0``: a Stage A filter, not
+#:   a Stage B scorer. It has no weight to move, and proposing a delta against
+#:   it would be a number nothing could apply.
+#: * ``OVERCOMMITTED`` and ``RECENTLY_ENGAGED`` — no factor in the registry
+#:   measures a speaker's engagement load or how recently they were engaged.
+#:   The registry never reuses a key for a different meaning, so neither can be
+#:   folded onto ``role_match`` or ``proximity``; and OQ-CBA-040 records that a
+#:   decline is "recorded, never scored", so inventing a target for these two
+#:   would be exactly the signal that decision bars. Adding a factor to satisfy
+#:   the map is a registry version bump and an approver's signature, not a
+#:   correction to this module.
+#:
+#: No ``WRONG_INDUSTRY`` reason is added for the fourth active scoring key,
+#: ``industry_match``: ``DeclineReason`` is the closed seven-member vocabulary
+#: finding F-18 recorded as a *replacement*, and widening it is a vocabulary
+#: change MM-005 would have to record. It is a follow-up, not this correction.
 REASON_TO_FACTOR: Final[Mapping[DeclineReason, str | None]] = MappingProxyType(
     {
-        DeclineReason.WRONG_TOPIC: "topic_relevance",
-        DeclineReason.WRONG_ROLE: "role_fit",
-        DeclineReason.TOO_FAR: "travel_burden",
-        DeclineReason.UNAVAILABLE: "availability",
-        DeclineReason.OVERCOMMITTED: "engagement_load",
-        DeclineReason.RECENTLY_ENGAGED: "repeat_penalty",
+        DeclineReason.WRONG_TOPIC: CBA_SEMANTIC_TOPIC_FACTOR_KEY,
+        DeclineReason.WRONG_ROLE: ROLE_MATCH_FACTOR_KEY,
+        DeclineReason.TOO_FAR: CBA_PROXIMITY_FACTOR_KEY,
+        DeclineReason.UNAVAILABLE: None,
+        DeclineReason.OVERCOMMITTED: None,
+        DeclineReason.RECENTLY_ENGAGED: None,
         DeclineReason.OTHER: None,
     }
 )
