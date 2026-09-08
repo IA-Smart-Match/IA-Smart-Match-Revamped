@@ -1211,6 +1211,30 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The attendance write (OQ-102's closure). Its own authorizer and its own
+    # role-set constant, for the reason the engagement read above gives: the two
+    # sets agree today, and a widening of the read is not a reason to widen a
+    # write that mints points.
+    #
+    # `{admin, coordinator}` because OQ-102's closure names the coordinator as
+    # the writer of record: unit record-keeping is what a coordinator is
+    # accountable for, and of the three candidate writers that question listed
+    # — a scanner, a roster upload, the coordinator — only the third exists.
+    # No `tenant_wide_roles`: an attendance row carries its own
+    # `owning_unit_id`, so a sibling department's admin is refused by ordinary
+    # containment exactly as the summary above refuses them.
+    Operation(
+        key="attendance.record",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/attendance",
+        module="smartmatch_api.routers.attendance",
+        authorizer="_authorize_attendance_write",
+        roles_constant="_ATTENDANCE_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two Speaker Request operations (card ``CBA-EVENT-REQUEST``). They do
     # **not** share one authorizer, unlike the two event reads above, and the
     # split is the decision rather than an accident of layout.
@@ -4259,6 +4283,83 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; what is left is a deny on the unit",
         ),
     },
+    # The attendance write. The same rectangle as the engagement read below —
+    # the same roles, the same resource, no tenant-wide reach — and the
+    # sameness is the point: reading how much evidence a unit holds and writing
+    # a new piece of it are one accountability, and no cell differs. What
+    # differs is the consequence, which is why the role set is its own constant.
+    "attendance.record": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "OQ-102's closure: the coordinator is the writer of record for "
+                "this unit's attendance. Containment is inclusive, so the "
+                "membership's own path covers the unit"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "an `attendance_record` carries its own `owning_unit_id`, so "
+                "writing one is a statement about this department's evidence "
+                "and a sibling department's coordinator does not cover it"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "no `tenant_wide_roles` is passed. The ratified metrics "
+                "decision's §4 widens *aggregate reads* for an admin, and this "
+                "is neither an aggregate nor a read"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell, and the one that matters most here: a "
+                "student who could record their own attendance could mint "
+                "their own points, because ADR-0013 makes attendance the only "
+                "input to them. That is precisely the exposure OQ-102 named "
+                "before it was closed"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "an Event Host files a Speaker Request (§12) and is told "
+                "nothing else about the unit; asserting who was present at an "
+                "event is not among the acts §12 or §13 give them"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
     # The R2 engagement read. Shaped like `events.read` rather than like the
     # rewards rows: the surface is a coordinator's account of their own unit's
     # record-keeping, so the roles are `{admin, coordinator}` and the student
@@ -6770,7 +6871,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_outreach",
         "_authorize_pipeline",
         "_authorize_invite_read",
-        # The eleventh, twelfth and twenty-second names
+        # The eleventh, twelfth and twenty-fourth names
         # (`routers/speaker_requests.py`), on the same terms as every one before
         # them: load the unit, then make exactly this call against that row's
         # path. Three names rather than one because they are three decisions —
@@ -6778,7 +6879,11 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # Speaker Connector to the queue, and OQ-CBA-014's closure admits only
         # the Event Host to their own filings — and a shared helper taking the
         # role set as an argument would make one call site the place all three
-        # are widened from.
+        # are widened from. The third one is numbered after the twenty-third
+        # (`_authorize_attendance_write`, `routers/attendance.py`, added later)
+        # rather than immediately after the twelfth, because it was named after
+        # that count was already fixed; nothing about its place in this tuple,
+        # next to its two siblings, depends on the number.
         #
         # The third one's role set is *disjoint* from the second's rather than
         # wider or narrower, which is the sharpest form of that argument this
@@ -6897,6 +7002,24 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # able to move apart, and a single name would make one widening reach
         # both sides of that subtraction at once.
         "_authorize_unit_feedback_summary_read",
+        # The twenty-third (`routers/attendance.py`), on the same terms as
+        # every name before it: load the unit, then make exactly this call
+        # against that row's path with `_ATTENDANCE_WRITE_ROLES`.
+        #
+        # Its own name and its own constant even though `_ENGAGEMENT_READ_ROLES`
+        # holds the same two roles today, and here the usual rule is doing real
+        # work rather than being observed for form: reading how much attendance
+        # evidence a unit holds and *creating* a piece of it differ in
+        # consequence, because an `attendance_record` is the only input to
+        # points (ADR-0013). A widening of the summary must not be able to widen
+        # the writer by sharing its set.
+        #
+        # The event-host and subject-tenancy checks the route makes afterwards
+        # are not policy decisions and could not be ones — `evaluate` has no
+        # concept of which unit hosts an event — and are asserted over HTTP in
+        # `tests/contract/test_attendance_api.py`, the division of labour
+        # `_authorize_invite_read` already uses.
+        "_authorize_attendance_write",
     ):
         assert_allowed(
             resolved.principal,

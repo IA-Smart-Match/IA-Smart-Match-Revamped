@@ -58,11 +58,15 @@ Advancing a journey that exists is a different act from deciding one should
 exist, and the second is the matching engine's (G1) or the coordinator-accept
 path's.
 
-**No attendance writer.** The Attended stage *cites* an ``attendance_record``; it
-does not create one. ``ck_pipeline_record_attendance_evidence`` makes the citation
-biconditional and ``advance_stage`` checks the row exists in this tenant before
-the ``UPDATE``, so a journey cannot reach Attended on evidence that is not there.
-OQ-102 carries who eventually writes those rows.
+**No attendance writer here.** The Attended stage *cites* an
+``attendance_record`` written by ``routers/attendance.py``; this router never
+creates one, and that separation is unchanged now that a writer exists.
+``ck_pipeline_record_attendance_evidence`` makes the citation biconditional and
+``advance_stage`` checks the row exists in this tenant before the ``UPDATE``, so
+a journey cannot reach Attended on evidence that is not there. OQ-102 asked who
+writes those rows; it was closed on 7 September 2026 by Danny Tran, program
+owner of record — the coordinator does, through ``POST
+/v1/units/{unit_id}/events/{event_id}/attendance``.
 
 **No calendar integration.** Confirmed is a coordinator's claim here and the
 route never pretends otherwise — there is no poller and no webhook. OQ-101 carries

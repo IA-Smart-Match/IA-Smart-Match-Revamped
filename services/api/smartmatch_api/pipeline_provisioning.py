@@ -43,7 +43,12 @@ docstring for the full argument). Item 3's attendance writer is deliberately
 Matched stage from a review-accept — ``AttendanceRepository`` exists for the
 demo seed flow (Card 7), a separate caller with a separate authorization
 clause, and wiring it in here would be this module reaching for authority
-item 3 grants to a different caller.
+item 3 grants to a different caller. That writer is no longer uncalled from
+the API — ``routers/attendance.py`` calls it under OQ-102's closure of
+7 September 2026, on the owner's later authority rather than item 3's — and
+this module still does not, for the reason above: a review-accept is a
+coordinator deciding to pursue somebody, not a statement that anybody was
+present.
 
 ## ``matched_at`` is a coordinator's acceptance, never a computed fit
 

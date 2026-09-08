@@ -13,3 +13,7 @@ ortools>=9.14,<10
 # RS256 JWT signature verification on the API side. A vetted implementation,
 # so the verifier never hand-rolls PKCS#1 v1.5 modular arithmetic.
 cryptography>=45,<51
+# ADR-0017: array arithmetic for the offline, in-process embedding provider
+# behind smartmatch_providers.topic_semantics. Already locked transitively via
+# ortools; declared directly because smartmatch_providers now imports it.
+numpy>=2.0,<3

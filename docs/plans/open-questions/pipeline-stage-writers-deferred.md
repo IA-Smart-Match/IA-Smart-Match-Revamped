@@ -68,8 +68,60 @@ tolerance for a wrong row is a program decision, not a technical one.
 the `UPDATE`, backed by `ck_pipeline_record_attendance_evidence`. A journey
 therefore cannot reach Attended without a real attendance row already existing,
 whoever eventually writes it. The synthetic pilot path
-(`tests/integration/test_synthetic_attendance_writer.py`) remains the only
-writer, and it is not a production one.
+(`tests/integration/test_synthetic_attendance_writer.py`) was for a time the
+only writer, and it was not a production one. The paragraph below supersedes
+that last sentence; the rest of the safe default still stands, because the
+Attended stage still only ever cites.
+
+**Decided 7 September 2026 by Danny Tran, program owner of record.** The
+**coordinator** writes `attendance_record`, through `POST
+/v1/units/{unit_id}/events/{event_id}/attendance`
+(`services/api/smartmatch_api/routers/attendance.py`), gated to `{admin,
+coordinator}` and scoped to the unit in the path. `method` is fixed server-side
+to `coordinator_entry` and the request has no field for it: the route *is* a
+coordinator's entry, and a caller-chosen `qr_scan` would claim a scanner nobody
+used while `import` would claim a batch that never ran. There is no
+`recorded_at` either — `created_at` is the server default and the Attended stage
+reads that column, so presence cannot be backdated. The subject may be any
+`user_account` in the tenant, student or speaker, because the CBA hand-off cites
+a row whose subject is the speaker.
+
+Points are credited **on record**, in the same transaction, at
+`POINTS_PER_VERIFIED_ATTENDANCE` with `EARN_POLICY_RATIFIED` still `False`.
+That is ADR-0013's model rather than a new one — points derive from recorded
+attendance and nothing else — and nothing here promotes D7. Recording without
+crediting was rejected: it would leave every marked student's balance `unknown`
+forever, which is the honest report of a state this decision exists to stop
+creating.
+
+**What this decision does not authorize.** The **check-in scanner** and the
+**roster upload** — the other two candidate writers this question named — remain
+unbuilt, and B08's QR flow stays behind S11 and D8.
+`tests/unit/test_checkin_wiring.py` holds that structurally: the route's path
+carries none of its check-in markers, and the API composition root still never
+imports `smartmatch_domain.checkin`. Building either writer re-opens this row
+rather than inheriting its answer.
+
+**The exposure, stated rather than discovered later.** A coordinator can now
+assert that a named account was present at their unit's event, and that
+assertion mints 100 points for that account. The warning this question carried —
+a wrong row is a wrong reward — is live from here on. The compensating control
+is the append-only ledger: an `attendance_record` cannot be deleted (every
+foreign key to it is `RESTRICT`), so the correction for a wrong row is
+`RewardsRepository.record_reversal`, a withdrawing entry carrying its own
+`actor_id` and reason. A reversal, never a delete.
+
+**What was superseded, and what was not.** This exceeds item 3 of
+`docs/decisions/synthetic-pilot-development-authorization-2026-09-03.md` §4
+("minimal synthetic writer ... in demo seed flow"). That ratified document is
+**not** edited — a ratified record that quietly acquires a later exception stops
+being a record of what was ratified — and this paragraph is the later authority,
+recorded beside it, on the precedent OQ-CBA-032's closure set. The prohibition
+in `smartmatch_persistence/attendance.py`'s own docstring ("no route imports
+this repository, and none may") is retired in the same change as the code that
+retires it, as are the "No attendance writer" paragraphs in
+`routers/pipeline.py` and `routers/cba_handoff.py`; both routers still only
+cite.
 
 ## OQ-103 — what "member inquiry" means operationally (deferred, definition only)
 

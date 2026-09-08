@@ -266,7 +266,7 @@ def advance_journey(
                 subject_id=journey.subject_id,
                 event_id=journey.opportunity_event_id,
                 method=SYNTHETIC_ATTENDANCE_METHOD,
-            )
+            ).attendance_id
 
         outcome = pipeline_repo.advance_stage(
             session,

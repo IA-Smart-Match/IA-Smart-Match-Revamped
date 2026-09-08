@@ -1003,7 +1003,7 @@ def write_students(
                 subject_id=subject_id,
                 event_id=event_id,
                 method=SYNTHETIC_ATTENDANCE_METHOD,
-            )
+            ).attendance_id
             report.student_attendances += 1
             if not student.credited:
                 continue

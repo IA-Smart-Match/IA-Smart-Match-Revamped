@@ -46,6 +46,7 @@ from typing import Final
 
 __all__ = [
     "ATTENDANCE_METHODS",
+    "COORDINATOR_ENTRY_METHOD",
     "AttendanceSummary",
     "summarize_attendance",
 ]
@@ -64,6 +65,26 @@ __all__ = [
 #: one should silently widen the other").
 #: ``tests/unit/test_attendance_summary.py`` holds the two in step.
 ATTENDANCE_METHODS: Final[frozenset[str]] = frozenset({"qr_scan", "coordinator_entry", "import"})
+
+#: The mechanism a coordinator's own entry is recorded under —
+#: ``services/api/smartmatch_api/routers/attendance.py`` fixes
+#: ``attendance_record.method`` to this and offers no field for a caller to
+#: choose another.
+#:
+#: A separate constant from
+#: :data:`smartmatch_domain.synthetic_pilot.SYNTHETIC_ATTENDANCE_METHOD`, which
+#: happens to hold the same string. That one documents what the *synthetic seed*
+#: writes; this one documents what a *named coordinator* asserting presence
+#: writes. They are equal because both are honestly a coordinator's entry, not
+#: because one is the other's alias, and a later change to the seed's spelling
+#: must not silently change what the route claims about a real person.
+#:
+#: The value is one of :data:`ATTENDANCE_METHODS`, and deliberately not
+#: ``"qr_scan"`` — no scanner exists on this path — nor ``"import"``, which would
+#: claim a batch that never ran. The engagement summary reports a unit's evidence
+#: *by mechanism*, so the wrong member here is a false provenance a coordinator
+#: would then read back as fact.
+COORDINATOR_ENTRY_METHOD: Final[str] = "coordinator_entry"
 
 
 @dataclass(frozen=True, slots=True)
