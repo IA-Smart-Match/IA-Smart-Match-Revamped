@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   ClipboardList,
+  ListChecks,
   UserCheck,
   UserCircle,
   Briefcase,
@@ -26,6 +27,11 @@ const navigation = [
   // `admin`/`coordinator` server-side whatever this shell renders — the page
   // shows the refusal as an answer rather than hiding the control.
   { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
+  // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
+  // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
+  // server-side, and a different query from the Connector's queue, not a
+  // wider permit on it.
+  { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
   { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
   { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];

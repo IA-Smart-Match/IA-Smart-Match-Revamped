@@ -8,9 +8,9 @@
  * says plainly what it would have shown and where that would have come from
  * (`PortalDatasetUnavailable`).
  *
- * What *is* real on this page comes from four `/v1` routes and nothing else:
+ * What *is* real on this page comes from `/v1` routes and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
- * server granted them and the role and unit behind it, and the two reads the
+ * server granted them and the role and unit behind it, and the three reads the
  * statistics are drawn from. Neither identity route is derived in the browser,
  * and no identifier on this page is chosen by it.
  *
@@ -55,17 +55,39 @@
  * found none — a different claim, and the one ADR-0011 rule 1 exists to keep
  * apart from the first.
  *
- * ## What this surface cannot report, and says so
+ * ## Student feedback: a pooled aggregate, addendum 7 September 2026
  *
- * Student feedback has no unit-level aggregate anywhere in this API. The only
- * Connector read is per speaker
- * (`GET /v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary`), it is
- * aggregate-only by construction, and its suppression is the server's decision
- * carried in the response. So this page renders no feedback figure at all and
- * links to the page that does. Composing a unit-wide "average rating" here
- * would mean averaging aggregates in the browser — publishing a number no query
- * owns, out of values the server suppressed individually for anonymity.
+ * `GET /v1/units/{unit_id}/speaker-feedback-summary` is a second Connector
+ * feedback read, added under OQ-CBA-003's decision rather than widening it:
+ * one mean and one count over the whole unit's submitted ratings, suppressed
+ * below `minimum_responses` exactly like the per-speaker route. It is **not**
+ * a sum of the per-speaker aggregates computed here — a suppressed per-speaker
+ * summary contributes `null`, so a client-side fold would either undercount
+ * or republish what suppression withheld. It is one server query with its own
+ * rule.
  *
+ * That rule is stricter than "the pool clears the threshold". The per-speaker
+ * route is public to the same reader, so a pooled count can be *differenced*
+ * against an already-published speaker's count to isolate a smaller,
+ * still-suppressed group. The server therefore also suppresses the unit
+ * aggregate when that differencing would work — a unit with many responses
+ * can still read `suppressed`, and that is the rule holding, not a bug. This
+ * page renders three states this suppression makes distinguishable, and only
+ * from server fields: **published** (`suppressed: false`, both numbers
+ * present), **suppressed with a reason** (`suppressed: true`, the server's own
+ * `display_text`, both numbers `null`), and **unavailable** (the read itself
+ * failed or has not settled — a `403`, a network error, or still loading). A
+ * suppressed aggregate is not an error and not a zero, and none of the three
+ * states may be rendered as either of the other two.
+ *
+ * Nothing about *why* a group is small is composed here, and no per-speaker
+ * number is read to explain it — the response carries none, on purpose.
+ *
+ * The per-speaker summary is still the only route that names one speaker's
+ * ratings, so this page keeps its link to
+ * `CoordinatorSpeakerFeedback.tsx`.
+ *
+
  * The review queue is the same shape of gap in the opposite direction: its
  * *size* is a registered metric and appears below, but there is still no route
  * that lists the items, so no queue is drawn.
@@ -85,8 +107,10 @@ import {
   ApiRequestError,
   fetchAttendanceSummary,
   fetchCbaUnitMetrics,
+  fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
   type MetricSummary,
+  type UnitFeedbackSummary,
 } from "../../../lib/api";
 import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
 import { grantedPortal } from "../../components/PortalGate";
@@ -286,21 +310,32 @@ function AttendanceEvidence({ state }: { state: Loaded<AttendanceSummary> }) {
 }
 
 /**
- * Student feedback, and why no number for it appears on this page.
+ * Student feedback, pooled across the unit — three states, and only one of
+ * them is a number.
  *
- * Customer §16 asks that a Connector be able to view student feedback, and they
- * can — one speaker at a time, on the page this links to. What does not exist
- * anywhere in this API is a *unit-level* aggregate, and the honest thing is to
- * say so rather than to build one here out of the per-speaker summaries. Those
- * are suppressed individually below a threshold precisely so that small numbers
- * of responses are not published; averaging what survived would republish, in a
- * figure nobody can drill into, exactly what the suppression withheld.
+ * Customer §16 asks that a Connector be able to view student feedback. The
+ * per-speaker read (linked below) answers it one speaker at a time; this
+ * section answers it for the whole unit, from
+ * `GET /v1/units/{unit_id}/speaker-feedback-summary` and that route alone.
+ * Nothing here is folded from the per-speaker summaries — see the module
+ * docstring's "Student feedback: a pooled aggregate" section for why that
+ * would republish what suppression withheld.
+ *
+ * The three states below are the server's `suppressed` flag plus whether the
+ * read itself settled, and they render as three visibly different things: a
+ * measured mean and count; a named withholding with the server's own
+ * sentence and no numbers; or "not read yet / refused", which is a statement
+ * about this request, not about the unit's ratings. ADR-0011 rule 1 holds
+ * here as everywhere else on this page — a suppressed or unread aggregate is
+ * never printed as `0` or as a bare dash with no explanation.
  *
  * OQ-CBA-053 is stated here rather than left to the reader. This section sits
  * directly beneath a funnel of matching counts, and a rating placed near
  * "speakers matched" reads as an input to it unless the page says otherwise.
  */
-function StudentFeedbackPointer() {
+function StudentFeedbackPointer({ state }: { state: Loaded<UnitFeedbackSummary> }) {
+  const summary = state.data;
+
   return (
     <section
       className="rounded-2xl border border-border p-6"
@@ -311,7 +346,7 @@ function StudentFeedbackPointer() {
           className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
           aria-hidden="true"
         />
-        <div className="space-y-2">
+        <div className="w-full space-y-2">
           <h2 className="font-semibold text-foreground">Student feedback on your speakers</h2>
           <p className="text-sm leading-6 text-muted-foreground">
             Student feedback <strong>does not feed matching</strong>. It records how an event
@@ -319,16 +354,60 @@ function StudentFeedbackPointer() {
             nothing about who is put forward. It is shown here beside the funnel counts for that
             reason — so the two are not mistaken for one number.
           </p>
+
+          {state.error !== null ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+            >
+              {state.error}
+            </p>
+          ) : summary === null ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              {state.settled
+                ? "The unit feedback summary was not returned."
+                : "Loading the unit feedback summary…"}
+            </p>
+          ) : summary.suppressed ? (
+            <div
+              className="rounded-xl border border-border/70 bg-muted/30 p-4"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="text-sm font-medium text-foreground">Withheld: {summary.display_text}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                This is not zero and it is not an error — the server is withholding this figure
+                because publishing it (alone, or alongside an already-published per-speaker
+                summary) would let the ratings of a smaller, still-suppressed group of speakers be
+                worked out by subtraction. Nothing is published below{" "}
+                {summary.minimum_responses} responses either way.
+              </p>
+            </div>
+          ) : (
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-border/70 p-4">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Unit mean rating
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {summary.mean_rating}
+                </dd>
+              </div>
+              <div className="rounded-xl border border-border/70 p-4">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Responses counted
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {summary.response_count}
+                </dd>
+              </div>
+            </dl>
+          )}
+
           <p className="text-sm leading-6 text-muted-foreground">
-            No figure for it appears on this page, and that is a limit of the API rather than a
-            layout choice. Feedback is answerable one speaker at a time (
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-              GET /v1/units/&#123;unit_id&#125;/speakers/&#123;speaker_id&#125;/feedback-summary
-            </code>
-            ) and there is no unit-wide aggregate to read. Each speaker&apos;s summary is withheld
-            entirely until enough students have answered, with the threshold travelling in the
-            response, so combining the ones that survive would publish here what the server
-            declined to publish there.
+            This is a pooled figure over the whole unit, not a sum of individual speakers&apos;
+            summaries. Each speaker&apos;s own summary is withheld until enough students have
+            answered it specifically, with its threshold travelling in that response too.
           </p>
           <p className="text-sm leading-6">
             <Link
@@ -405,20 +484,21 @@ export function CoordinatorHome() {
   // substituting a fixture principal, which is the Fix #7 guard.
   const principal = useAuthenticatedPrincipal();
   // `GET /v1/me/portals` — the only source of what the server granted them,
-  // and of the unit the two statistics reads below are scoped to.
+  // and of the unit the three statistics reads below are scoped to.
   const portalAccess = usePortalAccess();
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
   const [metrics, setMetrics] = useState<Loaded<MetricSummary[]>>(PENDING);
   const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
+  const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
 
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Two independent reads, settled independently. Letting one refusal decide
-    // what the other section shows would misreport which capability the server
-    // actually withheld.
+    // Three independent reads, settled independently. Letting one refusal
+    // decide what another section shows would misreport which capability the
+    // server actually withheld.
     try {
       const response = await fetchCbaUnitMetrics(unitId);
       setMetrics({ data: response.metrics, error: null, settled: true });
@@ -437,6 +517,17 @@ export function CoordinatorHome() {
       setAttendance({
         data: null,
         error: describeFailure(cause, "The attendance summary"),
+        settled: true,
+      });
+    }
+
+    try {
+      const summary = await fetchUnitSpeakerFeedbackSummary(unitId);
+      setFeedback({ data: summary, error: null, settled: true });
+    } catch (cause) {
+      setFeedback({
+        data: null,
+        error: describeFailure(cause, "The unit feedback summary"),
         settled: true,
       });
     }
@@ -476,7 +567,7 @@ export function CoordinatorHome() {
         <>
           <RegisteredMetrics state={metrics} />
           <AttendanceEvidence state={attendance} />
-          <StudentFeedbackPointer />
+          <StudentFeedbackPointer state={feedback} />
         </>
       )}
 

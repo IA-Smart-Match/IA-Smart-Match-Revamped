@@ -33,6 +33,7 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 MATCH_RUN_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorMatchRuns.tsx"
+HOST_PAGE = FRONTEND_SRC / "app" / "pages" / "volunteer" / "VolunteerMyRequests.tsx"
 
 
 def _code_only(source: str) -> str:
@@ -63,6 +64,29 @@ def test_api_lib_reads_the_speaker_request_queue() -> None:
         "the queue is admin/coordinator only; the helper must send the bearer token"
     )
     assert 'method: "POST"' not in helper, "listing the queue is a read"
+
+
+def test_api_lib_reads_the_hosts_own_filed_requests() -> None:
+    """``GET /v1/units/{unit_id}/host/speaker-requests`` — OQ-CBA-014.
+
+    A different route from the queue above, not a filtered call to it: the
+    host-scoped read takes no filter beyond the unit, because the only
+    predicate the server applies is the verified principal.
+    """
+    source = API_LIB.read_text(encoding="utf-8")
+
+    assert "export async function fetchMySpeakerRequests" in source
+    assert "/host/speaker-requests" in source
+
+    helper = source.split("export async function fetchMySpeakerRequests", 1)[1].split("\n}", 1)[0]
+    assert "encodeURIComponent(unitId)" in helper, (
+        "the unit id must be encoded into the path, never concatenated raw"
+    )
+    assert "authenticated: true" in helper
+    assert 'method: "POST"' not in helper, "listing your own requests is a read"
+    assert "speakerId" not in helper and "host_id" not in helper, (
+        "the only predicate is the verified principal; no other identity travels in this call"
+    )
 
 
 def test_the_queue_response_type_keeps_the_truncation_answer() -> None:
@@ -210,4 +234,78 @@ def test_the_page_composes_no_identifier_in_the_browser() -> None:
     for forbidden in ("getConfiguredUnitId", "VITE_SMARTMATCH_UNIT_ID", "unit_id="):
         assert forbidden not in source, (
             f"CoordinatorMatchRuns sources its unit id from the browser: {forbidden!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The Event Host's own read (OQ-CBA-014, closed 7 September 2026)
+# ---------------------------------------------------------------------------
+
+
+def test_the_host_page_reads_only_the_host_route() -> None:
+    """``VolunteerMyRequests.tsx`` calls the host-scoped read and never the queue.
+
+    The queue holds every host's filings for the unit and is
+    ``admin``/``coordinator`` only server-side. A page built for an Event
+    Host that imported it would be a client reaching for a route the server
+    refuses that account, and the next edit could easily "fix" the refusal
+    by widening a role set that OQ-CBA-014 deliberately narrowed.
+    """
+    source = HOST_PAGE.read_text(encoding="utf-8")
+    code = _code_only(source)
+
+    assert "fetchMySpeakerRequests" in code
+    assert "fetchSpeakerRequests" not in code.replace("fetchMySpeakerRequests", ""), (
+        "VolunteerMyRequests imports the Connector's queue helper; it must call only the "
+        "host-scoped route"
+    )
+
+
+def test_the_host_page_renders_a_list_an_empty_state_and_an_error_state() -> None:
+    """Three renderable outcomes, and none of them is silence.
+
+    A list of what was filed, a stated empty state that explains the
+    pre-migration gap rather than implying nothing was ever filed, and a
+    rendered server refusal — the same three-state discipline every other
+    read page in this portal follows.
+    """
+    source = HOST_PAGE.read_text(encoding="utf-8")
+    code = _code_only(source)
+
+    assert "requests.map" in code, "a non-empty result must render each request"
+    assert "request.request_id" in code or "request_id" in code, (
+        "each rendered request must be keyed by the server's own id"
+    )
+    assert "requests.length === 0" in code, "an empty result must be its own branch"
+    assert "loadError" in code, "a refused or failed read must be its own branch"
+    assert "ApiRequestError" in code, "a 403 must render as the server's own refusal"
+
+
+def test_the_host_page_names_the_pre_migration_gap_honestly() -> None:
+    """A pre-``0033`` request the host filed is invisible to them, and the empty
+    state must say so rather than implying nothing was ever filed.
+    """
+    text = HOST_PAGE.read_text(encoding="utf-8")
+    assert "7 September 2026" in text, (
+        "the empty state must name the date before which a filed request has no recorded filer"
+    )
+
+
+def test_the_host_page_composes_no_identifier_in_the_browser() -> None:
+    """The unit is the server's grant, not an env var and not a query string.
+
+    Stakeholder Fix #7 / MM-A01, mirrored from the Connector's own queue page:
+    the browser asserts no tenant, no user, no role and no unit. ``GET
+    /v1/me/portals`` says which unit this account was granted, and that is
+    the only unit this page reads.
+    """
+    source = _code_only(HOST_PAGE.read_text(encoding="utf-8"))
+
+    assert "usePortalAccess" in source
+    assert "grantedPortal" in source
+    assert "useAuthenticatedPrincipal" in source
+
+    for forbidden in ("getConfiguredUnitId", "VITE_SMARTMATCH_UNIT_ID", "unit_id=", "?host_id"):
+        assert forbidden not in source, (
+            f"VolunteerMyRequests sources an identifier from the browser: {forbidden!r}"
         )
