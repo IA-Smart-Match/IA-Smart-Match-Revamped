@@ -43,9 +43,14 @@ pipeline evidence and nothing else. Consent lives on ``contact_channel`` and is
 moved only by the contact-channel surface; nothing in this module reads it,
 writes it, or treats an acceptance as a substitute for it.
 
-**No attendance writer.** The Attended stage *cites* an ``attendance_record``;
-it never creates one, and the repository checks the cited row belongs to this
-speaker and this event before the stage is written.
+**No attendance writer here.** The Attended stage *cites* an
+``attendance_record`` written by ``routers/attendance.py``; this router never
+creates one, and the repository checks the cited row belongs to this speaker
+and this event before the stage is written. That those rows now have a route of
+their own (OQ-102, closed 7 September 2026) changes nothing on this path: a
+hand-off that minted its own evidence would be asserting the attendance it
+exists to report, which is the fabrication
+``ck_pipeline_record_attendance_evidence`` was written to make impossible.
 
 **No event resolution.** ``cba_invitation_batch`` holds ``event_name`` and
 ``event_date`` as free text a Connector typed, never an event id, so the Host's

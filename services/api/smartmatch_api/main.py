@@ -45,6 +45,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
+    attendance,
     auth,
     calendar,
     cba_contact_channels,
@@ -371,6 +372,16 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # non-zero `pipeline_confirmed` could come from should find the two next to
     # each other.
     (pipeline.router, Capability.DISCOVERY_METRICS),
+    # The attendance writer, classified with the funnel it unblocks. Until
+    # OQ-102 was closed on 7 September 2026 nothing under `/v1` wrote an
+    # `attendance_record`, so the funnel's Attended stage — which *cites* one
+    # and never creates it — was unreachable through the API in both the S12
+    # and the CBA walks. That is the argument for putting it here rather than
+    # under `EVENT_READS` (student feedback eligibility reads the same row) or
+    # `REWARDS_LEDGER` (points derive from it): both of those consume the
+    # evidence, and this is the capability that could not complete without it.
+    # One capability, not three, and `routers/attendance.py` says which.
+    (attendance.router, Capability.DISCOVERY_METRICS),
     (auth.router, Capability.AUTHENTICATED_LOGIN),
     (portals.router, Capability.AUTHENTICATED_LOGIN),
     # Two routers from one module: the unit-scoped operations, and the one

@@ -21,6 +21,93 @@
         "title": "AbandonedResponse",
         "type": "object"
       },
+      "AttendanceRecordRequest": {
+        "additionalProperties": false,
+        "description": "Who was present. Nothing else, and the absences are the design.\n\n**No** ``method``. The route *is* a coordinator's entry, so the mechanism is\na fact about which route was called rather than a parameter: a caller-chosen\n``qr_scan`` would claim a scanner nobody used and an ``import`` would claim a\nbatch that never ran, and ``GET .../engagement/attendance-summary`` then\nrepublishes that claim as a breakdown by mechanism.\n\n**No** ``recorded_at``. ``attendance_record.created_at`` is the server\ndefault and the Attended funnel stage reads exactly that column as its own\ntimestamp, so a caller-supplied instant would let a journey be walked into\nthe past.\n\n``extra=\"forbid\"`` is what makes both refusals visible. A field accepted and\nquietly dropped is indistinguishable, to the client that sent it, from one\nthat worked \u2014 ``routers/auth.py`` forbids extras for the same reason.",
+        "properties": {
+          "subject_id": {
+            "description": "The account that was present. Any `user_account` in this tenant: a student, or the speaker whose attendance the CBA hand-off cites. Must already exist \u2014 this route creates no accounts.",
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id"
+        ],
+        "title": "AttendanceRecordRequest",
+        "type": "object"
+      },
+      "AttendanceRecordResponse": {
+        "description": "The one row this request wrote, and what derived from it.\n\nCarries no balance and no score. The balance has one honest home \u2014\n`GET /v1/units/{unit_id}/rewards` \u2014 which is also the only surface that knows\nhow to report it as `unknown`.",
+        "properties": {
+          "attendance_id": {
+            "description": "The `attendance_record` row. The same id on a replay as on the first call.",
+            "format": "uuid",
+            "title": "Attendance Id",
+            "type": "string"
+          },
+          "event_id": {
+            "description": "The event attended, hosted by this unit.",
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "ledger_entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `point_ledger_entry` deriving from this attendance, whether this request wrote it or found it. Null only when no entry exists at all.",
+            "title": "Ledger Entry Id"
+          },
+          "method": {
+            "description": "Always `coordinator_entry`. Fixed server-side; the request has no field for it. See the request model.",
+            "title": "Method",
+            "type": "string"
+          },
+          "points_credited": {
+            "description": "Whether *this request* appended the earning entry. False on a replay, where the entry already existed \u2014 which is not the same claim as 'no points derive from this attendance'. `ledger_entry_id` says which.",
+            "title": "Points Credited",
+            "type": "boolean"
+          },
+          "recorded_at": {
+            "description": "`attendance_record.created_at` \u2014 the server's own instant, read back from the stored row. Timezone-aware (ADR-0010).",
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "subject_id": {
+            "description": "The account recorded as present.",
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "unit_id": {
+            "description": "The unit that owns this evidence, which is also the unit the request was authorized against. Taken from the loaded row, never from the body.",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attendance_id",
+          "unit_id",
+          "event_id",
+          "subject_id",
+          "method",
+          "recorded_at",
+          "points_credited",
+          "ledger_entry_id"
+        ],
+        "title": "AttendanceRecordResponse",
+        "type": "object"
+      },
       "AttendanceSummaryResponse": {
         "description": "One unit's attendance evidence, counted. Never a roster.",
         "properties": {
@@ -8009,6 +8096,159 @@
         "summary": "List a unit's presentable events",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/events/{event_id}/attendance": {
+      "post": {
+        "description": "Record one attendance, and credit the points that derive from it.\n\n``201``: this call wrote the row. ``200``: a row for this subject and event\nwas already there, so nothing was written \u2014 the distinction\n``routers/speaker_requests.py`` draws on ADR-0012's identity key, applied\nhere to ``uq_attendance_record_subject_event``. Either way the response\ndescribes the row that exists, so a coordinator who clicks twice is not told\nthey created two.\n\nThe points are credited in the **same transaction** as the row, because\nADR-0013 makes the derivation automatic \u2014 \"points derive from recorded\nattendance and nothing else\" \u2014 and a separate credit route would turn one\nderivation into a second human step somebody could forget, leaving every\nbalance ``unknown``. ``actor_id`` is the caller: this is the case\n:meth:`~smartmatch_persistence.rewards.RewardsRepository.credit_attendance`'s\nown docstring names, \"where a coordinator's action is what caused the\nderivation to be run\". ``AlreadyCreditedError`` is caught, so a replay does\nnot double-credit; ``UnknownAttendanceError`` is **not** caught, because the\nrow was written two statements ago and its absence would be a defect here\nrather than a caller's mistake.\n\nNo registration is required first. An attendance row is evidence that\nsomebody was present, and demanding an ``event_registration`` would refuse\nthe walk-in the coordinator is looking at.\n\nQuota is charged first, before the unit is loaded and before authorization\nruns (ADR-0015): a caller producing 404s against invented ids spends what a\ncaller recording real attendance spends.\n\nRaises:\n    ApiError: 403 when the caller may not write into this unit; 404 when the\n        unit is not this tenant's, the event is not hosted by this unit, or\n        the subject is not an account in this tenant; 409 when an attendance\n        for this subject and event is already filed under a different unit;\n        429 when the minute's quota is spent.",
+        "operationId": "record_attendance_v1_units__unit_id__events__event_id__attendance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttendanceRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This attendance was already on file for the same subject and event, so nothing was written and the existing row is returned."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceRecordResponse"
+                }
+              }
+            },
+            "description": "The attendance was recorded and its points credited."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record that an account was present at one of this unit's events",
+        "tags": [
+          "attendance"
         ]
       }
     },

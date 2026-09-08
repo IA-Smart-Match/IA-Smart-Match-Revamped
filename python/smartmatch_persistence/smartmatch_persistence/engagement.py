@@ -3,20 +3,27 @@
 The counting half of the R2 engagement surface. Migration ``0009`` created
 ``attendance_record``;
 :class:`~smartmatch_persistence.attendance.AttendanceRepository` writes rows
-into it under the synthetic-pilot authorization; this module reads them back as
-*counts*, and :func:`smartmatch_domain.attendance.summarize_attendance` folds
-those counts into the object a response carries.
+into it; this module reads them back as *counts*, and
+:func:`smartmatch_domain.attendance.summarize_attendance` folds those counts
+into the object a response carries.
 
 ## Why a separate module from ``attendance.py``
 
-``attendance.py``'s own docstring states its scope narrowly and closes it: "It
-is **not** an engagement API: ``routers/engagement.py`` ... gives it nothing —
-no route imports this repository, and none may." That sentence is still true
-after this module exists, and it stays true precisely because the reader lives
-here. Widening the synthetic writer into something a route calls would have
-retracted the sentence rather than honoured it, and the two have genuinely
-different exposure: one is reachable only from a seed script, the other from an
-authenticated HTTP read.
+Different exposure, and it is still different now that both halves are
+reachable over HTTP. Writing an ``attendance_record`` mints points — ADR-0013
+makes it the only input to them — so it is gated to ``{admin, coordinator}`` on
+its own route, with its own rate limit and its own role-set constant
+(``routers/attendance.py``, OQ-102's closure). Reading a count of the same rows
+discloses nothing about any person and answers a different question about a
+different risk (D8). Two modules keeps a widening of one from being a widening
+of the other — the rule ``tests/authz/test_route_roles.py`` states for role
+sets, applied a layer down.
+
+This paragraph used to quote ``attendance.py``'s "no route imports this
+repository, and none may" and assert that the sentence survived this module.
+The sentence is retired: the owner closed OQ-102 on 7 September 2026 and a
+route now writes those rows. The quotation is removed rather than left standing
+beside code that contradicts it.
 
 ## No row this module returns names a person
 
