@@ -62,16 +62,21 @@ Nothing in this file issues an ``INSERT`` of its own — every write is a
 repository method call, so every CHECK constraint, foreign key and
 CHECK-registry entry applies exactly as it does in production.
 
-What this tool cannot populate, and why
----------------------------------------
-``reward_item`` — the rewards catalog — has **no writer anywhere in the
-application**. ``RewardsRepository`` reads it (``listable_items``,
-``_load_item``) and never writes it; the only inserts against that table in
-this repository are raw SQL inside tests. Reaching around that with an
-``INSERT`` here is precisely what this tool must not do, so the generated
-dataset has real attendance-derived balances and an **empty catalog**, and
-therefore no redemption in any state. That is reported at the end of every run
-rather than papered over.
+What this tool does not populate, and why
+------------------------------------------
+``reward_item`` — the rewards catalog — is seeded separately, by
+``tools/seed_pilot_rewards.py``, not by this tool. ``RewardsRepository`` does
+have a writer now (``create_item``, authorized 7 September 2026 beside D6 in
+``docs/plans/open-questions/cba-phase-deferred.md``), and this tool could call
+it with the same arguments a caller supplied — but every catalog value the D6
+worksheet says engineering "must not invent" (name, points cost, fulfilment
+cost, budget owner, funded) would then have to come from a flag on *this*
+tool's invocation too, and this generator's whole contract is that it invents
+nothing an operator did not already accept elsewhere in the product's own
+routes. So this run still produces real attendance-derived balances and an
+**empty catalog** unless the operator has separately run
+``make seed-pilot-rewards``, and therefore no redemption in any state unless
+they have. That is reported at the end of every run rather than papered over.
 
 The match run, and why it is four steps rather than one
 -------------------------------------------------------
@@ -1789,11 +1794,13 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
     )
 
     report.notes.append(
-        "rewards catalog left EMPTY: `reward_item` has no application writer — "
-        "`RewardsRepository` only reads it — so this tool cannot create catalog items "
-        "without an INSERT of its own, and therefore cannot open a redemption in any "
-        "state. The balances above are real and attendance-derived; the catalog is not "
-        "missing by accident."
+        "rewards catalog left EMPTY by this tool: `reward_item` rows are seeded "
+        "separately, by `make seed-pilot-rewards` (tools/seed_pilot_rewards.py), whose "
+        "every value — name, points cost, fulfilment cost, budget owner, funded — is a "
+        "required argument the operator supplies from the worksheet "
+        "(docs/pilot-data/rewards-catalog-worksheet.md), never invented by this "
+        "generator. Run it separately if a redemption should be openable. The balances "
+        "above are real and attendance-derived; the catalog is not missing by accident."
     )
     report.notes.append(
         "OQ-CBA-061 (dissolved 7 September 2026 by ADR-0017): this generator calls the "

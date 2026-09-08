@@ -1,6 +1,7 @@
 # Rewards catalog worksheet (D6 / D7 prep)
 
-**Status:** human completion required — **do not seed listable catalog rows**.  
+**Status:** human completion required — seed only values the owner has written
+into the table below, with `make seed-pilot-rewards`.  
 **Gates:** D6 (budget owner per item), D7 (calibration N), S6/S7 before S8/S9.  
 **Schema proof:** migration `0009` + `tests/integration/test_engagement_schema_constraints.py`
 

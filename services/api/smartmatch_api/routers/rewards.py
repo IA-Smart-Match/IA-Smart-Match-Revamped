@@ -102,12 +102,16 @@ decision ``docs/decisions/d6-rewards-budget-decision-record.md`` §5 still lists
 as open; :func:`decide_redemption` therefore acts on an id a coordinator was
 given out of band.
 
-**No catalog writer, no seeding, and no money.** ``reward_item`` rows are
-written by the synthetic seed path, not by this API —
-:class:`~smartmatch_persistence.rewards.RewardsRepository` has no item writer by
-construction. ``fulfilment_cost`` is never read, returned, or summed here. D8
-disclosure, procurement and real money are all out of scope, exactly as they
-were before this module existed.
+**No catalog writer, no seeding, and no money — through this API.**
+``reward_item`` rows are written by ``tools/seed_pilot_rewards.py``, an
+operator tool gated on ``SMARTMATCH_EDITION=dev`` with fixture providers, whose
+every catalog value is a required argument with no default — never by a route
+in this module. Nothing here calls
+:meth:`~smartmatch_persistence.rewards.RewardsRepository.create_item`; D6 §5
+still lists "read/redemption roles" as undecided, and a route here would have
+to invent the role set that may create catalog items. ``fulfilment_cost`` is
+never read, returned, or summed here. D8 disclosure, procurement and real
+money are all out of scope, exactly as they were before this module existed.
 
 **No unit ownership claim.** ``reward_item`` and ``redemption`` are
 tenant-scoped: neither table has an owning unit, so the catalog one student sees
