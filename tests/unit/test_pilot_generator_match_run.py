@@ -29,13 +29,18 @@ The shortlist is asserted honestly and pessimistically
 ------------------------------------------------------
 :func:`test_how_many_reviewed_candidates_can_actually_score` counts how many of
 the generated candidate pool the §9 Topic factor can score at all. The answer is
-small and it is **not** a defect in this change: OQ-CBA-061 says the fixture
-topic provider holds no recordings, so a speaker with ``topic_text`` scores
-``unknown``, their composite is ``None`` (ADR-0011 rule 1) and they leave the
-shortlist — while a speaker who filled nothing in scores the §9 policy neutral
-and stays. This file pins that number so the demo's real shape is a measured
-fact rather than an impression, and so the day OQ-CBA-061 is answered the number
-changes loudly rather than quietly.
+small and it is **not** a defect in this change: the fixture topic provider
+this generator calls holds no recordings, so a speaker with ``topic_text``
+scores ``unknown``, their composite is ``None`` (ADR-0011 rule 1) and they
+leave the shortlist — while a speaker who filled nothing in scores the §9
+policy neutral and stays. This was tracked as OQ-CBA-061; ADR-0017 dissolved
+it on 7 September 2026 by approving an offline embedding model that reaches a
+measured score instead of ``unknown``, but only for a caller that opts in with
+``use_local_embedding=True``. This generator does not, so the fixture path
+pinned here is unchanged. This file pins that number so the demo's real shape
+is a measured fact rather than an impression, and so the day this generator
+starts opting into the local model the number changes loudly rather than
+quietly.
 """
 
 from __future__ import annotations
@@ -376,13 +381,18 @@ def _scorable_and_unscorable() -> tuple[list[plan.ProfessionalPlan], list[plan.P
 
 
 def test_how_many_reviewed_candidates_can_actually_score() -> None:
-    """The honest shortlist count, pinned — OQ-CBA-061, and not this change's to fix.
+    """The honest shortlist count, pinned against the fixture path this
+    generator still exercises — the defect this pins was tracked as
+    OQ-CBA-061, dissolved 7 September 2026 by ADR-0017, and not this change's
+    to fix.
 
     Of the generator's reviewed roster, only the professionals carrying **no**
     expertise record score at all: everyone else has ``topic_text``, the fixture
     topic provider holds no recording for it, the §9 factor is ``unknown`` and
     ADR-0011 rule 1 makes their composite ``None``. They are reported as
-    unscorable, which is correct, and they are not shortlistable.
+    unscorable, which is correct, and they are not shortlistable. ADR-0017's
+    offline embedding model would change this, but only for a caller that
+    passes ``use_local_embedding=True``, which this generator does not.
 
     This asserts there are still enough scorable candidates to fill a G1
     shortlist, and pins how thin that margin is.
@@ -395,9 +405,10 @@ def test_how_many_reviewed_candidates_can_actually_score() -> None:
         "open on an under-filled shortlist"
     )
     assert unscorable, (
-        "every reviewed candidate is scorable, which would mean OQ-CBA-061 has been "
-        "answered or worked around; if it was answered, update this file rather than "
-        "deleting the assertion"
+        "every reviewed candidate is scorable, which would mean this generator has "
+        "started opting into ADR-0017's offline embedding model (or worked around the "
+        "fixture some other way); if it opted in, update this file rather than deleting "
+        "the assertion"
     )
     assert len(unscorable) > len(scorable), (
         "the pilot's documented speakers are supposed to outnumber its silent ones; "
@@ -406,12 +417,17 @@ def test_how_many_reviewed_candidates_can_actually_score() -> None:
 
 
 def test_a_candidate_with_expertise_text_is_the_one_that_drops_out() -> None:
-    """OQ-CBA-061 restated on this generator's own data, so the cost is legible.
+    """The defect once tracked as OQ-CBA-061, restated on this generator's own
+    data, so the cost is legible. Dissolved 7 September 2026 by ADR-0017, which
+    approved an offline embedding model reached only via
+    ``use_local_embedding=True`` — this generator does not pass it, so the
+    fixture's ``unknown``/``policy_neutral`` split asserted below is unchanged.
 
     Not worked around here — stripping the seed's topic text to make the demo
-    look fuller is one of three candidate answers the CBA product owner holds,
-    and picking one of them inside a generator would be answering an open
-    question by writing code.
+    look fuller was one of two alternatives ADR-0017 considered and rejected
+    (the other was ratifying a lexical comparator under the semantic
+    provider's name), and picking either inside a generator would have been
+    answering an open question by writing code.
     """
     generator = _generator()
     roster = _match_roster()
