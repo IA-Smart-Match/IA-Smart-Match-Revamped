@@ -214,28 +214,36 @@ def test_the_statistics_surface_renders_no_percentage() -> None:
 
 
 def test_the_statistics_surface_shows_no_individual_student_rating() -> None:
-    """OQ-CBA-003 part 1, held as an absence of reads rather than as a filter.
+    """OQ-CBA-003 part 1, held as an absence of *per-speaker* reads.
 
-    The per-speaker aggregate belongs to the feedback page. This surface links
-    to it and fetches no feedback of its own, so there is no response here for a
-    later edit to render a field out of.
+    The per-speaker aggregate belongs to the feedback page, and this surface
+    must not fetch it — `fetchSpeakerFeedbackSummary` and
+    `fetchMySpeakerFeedback` are both a different, narrower or individual
+    read than the pooled unit one this page is allowed. `mean_rating` and
+    `response_count` are legitimately present now: they are fields on the
+    *unit*-level `UnitFeedbackSummary` (the 7 September addendum), not on any
+    per-speaker or per-student response, and nothing on this page can name a
+    student.
     """
     code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
 
     for forbidden in (
         "fetchMySpeakerFeedback",
         "fetchSpeakerFeedbackSummary",
-        "mean_rating",
-        "response_count",
+        "speaker_professional_id",
         "student_id",
         "studentName",
         "who rated",
         "See all ratings",
     ):
         assert forbidden not in code, (
-            f"the statistics surface references {forbidden!r}; a Connector reads an aggregate "
-            "on the feedback page and never a student's rating anywhere"
+            f"the statistics surface references {forbidden!r}; a Connector reads the pooled "
+            "unit aggregate here and never a per-speaker or per-student read"
         )
+
+    assert "fetchUnitSpeakerFeedbackSummary" in code, (
+        "the statistics surface must read the unit-level aggregate through its own helper"
+    )
 
 
 def test_the_statistics_surface_writes_down_no_suppression_threshold() -> None:
@@ -270,21 +278,27 @@ def test_the_statistics_surface_says_feedback_does_not_feed_matching() -> None:
 
 
 def test_the_statistics_surface_names_the_statistics_the_api_cannot_answer() -> None:
-    """A gap is reported, never filled in by the browser.
+    """A remaining gap is reported, never filled in by the browser.
 
-    Two are real and both are stated. There is no route that lists review items,
-    so the queue itself stays undrawable even though its *size* is a registered
-    metric; and there is no unit-level feedback aggregate, only the per-speaker
-    one. An empty list in either place would be a claim about the data when the
-    truth is a claim about the API.
+    Addendum 7 September 2026 closed the unit-feedback gap this test used to
+    pin: the surface now *reads* the unit aggregate through its own route
+    rather than merely naming the absence of one. The review queue is a
+    different, still-open gap — there is no route that lists review items, so
+    the queue stays undrawable even though its *size* is a registered metric —
+    and an empty list there would be a claim about the data when the truth is
+    a claim about the API.
     """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
     text = STATS_PAGE.read_text(encoding="utf-8")
 
     assert "GET /v1/review-items" in text, (
         "the surface must name the missing list route rather than drawing an empty queue"
     )
-    assert "feedback-summary" in text, (
-        "the surface must say that feedback is answerable per speaker only, and point at it"
+    assert "fetchUnitSpeakerFeedbackSummary" in code, (
+        "the surface must read the unit feedback aggregate rather than merely naming its absence"
+    )
+    assert "GET /v1/units/{unit_id}/speaker-feedback-summary" in text, (
+        "the surface must name the route the unit aggregate comes from"
     )
 
 
