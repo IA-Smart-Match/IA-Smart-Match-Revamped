@@ -173,6 +173,18 @@ seed-pilot-logins: ## Seed the four pilot logins from SMARTMATCH_PILOT_*_EMAIL/_
 	# docs/decisions/pilot-login-decision-2026-09-04.md.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_logins.py $(SEED_PILOT_LOGIN_ARGS)
 
+.PHONY: seed-pilot-rewards
+seed-pilot-rewards: ## Seed one funded reward item; every value is required — see SEED_PILOT_REWARD_ARGS
+	# Every catalog value — name, points cost, fulfilment cost, budget owner,
+	# funded — is a required argument with no default. That is deliberate:
+	# docs/pilot-data/rewards-catalog-worksheet.md says engineering "must not
+	# invent owners, funding, or point costs", so this target invents nothing
+	# and takes every value from SEED_PILOT_REWARD_ARGS, which the operator
+	# fills in from a row they have written into the worksheet's table. There
+	# is no compose one-shot for this tool on purpose — see that module's
+	# docstring.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_rewards.py $(SEED_PILOT_REWARD_ARGS)
+
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------
