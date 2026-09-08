@@ -545,7 +545,7 @@ def test_the_dashboard_renders_the_suppressed_state_as_its_own_thing() -> None:
         "a suppression must render the server's own sentence, not a page-invented one"
     )
 
-    for forbidden in ("?? 0", "|| 0", "?? \"—\"", "Number(summary"):
+    for forbidden in ("?? 0", "|| 0", '?? "—"', "Number(summary"):
         assert forbidden not in code, (
             f"the dashboard coerces a withheld unit figure with {forbidden!r}; suppressed and "
             "unavailable are not zero"
@@ -563,9 +563,9 @@ def test_the_dashboard_distinguishes_published_suppressed_and_unavailable() -> N
     code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
 
     assert "summary.suppressed" in code, "a published/suppressed branch must exist"
-    assert (
-        "state.error" in code or "feedback.error" in code
-    ), "an unread/refused state must be handled separately from a suppressed one"
+    assert "state.error" in code or "feedback.error" in code, (
+        "an unread/refused state must be handled separately from a suppressed one"
+    )
     assert "summary.mean_rating" in code and "summary.response_count" in code, (
         "the published branch must render the server's own numbers"
     )
