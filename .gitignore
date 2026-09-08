@@ -28,6 +28,7 @@ output/
 __pycache__/
 *.py[cod]
 .venv/
+.venv_test/
 venv/
 .mypy_cache/
 .ruff_cache/

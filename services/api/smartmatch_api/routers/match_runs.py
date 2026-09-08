@@ -88,13 +88,25 @@ whose evidence is incomplete is **excluded from the pool and reported**, never
 entered at zero where it would sit below every measured candidate as though it
 had been measured and found wanting.
 
-The one provider this path constructs is the semantic topic comparator, and
-under ``ALLOW_LIVE_PROVIDERS=false`` it is always
-``FixtureSemanticTopicProvider``, which replays recorded comparisons, opens no
-socket and reads no credential. A pair it has no recording for is an *unknown*
-topic factor, never a guess — the honest consequence of OQ-CBA-026 being open,
-and the reason a speaker with topic text on file may be reported unscorable
-while one with none scores under §9's neutral policy.
+The one provider this path constructs is the semantic topic comparator
+(:func:`_topic_provider`), and under ``ALLOW_LIVE_PROVIDERS=false`` it is never
+a live, external vendor: ``build_semantic_topic_provider`` refuses one under
+every edition. By default it is ``FixtureSemanticTopicProvider``, which
+replays recorded comparisons, opens no socket and reads no credential; a pair
+it has no recording for is an *unknown* topic factor, never a guess — the
+honest consequence of OQ-CBA-026 being open, and the reason a speaker with
+topic text on file may be reported unscorable while one with none scores
+under §9's neutral policy.
+
+Since ADR-0017, a deployment may set
+``SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true`` to route this same seam
+to ``LocalEmbeddingSemanticTopicProvider`` instead — an offline, in-process
+averaged-GloVe model with no vendor, no per-run cost and no network call,
+which turns exactly the pairs the fixture had no recording for into a
+``measured`` score. It is a deployment setting, not a per-request or
+per-principal one (:class:`~smartmatch_api.config.Settings`), and it is off by
+default: an unconfigured deployment's behaviour, golden pins and CI are
+unchanged by upgrading to a release that carries this flag.
 
 **Solving** is the durable, possibly slow work whose result a coordinator acts
 on, and v1.1 §1.6 puts every such write on the command path. So the request
@@ -743,8 +755,11 @@ def _topic_provider() -> SemanticTopicProvider:
     ``build_semantic_topic_provider`` refuses a live adapter under **every**
     edition and refuses to run at all if a model credential is present, so this
     is the place a misconfigured deployment fails loudly instead of scoring
-    against something nobody approved (OQ-CBA-026). What it returns is always
-    ``FixtureSemanticTopicProvider``, which opens no socket.
+    against something nobody approved (OQ-CBA-026). What it returns is
+    ``FixtureSemanticTopicProvider`` unless this deployment has opted into
+    ADR-0017's offline embedding path — see
+    ``Settings.cba_topic_local_embedding_enabled`` for why that is a deployment
+    fact and not a per-request choice. Neither adapter opens a socket.
 
     The ``cast`` is a typing accommodation and not a claim about behaviour.
     ``TopicSimilarity`` carries every member ``TopicComparison`` declares, and
@@ -754,7 +769,14 @@ def _topic_provider() -> SemanticTopicProvider:
     members read-only is a change to :mod:`smartmatch_domain`, which this card
     does not own; it is recorded as OQ-CBA-062 rather than reached for.
     """
-    return cast(SemanticTopicProvider, build_semantic_topic_provider(get_settings().edition))
+    settings = get_settings()
+    return cast(
+        SemanticTopicProvider,
+        build_semantic_topic_provider(
+            settings.edition,
+            use_local_embedding=settings.cba_topic_local_embedding_enabled,
+        ),
+    )
 
 
 def _excluded_views(excluded: tuple[ExcludedCandidate, ...]) -> list[ExcludedCandidateView]:
