@@ -13,8 +13,8 @@ const steps = [
   {
     icon: SearchCheck,
     number: "01",
-    title: "Find events",
-    description: "Bring university opportunities into one place instead of searching site by site.",
+    title: "Create and organize events",
+    description: "Add event details, staffing needs, and schedules in one shared place.",
   },
   {
     icon: HeartHandshake,
@@ -64,8 +64,8 @@ export function LandingPage() {
                   Match volunteers with events where they can help most.
                 </h1>
                 <p className="max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
-                  Smart Match helps coordinators find opportunities, compare volunteer experience
-                  and availability, and keep assignments organized in one place.
+                  Smart Match helps coordinators create and organize events, compare volunteer
+                  experience and availability, and keep staffing assignments in one place.
                 </p>
               </div>
               <Link to="/login" className="public-button-primary group gap-2">

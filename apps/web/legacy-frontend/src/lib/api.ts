@@ -216,6 +216,62 @@ export interface QrStatsSummary {
   entries: QrCodeAsset[];
 }
 
+export type ManualEventStatus = "draft" | "published";
+export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
+
+export interface ManualEvent {
+  id: string;
+  unit_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  status: ManualEventStatus;
+  provenance: "observed";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualEventInput {
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  on_date?: string | null;
+  time_zone?: string | null;
+  location?: string | null;
+  capacity?: number | null;
+  volunteer_openings?: number | null;
+  volunteer_needs?: string | null;
+  audience?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+}
+
+export interface FeedbackQrAsset {
+  id: string;
+  event_id: string;
+  destination_url: string;
+  redirect_url: string;
+  open_count: number;
+  last_opened_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type FactorWeights = Record<string, number>;
 
 export interface FeedbackAdjustment {
@@ -1678,6 +1734,74 @@ export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ d
     total: typeof payload.total === "number" ? payload.total : data.length,
     source: typeof payload.source === "string" ? payload.source : "demo",
   };
+}
+
+export async function fetchManualEvents(
+  unitId: string,
+  status: "published" | "draft" | "all" = "published",
+): Promise<{ data: ManualEvent[]; total: number }> {
+  return requestJson<{ data: ManualEvent[]; total: number }>(
+    `/v1/units/${encodeURIComponent(unitId)}/events?status=${status}`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+export async function createManualEvent(
+  unitId: string,
+  input: ManualEventInput,
+  idempotencyKey = crypto.randomUUID(),
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}
+
+export async function updateManualEvent(
+  unitId: string,
+  eventId: string,
+  input: Partial<ManualEventInput>,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}
+
+export async function publishManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/publish`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+export async function fetchFeedbackQr(unitId: string, eventId: string): Promise<FeedbackQrAsset | null> {
+  try {
+    return await requestJson<FeedbackQrAsset>(
+      `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+      undefined,
+      { authenticated: true },
+    );
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveFeedbackQr(
+  unitId: string,
+  eventId: string,
+  destinationUrl: string,
+): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    { method: "PUT", body: JSON.stringify({ destination_url: destinationUrl }) },
+    { authenticated: true },
+  );
 }
 
 // ---------------------------------------------------------------------------

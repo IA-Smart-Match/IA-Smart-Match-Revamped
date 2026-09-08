@@ -1,7 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
-  Briefcase,
   Users,
   Sparkles,
   TrendingUp,
@@ -25,15 +24,15 @@ const navigationSections = [
     label: "MANAGE",
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of events and volunteer coverage" },
+      { name: "Events", href: "/events", icon: CalendarDays, tooltip: "Create and publish events" },
       { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Volunteer profiles, assignments, and availability" },
       { name: "Match progress", href: "/pipeline", icon: TrendingUp, tooltip: "Follow each match from introduction to event" },
       { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
     ],
   },
   {
-    label: "DISCOVER",
+    label: "COORDINATE",
     items: [
-      { name: "Opportunities", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
       { name: "Find matches", href: "/ai-matching", icon: Sparkles, tooltip: "Compare volunteers with open opportunities" },
       { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
     ],

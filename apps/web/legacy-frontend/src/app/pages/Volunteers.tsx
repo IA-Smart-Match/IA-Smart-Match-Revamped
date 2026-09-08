@@ -7,7 +7,6 @@ import {
   Check,
   Clock,
   MapPin,
-  QrCode,
   RefreshCw,
   Search,
   TrendingUp,
@@ -18,20 +17,16 @@ import { breakNeedExplanation, breakNeedLabel } from "@/lib/breakNeed";
 import type { LucideIcon } from "lucide-react";
 
 import {
-  emptyQrStatsSummary,
   fetchCalendarAssignments,
   fetchPipeline,
-  fetchQrStats,
   fetchSpecialists,
   splitTags,
   type CalendarAssignmentSummary,
   type PipelineRecord,
-  type QrStatsSummary,
   type Specialist,
 } from "@/lib/api";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
-import { QRCodeCard } from "@/components/QRCodeCard";
 import { AccountableValue } from "@/app/components/provenance";
 import { unavailableMatchingMetric } from "@/lib/metrics";
 
@@ -295,7 +290,6 @@ export function Volunteers() {
   const [volunteers, setVolunteers] = useState<Specialist[]>([]);
   const [pipeline, setPipeline] = useState<PipelineRecord[]>([]);
   const [assignments, setAssignments] = useState<CalendarAssignmentSummary[]>([]);
-  const [qrStats, setQrStats] = useState<QrStatsSummary>(emptyQrStatsSummary());
   const [isMockData, setIsMockData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -312,9 +306,8 @@ export function Volunteers() {
       fetchSpecialists(),
       fetchPipeline(),
       fetchCalendarAssignments(),
-      fetchQrStats(),
     ])
-      .then(([specialistResult, pipelineResult, assignmentResult, qrResult]) => {
+      .then(([specialistResult, pipelineResult, assignmentResult]) => {
         if (!active) {
           return;
         }
@@ -329,7 +322,6 @@ export function Volunteers() {
           setVolunteers([]);
           setPipeline([]);
           setAssignments([]);
-          setQrStats(emptyQrStatsSummary());
           setIsMockData(false);
           setLoadFailed(true);
           setError(getErrorMessage(reason, "Failed to load volunteers."));
@@ -353,24 +345,12 @@ export function Volunteers() {
           setAssignments([]);
         }
 
-        if (qrResult.status === "fulfilled") {
-          setQrStats(qrResult.value.data);
-          if (qrResult.value.isMockData) anyMock = true;
-        } else {
-          setQrStats(emptyQrStatsSummary());
-        }
-
         setIsMockData(anyMock);
 
         const warnings = [];
         if (assignmentResult.status === "rejected") {
           warnings.push(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
-          );
-        }
-        if (qrResult.status === "rejected") {
-          warnings.push(
-            `QR analytics are unavailable: ${getErrorMessage(qrResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -384,7 +364,6 @@ export function Volunteers() {
         setVolunteers([]);
         setPipeline([]);
         setAssignments([]);
-        setQrStats(emptyQrStatsSummary());
         setIsMockData(false);
         setLoadFailed(true);
         setError(getErrorMessage(err, "Failed to load volunteers."));
@@ -423,22 +402,6 @@ export function Volunteers() {
   const selectedInsights = selectedVol
     ? summarizeVolunteer(selectedVol, pipeline, assignments)
     : null;
-  const selectedQrHistory = useMemo(() => {
-    if (!selectedVol) {
-      return [];
-    }
-
-    const selectedName = normalizeName(selectedVol.name);
-    return [...qrStats.entries]
-      .filter((entry) => normalizeName(entry.speaker_name) === selectedName)
-      .sort((left, right) => {
-        const leftTime = Date.parse(left.last_scanned_at || left.generated_at || "");
-        const rightTime = Date.parse(right.last_scanned_at || right.generated_at || "");
-        return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
-      });
-  }, [qrStats.entries, selectedVol]);
-  const selectedQrAsset = selectedQrHistory[0] ?? null;
-
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="space-y-2">
@@ -800,72 +763,6 @@ export function Volunteers() {
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">QR history</h3>
-                    <p className="text-sm text-slate-600">
-                      Referral assets and scan activity tied to this volunteer.
-                    </p>
-                  </div>
-                  <QrCode className="h-5 w-5 text-primary" />
-                </div>
-
-                {selectedQrHistory.length > 0 ? (
-                  <div className="space-y-5">
-                    <QRCodeCard
-                      asset={selectedQrAsset}
-                      title="Latest QR asset"
-                      description="The most recent referral code available for this volunteer."
-                    />
-
-                    <div className="space-y-3">
-                      {selectedQrHistory.slice(0, 3).map((entry) => (
-                        <div
-                          key={entry.referral_code}
-                          className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <p className="font-medium text-slate-900">{entry.event_name}</p>
-                              <p className="text-sm text-slate-600">
-                                {entry.referral_code} · Generated{" "}
-                                {entry.generated_at || "date pending"}
-                              </p>
-                            </div>
-                            <div className="text-right text-sm text-slate-600">
-                              <p className="font-medium text-slate-900">
-                                {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
-                              </p>
-                              <p>{entry.conversion_count === null ? "Unknown" : entry.conversion_count} conversions</p>
-                            </div>
-                          </div>
-                          <div className="mt-3 h-2 rounded-full bg-white">
-                            {entry.conversion_rate === null ? (
-                              <div
-                                className="h-2 rounded-full bg-[repeating-linear-gradient(45deg,theme(colors.slate.300),theme(colors.slate.300)_4px,transparent_4px,transparent_8px)]"
-                                style={{ width: "100%" }}
-                                aria-label="Conversion rate unknown"
-                              />
-                            ) : (
-                              <div
-                                className="h-2 rounded-full bg-gradient-to-r from-[#FFB81C] to-[#A4D65E]"
-                                style={{ width: `${Math.round(entry.conversion_rate * 100)}%` }}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
-                    No QR history is available yet for this volunteer. Once the QR contract emits
-                    referral assets, the latest code and scan history will appear here.
-                  </div>
-                )}
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5">

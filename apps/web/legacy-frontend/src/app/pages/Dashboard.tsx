@@ -23,14 +23,11 @@
  * unknown) so a measurement nobody took renders as unknown, never as zero.
  */
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import {
-  Activity,
   AlertTriangle,
-  BellRing,
   Briefcase,
   CalendarDays,
-  LogOut,
   MapPinned,
   MessageSquareHeart,
   RefreshCw,
@@ -54,9 +51,12 @@ import {
   fetchCalendarAssignments,
   fetchCalendarEvents,
   fetchFeedbackStats,
+  fetchManualEvents,
+  getConfiguredUnitId,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
+  type ManualEvent,
   type MetricSummary,
 } from "@/lib/api";
 import {
@@ -71,11 +71,11 @@ import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
 import {
   AccountableValue,
-  MetricDrilldownSheet,
   MetricValueDisplay,
   unknownValue,
   type AccountableMetric,
 } from "@/app/components/provenance";
+import { MetricDrilldownSheet } from "@/app/components/provenance/MetricDrilldownSheet";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
@@ -256,16 +256,26 @@ function formatFactorName(value: string): string {
     .join(" ");
 }
 
-export function Dashboard() {
-  const navigate = useNavigate();
-
-  function handleLogout() {
-    sessionStorage.removeItem("iaw_session");
-    navigate("/login");
+function formatEventWhen(event: ManualEvent): string {
+  if (event.time_precision === "date_only" && event.on_date) {
+    return `${event.on_date} · All day · ${event.time_zone ?? "time zone not set"}`;
   }
+  if (event.time_precision === "exact" && event.starts_at) {
+    return `${new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: event.time_zone ?? undefined,
+    }).format(new Date(event.starts_at))} · ${event.time_zone ?? "time zone not set"}`;
+  }
+  return "Schedule not set";
+}
+
+export function Dashboard() {
+  const unitId = getConfiguredUnitId();
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([]);
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>([]);
+  const [manualEvents, setManualEvents] = useState<ManualEvent[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
@@ -287,6 +297,7 @@ export function Dashboard() {
     function resetToEmpty() {
       setCalendarEvents([]);
       setCalendarAssignments([]);
+      setManualEvents([]);
       setFeedbackStats(emptyFeedbackStatsSummary());
       setCalendarAvailable(false);
       setAssignmentsAvailable(false);
@@ -296,10 +307,11 @@ export function Dashboard() {
 
     async function load() {
       try {
-        const [calendarResult, assignmentResult, feedbackResult] = await Promise.allSettled([
+        const [calendarResult, assignmentResult, feedbackResult, eventResult] = await Promise.allSettled([
           fetchCalendarEvents(),
           fetchCalendarAssignments(),
           fetchFeedbackStats(),
+          unitId ? fetchManualEvents(unitId, "published") : Promise.resolve({ data: [], total: 0 }),
         ]);
 
         if (!active) {
@@ -342,6 +354,12 @@ export function Dashboard() {
           setFeedbackAvailable(false);
         }
 
+        if (eventResult.status === "fulfilled") {
+          setManualEvents(eventResult.value.data);
+        } else {
+          setManualEvents([]);
+        }
+
         setIsMockData(anyMock);
 
         const warnings = [];
@@ -353,6 +371,11 @@ export function Dashboard() {
         if (feedbackResult.status === "rejected") {
           warnings.push(
             `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
+          );
+        }
+        if (eventResult.status === "rejected") {
+          warnings.push(
+            `Upcoming events are unavailable: ${getErrorMessage(eventResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -374,7 +397,7 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, [reloadToken]);
+  }, [reloadToken, unitId]);
 
   const {
     metricsByName,
@@ -568,68 +591,6 @@ export function Dashboard() {
     ? (feedbackStats.recommended_adjustments[0] ?? null)
     : null;
   const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments);
-  const regionNeedingCoverage =
-    regionalPulse
-      .filter((row) => row.openCount > 0)
-      .sort(
-        (left, right) => right.openCount - left.openCount || right.eventCount - left.eventCount,
-      )[0] ?? null;
-  const strongestCoverageRegion =
-    regionalPulse
-      .filter((row) => row.eventCount > 0 && row.coveragePercent !== null)
-      .sort(
-        (left, right) =>
-          (right.coveragePercent ?? 0) - (left.coveragePercent ?? 0) ||
-          right.uniqueVolunteers - left.uniqueVolunteers,
-      )[0] ?? null;
-
-  const memberInquirySummary = memberInquiry.summary;
-  const discoveryFeed = [
-    {
-      icon: BellRing,
-      title: "Matching recommendations unavailable",
-      detail: MATCHING_UNAVAILABLE_REASON,
-      stamp: "Gate G1",
-    },
-    {
-      icon: MapPinned,
-      title: regionNeedingCoverage
-        ? `${regionNeedingCoverage.region} has ${regionNeedingCoverage.openCount} uncovered window${regionNeedingCoverage.openCount === 1 ? "" : "s"}`
-        : calendarAvailable
-          ? "No region currently reports an uncovered window"
-          : "Regional coverage is unknown while the calendar feed is unavailable",
-      detail: regionNeedingCoverage
-        ? `${regionNeedingCoverage.assignmentCount} volunteer assignments cover ${regionNeedingCoverage.eventCount} scheduled event times in that region.`
-        : calendarAvailable
-          ? "Every scheduled calendar window in the current feed has covered status."
-          : "Coverage notes return once the calendar feed answers.",
-      stamp: "Coverage",
-    },
-    {
-      icon: Activity,
-      title:
-        memberInquirySummary && memberInquirySummary.value !== null
-          ? `${memberInquirySummary.value.toLocaleString("en-US")} records reached member inquiry (registered metric)`
-          : "Member inquiry is unknown, not zero",
-      detail:
-        memberInquirySummary?.unknown_reason ??
-        memberInquirySummary?.definition ??
-        `Registered metric \`${MEMBER_INQUIRY_METRIC_NAME}\` — ${unavailableReason}`,
-      stamp: "Pipeline",
-    },
-    {
-      icon: ShieldCheck,
-      title:
-        strongestCoverageRegion && strongestCoverageRegion.coveragePercent !== null
-          ? `${strongestCoverageRegion.region} is at ${strongestCoverageRegion.coveragePercent}% covered`
-          : "Regional coverage is waiting on live calendar data",
-      detail: strongestCoverageRegion
-        ? `${strongestCoverageRegion.uniqueVolunteers} volunteer${strongestCoverageRegion.uniqueVolunteers === 1 ? "" : "s"} are attached to that region's current windows.`
-        : "The dashboard populates regional coverage notes once calendar and overlay data are available.",
-      stamp: "Regional watch",
-    },
-  ];
-
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
@@ -659,6 +620,9 @@ export function Dashboard() {
         </p>
       </div>
       <div className="flex items-center gap-2">
+        <Button asChild size="sm">
+          <Link to="/events">Create event</Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -668,15 +632,6 @@ export function Dashboard() {
           <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
-        <button
-          type="button"
-          onClick={handleLogout}
-          aria-label="Log out and return to portal login"
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
-        >
-          <LogOut className="h-4 w-4" aria-hidden />
-          Log out
-        </button>
       </div>
     </div>
   );
@@ -1090,40 +1045,32 @@ export function Dashboard() {
         </div>
 
         <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-2">
-            <BellRing className="h-5 w-5 text-[#005030]" />
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-xl font-semibold text-gray-900">Discovery feed</h3>
-              <p className="text-sm text-gray-600">
-                Lightweight coordinator notifications derived from the current dataset.
-              </p>
+              <h3 className="text-xl font-semibold text-gray-900">Upcoming events</h3>
+              <p className="text-sm text-gray-600">Published events created by your team.</p>
             </div>
+            <Link to="/events" className="text-sm font-semibold text-[#005030] hover:underline">
+              Manage events
+            </Link>
           </div>
-
           <div className="mt-6 space-y-3">
-            {discoveryFeed.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <div
-                  key={item.title}
-                  className="flex gap-4 rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4 shadow-sm"
-                >
-                  <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#d9cbc4] bg-white text-[#005030]">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="font-semibold text-gray-900">{item.title}</p>
-                      <span className="rounded-full bg-[#e8f2d8] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#005030]">
-                        {item.stamp}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-gray-600">{item.detail}</p>
-                  </div>
+            {manualEvents.length ? manualEvents.slice(0, 4).map((event) => (
+              <div key={event.id} className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-semibold text-gray-900">{event.title}</p>
+                  <span className="rounded-full bg-[#e8f2d8] px-2.5 py-1 text-xs font-semibold text-[#005030]">
+                    {event.volunteer_openings === null ? "Staffing not set" : `${event.volunteer_openings} openings`}
+                  </span>
                 </div>
-              );
-            })}
+                <p className="mt-2 text-sm text-gray-600">{formatEventWhen(event)}</p>
+                <p className="mt-1 text-sm text-gray-600">{event.location ?? "Location not set"}</p>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-6 text-sm text-gray-600">
+                No published events yet. Create an event, complete its details, and publish it when it is ready for coordinators.
+              </div>
+            )}
           </div>
         </div>
       </div>

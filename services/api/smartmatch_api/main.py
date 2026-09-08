@@ -206,6 +206,7 @@ app.include_router(redrive.router)
 app.include_router(me.router)
 app.include_router(metrics.router)
 app.include_router(events.router)
+app.include_router(events.public_router)
 app.include_router(engagement.router)
 app.include_router(review.router)
 

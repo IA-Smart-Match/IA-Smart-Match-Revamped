@@ -394,6 +394,10 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "the signed token in the path. It never changes state — the actual "
         "unsubscribe is the signed POST (v1.1 §1.10)."
     ),
+    ("GET", "/q/{public_token}"): (
+        "Public feedback redirect encoded in an event QR code. The random token is the capability; "
+        "the route records only an anonymous open and redirects only while its event is published."
+    ),
 }
 
 
@@ -655,6 +659,57 @@ OPERATIONS: tuple[Operation, ...] = (
         unit_scoped=True,
         require_membership=True,
     ),
+    Operation(
+        key="event.create", method="POST", path="/v1/units/{unit_id}/events",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_WRITE_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.list", method="GET", path="/v1/units/{unit_id}/events",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_READ_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.read", method="GET", path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_READ_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.update", method="PATCH", path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_WRITE_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.publish", method="POST", path="/v1/units/{unit_id}/events/{event_id}/publish",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_WRITE_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.feedback_qr.read", method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_WRITE_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
+    Operation(
+        key="event.feedback_qr.write", method="PUT",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.events", authorizer="_authorize",
+        roles_constant="_WRITE_ROLES", authorizer_module=None,
+        required_roles=frozenset({"admin"}), resource_type="org_unit",
+        unit_scoped=True, require_membership=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -862,6 +917,25 @@ def deny(reason: str, *, gap: str | None = None, why: str = "") -> Cell:
     return Cell(permit=False, reason=reason, gap=gap, why=why)
 
 
+def _unit_role_cells(*, coordinator: bool) -> dict[str, Cell]:
+    """Expected subtree-scoped outcomes for the manual-event role gates."""
+    return {
+        "admin_at_org_root": permit(),
+        "coordinator_at_owning_unit": permit() if coordinator else deny("no_grant"),
+        "coordinator_at_sibling_unit": deny("no_grant"),
+        "admin_at_sibling_unit": deny("no_grant"),
+        "student_at_owning_unit": deny("no_grant"),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny("resource_grant_lacks_required_role"),
+        "admin_with_explicit_deny": deny("explicit_resource_deny"),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny("principal_suspended"),
+        "cross_tenant_coordinator": deny("tenant_mismatch"),
+        "job_actor_without_role": deny("no_grant"),
+        "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+    }
+
+
 #: Holes the matrix records rather than leaves blank. A cell carrying one of
 #: these keys is asserting *current* behaviour that is known to be wrong or
 #: incomplete, so closing the item is expected to break that cell — which is the
@@ -895,6 +969,13 @@ GAPS: dict[str, str] = {}
 #: :func:`test_the_matrix_describes_what_the_code_does`; none of them is a claim
 #: about intent that nothing checks.
 MATRIX: dict[str, dict[str, Cell]] = {
+    "event.create": _unit_role_cells(coordinator=False),
+    "event.list": _unit_role_cells(coordinator=True),
+    "event.read": _unit_role_cells(coordinator=True),
+    "event.update": _unit_role_cells(coordinator=False),
+    "event.publish": _unit_role_cells(coordinator=False),
+    "event.feedback_qr.read": _unit_role_cells(coordinator=False),
+    "event.feedback_qr.write": _unit_role_cells(coordinator=False),
     "import.create": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -1444,6 +1525,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "assert_allowed",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
+        "_authorize",
     ):
         assert_allowed(
             resolved.principal,

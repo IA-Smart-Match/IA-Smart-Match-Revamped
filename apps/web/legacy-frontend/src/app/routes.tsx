@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { Layout } from "./components/Layout";
 import { StudentLayout } from "./components/StudentLayout";
 import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
@@ -13,8 +13,8 @@ import { LoginPage } from "./pages/LoginPage";
 const Dashboard = lazy(() =>
   import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })),
 );
-const Opportunities = lazy(() =>
-  import("./pages/Opportunities").then((m) => ({ default: m.Opportunities })),
+const Events = lazy(() =>
+  import("./pages/Events").then((m) => ({ default: m.Events })),
 );
 const Volunteers = lazy(() =>
   import("./pages/Volunteers").then((m) => ({ default: m.Volunteers })),
@@ -135,7 +135,8 @@ export const router = createBrowserRouter([
     Component: Layout,
     children: [
       { path: "dashboard", element: withSuspense(<Dashboard />) },
-      { path: "opportunities", element: withSuspense(<Opportunities />) },
+      { path: "events", element: withSuspense(<Events />) },
+      { path: "opportunities", element: <Navigate to="/events" replace /> },
       { path: "volunteers", element: withSuspense(<Volunteers />) },
       { path: "ai-matching", element: withSuspense(<AIMatching />) },
       { path: "pipeline", element: withSuspense(<Pipeline />) },

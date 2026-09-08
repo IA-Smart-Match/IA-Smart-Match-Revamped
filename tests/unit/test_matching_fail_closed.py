@@ -1,6 +1,6 @@
 """Executable fail-closed contracts for gated product surfaces.
 
-G1 (matching/scoring), G3 (crawler/event catalog), and D6 (shippable rewards)
+G1 (matching/scoring), G3 (crawler/discovery), and D6 (shippable rewards)
 remain intentionally closed until named human decisions land. These tests pin
 the absence of HTTP capability and domain guards without substituting for
 workshop approval.
@@ -77,12 +77,6 @@ def _forbidden_gate_for_path(path: str) -> str | None:
         if segment in _D6_FORBIDDEN_SEGMENTS:
             return "D6"
 
-    # G3 unit-scoped event catalog — distinct from durable-command job lifecycle events.
-    if "units" in segments:
-        unit_index = segments.index("units")
-        if unit_index + 1 < len(segments) and segments[unit_index + 1] == "events":
-            return "G3"
-
     return None
 
 
@@ -96,11 +90,13 @@ def test_assert_registry_approved_succeeds():
     assert_registry_approved()
 
 
-def test_events_and_engagement_routers_declare_no_handlers():
-    """G3/D6 routers are seams only — no handlers until human gates close."""
-    assert events.router.routes == [], (
-        "G3: event handlers must not ship before vocabulary owner + R3 sign-off"
-    )
+def test_manual_events_do_not_reopen_crawler_routes_and_engagement_stays_closed():
+    """Manual event entry is authorized without opening crawler or rewards gates."""
+    event_paths = {route.path for route in (*events.router.routes, *events.public_router.routes)}
+    assert event_paths
+    assert all(
+        not (set(_path_segments(path)) & _G3_FORBIDDEN_SEGMENTS) for path in event_paths
+    ), "G3: manual event entry must not expose crawl or discovery routes"
     assert engagement.router.routes == [], (
         "D6: engagement handlers must not ship before D6/D7 + S6/S7"
     )

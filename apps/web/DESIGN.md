@@ -4,7 +4,7 @@
 
 **Applies to:** `apps/web/legacy-frontend` and any replacement frontend created under `apps/web`
 
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-07
 
 This file is the implementation contract for people and coding agents changing the Smart Match frontend. Read it before editing a screen, component, route, or frontend API call. Existing code may not satisfy every rule yet; new work must move toward this standard and must not introduce a new exception.
 
@@ -52,7 +52,7 @@ Smart Match helps people coordinate volunteers and events. Write for a person do
 | Algorithm / signals | How the match was determined |
 | Pipeline | Match progress |
 | CRM-style reporting | Assignment and outreach history |
-| Scrape / ingestion | Find opportunities / import records |
+| Scrape / ingestion | Create events / import approved records |
 | Fatigue Index | Break need |
 | Average fatigue | Average break need |
 
@@ -120,9 +120,9 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 
 - Sticky header: CPP logo, minimal navigation, and one clean text-style “Sign in” action. Do not put a bordered capsule around the top sign-in link.
 - Hero headline: “Match volunteers with events where they can help most.”
-- Supporting copy: “Smart Match helps coordinators find opportunities, compare volunteer experience and availability, and keep assignments organized in one place.”
+- Supporting copy: “Smart Match helps coordinators create and organize events, compare volunteer experience and availability, and keep staffing assignments in one place.”
 - Workflow section heading: “How Smart Match works.”
-- Describe finding events, choosing volunteers, and tracking assignments in plain language.
+- Describe creating events, choosing volunteers, and tracking assignments in plain language.
 - Do not add eyebrow badges above headlines. This includes phrases such as “Volunteer coordination made clearer” and “A straightforward process.”
 - Do not add hard-coded statistics, fake live activity, simulated terminals, a “View Demo” action, public demo wording, a second/lower sign-in promotion, or a sign-in link in the footer.
 - End with a semantic footer whose year is generated at runtime: `© [current year] Cal Poly Pomona. All rights reserved.`
@@ -138,6 +138,18 @@ Administrator, coordinator, volunteer, and student experiences share the same vi
 - Do not place decorative icons beside page headings. Icons are appropriate inside actions, statuses, empty states, or navigation when they improve recognition.
 - Put the action queue before summary statistics on administrator and coordinator home pages. For a small count, name the people or records rather than hiding them behind an average.
 - Mobile layouts use a compact header and a usable navigation drawer. Student and volunteer tasks are phone-first; administrator and coordinator tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
+
+### Events and feedback QR codes
+
+- Manual event entry is the primary event source. Do not add crawler controls, crawler status, discovery feeds, or background-scraping language to a visible frontend path.
+- Administrators may create, edit, and publish events. Coordinators consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
+- Preserve the event's IANA time zone. Convert a local form time using the selected zone, and display the saved instant in that same named zone.
+- Keep drafts usable when details are incomplete. Publishing must surface the backend's missing-field response without clearing the form.
+- Feedback QR management belongs only on the administrator event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.
+- Generate SVG/PNG QR assets locally. Never send the destination or redirect URL to a third-party QR service.
+- Call the metric “QR opens.” It is not a response, conversion, or proof that the external form was completed.
+- Clearly state that the form opens on an external website and Smart Match does not host or inspect it. Show its hostname before saving.
+- Do not bring back referral, speaker-linked QR, ROI, conversion, or scan-history widgets from the retired `/api/qr/*` flow.
 
 ### Components
 
