@@ -1,9 +1,14 @@
-"""OQ-CBA-061 made executable: what the pilot's Topic factor actually does.
+"""What was tracked as OQ-CBA-061, made executable: the pilot's Topic factor.
 
-The register entry for OQ-CBA-061 states the defect in prose. This file states
-it as assertions, against the *real* pilot inputs rather than invented ones, so
-that the day somebody answers OQ-CBA-026 the tests here fail loudly and say
-which of them is now wrong.
+The register entry (dissolved 7 September 2026 by ADR-0017) once stated this
+defect in prose, as an open question. This file states it as assertions,
+against the *real* pilot inputs rather than invented ones — pinned against the
+fixture path, which is what this generator still exercises. ADR-0017 approved
+an offline embedding model that reaches a measured score instead of
+``unknown``, but only for a caller that passes ``use_local_embedding=True``;
+this generator does not, so the assertions below remain true of the tree as it
+stands, and would fail loudly and say which of them is now wrong the day that
+changes.
 
 Nothing here changes behaviour. Every assertion below is a statement about the
 tree as it stands today:
@@ -43,10 +48,18 @@ done, for reasons stated here rather than left in a commit message:
 3. Coverage for the synthetic dataset would fix the demo and nothing else. A
    real CBA import carries real topic text, which no recorded corpus reaches, so
    the defect would survive exactly where it matters while looking answered.
-4. The register already decided the disposition: OQ-CBA-061 says "Nothing is
-   worked around, and this is recorded rather than patched", and assigns the
-   answer to the CBA product owner with the matching lead, alongside
-   OQ-CBA-026.
+4. *Superseded on 7 September 2026, and left standing so the record reads
+   honestly.* As written before that date this said: "The register already
+   decided the disposition: OQ-CBA-061 says 'Nothing is worked around, and
+   this is recorded rather than patched', and assigns the answer to the CBA
+   product owner with the matching lead, alongside OQ-CBA-026." Both
+   questions are now closed — ADR-0017 approved an offline, in-process
+   embedding model, dissolving OQ-CBA-061 as a consequence of closing
+   OQ-CBA-026 rather than by a separate policy change
+   (`docs/plans/open-questions/cba-phase-deferred.md`). That closes the
+   question this reason pointed to; it does not add coverage, since the model
+   is opt-in via ``use_local_embedding=True`` and this generator's fixture
+   path — and reasons 1-3 above — are unchanged by it.
 5. *Superseded on 7 September 2026, and left standing so the record reads
    honestly.* As written on 6 September this said: "It would not change a pilot
    demo today in any case. The generator's own match-run submission is still on
@@ -128,7 +141,8 @@ def _pilot_descriptions() -> list[str]:
 
 
 def test_the_pilot_seed_puts_topic_evidence_on_most_speakers():
-    """If the seed carried no topic evidence, OQ-CBA-061 would not reach a demo.
+    """If the seed carried no topic evidence, the defect once tracked as
+    OQ-CBA-061 (dissolved 7 September 2026 by ADR-0017) would not reach a demo.
 
     It carries plenty: only ``UNKNOWN_TOPIC_SHARE`` of professionals have no
     expertise record, and every one of the rest becomes a ``topic_text`` value
@@ -289,7 +303,11 @@ def test_a_seeded_pilot_speaker_with_topic_text_scores_unknown():
 
 
 def test_absence_of_topic_evidence_outranks_presence_in_the_pilot():
-    """OQ-CBA-061 in one comparison, on the pilot's own data.
+    """The defect once tracked as OQ-CBA-061, in one comparison, on the
+    pilot's own data. Dissolved 7 September 2026 by ADR-0017 for a caller
+    that opts into the offline embedding model; this test calls
+    ``build_semantic_topic_provider`` with no ``use_local_embedding``
+    keyword, so it still gets the fixture and the ordering below still holds.
 
     The seeded speaker who filled nothing in is shortlistable at the §9 neutral;
     the seeded speaker who filled the field in is not shortlistable at all.

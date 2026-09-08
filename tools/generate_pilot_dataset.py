@@ -106,19 +106,27 @@ through the product's own routes, in customer §19's own order:
 What the shortlist actually looks like, stated in advance
 ----------------------------------------------------------
 Most of the named pool drops out, and not because of anything in this file.
-OQ-CBA-061: the fixture semantic-topic provider holds no recordings, so a
-speaker carrying ``topic_text`` scores ``unknown`` on customer §9, ADR-0011
-rule 1 makes their composite ``None``, and they are reported as *unscorable*
-rather than shortlisted — while a speaker who filled nothing in gets §9's stated
-policy neutral and is shortlistable. The seed puts expertise text on most
-professionals, so most named candidates are unscorable and the shortlist is
-filled from the quiet minority.
+This tool calls ``build_semantic_topic_provider`` with no
+``use_local_embedding`` keyword, so it gets the fixture semantic-topic
+provider, which holds no recordings: a speaker carrying ``topic_text`` scores
+``unknown`` on customer §9, ADR-0011 rule 1 makes their composite ``None``,
+and they are reported as *unscorable* rather than shortlisted — while a
+speaker who filled nothing in gets §9's stated policy neutral and is
+shortlistable. The seed puts expertise text on most professionals, so most
+named candidates are unscorable and the shortlist is filled from the quiet
+minority. This was tracked as OQ-CBA-061; ADR-0017 dissolved it on 7
+September 2026 by approving an offline, in-process embedding model
+(`docs/plans/open-questions/cba-phase-deferred.md`), removing the cause
+rather than answering it as a separate question. That model is reached only
+by passing ``use_local_embedding=True``, which this generator does not do, so
+the fixture path and the counts described above are unchanged.
 
 Every one of those counts is printed at the end of a run rather than smoothed
 over. Stripping the seed's topic text would make the demo look fuller and is
-**not** done here: it is one of three candidate answers the CBA product owner
-holds for OQ-CBA-061, and choosing one of them inside a generator would be
-answering an open question by writing code.
+**not** done here: it was one of two alternatives ADR-0017 rejected — the
+other was ratifying a lexical comparator under the semantic provider's name —
+and choosing either inside a generator would have been answering an open
+question by writing code.
 
 Determinism
 -----------
@@ -313,16 +321,20 @@ PENDING_IMPORT_ROWS: Final[int] = 30
 #: corrections. It is also bounded by ``routers/match_runs.MAX_CANDIDATES``
 #: (200), which a run may not exceed.
 #:
-#: The floor is OQ-CBA-061, and this is the uncomfortable part. Only the
-#: professionals carrying *no* expertise text can be scored at all — everyone
-#: else is ``unknown`` on customer §9 and therefore unscorable — and the plan
-#: gives only :data:`~pilot_dataset_plan.UNKNOWN_TOPIC_SHARE` of them no
-#: expertise text. After the deliberate unreviewed fifth and the deliberate
-#: unclassified share are taken out too, a roster of sixty yields exactly three
-#: scorable candidates for a three-speaker shortlist: a demo one unlucky seed
-#: away from a ``422``. A hundred yields five. The margin is thin because the
-#: open question makes it thin, and widening it by removing topic text from the
-#: seed is the workaround this file will not take.
+#: The floor is the fixture semantic-topic provider's refusal (tracked as
+#: OQ-CBA-061 until ADR-0017 dissolved it on 7 September 2026), and this is
+#: the uncomfortable part. Only the professionals carrying *no* expertise text
+#: can be scored at all — everyone else is ``unknown`` on customer §9 and
+#: therefore unscorable — and the plan gives only
+#: :data:`~pilot_dataset_plan.UNKNOWN_TOPIC_SHARE` of them no expertise text.
+#: After the deliberate unreviewed fifth and the deliberate unclassified share
+#: are taken out too, a roster of sixty yields exactly three scorable
+#: candidates for a three-speaker shortlist: a demo one unlucky seed away from
+#: a ``422``. A hundred yields five. The margin is thin because the fixture
+#: path makes it thin — ADR-0017's offline embedding model would remove the
+#: refusal, but only for a caller that passes ``use_local_embedding=True``,
+#: which this generator does not — and widening it by removing topic text
+#: from the seed is the workaround this file will not take.
 MATCH_ROSTER_ROWS: Final[int] = 100
 
 #: Seconds between §19 classification corrections, for the reason
@@ -1442,8 +1454,10 @@ def submit_match_run(
         # the requested shortlist needs. Reported rather than raised, and
         # reported as what it is: the appliance refusing to present a shortlist
         # it could not fill, which is ADR-0011 behaving correctly over a pool
-        # OQ-CBA-061 emptied. Papering over it with a smaller portfolio_size
-        # here would be this tool choosing a presentation rule.
+        # the fixture semantic-topic provider's refusal emptied (tracked as
+        # OQ-CBA-061 until ADR-0017 dissolved it — see the note below).
+        # Papering over it with a smaller portfolio_size here would be this
+        # tool choosing a presentation rule.
         report.notes.append(
             "match run REFUSED with 422: fewer candidates could be scored than the "
             f"{MAX_SHORTLIST_SIZE}-speaker shortlist needs. The Connector surface has a "
@@ -1782,13 +1796,16 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         "missing by accident."
     )
     report.notes.append(
-        "OQ-CBA-061: the fixture semantic-topic provider holds no recordings, so every "
-        "candidate carrying expertise text scores unknown on customer §9, their composite "
-        "is None (ADR-0011 rule 1), and they are reported UNSCORABLE rather than "
-        "shortlisted. The shortlist above is therefore drawn from the minority of "
-        "candidates who filed no expertise text at all. That is the open question's cost "
-        "to this demo, not a defect in the generated data — and it is NOT worked around "
-        "here by stripping topic text from the seed."
+        "OQ-CBA-061 (dissolved 7 September 2026 by ADR-0017): this generator calls the "
+        "fixture semantic-topic provider, which holds no recordings, so every candidate "
+        "carrying expertise text scores unknown on customer §9, their composite is None "
+        "(ADR-0011 rule 1), and they are reported UNSCORABLE rather than shortlisted. The "
+        "shortlist above is therefore drawn from the minority of candidates who filed no "
+        "expertise text at all. That was the open question's cost to this demo, not a "
+        "defect in the generated data. ADR-0017 approved an offline embedding model that "
+        "removes the refusal, but only via use_local_embedding=True, which this generator "
+        "does not pass — so the cost above is unchanged, and it is NOT worked around here "
+        "by stripping topic text from the seed."
     )
     return report
 
