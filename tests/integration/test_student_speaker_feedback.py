@@ -48,6 +48,7 @@ from smartmatch_domain.student_speaker_feedback import (
     EditWindowState,
     Rating,
     aggregate_speaker_feedback,
+    aggregate_unit_feedback,
     resolve_edit_window,
 )
 from smartmatch_persistence.student_speaker_feedback import StudentSpeakerFeedbackRepository
@@ -1189,3 +1190,193 @@ class TestTheAggregateSuppressesSmallSamplesAgainstRealRows:
         )
         assert all(isinstance(value, int) for value in ratings)
         assert sorted(ratings) == [3, 4, 5]
+
+
+class TestTheUnitPoolIsReadWithoutAStudentColumn:
+    """``submitted_ratings_by_speaker``, against real rows.
+
+    The unit aggregate needs to know which speaker each rating belongs to — that
+    is what the residual rule is computed from — so this read selects two columns
+    where the per-speaker one selects a single ``rating``. The second column is a
+    *speaker* id, never a student's, and that is the property asserted here:
+    ``submitted_ratings``'s claim that "there is no ``student_id`` in the result
+    set for a route to forget to strip" has to survive the widening.
+    """
+
+    def _rate(
+        self, engine: Engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, values
+    ) -> None:
+        """One rating per student, each by a different account."""
+        for value in values:
+            with engine.begin() as conn:
+                student = _make_account(conn, tenant_id, "rater")
+                conn.execute(
+                    text(
+                        "INSERT INTO attendance_record (id, tenant_id, owning_unit_id, "
+                        "subject_id, event_id, method) "
+                        "VALUES (:id, :tid, :unit, :sid, :eid, 'coordinator_entry')"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "tid": tenant_id,
+                        "unit": unit_id,
+                        "sid": student,
+                        "eid": event_id,
+                    },
+                )
+            feedback.submit(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=unit_id,
+                student_id=student,
+                event_id=event_id,
+                speaker_professional_id=speaker_id,
+                rating=Rating(value=value),
+            )
+            session.commit()
+
+    @staticmethod
+    def _second_speaker(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> uuid.UUID:
+        """Another §13 roster contact in the same unit.
+
+        The differencing case needs two speakers, and the ``speaker_id`` fixture
+        makes one. Built the same way, by id, for the reason that fixture gives.
+        """
+        with engine.begin() as conn:
+            professional_id = _make_account(conn, tenant_id, "speaker")
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_profile (tenant_id, professional_id, owning_unit_id, "
+                    "full_name) VALUES (:tid, :pid, :unit, 'Second Fixture Speaker')"
+                ),
+                {"tid": tenant_id, "pid": professional_id, "unit": unit_id},
+            )
+            return professional_id
+
+    def test_ratings_by_speaker_selects_no_student_column(
+        self, engine, session, feedback, tenant_id, unit_id, event_id, speaker_id
+    ) -> None:
+        """Part 1, at the layer where it can be proved structurally.
+
+        Keys are speaker ids and values are bare integers. A ``student_id`` has
+        nowhere to travel: there is no row type, and the mapping's key is already
+        taken by the speaker.
+        """
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, [3, 4, 5])
+        by_speaker = feedback.submitted_ratings_by_speaker(
+            session, tenant_id=tenant_id, owning_unit_id=unit_id
+        )
+
+        assert set(by_speaker) == {speaker_id}
+        assert sorted(by_speaker[speaker_id]) == [3, 4, 5]
+        assert all(isinstance(value, int) for values in by_speaker.values() for value in values)
+
+    def test_ratings_by_speaker_excludes_withdrawn_rows(
+        self, engine, session, feedback, tenant_id, unit_id, event_id, speaker_id
+    ) -> None:
+        """A withdrawal is not evidence any more, and drops the pool below three.
+
+        Filtered in the database, like ``submitted_ratings``: a withdrawn row's
+        rating is ``NULL``, and a caller filtering ``None`` out of a list of
+        scores would be doing the database's job badly.
+        """
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, [3, 4, 5])
+        one_rater = session.execute(
+            text(
+                "SELECT student_id FROM student_speaker_feedback WHERE tenant_id = :tid "
+                "AND speaker_professional_id = :pid LIMIT 1"
+            ),
+            {"tid": tenant_id, "pid": speaker_id},
+        ).scalar_one()
+        feedback.withdraw(
+            session,
+            tenant_id=tenant_id,
+            student_id=one_rater,
+            event_id=event_id,
+            speaker_professional_id=speaker_id,
+        )
+        session.commit()
+
+        by_speaker = feedback.submitted_ratings_by_speaker(
+            session, tenant_id=tenant_id, owning_unit_id=unit_id
+        )
+        assert len(by_speaker[speaker_id]) == 2
+        assert aggregate_unit_feedback(by_speaker).suppressed is True
+
+    def test_ratings_by_speaker_is_scoped_to_unit_and_tenant(
+        self, engine, session, feedback, tenant_id, unit_id, event_id, speaker_id
+    ) -> None:
+        """Both scopes are in the query, not applied to the result afterwards.
+
+        Asserted by reading a unit that has no ratings and a tenant that is not
+        this one: either scope missing would return this unit's rows for both.
+        """
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, [3, 4, 5])
+
+        assert (
+            feedback.submitted_ratings_by_speaker(
+                session, tenant_id=tenant_id, owning_unit_id=uuid.uuid4()
+            )
+            == {}
+        )
+        assert (
+            feedback.submitted_ratings_by_speaker(
+                session, tenant_id=uuid.uuid4(), owning_unit_id=unit_id
+            )
+            == {}
+        )
+
+    def test_the_pool_is_suppressed_when_a_published_speaker_could_be_subtracted(
+        self, engine, session, feedback, tenant_id, unit_id, event_id, speaker_id
+    ) -> None:
+        """The differencing case against real rows.
+
+        Speaker A has three ratings and is published by the per-speaker route.
+        Speaker B has two and is not. The unit pool is five — comfortably over
+        the threshold — and is suppressed anyway, because ``5 - 3 = 2`` would
+        hand the reader a mean over B's two students.
+        """
+        speaker_b = self._second_speaker(engine, tenant_id, unit_id)
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, [5, 5, 5])
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_b, [1, 2])
+
+        by_speaker = feedback.submitted_ratings_by_speaker(
+            session, tenant_id=tenant_id, owning_unit_id=unit_id
+        )
+        published = aggregate_speaker_feedback(
+            feedback.submitted_ratings(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=unit_id,
+                speaker_professional_id=speaker_id,
+            )
+        )
+        unit = aggregate_unit_feedback(by_speaker)
+
+        assert sum(len(values) for values in by_speaker.values()) == 5
+        assert published.suppressed is False
+        assert unit.suppressed is True
+        assert unit.response_count is None
+        assert unit.mean_rating is None
+        assert unit.display_text == NOT_ENOUGH_RESPONSES
+
+    def test_the_pool_publishes_when_no_speaker_is_published(
+        self, engine, session, feedback, tenant_id, unit_id, event_id, speaker_id
+    ) -> None:
+        """Two speakers with two ratings each: nothing to subtract, so publish.
+
+        The reason the endpoint exists — a unit can say something true about
+        itself out of samples too small to say anything about a speaker.
+        """
+        speaker_b = self._second_speaker(engine, tenant_id, unit_id)
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_id, [4, 4])
+        self._rate(engine, session, feedback, tenant_id, unit_id, event_id, speaker_b, [5, 5])
+
+        unit = aggregate_unit_feedback(
+            feedback.submitted_ratings_by_speaker(
+                session, tenant_id=tenant_id, owning_unit_id=unit_id
+            )
+        )
+        assert unit.suppressed is False
+        assert unit.response_count == 4
+        assert unit.mean_rating == 4.5

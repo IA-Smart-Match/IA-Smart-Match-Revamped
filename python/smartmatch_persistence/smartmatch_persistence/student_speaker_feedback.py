@@ -313,6 +313,60 @@ class StudentSpeakerFeedbackRepository:
         ).all()
         return [row.rating for row in rows if row.rating is not None]
 
+    def submitted_ratings_by_speaker(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+    ) -> dict[uuid.UUID, list[int]]:
+        """The scores that count for a whole unit, grouped by the speaker.
+
+        Two columns rather than :meth:`submitted_ratings`' one, and the second
+        is a **speaker** id. That module claim -- "there is no ``student_id`` in
+        the result set for a route to forget to strip" -- survives the widening
+        intact: the grouping key is the professional the ratings are about, and
+        there is still no row type a student identifier could travel in.
+
+        The grouping exists because the unit aggregate is not a sum. Its
+        suppression rule needs to know how many ratings each speaker has, so
+        that a speaker whose own aggregate is already published can be
+        subtracted out and the remainder checked -- see
+        :func:`~smartmatch_domain.student_speaker_feedback.aggregate_unit_feedback`.
+        A read that returned one flat list would make that rule uncomputable and
+        the endpoint differenceable.
+
+        Withdrawn rows are excluded here, in the database, for
+        :meth:`submitted_ratings`' reasons, and ``rating IS NOT NULL`` is
+        asserted alongside the status rather than trusted from it: the two are
+        kept in step by ``ck_student_speaker_feedback_withdrawn_is_silent``, and
+        a read that silently produced ``None`` in a list of scores would be a
+        harder defect to find than a row that never arrives.
+
+        Both scopes are in the query rather than applied to its result. A unit
+        the caller does not name contributes nothing, and a tenant is not a
+        filter applied afterwards.
+
+        The aggregation, and every threshold in it, is the domain's. See the
+        module docstring: no ``GROUP BY`` decides who may see a number.
+        """
+        rows = session.execute(
+            sa.select(
+                schema.student_speaker_feedback.c.speaker_professional_id,
+                schema.student_speaker_feedback.c.rating,
+            ).where(
+                schema.student_speaker_feedback.c.tenant_id == tenant_id,
+                schema.student_speaker_feedback.c.owning_unit_id == owning_unit_id,
+                schema.student_speaker_feedback.c.status == FeedbackStatus.SUBMITTED.value,
+                schema.student_speaker_feedback.c.rating.is_not(None),
+            )
+        ).all()
+
+        by_speaker: dict[uuid.UUID, list[int]] = {}
+        for row in rows:
+            by_speaker.setdefault(row.speaker_professional_id, []).append(row.rating)
+        return by_speaker
+
     def event_anchor(
         self,
         session: Session,

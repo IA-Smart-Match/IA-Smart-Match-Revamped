@@ -29,6 +29,7 @@ time cannot test a deadline.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -45,6 +46,7 @@ from smartmatch_domain.student_speaker_feedback import (
     Rating,
     SpeakerFeedbackAggregate,
     aggregate_speaker_feedback,
+    aggregate_unit_feedback,
     feedback_anchor,
     resolve_edit_window,
 )
@@ -342,3 +344,176 @@ class TestEditWindowIsAValueNotAnOpinion:
         )
         with pytest.raises((AttributeError, TypeError)):
             window.state = EditWindowState.OPEN  # type: ignore[misc]
+
+
+class TestUnitAggregate:
+    """The unit-level pool, and the differencing attack the pool alone invites.
+
+    ``aggregate_speaker_feedback`` is safe on its own because it is the only
+    number published about a speaker. A *unit* number is published beside the
+    per-speaker numbers, to the same reader, so ``n >= 3`` on the pool is
+    necessary and not sufficient: with speaker A published at ``n=3`` and the
+    unit at ``n=5``, ``5 - 3 = 2`` ratings of somebody else are recoverable as a
+    mean over two students — precisely what the threshold withholds.
+
+    The rule under test:
+
+        residual = n_unit - sum of n_s over speakers whose own aggregate is
+        published (n_s >= MIN)
+        publish iff n_unit >= MIN and (residual == 0 or residual >= MIN)
+
+    The suppressed speakers' counts are not known to the reader, so the residual
+    is the only quantity they can compute; requiring it to be zero or itself
+    above the threshold closes the subtraction against everything the API
+    publishes.
+    """
+
+    @staticmethod
+    def _by_speaker(*counts: int) -> dict[uuid.UUID, list[int]]:
+        """One speaker per count, each rated ``4`` that many times.
+
+        The values are uniform on purpose: every assertion below is about *how
+        many* ratings each speaker has, and a mean that moved with the fixture
+        data would make the interesting failures unreadable.
+        """
+        return {uuid.uuid4(): [4] * count for count in counts}
+
+    def test_a_unit_nobody_rated_is_suppressed(self) -> None:
+        """Not ``0.0`` over zero speakers. ADR-0011 rule 1, inherited."""
+        aggregate = aggregate_unit_feedback({})
+        assert aggregate.suppressed is True
+        assert aggregate.response_count is None
+        assert aggregate.mean_rating is None
+        assert aggregate.display_text == NOT_ENOUGH_RESPONSES
+
+    def test_a_single_speaker_at_the_threshold_publishes(self) -> None:
+        """Residual zero: the whole pool is one already-published speaker.
+
+        The unit number equals the per-speaker number here and discloses nothing
+        the per-speaker route did not. Suppressing it would be a rule that
+        withheld a number the reader already has.
+        """
+        ratings = [3, 4, 5]
+        unit = aggregate_unit_feedback({uuid.uuid4(): ratings})
+        speaker = aggregate_speaker_feedback(ratings)
+        assert unit.suppressed is False
+        assert (unit.response_count, unit.mean_rating) == (
+            speaker.response_count,
+            speaker.mean_rating,
+        )
+
+    def test_a_published_speaker_plus_two_others_is_suppressed(self) -> None:
+        """**The differencing case.** A(3) published, B(2) not; unit n=5.
+
+        A naive ``len(pooled) >= 3`` publishes 5 here, and the reader computes
+        ``5 - 3 = 2`` and a mean over B's two students by subtracting A's
+        published total from the unit's. Suppressed instead, because the
+        residual is 2 — non-zero and below the threshold.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(3, 2))
+        assert aggregate.suppressed is True
+        assert aggregate.response_count is None
+        assert aggregate.mean_rating is None
+
+    def test_a_suppressed_speakers_ratings_are_not_recoverable_by_subtraction(self) -> None:
+        """The attack, executed, on the arrangement above.
+
+        Everything the reader has: A's published count and sum, and whatever the
+        unit read returns. If the unit read published anything, B's two ratings
+        fall straight out of the difference.
+        """
+        published = [5, 5, 5]
+        hidden = [1, 2]
+        speaker_a = uuid.uuid4()
+        speaker_b = uuid.uuid4()
+
+        per_speaker = aggregate_speaker_feedback(published)
+        unit = aggregate_unit_feedback({speaker_a: published, speaker_b: hidden})
+
+        assert per_speaker.suppressed is False
+        assert aggregate_speaker_feedback(hidden).suppressed is True
+        assert unit.suppressed is True
+        assert unit.response_count is None and unit.mean_rating is None
+        # With both numbers withheld there is no subtraction to perform: the
+        # reader cannot form `n_unit - n_A` or `sum_unit - sum_A` at all.
+
+    def test_two_published_speakers_publish_because_the_residual_is_zero(self) -> None:
+        """A(3)+B(3): the pool is exactly the speakers already published.
+
+        Subtracting both leaves nothing, so there is no third party to expose.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(3, 3))
+        assert aggregate.suppressed is False
+        assert aggregate.response_count == 6
+
+    def test_a_residual_at_the_threshold_publishes(self) -> None:
+        """A(3)+B(2)+C(2): residual 4, which is itself above the threshold.
+
+        The reader can compute ``7 - 3 = 4`` and a mean over four students split
+        between two speakers they cannot separate — an aggregate the decision
+        already permits, not a re-identification.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(3, 2, 2))
+        assert aggregate.suppressed is False
+        assert aggregate.response_count == 7
+
+    def test_a_residual_below_the_threshold_suppresses_however_large_the_pool(self) -> None:
+        """A(3)+B(3)+C(2): pooled n=8 is comfortable and the answer is still no.
+
+        This is the case that makes the rule more than ``n >= 3``: the pool is
+        large, and ``8 - 6 = 2`` still isolates C's two students.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(3, 3, 2))
+        assert aggregate.suppressed is True
+        assert aggregate.response_count is None
+
+    def test_two_suppressed_speakers_pool_into_a_published_aggregate(self) -> None:
+        """A(2)+B(2): nothing is published per speaker, so nothing subtracts out.
+
+        The permitted half of the rule. A residual rule that suppressed here
+        would satisfy every leak assertion above and publish almost nothing,
+        which is the failure mode worth naming: pooling small samples is the
+        reason this endpoint exists.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(2, 2))
+        assert aggregate.suppressed is False
+        assert aggregate.response_count == 4
+
+    def test_the_pooled_mean_is_rounded_to_two_decimals(self) -> None:
+        """Over the pooled list, not an average of per-speaker averages.
+
+        A mean of means weights a speaker with one rating like a speaker with
+        ten, and is a different number nobody asked for. Both speakers are
+        published in their own right here, so the residual is zero and the only
+        thing under test is the arithmetic.
+        """
+        aggregate = aggregate_unit_feedback({uuid.uuid4(): [1, 2, 2], uuid.uuid4(): [5, 5, 5]})
+        assert aggregate.suppressed is False
+        assert aggregate.mean_rating == round(20 / 6, 2)
+        assert aggregate.response_count == 6
+
+    def test_a_suppressed_unit_aggregate_carries_no_numbers(self) -> None:
+        """Inherited from :class:`SpeakerFeedbackAggregate`, asserted here anyway.
+
+        The type makes a suppressed-with-numbers value unrepresentable, and this
+        endpoint is a second way to construct one.
+        """
+        aggregate = aggregate_unit_feedback(self._by_speaker(3, 2))
+        assert isinstance(aggregate, SpeakerFeedbackAggregate)
+        with pytest.raises(ValueError, match="no numbers at all"):
+            SpeakerFeedbackAggregate(response_count=5, mean_rating=4.0, suppressed=True)
+
+    def test_there_is_only_one_threshold(self) -> None:
+        """The residual rule reuses ``MIN_RESPONSES_FOR_AGGREGATE``.
+
+        A second constant would let one of the two rules be relaxed without the
+        other, which is how a differencing guard rots.
+        """
+        below = MIN_RESPONSES_FOR_AGGREGATE - 1
+        assert aggregate_unit_feedback(
+            self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE)
+        ).suppressed is (False)
+        assert (
+            aggregate_unit_feedback(self._by_speaker(MIN_RESPONSES_FOR_AGGREGATE, below)).suppressed
+            is True
+        )

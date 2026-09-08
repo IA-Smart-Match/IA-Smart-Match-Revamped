@@ -1720,6 +1720,25 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The same aggregate pooled over a whole unit. A separate authorizer and a
+    # separate role constant from the per-speaker read above, on the ledger
+    # reasoning `tests/authz/test_route_roles.py` gives: the two sets agree
+    # today, and a widening of one must not silently widen the other. These are
+    # the two surfaces a differencing attack is run across -- the unit number is
+    # the one a published per-speaker number is subtracted from -- so they are
+    # exactly the pair that has to be able to move apart.
+    Operation(
+        key="student_feedback.unit_summary",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-feedback-summary",
+        module="smartmatch_api.routers.student_speaker_feedback",
+        authorizer="_authorize_unit_feedback_summary_read",
+        roles_constant="_UNIT_FEEDBACK_SUMMARY_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The CBA speaker handoff, ``routers/cba_handoff.py``: bringing a speaker's
     # funnel journey up to whatever the stored invitation/attendance evidence
     # supports, and reading the confirmed speakers a unit can hand its Event
@@ -6401,6 +6420,97 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # The unit-level pool, cell for cell the same rectangle as the per-speaker
+    # read above. Same resource, same role pair, same absence from
+    # `TENANT_WIDE_ROLE_OPERATIONS` -- and stated separately rather than
+    # aliased, because the two rows are what a differencing attack needs *both*
+    # of, and a shared rectangle would let one widening move the pair.
+    "student_feedback.unit_summary": {
+        "admin_at_org_root": permit(
+            why=(
+                "§16 names admin users explicitly, and a root grant covers every "
+                "unit beneath it. What they read is one mean and one count pooled "
+                "over the unit, published only when at least three ratings exist "
+                "*and* no published per-speaker aggregate can be subtracted out of "
+                "it -- never a student id, never a speaker breakdown, never text"
+            ),
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "§16's Speaker Connector, at the unit whose ratings these are. "
+                "This is the dashboard read the Connector home page had no honest "
+                "way to compute in the browser"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "right role, wrong path: a sibling department does not contain the "
+                "owning unit, and a unit aggregate is a statement about that unit's "
+                "students"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership and the required role, but the wrong path, and "
+                "`_authorize_unit_feedback_summary_read` passes no "
+                "`tenant_wide_roles`. Deliberately absent from "
+                "`TENANT_WIDE_ROLE_OPERATIONS` for the reason the per-speaker read "
+                "is: pooling a whole tenant's ratings from one department is a "
+                "reach nothing has ratified, and this surface follows "
+                "`routers/engagement.py` rather than `routers/metrics.py`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "a student writes and reads their own rows. The class's average is "
+                "not theirs to read, and a student who could read it could watch it "
+                "move as their classmates answered"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is the Event Host (customer §4). §16 names Speaker "
+                "Connectors and admin users, and under deny-by-default the absence "
+                "of a mention is a denial rather than an invitation to guess"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "v1.1 §2.1: an explicit deny on the resource beats inheritance, and "
+                "the role would otherwise have permitted"
+            ),
+        ),
+        "expired_coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "an expired membership is not a membership: the right role at the "
+                "right path still fails"
+            ),
+        ),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny("no_grant", why="a read is not reachable through a job"),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
     # The CBA speaker handoff. Both operations below call the identical
     # `_authorize_handoff` against the identical `org_unit` resource, so their
     # rows are the same shape as `pipeline.record.read` /
@@ -6780,6 +6890,13 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_student_feedback_write",
         "_authorize_student_feedback_read",
         "_authorize_speaker_feedback_summary_read",
+        # The twenty-second, the unit-level pool, on the same terms. Not merged
+        # with `_authorize_speaker_feedback_summary_read` even though its set
+        # reads `{admin, coordinator}` too: the unit number is the one a reader
+        # subtracts a published per-speaker number from, so the pair has to be
+        # able to move apart, and a single name would make one widening reach
+        # both sides of that subtraction at once.
+        "_authorize_unit_feedback_summary_read",
     ):
         assert_allowed(
             resolved.principal,

@@ -5665,6 +5665,63 @@
         "title": "TransitionView",
         "type": "object"
       },
+      "UnitFeedbackSummaryResponse": {
+        "description": "What a Connector is told about a whole unit's ratings.\n\nThe model above with ``unit_id`` in place of ``speaker_professional_id``,\nand **nothing else added**. In particular there is no per-speaker\nbreakdown, no count of how many speakers were rated, and no list of speaker\nids: every extra number here is a handle a reader can difference the pooled\none against, which is the attack the domain's residual rule exists to close.\nPublishing the pool and then handing back its parts would undo it in the\nresponse model.\n\nNothing here is a score, a weight or a factor. Whether student ratings\nshould ever reach matching is **OQ-CBA-053**, and it is open \u2014 a field name\nthat implied otherwise would answer it by accident.",
+        "properties": {
+          "display_text": {
+            "description": "What to render. 'not enough responses yet' when suppressed \u2014 which here can also mean 'enough responses, but publishing them would expose an individual speaker's raters'. The sentence is the same because the reader is owed the same thing: a statement that we are not telling them, rather than a dash or a zero.",
+            "title": "Display Text",
+            "type": "string"
+          },
+          "mean_rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unit's average, to two decimals, over the pooled ratings \u2014 not an average of per-speaker averages, which would weight a speaker rated once like a speaker rated ten times. Null when suppressed, and never 0.0: ADR-0011 rule 1.",
+            "title": "Mean Rating"
+          },
+          "minimum_responses": {
+            "description": "The threshold below which nothing is published, and the same threshold the residual test uses, so a surface can explain the suppression without hard-coding the number.",
+            "title": "Minimum Responses",
+            "type": "integer"
+          },
+          "response_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many ratings across the unit the mean was computed from, or null when suppressed. Withheld along with the mean rather than published beside it, for the reason the per-speaker summary gives.",
+            "title": "Response Count"
+          },
+          "suppressed": {
+            "description": "True when the unit's pooled ratings are withheld \u2014 either because fewer than the threshold exist, or because publishing them would let a reader subtract an already-published speaker's aggregate and recover the ratings of a speaker whose own aggregate is suppressed. Both numbers below are then null.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "suppressed",
+          "display_text",
+          "minimum_responses"
+        ],
+        "title": "UnitFeedbackSummaryResponse",
+        "type": "object"
+      },
       "UnsubscribeRequest": {
         "description": "The signed token from a message's unsubscribe link.",
         "properties": {
@@ -12748,6 +12805,136 @@
         "summary": "Correct a speaker contact's classification",
         "tags": [
           "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-feedback-summary": {
+      "get": {
+        "description": "One mean and one count for the whole unit, or a sentence saying no.\n\nThe Connector dashboard's read. It exists because the same number cannot be\ncomputed in the browser: a suppressed per-speaker summary contributes\n``null``, so a client-side total either drops it and undercounts or\nrepublishes what suppression withheld.\n\n**This is not a sum of the per-speaker aggregates, and it is not simply the\npool with the same threshold applied.** The per-speaker route is public to\nthe same reader, so a pooled ``n`` can be *differenced* against what that\nroute already published: with one speaker at ``n=3`` and the unit at\n``n=5``, ``5 - 3 = 2`` recovers a mean over two students, which is the\nstatement the threshold exists to withhold. So the aggregate is published\nonly when the pool clears the threshold **and** the residual \u2014 the pool\nminus every already-published speaker's count \u2014 is zero or itself at or\nabove the threshold. A unit with a large pool can therefore be suppressed,\nand that is the rule working rather than failing.\n\nThe arithmetic and the rule are\n:func:`~smartmatch_domain.student_speaker_feedback.aggregate_unit_feedback`'s,\nwith a unit test matrix. Neither is a ``GROUP BY ... HAVING`` here, for the\nreason the module docstring gives: a privacy rule in a query plan is a\nprivacy rule nobody can read.\n\n**No student, no speaker, no breakdown.** The response carries the unit's\nid, the two numbers or two nulls, the sentence and the threshold. A\n``speakers: [...]`` list \"for the chart\" would be the per-speaker route\nagain with its suppression decided in one place for all of them, and it\nwould re-open exactly what the residual rule closes.\n\nNothing here reads into a factor, a weight or a ``match_run``: whether\nstudent ratings should ever inform matching is **OQ-CBA-053**, and it is\nopen.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator here.\n    404: ``unit_not_found``.",
+        "operationId": "read_unit_feedback_summary_v1_units__unit_id__speaker_feedback_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitFeedbackSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "How students rated this unit's speakers, pooled",
+        "tags": [
+          "student-speaker-feedback"
         ]
       }
     },

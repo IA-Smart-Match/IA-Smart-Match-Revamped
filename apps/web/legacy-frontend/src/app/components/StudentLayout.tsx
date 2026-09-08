@@ -3,6 +3,7 @@ import {
   House,
   CalendarDays,
   ClipboardCheck,
+  MessageSquare,
   Users,
   GraduationCap,
   Menu,
@@ -21,6 +22,14 @@ const navigation = [
   { name: "Home", href: "/student-portal", icon: House, exact: true },
   { name: "My Events", href: "/student-portal/events", icon: CalendarDays },
   { name: "Past Events", href: "/student-portal/history", icon: ClipboardCheck },
+  // §§15-16's rating surface, after the events it looks back on. The label
+  // says "My" deliberately: the page today can only amend or withdraw a
+  // rating this student already left, not find a new speaker to rate for the
+  // first time (OQ-CBA-064), so the nav must not promise a way in. Ungated
+  // here like every other entry — this shell gates wholesale on
+  // `GET /v1/me/portals`, and the routes behind it are `student`-scoped
+  // server-side per request.
+  { name: "My speaker feedback", href: "/student-portal/speaker-feedback", icon: MessageSquare },
   { name: "Connect", href: "/student-portal/connect", icon: Users },
   { name: "Rewards", href: "/student-portal/rewards", icon: Gift },
 ];
