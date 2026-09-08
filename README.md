@@ -284,6 +284,7 @@ Contract-Refs: v1.1 §N.N
 | Document | Contents |
 |---|---|
 | [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
+| [Local dev walkthrough](docs/operations/local-dev-walkthrough.md) | Bringing the CBA pilot appliance up by hand and clicking through it, command by command and why |
 | [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
 | [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance, its automated deployment, and the gates before production |
 | [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
