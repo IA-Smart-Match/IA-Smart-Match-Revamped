@@ -32,10 +32,15 @@ that table, never of the ledger.
 
 What this module deliberately does not have
 --------------------------------------------
-**No ``reward_item`` writer.** D6 gates a shipped catalog, and a convenient
-``create_reward_item`` here would be the mechanism for shipping one. Integration
-tests insert their own synthetic rows directly, the way
-``tests/integration/test_engagement_schema_constraints.py`` already does.
+**No route-reachable ``reward_item`` writer.** :meth:`RewardsRepository.create_item`
+exists — the operator's authorization for it is 7 September 2026, recorded
+beside D6 in ``docs/plans/open-questions/cba-phase-deferred.md`` rather than by
+editing D6 itself — but nothing in this repository calls it except
+``tools/seed_pilot_rewards.py``, an operator tool that requires
+``SMARTMATCH_EDITION=dev`` with fixture providers and takes every catalog value
+as a required argument with no default. No route calls it, and none may: D6 §5
+still lists "Read/redemption roles" as undecided, so a route would have to
+invent the role set that may create catalog items.
 
 **No route.** D6 records "read/redemption roles" among the fields it does not
 resolve, so nothing here decides who may call any of it. Card R3 owns the
@@ -110,6 +115,7 @@ __all__ = [
     "NothingToReverseError",
     "RewardsRepository",
     "UnknownAttendanceError",
+    "UnknownBudgetOwnerError",
     "UnknownRedemptionError",
     "UnknownRewardItemError",
     "redemption_debit_is_representable",
@@ -181,6 +187,20 @@ class UnknownRedemptionError(ValueError):
     """No ``redemption`` row exists for the id a transition was asked for."""
 
 
+class UnknownBudgetOwnerError(ValueError):
+    """The requested ``budget_owner_id`` is not a ``user_account`` in this tenant.
+
+    Raised by :meth:`RewardsRepository.create_item` before any insert is
+    attempted, so a caller — in practice, ``tools/seed_pilot_rewards.py`` —
+    refuses with a sentence naming the missing subject rather than with an
+    ``IntegrityError`` naming a constraint. The composite foreign key
+    (``reward_item.tenant_id, budget_owner_id`` referencing
+    ``user_account.tenant_id, id``) would refuse the insert either way; this
+    check exists to make the refusal legible to the operator who typed the
+    subject, not to add a rule the database does not already enforce.
+    """
+
+
 class InsufficientBalanceError(ValueError):
     """The folded balance no longer covers a redemption's snapshot cost.
 
@@ -233,7 +253,12 @@ def redemption_debit_is_representable() -> bool:
 
 
 class RewardsRepository:
-    """Reads and appends ``point_ledger_entry``; reads the listable catalog."""
+    """Reads and appends ``point_ledger_entry``; reads and writes the catalog.
+
+    The catalog writer, :meth:`create_item`, is reachable only from an
+    operator tool — see that method's docstring — and from nowhere a request
+    can reach.
+    """
 
     # -- earning -----------------------------------------------------------
 
@@ -517,6 +542,78 @@ class RewardsRepository:
         )
 
     # -- the catalog -------------------------------------------------------
+
+    def create_item(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        name: str,
+        points_cost: int,
+        fulfilment_cost: Any,
+        budget_owner_id: uuid.UUID,
+        funded: bool,
+    ) -> uuid.UUID:
+        """Insert one ``reward_item`` row. Commits nothing; the caller decides.
+
+        Every value the D6 worksheet says engineering "must not invent" —
+        name, cost, owner, funded — is required here and defaulted nowhere in
+        this method. ``funded`` in particular is passed straight through:
+        the column's ``server_default 'false'`` is an *insert-time* default
+        for a statement silent about the column, not a policy this method
+        applies on a caller's behalf, so a caller that wants an unfunded row
+        must say ``funded=False`` and a caller that wants a listable one must
+        say ``funded=True``.
+
+        The only caller in this repository's tree is
+        ``tools/seed_pilot_rewards.py``, an operator tool gated on
+        ``SMARTMATCH_EDITION=dev`` with fixture providers, whose every
+        argument is required with no default — see that module. No route
+        calls this method, and D6 §5's undecided "read/redemption roles" is
+        exactly why: a route would have to invent the role set that may
+        create catalog items.
+
+        Raises:
+            UnknownBudgetOwnerError: ``budget_owner_id`` does not name a
+                ``user_account`` row in this tenant. Checked before the insert
+                is attempted so the refusal names the missing subject rather
+                than surfacing as the composite foreign key's
+                ``IntegrityError``.
+            sqlalchemy.exc.IntegrityError: a database CHECK refuses the row —
+                ``ck_reward_item_points_cost_positive`` for a non-positive
+                ``points_cost``, ``ck_reward_item_fulfilment_cost_non_negative``
+                for a negative ``fulfilment_cost``. Not caught or translated:
+                the CHECK is the authority on the numeric bound, not this
+                method restating it.
+
+        Returns:
+            The new ``reward_item.id``.
+        """
+        owner = session.execute(
+            sa.select(schema.user_account.c.id).where(
+                schema.user_account.c.tenant_id == tenant_id,
+                schema.user_account.c.id == budget_owner_id,
+            )
+        ).one_or_none()
+        if owner is None:
+            raise UnknownBudgetOwnerError(
+                f"no user_account {budget_owner_id} in tenant {tenant_id}; a reward item's "
+                "budget owner must be a named human account in this tenant (D6)"
+            )
+
+        item_id = uuid.uuid4()
+        session.execute(
+            sa.insert(schema.reward_item).values(
+                id=item_id,
+                tenant_id=tenant_id,
+                name=name,
+                points_cost=points_cost,
+                fulfilment_cost=fulfilment_cost,
+                budget_owner_id=budget_owner_id,
+                funded=funded,
+            )
+        )
+        return item_id
 
     def listable_items(self, session: Session, *, tenant_id: uuid.UUID) -> tuple[RewardItem, ...]:
         """Reward items a student may be shown: funded, and owned in this tenant.
