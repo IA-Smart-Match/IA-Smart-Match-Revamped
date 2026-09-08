@@ -431,6 +431,15 @@ services:
       # scripts/compose_health.sh fails when the reported value is not the one
       # this checkout expects. Locally it stays `compose-dev`.
       SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
+      # ADR-0017's offline, in-process embedding model for the §9 topic
+      # comparison, gated by Settings.cba_topic_local_embedding_enabled
+      # (services/api/smartmatch_api/config.py). Off by default here too —
+      # this appliance keeps today's fixture-only behaviour unless the shell
+      # that runs `docker compose up` exports the variable, because compose
+      # does not read `.env.example`/`.env` for this passthrough. Whether the
+      # demo appliance should ship with it on is a product decision, not
+      # this file's; see docs/operations/hosted-synthetic-pilot-guide.md.
+      SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED: ${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}
       PORT: "8080"
       # Maps four local-only bearer tokens to the four subjects `seed` and
       # `seed-principals` create above — one per portal, so a stakeholder can

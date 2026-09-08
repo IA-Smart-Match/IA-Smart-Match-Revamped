@@ -44,6 +44,8 @@ Compose publishes ports on **loopback only** (`127.0.0.1`). That is why a collea
 
 The Vite proxy in `apps/web/legacy-frontend/vite.config.ts` targets **`http://127.0.0.1:8000`**, which matches `make run-api`, **not** compose’s `:8080`. If you use compose, change both `/api` and `/v1` `target` values to `http://127.0.0.1:8080` for that demo (revert afterward; do not commit a demo-only port unless product agrees).
 
+The same split trips up `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` (ADR-0017's offline embedding model for §9 topic scoring, off by default — see the `.env` inventory below). `make run-api` reads it from `.env`, so the host-run path both matches the proxy above and picks up this flag from the same file. Compose does not read `.env` for it — `docker-compose.yml` passes it through with an explicit `${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}` default — so a compose run only turns it on if you `export` it in the shell that runs `docker compose up`.
+
 ---
 
 ## Path A — run it on Windows (recommended for Friday)
@@ -195,6 +197,7 @@ Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. 
 | `SMARTMATCH_EDITION` | Yes (keep `dev`) | Non-dev refuses `SMARTMATCH_DEV_PRINCIPALS` |
 | `SMARTMATCH_DATABASE_URL` | Yes | Default matches compose/native Postgres |
 | `SMARTMATCH_USE_FIXTURE_PROVIDERS` | Yes (`true`) | Setting `false` does **not** enable live providers; construction fails |
+| `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` | Optional (default `false`) | Off keeps the recorded-fixture §9 topic comparator and today's dropout behaviour. On routes that seam to ADR-0017's offline, in-process embedding model instead — no vendor, no network call, and still not a live provider. `make run-api` reads this from `.env`; compose does not (see below) |
 | `SMARTMATCH_DEV_PRINCIPALS` | Yes for authenticated API without compose | JSON `{"token":"subject"}`; every subject must be one that `make seed-pilot` / `make seed-pilot-principals` created, or that token resolves to nobody and 401s. Compose already sets all four — see "Pre-loaded pilot principals" below |
 | `SMARTMATCH_EMAIL_API_KEY` | Leave empty | Outreach (G4) not implemented |
 | `SMARTMATCH_ROUTES_API_KEY` | Leave empty | Routes adapter not live |
