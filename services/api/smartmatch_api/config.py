@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     #: corresponding release gate opens.
     use_fixture_providers: bool = True
 
+    #: ADR-0017's offline, in-process embedding model for customer §9's Topic
+    #: comparison. A deployment-level opt-in, not a user preference: nothing on
+    #: a request or a principal can flip this, because a stored score's
+    #: ``cba_semantic_topic.basis`` records which engine produced it and two
+    #: shortlists in the same unit must have been produced by the same one, or
+    #: the record must at least be honest about which was which per run — that
+    #: is only true if the choice is a deployment fact, not something that can
+    #: change between two runs a coordinator submits back to back.
+    #:
+    #: Off by default so an unconfigured deployment keeps exactly today's
+    #: behaviour: ``FixtureSemanticTopicProvider``, the same golden pins, the
+    #: same CI. Turning this on does not add a vendor, a credential, or a
+    #: network call — ``LocalEmbeddingSemanticTopicProvider`` is a vendored,
+    #: offline model (ADR-0017) — so nothing else in the isolation gate's
+    #: "no live providers" property is at stake here.
+    cba_topic_local_embedding_enabled: bool = False
+
     #: Local-pilot bearer tokens mapped to their stable external subjects.
     #:
     #: This is intentionally not an account-authentication system: it has no
