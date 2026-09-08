@@ -1367,55 +1367,106 @@ def test_14_the_rewards_catalog_is_a_students_to_read_and_nobody_elses(
     )
 
 
-def test_15_a_redemption_decision_has_nothing_to_decide(
+def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
     api: httpx.Client, student_api: httpx.Client, flow: ClickThrough
 ) -> None:
-    """The gate moved; the catalog did not fill. Asserted, then skipped by name.
+    """Branches on the catalog rather than assuming it — this step never seeds one.
 
     ``POST /v1/units/{id}/redemptions/{id}/decision`` is gated on
-    ``coordinator``, and a student principal now exists to create the redemption
-    it would act on — so the role gate that blocked this step is gone. What
-    blocks it now is data, not authorization: **no funded reward item exists on
-    this appliance**, because nothing seeds one and no ``/v1`` route creates
-    one. A student with a balance and no catalog has nothing to ask for.
+    ``coordinator``, and a student principal exists to create the redemption it
+    acts on, so the role gate that once blocked this step is gone. What gated
+    it before was data: no funded reward item existed on the appliance, because
+    nothing seeded one and no ``/v1`` route creates one. That is still true of
+    a *default* appliance — Gap 4 added an operator tool
+    (``make seed-pilot-rewards``), not a seed this test runs, and not a route.
+    So this step still cannot assume a catalog item exists; it reads the
+    catalog and walks whichever branch the data supports.
 
-    That is asserted rather than assumed. The request is issued against an item
-    id that does not exist and the answer is required to be a ``404`` — which
-    proves the route is reachable by this principal (it is not a ``403``) and
-    that the appliance holds no such item. Inserting a reward row and a ledger
-    entry to force a ticket into existence would manufacture the evidence the
-    decision route exists to check, so the step stops here and says which half
-    is missing.
+    **If the catalog is empty**, today's assertions still run: a redemption
+    request for an item id nobody issued must answer ``404
+    reward_item_not_found`` — proving the route is reachable by this principal
+    (a ``403`` would mean the student gate had closed again) — and the step
+    skips, naming why.
+
+    **If the catalog is not empty**, an operator has run
+    ``make seed-pilot-rewards`` on this appliance. The student — whose balance
+    Gap 3's attendance route may have credited — requests the cheapest listed
+    item. A ``201`` with ``state == "requested"`` means the balance covered it,
+    and the coordinator decides it (``approved``), asserting the returned
+    state. A ``409`` means the balance is unknown or does not cover the
+    cheapest item; the step asserts the server's code
+    (``balance_unknown`` / ``insufficient_balance``) without asserting *which*,
+    since either is a legitimate answer for a freshly seeded student, and
+    skips.
+
+    This step must never insert a row itself: doing so to force a ticket into
+    existence would manufacture the evidence the decision route exists to
+    check, exactly the reasoning that governed the version of this step it
+    replaces.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
 
     catalog = json_body(student_api.get(f"/v1/units/{flow.unit_id}/rewards"))
-    assert catalog["items"] == [], (
-        "a funded reward item now exists on this appliance, so this step can "
-        f"stop skipping and walk the request/decide path: {catalog['items']}"
-    )
+    items = catalog["items"]
 
-    invented = student_api.post(
+    if not items:
+        invented = student_api.post(
+            f"/v1/units/{flow.unit_id}/redemptions",
+            json={"item_id": str(uuid.uuid4())},
+        )
+        assert invented.status_code == 404, (
+            f"a redemption request for an item id nobody issued answered "
+            f"{invented.status_code}. 403 would mean the student gate had closed "
+            f"again; 201 would mean an item had been conjured: {invented.text[:300]}"
+        )
+        assert json_body(invented)["error"]["code"] == "reward_item_not_found"
+        pytest.skip(
+            "no funded reward item exists on this appliance: nothing seeds a "
+            "rewards catalog automatically and no /v1 route creates one. Run "
+            "`make seed-pilot-rewards` with owner-supplied values (see "
+            "docs/pilot-data/rewards-catalog-worksheet.md) to walk the "
+            "request/decide path this step exercises when one exists."
+        )
+
+    cheapest = min(items, key=lambda item: item["points_cost"])
+    response = student_api.post(
         f"/v1/units/{flow.unit_id}/redemptions",
-        json={"item_id": str(uuid.uuid4())},
+        json={"item_id": cheapest["item_id"]},
     )
-    assert invented.status_code == 404, (
-        f"a redemption request for an item id nobody issued answered "
-        f"{invented.status_code}. 403 would mean the student gate had closed "
-        f"again; 201 would mean an item had been conjured: {invented.text[:300]}"
-    )
-    assert json_body(invented)["error"]["code"] == "reward_item_not_found"
+    if response.status_code == 409:
+        code = json_body(response)["error"]["code"]
+        assert code in {"balance_unknown", "insufficient_balance"}, (
+            f"a redemption request refused with an unexpected code {code!r}: {response.text[:300]}"
+        )
+        pytest.skip(
+            f"a funded reward item exists, but the student's balance does not "
+            f"cover it yet (server code {code!r}); Gap 3's attendance route "
+            "credits the balance this step needs — verify one has run"
+        )
 
-    pytest.skip(
-        "no redemption exists to decide on, and the reason is no longer the "
-        "role: a student principal is pre-loaded and reaches the request route "
-        "(the 404 above proves it, where a 403 would have meant the gate). What "
-        "is missing is a funded reward item — nothing seeds a rewards catalog "
-        "and no /v1 route creates one, so there is nothing to request and "
-        "therefore nothing for the coordinator-gated decision route to act on. "
-        "Seeding a reward and a points ledger directly would manufacture the "
-        "ticket this step exists to watch move"
+    assert response.status_code == 201, (
+        f"requesting the cheapest funded item answered {response.status_code}, "
+        f"neither a success nor one of the balance-related 409s: "
+        f"{response.text[:300]}"
+    )
+    requested = json_body(response)
+    assert requested["state"] == "requested", (
+        f"a freshly opened redemption reported state={requested['state']!r}, not 'requested'"
+    )
+
+    decision = api.post(
+        f"/v1/units/{flow.unit_id}/redemptions/{requested['redemption_id']}/decision",
+        json={"decision": "approved"},
+    )
+    assert decision.status_code == 200, (
+        f"the coordinator's decision on {requested['redemption_id']} answered "
+        f"{decision.status_code}: {decision.text[:300]}"
+    )
+    decided = json_body(decision)
+    assert decided["state"] == "approved", (
+        f"the coordinator approved the redemption and the server reported "
+        f"state={decided['state']!r}"
     )
 
 

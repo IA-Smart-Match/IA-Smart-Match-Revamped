@@ -70,13 +70,18 @@ and ``catalog`` remain forbidden with no exception at all: the balance is a fiel
 response, not a resource of its own, and there is no route whose path says
 otherwise.
 
-What this flip does **not** open is a catalog *writer* or a coordinator's view
-of other students' redemptions. ``smartmatch_persistence.rewards`` has no
-``reward_item`` writer by construction, the four method/path pairs are pinned by
-:func:`test_the_rewards_router_exposes_two_reads_and_two_commands`, and
-``D6_AUTHORIZED_REWARD_PATHS`` cannot grow without a visible edit to a named
-list. The D6/D7 figures themselves are untouched: nothing here promotes the
-tentative earn rate, the bands, or calibration N.
+What this flip does **not** open is a catalog *writer reachable through this
+router* or a coordinator's view of other students' redemptions.
+``smartmatch_persistence.rewards.RewardsRepository.create_item`` exists — the
+7 September 2026 authorization recorded beside D6 in
+``docs/plans/open-questions/cba-phase-deferred.md`` — but its only caller in
+this repository is ``tools/seed_pilot_rewards.py``, an operator tool gated on
+``SMARTMATCH_EDITION=dev`` that no route calls. The four method/path pairs are
+pinned by :func:`test_the_rewards_router_exposes_two_reads_and_two_commands`,
+which still passes unchanged, and ``D6_AUTHORIZED_REWARD_PATHS`` cannot grow
+without a visible edit to a named list. The D6/D7 figures themselves are
+untouched: nothing here promotes the tentative earn rate, the bands, or
+calibration N.
 
 ## The R2 engagement flip (card R2-ENGAGEMENT-API)
 

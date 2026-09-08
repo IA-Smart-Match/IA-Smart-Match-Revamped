@@ -244,6 +244,29 @@ The owner-supplied `/login` passwords (`SMARTMATCH_PILOT_*_EMAIL` /
 `_PASSWORD`, seeded by `seed-logins`) are a separate mechanism and are not in
 this repository; see `.env.example`.
 
+### Seeding a funded reward item
+
+The catalog is empty by default, deliberately — `docs/pilot-data/rewards-catalog-worksheet.md`
+says engineering "must not invent owners, funding, or point costs." A funded
+item exists only once the product owner has filled a row in that worksheet's
+table and an operator has run, after `seed-principals`:
+
+```
+make seed-pilot-rewards SEED_PILOT_REWARD_ARGS='--name "..." --points-cost 300 \
+  --fulfilment-cost 10.00 --budget-owner-subject pilot-login-coordinator --funded'
+```
+
+Every value on that line comes from the worksheet row, typed by the operator —
+there is no default for `--name`, `--points-cost`, `--fulfilment-cost`,
+`--budget-owner-subject`, or `--funded`/`--unfunded`, and the command exits
+non-zero if any is omitted. `--budget-owner-subject` is a
+`user_account.external_subject` that already has a seeded login (one of
+`seed-pilot`, `seed-pilot-principals`, or `seed-pilot-logins`'s accounts), not
+a name. The command is idempotent for an identical repeat and refuses a
+repeat with different values rather than silently changing a catalog row.
+There is no compose one-shot for this — see `tools/seed_pilot_rewards.py`'s
+docstring for why.
+
 ### Used by compose/worker, **absent** from `.env.example`
 
 These are set in `docker-compose.yml` for the appliance. Add them to a host `.env` only if you run the worker **without** compose:
@@ -315,7 +338,17 @@ Plus Identity Platform **if** A1b is in that same project (product may keep IdP 
 
 **Can (if Path A works and the screen calls a real `/v1` route):** health, import command, metrics (empty/zero funnel until pipeline writers exist), review decision via API (UI may or may not expose it yet).
 
-**Cannot, regardless of GCP:** live matching scores (registry approved; scorers M2–M3 not built), outreach send (G4), Google Calendar (G5), live crawl, rewards ledger APIs, production SSO, “the new SmartMatch UI.”
+**Cannot, regardless of GCP:** live matching scores (registry approved; scorers M2–M3 not built), outreach send (G4), Google Calendar (G5), live crawl, production SSO, “the new SmartMatch UI.”
+
+The rewards ledger APIs are no longer on this list — `feat(rewards): server
+catalog listing and durable redemption APIs` shipped `GET
+/v1/units/{unit_id}/rewards`, `POST`/`GET /v1/units/{unit_id}/redemptions` and
+the decision route before this guide's "Cannot" line was last checked, and they
+work: a student can read their balance and an empty catalog, and a coordinator
+can decide a redemption once one is open. What still gates a click-through is
+data, not a missing route — the catalog has no *funded* item until an operator
+runs `make seed-pilot-rewards` with owner-supplied values (below), so a
+redemption cannot be opened before that.
 
 If a button looks real and 404s, that is the legacy frontend vs this contract — OpenAPI wins.
 

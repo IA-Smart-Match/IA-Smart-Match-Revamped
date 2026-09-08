@@ -337,6 +337,21 @@ reversal of a recorded prohibition, and a gate that does not list one is not a g
 |---|---|---|
 | OQ-102 (recorded in `pipeline-stage-writers-deferred.md`) | **Decided — the coordinator writes `attendance_record`, through `POST /v1/units/{unit_id}/events/{event_id}/attendance`.** `{admin, coordinator}`, unit-scoped, `method` fixed server-side to `coordinator_entry` with no body field for it, no caller-supplied `recorded_at`, any `user_account` in the tenant as the subject (student **or** speaker — the CBA hand-off cites the speaker's row). Points are credited on record in the same transaction at the unratified D7 rate, which is ADR-0013's derivation rather than a new policy. This retires three recorded prohibitions together: `smartmatch_persistence/attendance.py`'s "no route imports this repository, and none may", and the "No attendance writer" paragraphs in `routers/pipeline.py` and `routers/cba_handoff.py`. It also exceeds item 3 of the ratified 3 September synthetic-pilot authorization, which is **not** edited — the later authority is recorded beside it, on OQ-CBA-032's precedent. | **The scanner and the roster upload stay unbuilt**, and B08's QR check-in stays behind S11 and D8: `tests/unit/test_checkin_wiring.py` pins both the path markers and the composition root's non-import of `smartmatch_domain.checkin`, and neither pin may be loosened to build one. **Both citing routers must keep citing.** A hand-off or a stage advance that wrote its own attendance would be manufacturing the evidence it exists to report. **A wrong row is corrected by a reversal, never a delete** — every foreign key to `attendance_record` is `RESTRICT`, and `RewardsRepository.record_reversal` with its `actor_id` is the compensating control this decision rests on. Widening the role set, letting the body choose `method` or `recorded_at`, or returning a balance from this route each re-open the row. |
 
+## Decision taken 2026-09-07 — Rewards catalog seeding
+
+Owner: Danny Tran, program owner of record, the budget owner D6 names
+(`docs/decisions/d6-rewards-budget-decision-record.md:27-29`). This closure is
+recorded beside D6 and the rewards-catalog worksheet, not inside them: D6's own
+record (`docs/decisions/pilot-decisions.md:197-204`) states "No new ...
+catalog, route, or UI behavior is authorized by this record", and that
+sentence is unedited above. What is authorized here is narrower than a
+catalog: one operator tool that can write a `reward_item` row only when a
+human types every value.
+
+| OQ | Decision | Obligation |
+|---|---|---|
+| Rewards catalog seeding | **Decided.** A funded `reward_item` may be seeded on the pilot appliance by the operator tool with owner-supplied values; no route creates one; D7 stays tentative; the worksheet's empty cells are filled by the owner, not by engineering. | `RewardsRepository.create_item` (`python/smartmatch_persistence/smartmatch_persistence/rewards.py`) is reachable only from `tools/seed_pilot_rewards.py`, gated on `SMARTMATCH_EDITION=dev` with fixture providers, whose `--name`, `--points-cost`, `--fulfilment-cost`, `--budget-owner-subject`, and `--funded`/`--unfunded` are all required with no default. No route in `services/api/smartmatch_api/routers/rewards.py` calls it, and `test_the_rewards_router_exposes_two_reads_and_two_commands` still pins the router to its original four method/path pairs. D6 §5's undecided "read/redemption roles" stays undecided — this decision authorizes a writer with no caller-facing role at all, not an answer to that question. D7's calibration property is reported by the tool, never enforced or promoted to ratified. |
+
 ## CBA-gated capabilities
 
 | Capability | CBA disposition | Current implementation surfaces | Gate/re-entry condition |

@@ -8,13 +8,17 @@ rather than anything stored, and that an unfunded or cross-tenant
 ``reward_item`` never comes back from the listing query however it got into the
 table.
 
-The catalog rows here are synthetic fixtures written directly by this test, not
-a shipped catalog: D6 gates a shipped catalog and
-``smartmatch_persistence.rewards`` deliberately has no ``reward_item`` writer,
-so a test that needs one inserts it itself — the same thing
-``test_engagement_schema_constraints.py`` does. Nothing here is seeded into a
-migration and nothing here is a price anyone has ratified; the point costs are
-D7's *tentative* recorded bands, cited so the fixtures are not invented numbers.
+The catalog rows here are synthetic fixtures, not a shipped catalog: D6 gates a
+shipped catalog, and the only caller of the writer proved in this file
+(:meth:`RewardsRepository.create_item`) anywhere in this repository is
+``tools/seed_pilot_rewards.py``, an operator tool gated on
+``SMARTMATCH_EDITION=dev``. Most fixtures here still go in with this file's own
+raw SQL (``_insert_reward_item``), the same thing
+``test_engagement_schema_constraints.py`` does, because most of the tests below
+are about the *listing* rule and do not need to prove the writer too. Nothing
+here is seeded into a migration and nothing here is a price anyone has
+ratified; the point costs are D7's *tentative* recorded bands, cited so the
+fixtures are not invented numbers.
 
 Requires a live database, and is skipped when none is reachable (``engine``
 fixture, ``tests/integration/conftest.py``).
@@ -61,8 +65,10 @@ from smartmatch_persistence.rewards import (
     NothingToReverseError,
     RewardsRepository,
     UnknownAttendanceError,
+    UnknownBudgetOwnerError,
 )
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
@@ -516,6 +522,128 @@ def test_the_entry_reader_returns_both_sides_of_a_correction(
 # ---------------------------------------------------------------------------
 # The catalog — Fix #15, in SQL
 # ---------------------------------------------------------------------------
+
+
+def test_create_item_writes_a_listable_row_when_funded_and_owned(
+    session: Session, tenant_id: uuid.UUID, repository: RewardsRepository
+):
+    """``create_item`` writes a real ``reward_item`` row through the schema.
+
+    Funded, owned by a real ``user_account`` in this tenant: the row it writes
+    is listable, and the CHECK constraints on the table are what accepted it —
+    this test does not restate them.
+    """
+    owner = _make_user(session, tenant_id)
+
+    item_id = repository.create_item(
+        session,
+        tenant_id=tenant_id,
+        name="seeded via create_item",
+        points_cost=D7_TENTATIVE_POINT_BANDS[0],
+        fulfilment_cost=0,
+        budget_owner_id=owner,
+        funded=True,
+    )
+
+    row = session.execute(
+        text(
+            "SELECT name, points_cost, budget_owner_id, funded FROM reward_item "
+            "WHERE id = :id AND tenant_id = :tid"
+        ),
+        {"id": item_id, "tid": tenant_id},
+    ).one()
+    assert row.name == "seeded via create_item"
+    assert row.points_cost == D7_TENTATIVE_POINT_BANDS[0]
+    assert row.budget_owner_id == owner
+    assert row.funded is True
+
+    listed = repository.listable_items(session, tenant_id=tenant_id)
+    assert [item.item_id for item in listed] == [item_id]
+
+
+def test_create_item_refuses_an_owner_outside_the_tenant(
+    session: Session,
+    tenant_id: uuid.UUID,
+    other_tenant_id: uuid.UUID,
+    repository: RewardsRepository,
+):
+    """An owner that exists, but in a different tenant, is refused with a sentence.
+
+    The composite foreign key would refuse the insert too, but as an
+    ``IntegrityError`` naming a constraint — :meth:`create_item` checks first
+    so the tool built on it can print the missing subject.
+    """
+    foreign_owner = _make_user(session, other_tenant_id)
+
+    with pytest.raises(UnknownBudgetOwnerError):
+        repository.create_item(
+            session,
+            tenant_id=tenant_id,
+            name="owner from the wrong tenant",
+            points_cost=300,
+            fulfilment_cost=0,
+            budget_owner_id=foreign_owner,
+            funded=True,
+        )
+
+    assert (
+        session.execute(
+            text("SELECT id FROM reward_item WHERE tenant_id = :tid"), {"tid": tenant_id}
+        ).all()
+        == []
+    )
+
+
+def test_create_item_rejects_a_non_positive_cost_at_the_database(
+    session: Session, tenant_id: uuid.UUID, repository: RewardsRepository
+):
+    """A non-positive ``points_cost`` is refused by ``ck_reward_item_points_cost_positive``.
+
+    Not caught or translated by :meth:`create_item` — the CHECK is the
+    authority on the bound, and this test proves the statement reaches it
+    rather than being softened first.
+    """
+    owner = _make_user(session, tenant_id)
+
+    with pytest.raises(IntegrityError):
+        repository.create_item(
+            session,
+            tenant_id=tenant_id,
+            name="free is not a cost",
+            points_cost=0,
+            fulfilment_cost=0,
+            budget_owner_id=owner,
+            funded=True,
+        )
+    session.rollback()
+
+
+def test_an_unfunded_item_is_not_listable(
+    session: Session, tenant_id: uuid.UUID, repository: RewardsRepository
+):
+    """``create_item(funded=False)`` writes a row ``listable_items`` excludes.
+
+    The existing rule at :meth:`RewardsRepository.listable_items` — proved
+    again here against a row the *new* writer produced, not only against rows
+    this file inserts with raw SQL.
+    """
+    owner = _make_user(session, tenant_id)
+
+    item_id = repository.create_item(
+        session,
+        tenant_id=tenant_id,
+        name="unfunded via create_item",
+        points_cost=300,
+        fulfilment_cost=0,
+        budget_owner_id=owner,
+        funded=False,
+    )
+
+    row = session.execute(
+        text("SELECT funded FROM reward_item WHERE id = :id"), {"id": item_id}
+    ).one()
+    assert row.funded is False
+    assert repository.listable_items(session, tenant_id=tenant_id) == ()
 
 
 def test_only_funded_owned_items_are_listed(
