@@ -78,9 +78,7 @@ def test_api_lib_reads_the_hosts_own_filed_requests() -> None:
     assert "export async function fetchMySpeakerRequests" in source
     assert "/host/speaker-requests" in source
 
-    helper = source.split("export async function fetchMySpeakerRequests", 1)[1].split(
-        "\n}", 1
-    )[0]
+    helper = source.split("export async function fetchMySpeakerRequests", 1)[1].split("\n}", 1)[0]
     assert "encodeURIComponent(unitId)" in helper, (
         "the unit id must be encoded into the path, never concatenated raw"
     )
