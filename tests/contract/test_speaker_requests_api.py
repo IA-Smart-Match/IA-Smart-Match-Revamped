@@ -647,3 +647,228 @@ def test_the_queue_is_scoped_to_its_unit(engine: Engine, request_context) -> Non
 
     assert body["requests"] == []
     assert body["truncated"] is False
+
+
+# ---------------------------------------------------------------------------
+# The Event Host's own filings — GET /v1/units/{unit_id}/host/speaker-requests
+#
+# OQ-CBA-014, closed 7 September 2026 by Danny Tran, program owner of record.
+# The queue above is untouched and still ``{admin, coordinator}``; this is a
+# different query with a different authorizer and a different role set, which is
+# the shape the register said was required.
+#
+# The property no authorization matrix can express is the one this section is
+# for: a permitted volunteer reads the rows **they** filed, and the filter is the
+# verified principal rather than anything a caller supplies.
+# ---------------------------------------------------------------------------
+
+
+def _host_path(unit_id: uuid.UUID) -> str:
+    return f"/v1/units/{unit_id}/host/speaker-requests"
+
+
+def test_a_host_lists_only_the_requests_they_filed(engine: Engine, request_context) -> None:
+    """Two hosts in one unit, and neither sees the other's filing.
+
+    The queue holds both, and that is exactly what makes this assertion the load-
+    bearing one: a route that reused ``list_for_unit`` and forgot the filer
+    predicate would pass every authorization test in this repository and hand host
+    B host A's request text — the widening OQ-CBA-014 pre-refused.
+    """
+    client, unit_id, host_a, tenant_id = request_context
+    host_b = _register_principal(engine, client, tenant_id, role="volunteer")
+
+    first = _post(client, f"/v1/units/{unit_id}/speaker-requests", host_a, _body())
+    second = _post(
+        client,
+        f"/v1/units/{unit_id}/speaker-requests",
+        host_a,
+        _body(title="Data Governance Roundtable"),
+    )
+    theirs = _post(
+        client,
+        f"/v1/units/{unit_id}/speaker-requests",
+        host_b,
+        _body(title="Supply Chain Careers Night"),
+    )
+    assert {first.status_code, second.status_code, theirs.status_code} == {201}
+
+    mine = _get(client, _host_path(unit_id), host_a)
+    assert mine.status_code == 200
+    listed = {item["request_id"] for item in mine.json()["requests"]}
+    assert listed == {first.json()["request_id"], second.json()["request_id"]}
+    assert theirs.json()["request_id"] not in listed, (
+        "one Event Host read another host's filing back. The host list is filtered "
+        "on filed_by_user_id == principal.user_id and on nothing else (OQ-CBA-014)."
+    )
+
+    ours = _get(client, _host_path(unit_id), host_b)
+    assert ours.status_code == 200
+    assert [item["request_id"] for item in ours.json()["requests"]] == [theirs.json()["request_id"]]
+
+
+def test_the_host_list_carries_the_same_fields_as_the_filed_response(request_context) -> None:
+    """No new field, and no wider row type — the same ``SpeakerRequestResponse``.
+
+    What a host can now see is *the list itself*: that these requests are theirs.
+    Every field in it was already handed to them by the create response, which is
+    the whole of what "no new disclosure" means here.
+    """
+    client, unit_id, host_token, _ = request_context
+    filed = _post(client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body())
+    assert filed.status_code == 201
+
+    listed = _get(client, _host_path(unit_id), host_token)
+
+    assert listed.status_code == 200
+    body = listed.json()
+    assert body["unit_id"] == str(unit_id)
+    assert body["truncated"] is False
+    assert len(body["requests"]) == 1
+    assert body["requests"][0] == filed.json()
+
+
+def test_the_host_list_carries_nothing_about_invitations_or_declines(request_context) -> None:
+    """OQ-CBA-042 binds this route as it binds every other.
+
+    An Event Host must not learn that anybody declined — not the fact, not a count,
+    not a batch total, and not a field from which one could be derived. The
+    enforcement is structural: this route renders ``SpeakerRequestRow``, which
+    carries no invitation column at all. This test is what notices if somebody
+    widens the row type to make the page "more useful".
+    """
+    client, unit_id, host_token, _ = request_context
+    _post(client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body())
+
+    body = _get(client, _host_path(unit_id), host_token).json()
+
+    assert body["requests"], "nothing was listed, so this proves nothing"
+    forbidden = (
+        "decline",
+        "invitation",
+        "invited",
+        "batch",
+        "response",
+        "accepted",
+        "speaker",
+        "professional",
+    )
+    for entry in body["requests"]:
+        for key in entry:
+            assert not any(word in key.lower() for word in forbidden), (
+                f"{key!r} appears on the Event Host's own-requests read. OQ-CBA-042: "
+                "a host must not learn who declined by any route, and a field naming "
+                "invitations, batches or responses is where that starts."
+            )
+
+
+def test_a_coordinator_is_refused_the_host_list(engine: Engine, request_context) -> None:
+    """They hold the queue, which is strictly wider; this route is narrower on purpose."""
+    client, unit_id, host_token, tenant_id = request_context
+    _post(client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body())
+    coordinator = _register_principal(engine, client, tenant_id, role="coordinator")
+
+    refused = _get(client, _host_path(unit_id), coordinator)
+
+    assert refused.status_code == 403
+    assert refused.json()["error"]["code"] == "forbidden"
+
+    # And the queue still answers them, unchanged. Without this the assertion
+    # above would pass against a change that broke the Connector's own read.
+    queue = _get(client, f"/v1/units/{unit_id}/speaker-requests", coordinator)
+    assert queue.status_code == 200
+    assert [item["title"] for item in queue.json()["requests"]] == [TITLE]
+
+
+def test_a_student_is_refused_the_host_list(engine: Engine, request_context) -> None:
+    client, unit_id, _, tenant_id = request_context
+    student = _register_principal(engine, client, tenant_id, role="student")
+
+    assert _get(client, _host_path(unit_id), student).status_code == 403
+
+
+def test_a_host_in_a_sibling_unit_is_refused(engine: Engine, request_context) -> None:
+    """Unit scoping is a path question, and it is asked of the loaded row."""
+    client, unit_id, host_token, tenant_id = request_context
+    _post(client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body())
+    sibling_host = _register_principal(
+        engine, client, tenant_id, role="volunteer", membership_path=SIBLING_UNIT_PATH
+    )
+
+    assert _get(client, _host_path(unit_id), sibling_host).status_code == 403
+
+
+def test_the_host_list_answers_404_for_a_unit_in_another_tenant(request_context) -> None:
+    """``load_unit_or_404`` scopes by the caller's own tenant, so an unknown id is a 404.
+
+    A 403 would confirm the id names something real in somebody else's tenant.
+    """
+    client, _unit_id, host_token, _ = request_context
+
+    assert _get(client, _host_path(uuid.uuid4()), host_token).status_code == 404
+
+
+def test_a_request_filed_before_the_filer_was_recorded_is_listed_by_nobody(
+    engine: Engine, request_context
+) -> None:
+    """The pre-``0033`` case — the one that guards the leak.
+
+    ``filed_by_user_id IS NULL`` means *unknown filer*, never *this caller*. A route
+    that treated NULL as the caller, or that fell back to ``host_org_unit_id`` when
+    the filer was unknown, would republish the whole queue through the narrow door.
+    Inserted directly, because no writer can produce such a row any more.
+    """
+    client, unit_id, host_a, tenant_id = request_context
+    host_b = _register_principal(engine, client, tenant_id, role="volunteer")
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+                "                   on_date, time_zone, time_precision, resolved_date, origin) "
+                "VALUES (:id, :tid, :uid, :title, :norm, :on_date, :zone, 'date_only', "
+                "        :on_date, 'coordinator_entry')"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "uid": unit_id,
+                "title": "Filed Before Anybody Recorded Who",
+                "norm": "filed before anybody recorded who",
+                "on_date": ON_DATE,
+                "zone": ZONE,
+            },
+        )
+
+    for token in (host_a, host_b):
+        listed = _get(client, _host_path(unit_id), token)
+        assert listed.status_code == 200
+        assert listed.json()["requests"] == [], (
+            "a request with no recorded filer was listed. NULL is unknown, not the "
+            "caller — and a host cannot list a request they filed before migration "
+            "0033, which is a true statement about what the system knows."
+        )
+
+
+def test_the_host_list_reports_truncation(monkeypatch: pytest.MonkeyPatch, request_context) -> None:
+    """``truncated`` is answered by the same query, exactly as the queue answers it.
+
+    ``MAX_ROWS`` is patched down rather than filing 201 requests over HTTP. The cap
+    the route reads is ``MAX_ROWS + 1`` at call time, so patching the module global
+    exercises the real branch; filing two hundred rows would assert the same thing
+    and take two hundred times as long.
+    """
+    from smartmatch_api.routers import speaker_requests as module
+
+    client, unit_id, host_token, _ = request_context
+    for title in (TITLE, "Data Governance Roundtable"):
+        filed = _post(
+            client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body(title=title)
+        )
+        assert filed.status_code == 201
+
+    monkeypatch.setattr(module, "MAX_ROWS", 1)
+    body = _get(client, _host_path(unit_id), host_token).json()
+
+    assert len(body["requests"]) == 1
+    assert body["truncated"] is True

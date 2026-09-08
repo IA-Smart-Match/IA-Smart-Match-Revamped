@@ -110,8 +110,11 @@ x-compose-dev-identity:
   #
   # Four principals rather than one is not a widening. No route's role set
   # changed and nothing became less strict; a portal that has no readable route
-  # is still unreachable, which is OQ-CBA-014's finding about the Event Host
-  # and not something a permit here may answer.
+  # is still unreachable, and nothing configured here may answer that. The
+  # Event Host was the standing example (OQ-CBA-014) and stopped being one on
+  # 7 September 2026, when the gap was closed the only way it could be — by
+  # adding `GET /v1/units/{unit_id}/host/speaker-requests`, scoped to the
+  # requests that host filed, rather than by handing anybody a wider role here.
   #
   # Their subjects are `compose-pilot-student`, `compose-pilot-volunteer` and
   # `compose-pilot-admin`. They are written into the map below as literals and
@@ -304,8 +307,11 @@ services:
   # What it is NOT: an authentication system, and not a widening. Each account
   # gets one membership carrying one role, the same shape the coordinator has
   # had all along, and every route stays deny-by-default and authorized per
-  # request. A portal with no readable route stays unreachable — see
-  # OQ-CBA-014 on the Event Host, which this file records rather than answers.
+  # request. A portal with no readable route stays unreachable, and this file
+  # records such gaps rather than answering them. OQ-CBA-014 was the Event
+  # Host's, and it was answered on 7 September 2026 in the API — a new
+  # `{volunteer}` route returning that host's own filings — not by anything
+  # here.
   # -------------------------------------------------------------------------
   seed-principals:
     build:

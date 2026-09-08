@@ -1,12 +1,24 @@
 """The Event Host's Speaker Request intake, and the Speaker Connector's queue.
 
-Card ``CBA-EVENT-REQUEST``. Two unit-scoped routes over migration ``0024``'s
-``event`` + ``speaker_request_classification`` shape:
+Card ``CBA-EVENT-REQUEST``. Three unit-scoped routes over migration ``0024``'s
+``event`` + ``speaker_request_classification`` shape, plus ``0033``'s
+``event.filed_by_user_id``:
 
 * ``POST /v1/units/{unit_id}/speaker-requests`` — customer §12, an Event Host
   files a request. See :func:`create_speaker_request`.
 * ``GET /v1/units/{unit_id}/speaker-requests`` — customer §13, a Speaker
   Connector reads the incoming queue. See :func:`list_speaker_requests`.
+* ``GET /v1/units/{unit_id}/host/speaker-requests`` — **OQ-CBA-014**, closed 7
+  September 2026: an Event Host reads back the requests *they* filed. See
+  :func:`list_own_speaker_requests`.
+
+The second and third are two operations rather than one read with two audiences,
+and their role sets are **disjoint**: ``{admin, coordinator}`` against
+``{volunteer}``. The queue carries every host's request text for the unit, so a
+host reading it would learn what the other hosts asked for; the host list carries
+only the rows whose recorded filer is the caller, so a coordinator reading it
+would learn nothing the queue does not already tell them. Neither is a subset of
+the other, which is why neither is expressible as a role added to a set.
 
 ## Why this is a transactional create and not a command
 
@@ -49,9 +61,16 @@ there must never be one: a body naming its own scope is the caller-selected
 identity pattern (MM-A01), and here it would let a host file a request into a
 department they cannot reach.
 
-The two authorizers are separate functions with separate role constants, because
-customer §12 and §13 answer two different questions — see
-:data:`_SPEAKER_REQUEST_CREATE_ROLES` and :data:`_SPEAKER_REQUEST_READ_ROLES`.
+The three authorizers are separate functions with separate role constants,
+because customer §12, customer §13 and OQ-CBA-014's closure answer three
+different questions — see :data:`_SPEAKER_REQUEST_CREATE_ROLES`,
+:data:`_SPEAKER_REQUEST_READ_ROLES` and
+:data:`_SPEAKER_REQUEST_OWN_READ_ROLES`.
+
+The host list adds a fourth statement of the same rule, one level down from the
+principal: a permit says which *unit* a caller may ask about, and the row filter
+``filed_by_user_id == principal.user_id`` says whose requests they get. No route
+here accepts a filer in a path, a query parameter or a body, and none may.
 
 ## No fetch, no URL, no crawl
 
@@ -121,10 +140,31 @@ _SPEAKER_REQUEST_CREATE_ROLES: Final[frozenset[str]] = frozenset(
 #: widening no committed artifact supports. Under deny-by-default the absence of
 #: a permit is a denial rather than an invitation to guess. A host does not need
 #: it to see their own work — :func:`create_speaker_request` returns the filed
-#: request, and a resubmission returns it again. Whether a host should be able
-#: to list back their own requests is **OQ-CBA-014**, recorded rather than
-#: answered by a role set.
+#: request, a resubmission returns it again, and since **OQ-CBA-014** was closed
+#: (7 September 2026, Danny Tran, program owner of record) a host reads their own
+#: filings back through :data:`_SPEAKER_REQUEST_OWN_READ_ROLES` below. That
+#: closure took nothing out of this set and put nothing into it: it added a
+#: second route with a narrower query, which is what the register asked for in as
+#: many words — "a host-scoped read is a different query, not a wider permit".
 _SPEAKER_REQUEST_READ_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
+
+#: Who may read back **their own** filed Speaker Requests. **OQ-CBA-014**, closed
+#: 7 September 2026 by Danny Tran, program owner of record.
+#:
+#: ``volunteer`` and nothing else, and the two absences are the decision rather
+#: than an oversight. ``admin`` and ``coordinator`` already hold the queue above,
+#: which is strictly wider: a coordinator who filed a request sees it there
+#: alongside every other, so this route would tell them only which of the unit's
+#: requests they personally typed. A second door onto rows already reachable is a
+#: second thing to narrow the day the first one narrows, and until then it is a
+#: permit nobody needs.
+#:
+#: A third literal beside the two above rather than a fourth member of either, for
+#: the reason ``tests/authz/test_route_roles.py`` gives about its own ledger:
+#: several role sets agreeing today is not a reason a widening of one should
+#: silently widen the others. Here the sets do not even agree — this one is
+#: *disjoint* from the queue's, which is the shape of the decision.
+_SPEAKER_REQUEST_OWN_READ_ROLES: Final[frozenset[str]] = frozenset({"volunteer"})
 
 #: The write is the consequential one and carries the tighter limit, the same
 #: relationship ``pipeline.py`` draws between its two. Thirty filings a minute is
@@ -374,6 +414,44 @@ def _authorize_speaker_request_read(
     return unit_id
 
 
+def _authorize_speaker_request_own_read(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> uuid.UUID:
+    """Load the unit and authorize an Event Host's read of their own filings.
+
+    A **third** function rather than a role-set parameter on either of the two
+    above, for the reason :func:`_authorize_speaker_request_read` states about the
+    first pair and which applies with more force here: this one and the queue's
+    gate on *disjoint* role sets, and a single call site taking the set as an
+    argument would be the one place all three could be widened from.
+
+    Note what this function does **not** decide. A permit here says this principal
+    may call the route against this unit; it says nothing about whose requests
+    come back, and it cannot — ``evaluate`` reasons about principals and paths,
+    not about rows. The self-scoping is
+    :func:`list_own_speaker_requests`'s own predicate, which is why that function
+    passes ``principal.user_id`` and why nothing in the request can name a filer.
+
+    Returns:
+        The authorized unit id, which is the unit the listing is scoped to.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_SPEAKER_REQUEST_OWN_READ_ROLES,
+    )
+    return unit_id
+
+
 # ---------------------------------------------------------------------------
 # Body to domain
 # ---------------------------------------------------------------------------
@@ -596,6 +674,12 @@ def create_speaker_request(
         tenant_id=principal.tenant_id,
         host_org_unit_id=host_org_unit_id,
         draft=draft,
+        # The verified principal, never a body field — exactly what
+        # `SpeakerRequestCreate`'s docstring already promises about every actor
+        # on this surface. A coordinator filing a request is recorded as its
+        # filer too; that is the truth about who typed it, and the alternative
+        # would be a column that means "the filer, unless it was a coordinator".
+        filed_by_user_id=principal.user_id,
     )
     session.commit()
 
@@ -648,6 +732,83 @@ def list_speaker_requests(
         session,
         tenant_id=principal.tenant_id,
         host_org_unit_id=unit_id,
+        limit=MAX_ROWS + 1,
+    )
+    return SpeakerRequestListResponse(
+        unit_id=unit_id,
+        requests=[_view(unit_id, row) for row in rows[:MAX_ROWS]],
+        truncated=len(rows) > MAX_ROWS,
+    )
+
+
+@router.get(
+    "/{unit_id}/host/speaker-requests",
+    response_model=SpeakerRequestListResponse,
+    summary="List the Speaker Requests this Event Host filed",
+)
+def list_own_speaker_requests(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+) -> SpeakerRequestListResponse:
+    """Return the requests **this caller** filed under this unit, soonest first.
+
+    **OQ-CBA-014**, closed 7 September 2026 by Danny Tran, program owner of
+    record. The register asked whether an Event Host may list back the requests
+    they filed and pre-refused the shortcut in its own words: "do not widen the
+    list role set as a shortcut; a host-scoped read is a different query, not a
+    wider permit". This is that different query. The queue —
+    :func:`list_speaker_requests` — is untouched and still ``{admin,
+    coordinator}``; it holds every host's request text for the unit, and handing
+    one host the others' filings is what the narrower reading exists to prevent.
+
+    The only predicate on identity is ``filed_by_user_id == principal.user_id``.
+    There is deliberately no ``?host_id=`` parameter and no body: an id a caller
+    supplies is caller-selected identity (MM-A01), and it would be convenient in
+    exactly the way that defect always is. Nothing in the request selects whose
+    rows come back.
+
+    **A request filed before migration ``0033`` is listed by nobody**, including
+    the host who filed it. Its ``filed_by_user_id`` is NULL, NULL means the filer
+    is unknown, and unknown is not this caller — reading it as the caller, or
+    falling back to the host unit when the filer is unknown, would republish the
+    whole queue through this route. Nothing was backfilled, for the reason
+    ``0033``'s docstring gives: an inferred filer is indistinguishable from a
+    recorded one (ADR-0011 rule 1).
+
+    **Nothing here reflects an invitation.** OQ-CBA-042 decided that an Event
+    Host does not learn who declined, by any route, and that decision binds this
+    one. The enforcement is structural rather than a filter somebody has to
+    remember: this renders ``SpeakerRequestRow`` through the same :func:`_view`
+    the queue uses, and that row carries no invitation, batch, count or response
+    field to withhold in the first place. A wider row type is the change that
+    would break it.
+
+    What a host reads here is what :func:`create_speaker_request` already handed
+    them when they filed: title, description, time, virtual flag, location,
+    industries, roles, ``publication_status``, ``review_status`` and the two
+    timestamps. No field is new. What is new is the *list* — that these requests
+    are theirs — which is the whole of what this route discloses.
+
+    Charges :data:`SPEAKER_REQUEST_READ_RATE_LIMIT`: a read is a read, and a
+    second counter would be a number nobody asked for. Quota first, then
+    authorization, then any row (ADR-0015). Reads ``MAX_ROWS + 1`` so
+    ``truncated`` is answered by the same query rather than by a second count
+    whose filters could drift from this one's.
+
+    Raises:
+        ApiError: 403 when the caller is not an Event Host in this unit — a
+            coordinator included, since they hold the wider queue; 404 when the
+            unit is not this tenant's; 429 when the minute's quota is spent.
+    """
+    charge_quota(session, principal, SPEAKER_REQUEST_READ_RATE_LIMIT)
+    _authorize_speaker_request_own_read(session, principal, unit_id)
+
+    rows = _requests.list_filed_by(
+        session,
+        tenant_id=principal.tenant_id,
+        host_org_unit_id=unit_id,
+        filed_by_user_id=principal.user_id,
         limit=MAX_ROWS + 1,
     )
     return SpeakerRequestListResponse(

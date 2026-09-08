@@ -121,12 +121,18 @@ _PARENT_REVISION = "0024_cba_classification"
 #: refuses every UPDATE — so nothing in ``0032`` disables a trigger, and
 #: ``tests/integration/test_match_run_scoring_mode_migration.py`` is what holds
 #: that to account.
-_HEAD_REVISION = "0032_match_run_scoring_mode"
+#: Updated again by OQ-CBA-014's closure: ``0033_event_filed_by`` chains to
+#: ``0032_match_run_scoring_mode`` and is the head. It adds
+#: ``event.filed_by_user_id``, nullable and never backfilled, and its two
+#: constraints and one composite foreign key all reach ``event`` rather than
+#: ``speaker_profile`` — this file's surface is untouched.
+_HEAD_REVISION = "0033_event_filed_by"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0032_match_run_scoring_mode",
     "0031_student_speaker_feedback",
     "0030_cba_opaque_speaker_identity",
     "0029_cba_speaker_invitation",

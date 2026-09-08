@@ -323,6 +323,14 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK (((ends_at IS NULL) OR ((time_precision = 'exact'::text) AND "
         "(ends_at > starts_at))))"
     ),
+    # Migration 0033 — OQ-CBA-014's closure. The mirror of
+    # ck_event_provenance_evidence above: that one says a source URL may exist
+    # only on an 'extraction' row, this says a filer may exist only on a
+    # 'coordinator_entry' one. An extracted event has no author, and a filer on
+    # a crawled row would attribute a fetch to a person.
+    ("event", "ck_event_filed_by_manual_origin"): (
+        "CHECK (((filed_by_user_id IS NULL) OR (origin = 'coordinator_entry'::text)))"
+    ),
     ("event_tag", "ck_event_tag_resolution"): (
         "CHECK ((resolution = ANY (ARRAY['mapped'::text, 'quarantined'::text])))"
     ),
@@ -794,6 +802,12 @@ BEHAVIOURAL_COVERAGE = {
     # what an inverted expression fails, and the NULL half is what a migration
     # that backfilled nothing depends on. Refused on UPDATE as well as INSERT.
     ("event", "ck_event_end_after_start"): "test_event_schema_constraints.py",
+    ("event", "ck_event_filed_by_manual_origin"): (
+        "test_event_filed_by_migration.py::test_an_extracted_event_cannot_be_given_a_filer "
+        "(forbidden — an extracted row refuses a filer on UPDATE); the permitted half is "
+        "exercised by every filing in test_speaker_request_persistence.py, which writes a "
+        "filer on a coordinator_entry row through EventRepository.upsert_returning_outcome"
+    ),
     ("event_tag", "ck_event_tag_resolution"): "test_event_schema_constraints.py",
     ("event_tag", "ck_event_tag_resolution_shape"): "test_event_schema_constraints.py",
     ("discovery_review_item", "ck_discovery_review_item_kind"): (

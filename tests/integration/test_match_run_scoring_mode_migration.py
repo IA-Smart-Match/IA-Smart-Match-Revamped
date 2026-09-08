@@ -183,6 +183,13 @@ def test_a_pre_0032_run_keeps_a_null_mode_even_when_its_payload_names_one(engine
 
     The other two rows are the control: they were always going to be NULL, and a
     test made only of them would pass against either migration.
+
+    Upgraded to :data:`REVISION` rather than ``head``: this test is about what
+    ``0032`` itself does to a pre-existing row, not about the state of the chain
+    after whatever runs after it. ``0033_event_filed_by`` moved head past ``0032``
+    without touching ``match_run`` at all, and pinning here (as
+    :data:`REVISION_BEFORE` already does for the starting point) keeps this test
+    from re-breaking every time head moves again.
     """
     with scratch_database(engine) as url:
         alembic(url, REVISION_BEFORE, expect_success=True)
@@ -190,7 +197,7 @@ def test_a_pre_0032_run_keeps_a_null_mode_even_when_its_payload_names_one(engine
         with connected(url) as scratch:
             runs = _seed_three_runs(scratch)
 
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
 
             with scratch.connect() as conn:
                 stored = {
