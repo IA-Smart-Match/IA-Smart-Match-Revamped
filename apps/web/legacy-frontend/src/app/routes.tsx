@@ -114,6 +114,14 @@ const VolunteerConfirmedSpeaker = lazy(() =>
     default: m.VolunteerConfirmedSpeaker,
   })),
 );
+// Customer §12's read side. `GET /v1/units/{unit_id}/host/speaker-requests`
+// closed OQ-CBA-014; see the page's own header for the read it does and the
+// one it must never call.
+const VolunteerMyRequests = lazy(() =>
+  import("./pages/volunteer/VolunteerMyRequests").then((m) => ({
+    default: m.VolunteerMyRequests,
+  })),
+);
 const VolunteerProfile = lazy(() =>
   import("./pages/volunteer/VolunteerProfile").then((m) => ({ default: m.VolunteerProfile })),
 );
@@ -272,6 +280,11 @@ export const router = createBrowserRouter([
       // whatever the router renders, and the page treats the refusal as an
       // answer rather than hiding the control.
       { path: "confirmed-speaker", element: withSuspense(<VolunteerConfirmedSpeaker />) },
+      // OQ-CBA-014's read side. Mounted unconditionally like its siblings — a
+      // route is a claim about what exists, not a permission. `GET
+      // .../host/speaker-requests` is `volunteer`-only server-side, and the
+      // page renders a coordinator's or admin's 403 as the answer it is.
+      { path: "my-requests", element: withSuspense(<VolunteerMyRequests />) },
       { path: "assignments", element: withSuspense(<VolunteerAssignments />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],

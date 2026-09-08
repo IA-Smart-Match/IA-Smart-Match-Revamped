@@ -50,6 +50,7 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 STUDENT_PAGE = FRONTEND_SRC / "app" / "pages" / "student" / "StudentSpeakerFeedback.tsx"
 CONNECTOR_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorSpeakerFeedback.tsx"
+DASHBOARD_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.tsx"
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
 
 
@@ -213,6 +214,56 @@ def test_the_summary_helper_reads_the_connector_route() -> None:
     assert "encodeURIComponent(speakerId)" in helper
     assert 'method: "GET"' in helper
     assert "authenticated: true" in helper
+
+
+def test_the_unit_aggregate_type_carries_the_same_suppression_fields_and_no_speaker_id() -> None:
+    """``UnitFeedbackSummary`` is the per-speaker model with ``unit_id`` in place
+    of ``speaker_professional_id``, and nothing else added.
+
+    Addendum 7 September 2026 (OQ-CBA-003's decision, applied a second time at
+    unit scope). No per-speaker breakdown, no rated-speaker count and no list
+    of speaker ids belongs on this type: every extra number is a handle a
+    reader could difference the pooled one against.
+    """
+    source = API_LIB.read_text(encoding="utf-8")
+    body = _interface_body(source, "UnitFeedbackSummary")
+
+    for required in (
+        "unit_id",
+        "suppressed",
+        "response_count",
+        "mean_rating",
+        "display_text",
+        "minimum_responses",
+    ):
+        assert required in body, f"UnitFeedbackSummary is missing {required}"
+
+    for forbidden in (
+        "speaker_professional_id",
+        "speakers",
+        "by_speaker",
+        "breakdown",
+        "student_id",
+        "student_name",
+    ):
+        assert forbidden not in body, (
+            f"UnitFeedbackSummary carries {forbidden!r}; every extra field here is a handle a "
+            "reader could difference the pooled aggregate against or a way to name a student"
+        )
+
+
+def test_the_unit_summary_helper_reads_the_unit_route() -> None:
+    """``GET /v1/units/{unit_id}/speaker-feedback-summary`` — one unit, no speaker id."""
+    source = API_LIB.read_text(encoding="utf-8")
+    helper = _helper_body(source, "fetchUnitSpeakerFeedbackSummary")
+
+    assert "/speaker-feedback-summary" in helper
+    assert "encodeURIComponent(unitId)" in helper
+    assert 'method: "GET"' in helper
+    assert "authenticated: true" in helper
+    assert "/speakers/" not in helper, (
+        "the unit route takes no speaker id; this is a pooled read, not the per-speaker one"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +493,81 @@ def test_the_student_page_handles_a_refusal_rather_than_hiding_the_control() -> 
     assert "cause.message" in code, (
         "the page must render the server's refusal — including the 403 for an event this "
         "student has no attendance record at — rather than pretending no control exists"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Addendum 7 September 2026 — the Connector dashboard's unit-level read
+# ---------------------------------------------------------------------------
+
+
+def test_the_dashboard_reads_the_unit_aggregate_and_computes_nothing() -> None:
+    """``CoordinatorHome.tsx`` reads the pooled unit aggregate through its own
+    route and folds nothing itself.
+
+    Not a sum of the per-speaker summaries: this page must not call the
+    per-speaker or per-student reads, and it must not compute a mean, a total
+    or a percentage from whatever it did read. Every number it shows is one
+    the unit route chose to send.
+    """
+    code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchUnitSpeakerFeedbackSummary" in code
+
+    for forbidden in (
+        "fetchMySpeakerFeedback",
+        "fetchSpeakerFeedbackSummary",
+        "reduce(",
+        "toFixed",
+        "Math.round",
+        "/ ratings",
+    ):
+        assert forbidden not in code, (
+            f"the dashboard references {forbidden!r}; its unit feedback figure must come "
+            "from the unit route alone, computed by nothing in the browser"
+        )
+
+
+def test_the_dashboard_renders_the_suppressed_state_as_its_own_thing() -> None:
+    """Suppression is not an error and not a zero — it gets its own words.
+
+    A suppressed aggregate must carry the server's own ``display_text`` and
+    must not fall back to a bare dash or to ``0``. The three response states
+    below must be reachable through visibly different branches, not one
+    branch with a ``??`` in it.
+    """
+    code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
+
+    assert "summary.suppressed" in code, (
+        "the dashboard must branch on the server's own suppressed flag"
+    )
+    assert "summary.display_text" in code, (
+        "a suppression must render the server's own sentence, not a page-invented one"
+    )
+
+    for forbidden in ("?? 0", "|| 0", "?? \"—\"", "Number(summary"):
+        assert forbidden not in code, (
+            f"the dashboard coerces a withheld unit figure with {forbidden!r}; suppressed and "
+            "unavailable are not zero"
+        )
+
+
+def test_the_dashboard_distinguishes_published_suppressed_and_unavailable() -> None:
+    """The three states a suppression rule creates must read as three states.
+
+    Published (numbers present), suppressed (a reason, no numbers), and
+    unavailable (the read itself failed or has not settled) are different
+    facts about the same request, and collapsing any two of them into one
+    rendering would misreport which one happened.
+    """
+    code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
+
+    assert "summary.suppressed" in code, "a published/suppressed branch must exist"
+    assert (
+        "state.error" in code or "feedback.error" in code
+    ), "an unread/refused state must be handled separately from a suppressed one"
+    assert "summary.mean_rating" in code and "summary.response_count" in code, (
+        "the published branch must render the server's own numbers"
     )
 
 

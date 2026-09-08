@@ -3030,6 +3030,34 @@ export async function fetchSpeakerRequests(unitId: string): Promise<SpeakerReque
   );
 }
 
+/**
+ * `GET /v1/units/{unit_id}/host/speaker-requests` — the requests **this
+ * Event Host filed**, in the same shape the Connector's queue returns.
+ *
+ * **OQ-CBA-014**, closed 7 September 2026. This is a different query from
+ * {@link fetchSpeakerRequests}, not a narrower view of it: the queue holds
+ * every host's filings for the unit and stays `admin`/`coordinator` only,
+ * while this route is scoped server-side to `filed_by_user_id ==
+ * principal.user_id` and granted to `volunteer` alone. Nothing in the
+ * request selects whose rows come back, so this helper takes no filter
+ * beyond the unit.
+ *
+ * A request filed before the `filed_by_user_id` column existed is listed by
+ * nobody, including the host who filed it — the column is `NULL` for those
+ * rows and was never backfilled. That is a true statement about what the
+ * server knows, not a bug in this helper.
+ *
+ * Rejects with {@link ApiRequestError} on a 4xx, so a `403` renders as the
+ * server's own refusal rather than an empty list.
+ */
+export async function fetchMySpeakerRequests(unitId: string): Promise<SpeakerRequestList> {
+  return requestJson<SpeakerRequestList>(
+    `/v1/units/${encodeURIComponent(unitId)}/host/speaker-requests`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
 //
@@ -3939,6 +3967,65 @@ export async function fetchSpeakerFeedbackSummary(
   );
 }
 
+/**
+ * How students rated a whole unit's speakers, pooled — the Connector
+ * dashboard's read, and not a sum this browser is allowed to produce itself.
+ *
+ * **Not a total of the per-speaker aggregates.** A suppressed per-speaker
+ * summary contributes `null`, so a client-side fold either drops it
+ * (undercounting) or republishes what suppression withheld. This is one
+ * server query with its own suppression rule.
+ *
+ * **Suppression here is not the same test as the per-speaker route's.** The
+ * per-speaker summary is public to the same reader, so a pooled `n` can be
+ * *differenced* against an already-published speaker's count to isolate a
+ * smaller, still-suppressed group. The unit aggregate is published only when
+ * the pool clears `minimum_responses` **and** the residual against every
+ * published speaker is zero or itself at or above that threshold. A unit
+ * with a large pool can therefore still be `suppressed`, and that is the
+ * rule working, not failing.
+ */
+export interface UnitFeedbackSummary {
+  unit_id: string;
+  /**
+   * True when the pooled aggregate is withheld — below threshold, or because
+   * publishing it would let a reader difference an already-published
+   * speaker's aggregate out of it. Both numbers below are then `null`.
+   */
+  suppressed: boolean;
+  /** How many ratings, across the unit, the mean was computed from, or `null` when suppressed. */
+  response_count: number | null;
+  /** The unit's average, to two decimals, over the pooled ratings, or `null` when suppressed. */
+  mean_rating: number | null;
+  /**
+   * What to render. Carries the server's own reason for a suppression — a
+   * sentence, not a dash or a zero, so "we are withholding this" reads as
+   * distinct from "the answer is nothing".
+   */
+  display_text: string;
+  /** The threshold below which nothing is published. Never hard-code it; render this instead. */
+  minimum_responses: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-feedback-summary` — the Connector
+ * dashboard's one read for feedback across the whole unit.
+ *
+ * `admin`/`coordinator` only, and there is no per-speaker breakdown, no
+ * rated-speaker count and no list of speaker ids on this response — every
+ * extra number would be a handle to difference the pooled one against, which
+ * is exactly what the suppression rule above exists to close. Rejects with
+ * {@link ApiRequestError} on a 4xx.
+ */
+export async function fetchUnitSpeakerFeedbackSummary(
+  unitId: string,
+): Promise<UnitFeedbackSummary> {
+  return requestJson<UnitFeedbackSummary>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-feedback-summary`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
 
 /**
  * What one scoring mode would actually score with, right now.
