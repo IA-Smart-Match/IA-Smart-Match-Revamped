@@ -220,8 +220,10 @@ The `--bearer-token` is **not** one of the `SMARTMATCH_PILOT_*` login
 passwords from step 1 — it is a dev-fixture bearer token the API's
 `SMARTMATCH_DEV_PRINCIPALS` JSON map resolves to the coordinator subject you
 named in step 4's `seed-pilot` call. If you have not set one, add e.g.
-`SMARTMATCH_DEV_PRINCIPALS={"local-dataset-token":"local-pilot-coordinator"}`
-to `.env` and restart `make run-api` (it reads `.env` at process start, so a
+`SMARTMATCH_DEV_PRINCIPALS={"local-dev":"local-pilot-coordinator"}` (a short
+identifier, not an entropy-bearing secret — see `docker-compose.yml`'s own
+comment on why its bearer values are kept under sixteen characters) to
+`.env` and restart `make run-api` (it reads `.env` at process start, so a
 running instance will not pick up the change).
 
 The tool imports professionals and events through the real `/v1` API, walks
