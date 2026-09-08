@@ -140,6 +140,37 @@ implemented by `CBA-STUDENT-FEEDBACK`; anything wider returns to this register.
 | Aggregation | Connector reads publish the arithmetic mean and response count only when at least three submitted ratings exist. Below three, including zero, both numbers are `null` and the response says `not enough responses yet`. | Withdrawn rows do not count. The threshold is evaluated on each read, so a withdrawal can return an aggregate to the suppressed state. |
 | Matching boundary | Student speaker feedback does not feed the match engine. | Keep it separate from coordinator match-outcome feedback unless OQ-CBA-053 is decided and the scoring policy/version is amended. |
 
+**Addendum 7 September 2026 — the unit-level Connector aggregate.** The table above
+names the per-speaker read only, because that was the only Connector surface in front
+of the owner on 6 September. `GET /v1/units/{unit_id}/speaker-feedback-summary` adds a
+second one: the same mean and count, pooled over a unit, on the same
+`{admin, coordinator}` gate, carrying no student identifier, no individual rating, no
+timestamp, no comment and **no per-speaker breakdown**. It is recorded here rather than
+beside the decision because it is a second read under the same rule, not a wider one —
+OQ-CBA-054 still owns any comment surface, and OQ-CBA-053 is untouched: nothing here is
+read into a factor, a weight or a `match_run`.
+
+The threshold needs one addition at the unit level, and it is not cosmetic. A pooled
+`n >= 3` is necessary and **not sufficient**, because the per-speaker read is public to
+the same reader and the unit number can be *differenced* against it: with speaker A
+published at `n = 3` and the unit at `n = 5`, `5 - 3 = 2` recovers a mean over two
+students, which is exactly the statement "at least three" withholds. So the unit
+aggregate publishes only when
+
+> `residual = n_unit - sum of n_s over speakers whose own aggregate is published` (that
+> is, over speakers with `n_s >= 3`), and `n_unit >= 3` **and** (`residual == 0` or
+> `residual >= 3`).
+
+A reader cannot know a suppressed speaker's count, so the residual is the only quantity
+they can form from what this API publishes; requiring it to be zero or itself above the
+threshold closes the subtraction. The cost is accepted deliberately: a unit with a large
+pool can still read `not enough responses yet` — `A(3) + B(3) + C(2)` is suppressed at
+`n = 8` — and that is the rule working rather than failing. Two things are **not**
+claimed: safety against differencing across *time* (a withdrawal moves both reads, and
+the 6 September decision already accepts that for the per-speaker one), and that the
+unit number says anything new when a single speaker holds every rating — in that case it
+equals the per-speaker aggregate the reader already has.
+
 ## Decision taken 2026-09-06 — OQ-CBA-008
 
 Owner: Danny Tran, program owner of record.

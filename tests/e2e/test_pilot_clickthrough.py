@@ -2723,6 +2723,49 @@ def test_25_student_feedback_reaches_a_connector_only_as_an_aggregate(
             f"the published mean {aggregate['mean_rating']!r} is off the 1-5 scale"
         )
 
+    # The unit-level pool, the Connector dashboard's read. Exactly one rating
+    # is stored on this appliance now (the student's, above) and the server's
+    # own `minimum_responses` was already asserted above threshold, so the
+    # honest answer is still a suppression -- and a suppression that published
+    # a zero would be the ADR-0011 defect on a second surface.
+    unit_summary = api.get(f"/v1/units/{flow.unit_id}/speaker-feedback-summary")
+    assert unit_summary.status_code == 200, (
+        f"the Connector's unit feedback summary answered {unit_summary.status_code}, "
+        f"expected 200: {unit_summary.text[:400]}"
+    )
+    unit_aggregate = json_body(unit_summary)
+    assert set(unit_aggregate) == {
+        "unit_id",
+        "suppressed",
+        "response_count",
+        "mean_rating",
+        "display_text",
+        "minimum_responses",
+    }, (
+        f"the unit summary carries {sorted(unit_aggregate)}; anything beyond these "
+        "six is either a field that could name a student or a per-speaker handle "
+        "the pooled number could be differenced against"
+    )
+    assert unit_aggregate["unit_id"] == flow.unit_id
+    assert unit_aggregate["suppressed"] is True, (
+        "the unit aggregate published a number over one stored rating, below "
+        f"the server's own minimum_responses={threshold}; the only honest answer "
+        "under threshold is a suppression"
+    )
+    assert unit_aggregate["mean_rating"] is None and unit_aggregate["response_count"] is None, (
+        "a suppressed unit aggregate published "
+        f"mean_rating={unit_aggregate['mean_rating']!r} / "
+        f"response_count={unit_aggregate['response_count']!r}; both are withheld "
+        "together, and an unknown is null and never 0"
+    )
+
+    student_unit_summary = student_api.get(f"/v1/units/{flow.unit_id}/speaker-feedback-summary")
+    assert student_unit_summary.status_code == 403, (
+        "the student principal read the unit aggregate "
+        f"({student_unit_summary.status_code}); a student writes and reads their "
+        "own rows, and the class's average is not theirs to read"
+    )
+
     # OQ-CBA-053: an event outcome, and never a scoring input. No factor in the
     # recorded run reads this table, and none may grow to.
     if flow.match_run_id is not None:

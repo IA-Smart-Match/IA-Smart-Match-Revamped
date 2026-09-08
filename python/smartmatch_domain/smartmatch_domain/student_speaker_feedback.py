@@ -49,7 +49,8 @@ this one has a boundary that matters.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
@@ -68,6 +69,7 @@ __all__ = [
     "Rating",
     "SpeakerFeedbackAggregate",
     "aggregate_speaker_feedback",
+    "aggregate_unit_feedback",
     "feedback_anchor",
     "resolve_edit_window",
 ]
@@ -333,5 +335,82 @@ def aggregate_speaker_feedback(ratings: Sequence[int]) -> SpeakerFeedbackAggrega
     return SpeakerFeedbackAggregate(
         response_count=len(ratings),
         mean_rating=round(sum(ratings) / len(ratings), 2),
+        suppressed=False,
+    )
+
+
+def aggregate_unit_feedback(
+    ratings_by_speaker: Mapping[uuid.UUID, Sequence[int]],
+) -> SpeakerFeedbackAggregate:
+    """Mean and count pooled over a whole unit, suppressed against differencing.
+
+    :func:`aggregate_speaker_feedback` is safe on its own because a speaker's
+    mean is the only number published about that speaker. A unit's number is
+    published *beside* the per-speaker numbers, to the same reader, so
+    ``n >= MIN_RESPONSES_FOR_AGGREGATE`` on the pool is necessary and not
+    sufficient: with speaker A published at ``n=3`` and the unit at ``n=5``,
+    ``5 - 3 = 2`` ratings of somebody else are recoverable as a mean over two
+    students, which is exactly the statement the threshold exists to withhold.
+
+    So there are two conditions, and the second is the one this function exists
+    for::
+
+        residual = n_unit - sum of n_s over speakers whose own aggregate is
+                   published (n_s >= MIN_RESPONSES_FOR_AGGREGATE)
+        publish iff n_unit >= MIN_RESPONSES_FOR_AGGREGATE
+                and (residual == 0 or residual >= MIN_RESPONSES_FOR_AGGREGATE)
+
+    A reader does not know the suppressed speakers' counts -- that is what
+    suppression means -- so the residual is the only quantity they can form by
+    subtracting what the API publishes from what it publishes here. Requiring it
+    to be zero, or itself above the threshold, closes that subtraction against
+    every number this API gives out.
+
+    Two things are deliberately **not** claimed. This is not safe against
+    differencing across *time*: a withdrawal moves both routes, and OQ-CBA-003
+    already accepts that for the per-speaker read. And it is not a claim that
+    the unit number is interesting when one speaker has all the ratings -- in
+    that case the residual is zero, the aggregate publishes, and it is equal to
+    the per-speaker aggregate the reader already has, so it discloses nothing
+    new rather than something extra.
+
+    Args:
+        ratings_by_speaker: The scores that count, grouped by the speaker they
+            are about -- already filtered by the caller to submitted,
+            non-withdrawn rows. This function filters nothing, for
+            :func:`aggregate_speaker_feedback`'s reason: a withdrawn rating that
+            reaches here is a caller's bug, and a defensive filter would let it
+            survive undetected. A speaker with an empty sequence counts as a
+            speaker with no ratings, which is what it is.
+
+    Returns:
+        A :class:`SpeakerFeedbackAggregate` -- the same type the per-speaker
+        read returns, so "a suppressed aggregate carries no numbers" is
+        inherited rather than re-implemented. The speaker keys are used to
+        decide suppression and are **not** carried into the result: a
+        per-speaker breakdown beside a unit total would re-open the differencing
+        this function closes.
+
+    Note:
+        :data:`MIN_RESPONSES_FOR_AGGREGATE` is the one threshold, used for both
+        conditions. A second constant would let one of them be relaxed without
+        the other, which is how a differencing guard rots.
+    """
+    pooled: list[int] = [rating for ratings in ratings_by_speaker.values() for rating in ratings]
+    if len(pooled) < MIN_RESPONSES_FOR_AGGREGATE:
+        return SpeakerFeedbackAggregate(response_count=None, mean_rating=None, suppressed=True)
+
+    published = sum(
+        len(ratings)
+        for ratings in ratings_by_speaker.values()
+        if len(ratings) >= MIN_RESPONSES_FOR_AGGREGATE
+    )
+    residual = len(pooled) - published
+    if residual != 0 and residual < MIN_RESPONSES_FOR_AGGREGATE:
+        return SpeakerFeedbackAggregate(response_count=None, mean_rating=None, suppressed=True)
+
+    return SpeakerFeedbackAggregate(
+        response_count=len(pooled),
+        mean_rating=round(sum(pooled) / len(pooled), 2),
         suppressed=False,
     )

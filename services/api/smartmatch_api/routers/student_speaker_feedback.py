@@ -1,7 +1,7 @@
 """Students rate speakers; Connectors read an aggregate that never names one.
 
 Customer §§15-16, implementing OQ-CBA-003 as decided on 6 September 2026 by
-Danny Tran, program owner of record. Four routes:
+Danny Tran, program owner of record. Five routes:
 
 * ``POST   /v1/units/{unit_id}/student/events/{event_id}/speakers/{speaker_id}/feedback``
   — submit a rating, or amend the one already there.
@@ -10,7 +10,11 @@ Danny Tran, program owner of record. Four routes:
 * ``GET    /v1/units/{unit_id}/student/events/{event_id}/speaker-feedback``
   — what this student has already said about speakers at this event.
 * ``GET    /v1/units/{unit_id}/speakers/{speaker_id}/feedback-summary``
-  — the Connector's read.
+  — the Connector's read, for one speaker.
+* ``GET    /v1/units/{unit_id}/speaker-feedback-summary``
+  — the Connector's read, pooled over the unit. Suppressed by the same
+  threshold *and* by a residual rule, because a unit number published beside
+  the per-speaker numbers can be differenced against them.
 
 Where the anonymity actually lives
 ====================================
@@ -104,6 +108,7 @@ from smartmatch_domain.student_speaker_feedback import (
     EditWindow,
     Rating,
     aggregate_speaker_feedback,
+    aggregate_unit_feedback,
     resolve_edit_window,
 )
 from smartmatch_persistence.rate_limit import RateLimit
@@ -166,6 +171,21 @@ _STUDENT_FEEDBACK_READ_ROLES: Final[frozenset[str]] = frozenset({"student"})
 #: new authorisation. ``student`` is absent — a student reads their own rows,
 #: not the class's average.
 _SPEAKER_FEEDBACK_SUMMARY_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
+
+#: Who may read the unit-level pool. The same pair, and a second literal.
+#:
+#: Not an alias of the constant above, and the reason is sharper here than the
+#: usual ledger argument. These two surfaces are the pair a differencing attack
+#: is run across: the unit number is the one a reader subtracts a published
+#: per-speaker number from. A widening of one set would reach both sides of that
+#: subtraction at once, and the residual rule assumes exactly one thing about
+#: its reader — that what they can subtract is what this API published to them.
+#:
+#: No ``tenant_wide_roles``, for the reason above and one more: pooling a whole
+#: tenant's ratings from one department would be a wider claim than the
+#: per-speaker read makes, and this surface follows ``routers/engagement.py``'s
+#: attendance summary rather than ``routers/metrics.py``'s tenant-wide shape.
+_UNIT_FEEDBACK_SUMMARY_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 
 #: The per-caller quota on feedback writes.
 #:
@@ -338,6 +358,67 @@ class SpeakerFeedbackSummaryResponse(BaseModel):
     )
 
 
+class UnitFeedbackSummaryResponse(BaseModel):
+    """What a Connector is told about a whole unit's ratings.
+
+    The model above with ``unit_id`` in place of ``speaker_professional_id``,
+    and **nothing else added**. In particular there is no per-speaker
+    breakdown, no count of how many speakers were rated, and no list of speaker
+    ids: every extra number here is a handle a reader can difference the pooled
+    one against, which is the attack the domain's residual rule exists to close.
+    Publishing the pool and then handing back its parts would undo it in the
+    response model.
+
+    Nothing here is a score, a weight or a factor. Whether student ratings
+    should ever reach matching is **OQ-CBA-053**, and it is open — a field name
+    that implied otherwise would answer it by accident.
+    """
+
+    unit_id: uuid.UUID
+    suppressed: bool = Field(
+        description=(
+            "True when the unit's pooled ratings are withheld — either because "
+            "fewer than the threshold exist, or because publishing them would "
+            "let a reader subtract an already-published speaker's aggregate and "
+            "recover the ratings of a speaker whose own aggregate is suppressed. "
+            "Both numbers below are then null."
+        )
+    )
+    response_count: int | None = Field(
+        default=None,
+        description=(
+            "How many ratings across the unit the mean was computed from, or "
+            "null when suppressed. Withheld along with the mean rather than "
+            "published beside it, for the reason the per-speaker summary gives."
+        ),
+    )
+    mean_rating: float | None = Field(
+        default=None,
+        description=(
+            "The unit's average, to two decimals, over the pooled ratings — not "
+            "an average of per-speaker averages, which would weight a speaker "
+            "rated once like a speaker rated ten times. Null when suppressed, "
+            "and never 0.0: ADR-0011 rule 1."
+        ),
+    )
+    display_text: str = Field(
+        description=(
+            "What to render. 'not enough responses yet' when suppressed — which "
+            "here can also mean 'enough responses, but publishing them would "
+            "expose an individual speaker's raters'. The sentence is the same "
+            "because the reader is owed the same thing: a statement that we are "
+            "not telling them, rather than a dash or a zero."
+        )
+    )
+    minimum_responses: int = Field(
+        description=(
+            "The threshold below which nothing is published, and the same "
+            "threshold the residual test uses, so a surface can explain the "
+            "suppression without hard-coding the number."
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Authorization
 # ---------------------------------------------------------------------------
@@ -420,6 +501,36 @@ def _authorize_speaker_feedback_summary_read(
         ),
         at=utc_now(),
         required_roles=_SPEAKER_FEEDBACK_SUMMARY_ROLES,
+    )
+
+
+def _authorize_unit_feedback_summary_read(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> None:
+    """Load the unit and authorize a Connector's read of the unit-level pool.
+
+    A fourth name in this module rather than a call into the one above, even
+    though the two role sets are identical today. The per-speaker aggregate and
+    the unit aggregate are the two numbers a differencing attack is computed
+    from, and a single authorizer would make one widening reach both of them —
+    the one widening the residual rule cannot survive, because that rule assumes
+    the only thing a reader can subtract is what this API published to *them*.
+
+    No ``tenant_wide_roles``, so a membership must contain this unit's path.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_UNIT_FEEDBACK_SUMMARY_ROLES,
     )
 
 
@@ -771,6 +882,74 @@ def read_speaker_feedback_summary(
 
     return SpeakerFeedbackSummaryResponse(
         speaker_professional_id=speaker_id,
+        suppressed=aggregate.suppressed,
+        response_count=aggregate.response_count,
+        mean_rating=aggregate.mean_rating,
+        display_text=aggregate.display_text,
+        minimum_responses=MIN_RESPONSES_FOR_AGGREGATE,
+    )
+
+
+@connector_router.get(
+    "/{unit_id}/speaker-feedback-summary",
+    response_model=UnitFeedbackSummaryResponse,
+    summary="How students rated this unit's speakers, pooled",
+)
+def read_unit_feedback_summary(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+) -> UnitFeedbackSummaryResponse:
+    """One mean and one count for the whole unit, or a sentence saying no.
+
+    The Connector dashboard's read. It exists because the same number cannot be
+    computed in the browser: a suppressed per-speaker summary contributes
+    ``null``, so a client-side total either drops it and undercounts or
+    republishes what suppression withheld.
+
+    **This is not a sum of the per-speaker aggregates, and it is not simply the
+    pool with the same threshold applied.** The per-speaker route is public to
+    the same reader, so a pooled ``n`` can be *differenced* against what that
+    route already published: with one speaker at ``n=3`` and the unit at
+    ``n=5``, ``5 - 3 = 2`` recovers a mean over two students, which is the
+    statement the threshold exists to withhold. So the aggregate is published
+    only when the pool clears the threshold **and** the residual — the pool
+    minus every already-published speaker's count — is zero or itself at or
+    above the threshold. A unit with a large pool can therefore be suppressed,
+    and that is the rule working rather than failing.
+
+    The arithmetic and the rule are
+    :func:`~smartmatch_domain.student_speaker_feedback.aggregate_unit_feedback`'s,
+    with a unit test matrix. Neither is a ``GROUP BY ... HAVING`` here, for the
+    reason the module docstring gives: a privacy rule in a query plan is a
+    privacy rule nobody can read.
+
+    **No student, no speaker, no breakdown.** The response carries the unit's
+    id, the two numbers or two nulls, the sentence and the threshold. A
+    ``speakers: [...]`` list "for the chart" would be the per-speaker route
+    again with its suppression decided in one place for all of them, and it
+    would re-open exactly what the residual rule closes.
+
+    Nothing here reads into a factor, a weight or a ``match_run``: whether
+    student ratings should ever inform matching is **OQ-CBA-053**, and it is
+    open.
+
+    Raises:
+        403: ``forbidden`` for a caller who is not an admin or coordinator here.
+        404: ``unit_not_found``.
+    """
+    _authorize_unit_feedback_summary_read(session, principal, unit_id)
+
+    aggregate = aggregate_unit_feedback(
+        _feedback.submitted_ratings_by_speaker(
+            session,
+            tenant_id=principal.tenant_id,
+            owning_unit_id=unit_id,
+        )
+    )
+
+    return UnitFeedbackSummaryResponse(
+        unit_id=unit_id,
         suppressed=aggregate.suppressed,
         response_count=aggregate.response_count,
         mean_rating=aggregate.mean_rating,
