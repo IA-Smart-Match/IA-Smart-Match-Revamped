@@ -483,6 +483,51 @@ def test_the_statistics_surface_summarises_events_without_counting_them() -> Non
         )
 
 
+def test_the_outreach_panel_says_drafts_and_sends_and_never_threads() -> None:
+    """OQ-008, held as a naming rule on the surface that reads the routes.
+
+    ``/v1`` outreach stores an ``outreach_draft`` — a composed message — and an
+    ``outreach_send`` — one attempt to deliver it. It has no inbound leg, so a
+    thread is not a dataset this deployment withholds; it is a shape the data
+    does not have. Rendering these rows under the legacy word would be the
+    fabricated equivalence the unavailable panels exist to prevent, and a reader
+    shown "threads" would go looking for replies that do not exist.
+
+    The rule is enforced on rendered copy rather than on prose, because the
+    page's own docstring has to be free to explain *why* it does not say
+    threads. A guard that failed on a file's explanation of why it passes trains
+    the next person to delete the explanation.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchOutreachDrafts" in code and "fetchOutreachSends" in code, (
+        "the panel must read both outreach routes rather than one of them"
+    )
+    assert re.search(r"\bthreads?\b", code, flags=re.IGNORECASE) is None, (
+        "the outreach panel calls something a thread; /v1 outreach returns drafts and sends, "
+        "and this API has no inbound leg for a thread to be made of"
+    )
+    # `\s*` because a heading long enough to be prettier-wrapped sits on its own
+    # line between its tags, and a check that only matched `>Drafts<` would pass
+    # or fail on formatting rather than on what the heading says.
+    for heading in ("Drafts", "Sends"):
+        assert re.search(rf">\s*{heading}\s*<", code) is not None, (
+            f"the panel has no {heading!r} heading; its own headings must name what the routes "
+            "return"
+        )
+
+    for forbidden in (
+        "drafts.length",
+        "sends.length",
+        "drafts.data.length +",
+        "sends.data.length +",
+    ):
+        assert forbidden not in code, (
+            f"the outreach panel computes {forbidden!r}; neither response carries a total, so "
+            "a count here would be a number of one page presented as a number of attempts"
+        )
+
+
 def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
     """An unavailable panel is a claim, and it must come down when it stops being true.
 
@@ -499,7 +544,7 @@ def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
     text = STATS_PAGE.read_text(encoding="utf-8")
     code = _code_only(text)
 
-    for retired in ("Your coordinator profile", "Hosted events and staffing"):
+    for retired in ("Your coordinator profile", "Hosted events and staffing", "Outreach threads"):
         assert f'dataset="{retired}"' not in code, (
             f"the surface still renders an unavailable panel for {retired!r}, which it now "
             "reads from /v1"

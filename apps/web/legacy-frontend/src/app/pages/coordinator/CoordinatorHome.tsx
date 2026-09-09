@@ -8,9 +8,9 @@
  * would have served it, rather than a red failure banner blaming an outage for
  * a capability that was never present.
  *
- * Two of those four have had a `/v1` answer all along and were simply unwired,
- * and the panels above them were therefore saying something false about *this*
- * deployment while saying something true about the legacy one:
+ * Three of those four have had a `/v1` answer all along and were simply
+ * unwired, and the panels above them were therefore saying something false
+ * about *this* deployment while saying something true about the legacy one:
  *
  *  - **your coordinator profile** is `GET /v1/me` and `GET /v1/me/portals`,
  *    which this page already called for its own scoping. `PortalIdentityCard`
@@ -21,11 +21,27 @@
  *  - **hosted events** is `GET /v1/units/{unit_id}/events`
  *    (`routers/events.py`), which no portal page was calling.
  *    `CoordinatorEvents.tsx` is the page for it; the panel below summarises
- *    only what that response says about its own completeness and links there.
+ *    only what that response says about its own completeness and links there;
+ *  - **outreach** is `GET /v1/units/{unit_id}/outreach/drafts` and
+ *    `.../outreach/sends`. Both are read here against the *granted* unit —
+ *    `useOutreach` scopes itself by the build variable, which is the wrong unit
+ *    for a Connector for the reason the next section gives about
+ *    `Dashboard.tsx`.
  *
- * The old label said "hosted events **and staffing**". The `/v1` listing
+ * Two labels did not survive being wired up, and that is the point rather than
+ * a casualty of it.
+ *
+ * The old panel said "hosted events **and staffing**". The `/v1` listing
  * carries no staffing of any kind, so the label went rather than being kept
  * over a response that does not answer it — see `CoordinatorEvents.tsx`.
+ *
+ * The old panel said "outreach **threads**". `/v1` outreach stores drafts and
+ * sends — a composed message and one attempt to deliver it — and there is no
+ * inbound leg in this API for a thread to be made of (OQ-008). The section
+ * below says drafts and sends in its heading, its copy and its labels.
+ * Renaming a surface to match the old word would be the fabricated-equivalence
+ * defect these placeholders exist to prevent: a reader told they are looking at
+ * threads goes looking for replies that are not withheld but absent.
  *
  * **Meeting bookings** still has no `/v1` answer and keeps its panel. Deleting
  * it alongside the others would turn a named absence into an unnamed one, which
@@ -33,7 +49,7 @@
  *
  * What *is* real on this page comes from `/v1` routes and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
- * server granted them and the role and unit behind it, and the four unit-scoped
+ * server granted them and the role and unit behind it, and the six unit-scoped
  * reads below. Neither identity route is derived in the browser, and no
  * identifier on this page is chosen by it.
  *
@@ -131,16 +147,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BarChart3, CalendarDays, Info, MessageSquareHeart } from "lucide-react";
+import { BarChart3, CalendarDays, Info, Mail, MessageSquareHeart } from "lucide-react";
 
 import {
   ApiRequestError,
   fetchAttendanceSummary,
   fetchCbaUnitMetrics,
+  fetchOutreachDrafts,
+  fetchOutreachSends,
   fetchUnitEvents,
   fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
   type MetricSummary,
+  type OutreachDraft,
+  type OutreachSendSummary,
   type UnitEventList,
   type UnitFeedbackSummary,
 } from "../../../lib/api";
@@ -606,6 +626,175 @@ function HostedEventsSummary({ state }: { state: Loaded<UnitEventList> }) {
 }
 
 /**
+ * How one send attempt reads, from the server's own field and no further.
+ *
+ * Deliberately not shared with `CoordinatorOutreach.tsx`'s `describeDisposition`
+ * and deliberately weaker than it. That page reads a single send with its whole
+ * delivery stream beside it and can afford a sentence; this panel has a row in
+ * a listing, and the listing carries no stream — the route omits it on purpose,
+ * because folding a send's events into one word is a choice about which fact to
+ * forget when a provider reports `delivered` and then `complained`.
+ *
+ * So this reports the server's value and stops. `null` is the third state and
+ * reads as in flight — never as a failure, and never as the word this whole
+ * surface refuses. **Nothing here says "sent" or "delivered".** B17's defect was
+ * a button that announced a message had been sent having issued no request; a
+ * dashboard that announced delivery from a disposition would be the same claim
+ * one layer further from the evidence.
+ */
+function describeSendState(send: OutreachSendSummary): string {
+  return send.disposition === null
+    ? "In flight — the worker has not reported an outcome."
+    : `The server reported "${send.disposition}".`;
+}
+
+/**
+ * Outreach drafts and sends — and why this section is not called threads.
+ *
+ * This was a `PortalDatasetUnavailable` for "Outreach threads". The legacy
+ * `/api/portals/event-coordinators/{id}/threads` really is gone, and what
+ * replaced it is **not the same shape**: `/v1` outreach stores an
+ * `outreach_draft` and an `outreach_send`, which are a composed message and one
+ * attempt to deliver it. OQ-008 records that decision. Nothing in either
+ * response implies a reply exists, no row belongs to an exchange, and there is
+ * no inbound leg anywhere in this API.
+ *
+ * That is why the heading, the copy and the field labels below all say drafts
+ * and sends. Rendering these rows under the old word would be the
+ * fabricated-equivalence defect the unavailable panels exist to prevent: a
+ * reader who saw "threads" would reasonably believe they were looking at
+ * conversations, and would go looking for replies that are not withheld but
+ * absent.
+ *
+ * Two reads, `GET /v1/units/{unit_id}/outreach/drafts` and
+ * `.../outreach/sends`, both scoped to the unit the server *granted this
+ * account* rather than to `VITE_SMARTMATCH_UNIT_ID`. `useOutreach` reads the
+ * build variable, which is why this panel calls the helpers directly: on a
+ * multi-unit pilot the two are different units, and a Connector's dashboard
+ * showing another unit's outreach would be attributing one unit's messages to
+ * another.
+ *
+ * No count is rendered. Neither response carries a total — `limit` and `offset`
+ * are what was asked for, not what exists — so a number here would be a count
+ * of one page, computed in the browser, presented beside figures that each have
+ * an owning query.
+ */
+function OutreachDraftsAndSends({
+  drafts,
+  sends,
+}: {
+  drafts: Loaded<OutreachDraft[]>;
+  sends: Loaded<OutreachSendSummary[]>;
+}) {
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="Outreach drafts and sends">
+      <div className="flex items-start gap-2">
+        <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="w-full space-y-3">
+          <h2 className="font-semibold text-foreground">Outreach drafts and sends</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            A draft is a message composed from a registered template; a send is one attempt to
+            deliver one. They are not conversations — this API has no inbound leg, so nothing
+            below implies anyone replied.
+          </p>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Drafts
+            </h3>
+            {drafts.error !== null ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+              >
+                {drafts.error}
+              </p>
+            ) : drafts.data === null ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {drafts.settled ? "The draft listing returned nothing." : "Loading drafts…"}
+              </p>
+            ) : drafts.data.length === 0 ? (
+              // Safe to say here, and only here: the server answered, and its
+              // answer was none. A failed read above says nothing at all about
+              // how many drafts exist (ADR-0011).
+              <p className="text-sm text-muted-foreground">No drafts in this unit.</p>
+            ) : (
+              <ul className="space-y-2">
+                {drafts.data.map((draft) => (
+                  <li key={draft.draft_id} className="rounded-xl border border-border/70 p-3">
+                    <p className="text-sm font-medium text-foreground">{draft.subject}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      To {draft.recipient_address} · {draft.status}
+                    </p>
+                    {draft.content_status === "synthetic" && (
+                      // Surfaced rather than hidden: this is the fact that
+                      // decides whether the message could go to a real person.
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Pilot copy — not through institutional review.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Sends
+            </h3>
+            {sends.error !== null ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+              >
+                {sends.error}
+              </p>
+            ) : sends.data === null ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {sends.settled ? "The send listing returned nothing." : "Loading sends…"}
+              </p>
+            ) : sends.data.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This unit has attempted no sends.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {sends.data.map((send) => (
+                  <li key={send.send_id} className="rounded-xl border border-border/70 p-3">
+                    <p className="text-sm font-medium text-foreground">{send.recipient_address}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {describeSendState(send)}
+                    </p>
+                    {send.failure_reason !== null && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{send.failure_reason}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs leading-5 text-muted-foreground">
+              The server decides how many rows one page carries, and the response reports no
+              total — so this is a page of sends rather than all of them, and no number here
+              claims otherwise.
+            </p>
+          </div>
+
+          <p className="text-sm leading-6">
+            <Link
+              className="font-medium text-foreground underline underline-offset-4"
+              to="/coordinator-portal/outreach"
+            >
+              Open CBA contact
+            </Link>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * The review queue, and why it is empty rather than absent.
  *
  * This is a *different* gap from the `/api/portals/*` panels above, and it is
@@ -675,11 +864,13 @@ export function CoordinatorHome() {
   const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
   const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
   const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
+  const [drafts, setDrafts] = useState<Loaded<OutreachDraft[]>>(PENDING);
+  const [sends, setSends] = useState<Loaded<OutreachSendSummary[]>>(PENDING);
 
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Four independent reads, settled independently. Letting one refusal
+    // Six independent reads, settled independently. Letting one refusal
     // decide what another section shows would misreport which capability the
     // server actually withheld.
     try {
@@ -725,6 +916,31 @@ export function CoordinatorHome() {
         settled: true,
       });
     }
+
+    // The two outreach reads are settled apart from each other as well as from
+    // everything above: a unit can hold drafts it has never sent, and a refusal
+    // on one of these routes says nothing about the other.
+    try {
+      const listing = await fetchOutreachDrafts(unitId);
+      setDrafts({ data: listing.drafts, error: null, settled: true });
+    } catch (cause) {
+      setDrafts({
+        data: null,
+        error: describeFailure(cause, "The outreach drafts"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchOutreachSends(unitId);
+      setSends({ data: listing.sends, error: null, settled: true });
+    } catch (cause) {
+      setSends({
+        data: null,
+        error: describeFailure(cause, "The outreach sends"),
+        settled: true,
+      });
+    }
   }, [unitId]);
 
   useEffect(() => {
@@ -763,14 +979,11 @@ export function CoordinatorHome() {
           <AttendanceEvidence state={attendance} />
           <StudentFeedbackPointer state={feedback} />
           <HostedEventsSummary state={events} />
+          <OutreachDraftsAndSends drafts={drafts} sends={sends} />
         </>
       )}
 
       <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Outreach threads"
-          endpoints={["/api/portals/event-coordinators/{id}/threads"]}
-        />
         {/* Meeting bookings has no `/v1` answer today, so it stays a named
             absence rather than being quietly dropped now that the panels
             around it have landed. */}

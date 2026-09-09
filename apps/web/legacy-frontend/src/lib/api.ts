@@ -2674,6 +2674,68 @@ export async function fetchOutreachSend(unitId: string, sendId: string): Promise
   );
 }
 
+/**
+ * One send in a listing, **without** its delivery stream.
+ *
+ * The stream is absent rather than summarised, and the route says why: folding
+ * a send's events into one word is a choice about which fact to forget — a
+ * provider can report `delivered` and then `complained` — and making that
+ * choice once per row would bury it where nobody reviews it. A reader who needs
+ * to explain what happened to one message reads that send with
+ * {@link fetchOutreachSend}.
+ *
+ * `disposition` is `null` while the attempt is in flight. That is a third
+ * state, not a missing value: render it as in progress, never as a failure and
+ * never as a success.
+ */
+export interface OutreachSendSummary {
+  send_id: string;
+  draft_id: string;
+  job_id: string;
+  recipient_address: string;
+  /** `accepted`, `blocked`, `failed`, or null while the attempt is in flight. */
+  disposition: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  /** When the attempt reached an outcome, or null while it has not. */
+  concluded_at: string | null;
+}
+
+/**
+ * A page of sends, and how many were asked for.
+ *
+ * There is no total, and a caller must not derive one. `limit` and `offset` are
+ * what was asked for, not what exists; the number of send attempts a unit has
+ * made is not a figure this response reports.
+ */
+export interface OutreachSendListResponse {
+  sends: OutreachSendSummary[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/outreach/sends` — the unit's send attempts, newest first.
+ *
+ * The listing the coordinator surface was missing. Drafts could be listed and a
+ * single send could be read by id, so the only way to see what a unit had
+ * actually attempted was to have kept the ids from when it attempted them.
+ *
+ * These are **sends**, not threads. OQ-008 records that this slice stores send
+ * records rather than conversations: nothing here implies a reply exists, no
+ * row is part of an exchange, and a caller that renders this list under a
+ * "threads" heading is asserting a shape the data does not have.
+ */
+export async function fetchOutreachSends(unitId: string): Promise<OutreachSendListResponse> {
+  return requestJson<OutreachSendListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Speaker invitations (CBA-INVITATIONS, customer §6 steps 7-8, §13, §14)
 //
