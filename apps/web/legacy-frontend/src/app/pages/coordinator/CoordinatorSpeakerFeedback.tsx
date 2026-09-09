@@ -265,7 +265,11 @@ export function CoordinatorSpeakerFeedback() {
         // The summaries are windowed client-side over the rows this browser
         // already holds. Turning a page draws fewer cards; it asks the server
         // for nothing and makes no claim about how many speakers the unit has.
-        <PagedList items={rows} label="speaker summaries" idPrefix="speaker-feedback-summaries">
+        // The prefix deliberately avoids the substring `speaker-feedback`:
+        // that is the tail of the per-student route this surface must never
+        // reach, and `test_frontend_student_feedback_contract.py` forbids the
+        // token outright rather than trying to tell a route from an element id.
+        <PagedList items={rows} label="speaker summaries" idPrefix="unit-speaker-summaries">
           {(visibleRows) => (
             <ul className="space-y-3">
               {visibleRows.map((row) => (

@@ -87,8 +87,20 @@ def test_the_rewards_routes_are_still_mounted():
 
 
 def test_the_page_still_renders_the_server_catalog_and_balance(page_source: str):
-    """Server values, listed and folded — not a constant and not a formula."""
-    assert "catalog.items.map" in page_source
+    """Server values, listed and folded — not a constant and not a formula.
+
+    The catalog is drawn a page at a time since TRACK T1, so the rows are
+    mapped from the pager's slice rather than from ``catalog.items`` directly.
+    What this test actually holds is unchanged: the *whole* server array is
+    what reaches the list, and nothing between the response and the rendered
+    rows filters or invents an item. Handing ``catalog.items`` to ``PagedList``
+    and mapping what it hands back is that same claim, one indirection later.
+    """
+    assert "items={catalog.items}" in page_source, (
+        "the whole server catalog must reach the list; a pre-filtered array would be a second, "
+        "client-side idea of what is on offer"
+    )
+    assert "visibleItems.map" in page_source, "each item on the current page must be rendered"
     assert "catalog.balance" in page_source
 
 

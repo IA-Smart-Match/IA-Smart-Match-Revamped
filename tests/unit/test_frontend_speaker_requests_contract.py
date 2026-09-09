@@ -268,11 +268,20 @@ def test_the_host_page_renders_a_list_an_empty_state_and_an_error_state() -> Non
     pre-migration gap rather than implying nothing was ever filed, and a
     rendered server refusal — the same three-state discipline every other
     read page in this portal follows.
+
+    Since TRACK T1 the list is drawn a page at a time, so the rows are mapped
+    from the pager's slice. The claim held here is the one that mattered all
+    along and is unchanged: the whole array the host-scoped read returned is
+    what reaches the list, and every row on the current page is rendered from
+    it. The pager is a window over that array, not a filter on it.
     """
     source = HOST_PAGE.read_text(encoding="utf-8")
     code = _code_only(source)
 
-    assert "requests.map" in code, "a non-empty result must render each request"
+    assert "items={requests}" in code, (
+        "the whole result of the host-scoped read must reach the list, unfiltered"
+    )
+    assert "visibleRequests.map" in code, "a non-empty result must render each request on the page"
     assert "request.request_id" in code or "request_id" in code, (
         "each rendered request must be keyed by the server's own id"
     )
