@@ -66,6 +66,7 @@ import {
   type SpeakerContactChannel,
   type SpeakerInvitationBatch,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -539,21 +540,34 @@ export function CoordinatorInvitations() {
                       This run&rsquo;s shortlist is empty, so there is nobody to invite.
                     </p>
                   ) : (
-                    <ul className="space-y-3">
-                      {recipients.map((recipient) => {
-                        const verdict = verdicts.get(recipient.subjectId);
-                        if (verdict === undefined) return null;
-                        return (
-                          <RecipientRow
-                            key={recipient.subjectId}
-                            recipient={recipient}
-                            verdict={verdict}
-                            selected={selected.includes(recipient.subjectId)}
-                            onToggle={toggleRecipient}
-                          />
-                        );
-                      })}
-                    </ul>
+                    // The shortlist is drawn a page at a time over the
+                    // recipients this run already handed us — a window on what
+                    // arrived, not a fresh read, and not a count of the run.
+                    // Who is ticked stays in `selected`, so paging cannot
+                    // unpick anybody.
+                    <PagedList
+                      items={recipients}
+                      label="recipients"
+                      idPrefix="invitation-recipients"
+                    >
+                      {(visibleRecipients) => (
+                        <ul className="space-y-3">
+                          {visibleRecipients.map((recipient) => {
+                            const verdict = verdicts.get(recipient.subjectId);
+                            if (verdict === undefined) return null;
+                            return (
+                              <RecipientRow
+                                key={recipient.subjectId}
+                                recipient={recipient}
+                                verdict={verdict}
+                                selected={selected.includes(recipient.subjectId)}
+                                onToggle={toggleRecipient}
+                              />
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </PagedList>
                   )}
                 </section>
 

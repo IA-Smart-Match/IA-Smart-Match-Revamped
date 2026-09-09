@@ -61,6 +61,7 @@ import {
   type SpeakerContact,
   type SpeakerFeedbackSummary,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -261,11 +262,18 @@ export function CoordinatorSpeakerFeedback() {
             : "This unit has no speaker contacts yet, so there is nothing to summarise."}
         </p>
       ) : (
-        <ul className="space-y-3">
-          {rows.map((row) => (
-            <SpeakerSummaryCard key={row.contact.professional_id} row={row} />
-          ))}
-        </ul>
+        // The summaries are windowed client-side over the rows this browser
+        // already holds. Turning a page draws fewer cards; it asks the server
+        // for nothing and makes no claim about how many speakers the unit has.
+        <PagedList items={rows} label="speaker summaries" idPrefix="speaker-feedback-summaries">
+          {(visibleRows) => (
+            <ul className="space-y-3">
+              {visibleRows.map((row) => (
+                <SpeakerSummaryCard key={row.contact.professional_id} row={row} />
+              ))}
+            </ul>
+          )}
+        </PagedList>
       )}
     </div>
   );
