@@ -3,7 +3,7 @@ name = "smartmatch-domain"
 version = "0.1.0"
 description = "Pure SmartMatch domain logic — no frameworks, storage, providers, or IO"
 requires-python = ">=3.11,<3.13"
-dependencies = []
+dependencies = ["ortools>=9.14,<10"]
 
 [build-system]
 requires = ["hatchling"]

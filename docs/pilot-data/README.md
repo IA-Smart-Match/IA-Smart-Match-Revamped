@@ -108,6 +108,7 @@ below) to reproduce this table's right-hand column.
 | `professionals_blank_required_column.json` | professionals | `metro_region` key present in every row, but empty or whitespace-only every time | `required_column_entirely_blank` (error) |
 | `professionals_null_sentinels.json` | professionals | `metro_region` filled only with `"NULL"`, `"nan"`, `"N/A"` -- source-specific null markers, not truly blank | **With** the proposed contract's declared `blank_sentinels` (`NULL`, `nan`, `N/A`): `required_column_entirely_blank`. **Without** any declared sentinels: *(none)* -- the same rows validate differently depending on the caller's declaration. `verify_fixtures.py` runs both variants explicitly. |
 | `professionals_literal_null_value.json` | professionals | `name` is literally `"Null"`, and one row's `metro_region` is literally `"None"` -- real surnames/place-name text, not blanks | *(none)*, validated with `blank_sentinels=()` -- deliberately kept isolated from any contract that declares `"NULL"` as a sentinel; see `columns.yaml`'s `open_questions` for why running it *against* the ratified per-column sentinels would be a false positive |
+| `professionals_cba_contact.json` | professionals | none -- 6 rows in the shape a CPP CBA coordinator's contact export takes, carrying every customer §18 column under the customer's own Title Case headers (`"Graduation Year"`, `"Willingness to Partner with CPP"`, `"Location Postal Code"`, ...) | *(none)* -- which is the point of the fixture: `normalize_header` folds the customer's spelling onto the contract's snake_case declaration, so no alias table is needed. `"Contact Email"` produces no `unexpected_columns` because the column **is** declared; it is CBA Gate C's `withhold` posture, not `validate_columns`, that stops the value being stored, and that posture is the worker's concern (`tests/unit/test_import_column_contract_wiring.py`), not this script's. |
 | `professionals_duplicates.json` | professionals | plausible duplicate people (same person, spacing/abbreviation/title variants; e.g. "Anaya Ferreira" / "Anaya  Ferreira" / "A. Ferreira") | *(none)* -- every row is column-valid; `validate_columns` does not deduplicate. These rows exist to exercise a downstream entity-resolution step this repository does not yet have, not `validate_columns` itself. |
 | `events_clean.json` | events | none -- 20 rows, every declared column present and consistent | *(none)* |
 | `events_missing_required.json` | events | `Category` never appears as a key in any row | `missing_required_columns` (error) |
@@ -120,7 +121,14 @@ below) to reproduce this table's right-hand column.
 See `columns.yaml` for the ratified contract and its rationale. In short:
 
 - **professionals**: required `name`, `metro_region`; optional `company`,
-  `title`, `expertise_tags`, `initials`, `pronouns`. (`board_role` is no
+  `title`, `expertise_tags`, `initials`, `pronouns`, and — added 5 Sep 2026
+  for the CPP CBA pivot (customer §18) — `contact_email`, `alumni`,
+  `graduation_year`, `major`, `willingness_to_partner_with_cpp`,
+  `past_engagement`, `primary_industry_code`, `primary_role_code`,
+  `location_city`, `location_postal_code`, `prior_talk`. All of the CBA
+  additions are optional, because §18 says the source data is scattered with
+  no authoritative export. `contact_email` is declared but **withheld** —
+  see `cba-field-mapping.md` and CBA Gate C below. (`board_role` is no
   longer here — P9 Gate A closed it relationship-scoped; see below.)
 - **events**: required `"Event / Program"`, `"Category"`; optional
   `"Recurrence (typical)"`, `"Host / Unit"`, `"Volunteer Roles (fit)"`,
@@ -167,3 +175,26 @@ Both questions this contract originally left open are now closed, 2 Sep 2026:
   `"Point(s) of Contact (published)"`, `"Contact Email / Phone
   (published)"`). All three: **collect**, human/import origin only. See
   `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8.
+
+## Open gate: CBA Gate C — `professionals.contact_email`
+
+Opened 5 Sep 2026 by `CBA-IMPORT-CONTRACT`, tracked as **OQ-CBA-011**.
+
+Customer §18 expects a `Contact Email` on every speaker record, so the column
+is declared and an export carrying it is never refused and never reported as
+`unexpected_columns`. What no approved decision covers is *storing* it. P9
+Gate B is not that decision: it answered the three **published** contact
+fields on the `events` dataset — details an organizer has already published on
+a public event page — and still needed a named privacy owner and the full
+ADR-0014 field set to do it. A speaker's personal address on a coordinator's
+spreadsheet is different data answering a different question.
+
+Until a program owner and a named privacy owner record one, the column carries
+posture `withhold`: values are dropped before anything is written, and the
+drop is reported as a `columns_withheld_pending_gate` **warning** naming the
+column. Nothing about this is a consent decision in either direction —
+collecting an address is not permission to use it, no import path reaches
+`consented`, and §18's `Willingness to Partner with CPP` is a stated
+preference on a contact record, not a `ConsentSource`.
+
+See `cba-field-mapping.md` for the full field-to-schema table.

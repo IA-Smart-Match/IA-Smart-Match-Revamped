@@ -43,11 +43,53 @@ export const OPPORTUNITIES_METRIC_NAME = "opportunities";
 export const OPPORTUNITIES_UNKNOWN_REASON =
   "The registered `opportunities` metric could not be read from /v1/units/{unit_id}/metrics, so no count is available. This page never derives one from local CSV or crawler rows.";
 
-/** G1 closed 2026-09-03; M2 scoring routes and factor implementations pending. */
-export const MATCHING_UNAVAILABLE_REASON =
-  "The factor registry is approved, but match scoring is not yet available: topic_relevance and travel_burden implementations (M2) and match API routes are still in progress.";
+/**
+ * Canonical name of the registered pending-review metric (`METRIC_REGISTER`).
+ *
+ * This is the coordinator's discovery queue: `pending_review_item_rows_v1`
+ * counts the review items this unit owns whose review status is still
+ * pending — the rows a coordinator has to categorise before they can count
+ * as opportunities under the approved counting rule. It is the one
+ * registered metric that answers "what has discovery put in front of me",
+ * which is why the discovery feed is built on it rather than on a number
+ * assembled in the browser.
+ */
+export const PENDING_REVIEW_ITEMS_METRIC_NAME = "pending_review_items";
 
-/** Placeholder until match_run exists and M2 scoring is wired. */
+/** Why the pending-review count can be missing on the client. */
+export const PENDING_REVIEW_UNKNOWN_REASON =
+  "The registered `pending_review_items` metric could not be read from /v1/units/{unit_id}/metrics, so the size of the review queue is unknown. This feed never estimates it.";
+
+/** Unknown-state stand-in for the registered pending-review metric. */
+export function unavailablePendingReviewMetric(
+  reason: string = PENDING_REVIEW_UNKNOWN_REASON,
+): AccountableMetric {
+  return {
+    name: "Pending review items",
+    definition:
+      "Review items owned by this organizational unit whose review status is pending.",
+    value: unknownValue(reason),
+    provenance: "observed",
+  };
+}
+
+/**
+ * Why a score is absent on every page that is not the shortlist surface.
+ *
+ * Updated with card M10, and the change is a narrowing rather than a removal.
+ * It used to say match scoring was not yet available at all, which was true
+ * while G1 was open and no routes existed. Both have since changed: the factor
+ * registry is approved and implemented (M6j), and
+ * `/v1/units/{unit_id}/match-runs/{match_run_id}` reads persisted runs (M8b).
+ * What remains true — and is the only honest thing these pages can say — is
+ * that *they* do not fetch one. Leaving the old wording would have made a
+ * stale claim about the platform; replacing it with nothing would have left a
+ * bare "Unknown" carrying no reason, which ADR-0011 rule 1 exists to prevent.
+ */
+export const MATCHING_UNAVAILABLE_REASON =
+  "The factor registry is approved, and heuristic scores live on persisted match runs read from /v1/units/{unit_id}/match-runs/{match_run_id} on the speaker-shortlist surface. This page does not fetch one, and it never derives a score locally.";
+
+/** Unknown-state stand-in for a score this page does not read. */
 export function unavailableMatchingMetric(
   reason: string = MATCHING_UNAVAILABLE_REASON,
 ): AccountableMetric {

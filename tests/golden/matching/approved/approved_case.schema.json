@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartmatch.local/schemas/g1-approved-golden-case-v1.json",
+  "title": "G1 approved golden case (with expected outputs)",
+  "description": "Structure schema for gate G1 approved golden cases, once M6j ratified expected outputs exist. Unlike golden_case.schema.json (structure-only, expected scores forbidden), this schema requires `expected` and does not forbid it — that is precisely why it is a separate file: the approved directory is a different contract from the symptoms directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "symptom_class", "description", "inputs", "expected"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^G1-GC-[0-9]{3}$"
+    },
+    "symptom_class": {
+      "type": "string",
+      "enum": ["tie", "zero_or_unknown", "depth_zero"]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "registry_version": {
+      "type": "string"
+    },
+    "stakeholder_reference": {
+      "type": "string"
+    },
+    "zero_classification": {
+      "type": "string",
+      "enum": ["measured_zero", "unknown"]
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "expected": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "symptom_class": { "const": "zero_or_unknown" } },
+        "required": ["symptom_class"]
+      },
+      "then": {
+        "required": ["zero_classification"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "symptom_class": { "const": "depth_zero" } },
+        "required": ["symptom_class"]
+      },
+      "then": {
+        "required": ["zero_classification"]
+      }
+    }
+  ]
+}

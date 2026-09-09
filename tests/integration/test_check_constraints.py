@@ -74,6 +74,126 @@ pytestmark = pytest.mark.integration
 #: changed the normalisation would fail this test, and reviewing that diff on
 #: purpose is the intended behaviour rather than a cost.
 CHECK_CONSTRAINT_DEFINITIONS = {
+    # --- Outreach (migration 0021) -------------------------------------
+    #
+    # Every one of these is a claim about a real person that the application
+    # layer also enforces, which is why the expressions are pinned here as
+    # well as attempted in `test_outreach_persistence.py`: a vocabulary that
+    # quietly widened would pass every behavioural test, because the values
+    # it newly admits are exactly the ones nothing tries to write.
+    ("contact_channel", "ck_contact_channel_address_present"): (
+        "CHECK (((length(btrim(address)) > 0) AND (POSITION(('@'::text) IN (address)) > 1)))"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_dated"): (
+        "CHECK (((consent_source IS NULL) = (consent_recorded_at IS NULL)))"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_source"): (
+        "CHECK (((consent_source IS NULL) OR (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text, 'scraped'::text, 'purchased'::text, "
+        "'inferred'::text]))))"
+    ),
+    ("contact_channel", "ck_contact_channel_kind"): ("CHECK ((channel_kind = 'email'::text))"),
+    ("contact_channel", "ck_contact_channel_sendable_consent"): (
+        "CHECK (((contact_state <> 'active_candidate'::text) OR ((consent_source IS NOT NULL) "
+        "AND (consent_source = ANY (ARRAY['self_service'::text, 'authenticated'::text, "
+        "'in_person'::text, 'institutional_relationship'::text])))))"
+    ),
+    ("contact_channel", "ck_contact_channel_state"): (
+        "CHECK ((contact_state = ANY (ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text])))"
+    ),
+    # --- The consent audit trail (migration 0022) ----------------------
+    ("contact_channel_transition", "ck_contact_channel_transition_consent_source"): (
+        "CHECK (((consent_source IS NULL) OR (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text, "
+        "'scraped'::text, 'purchased'::text, 'inferred'::text]))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_consented_source"): (
+        "CHECK (((to_state <> ALL (ARRAY['consented'::text, 'active_candidate'::text])) "
+        "OR ((consent_source IS NOT NULL) AND (consent_source = ANY "
+        "(ARRAY['self_service'::text, 'authenticated'::text, 'in_person'::text, "
+        "'institutional_relationship'::text])))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_from_state"): (
+        "CHECK (((from_state IS NULL) OR (from_state = ANY "
+        "(ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text]))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_moves"): (
+        "CHECK (((from_state IS NULL) OR (from_state <> to_state)))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_text_present"): (
+        "CHECK ((((reason IS NULL) OR (length(btrim(reason)) > 0)) AND "
+        "((consent_evidence IS NULL) OR (length(btrim(consent_evidence)) > 0))))"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_to_state"): (
+        "CHECK ((to_state = ANY (ARRAY['discovered'::text, 'corroborated'::text, "
+        "'reviewed'::text, 'relationship_recorded'::text, 'rejected'::text, "
+        "'consented'::text, 'active_candidate'::text, 'stale'::text])))"
+    ),
+    ("delivery_event", "ck_delivery_event_detail_object"): (
+        "CHECK (((detail IS NULL) OR (jsonb_typeof(detail) = 'object'::text)))"
+    ),
+    ("delivery_event", "ck_delivery_event_type"): (
+        "CHECK ((event_type = ANY (ARRAY['queued'::text, 'blocked'::text, 'accepted'::text, "
+        "'delivered'::text, 'bounced'::text, 'complained'::text, 'unsubscribed'::text, "
+        "'failed'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approval_dated"): (
+        "CHECK (((approved_by IS NULL) = (approved_at IS NULL)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approved_has_approver"): (
+        "CHECK (((status <> 'approved'::text) OR (approved_by IS NOT NULL)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_content_status"): (
+        "CHECK ((content_status = ANY (ARRAY['synthetic'::text, 'reviewed'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_status"): (
+        "CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'superseded'::text])))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_supersession"): (
+        "CHECK (((superseded_by_draft_id IS NULL) OR ((status = 'superseded'::text) AND "
+        "(superseded_by_draft_id <> id))))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_text_present"): (
+        "CHECK (((length(btrim(template_id)) > 0) AND (length(btrim(subject)) > 0) AND "
+        "(length(btrim(body)) > 0)))"
+    ),
+    ("outreach_draft", "ck_outreach_draft_version"): ("CHECK ((version >= 1))"),
+    ("outreach_send", "ck_outreach_send_accepted_has_provider"): (
+        "CHECK (((disposition <> 'accepted'::text) OR ((provider IS NOT NULL) AND "
+        "(provider_message_id IS NOT NULL))))"
+    ),
+    ("outreach_send", "ck_outreach_send_concluded"): (
+        "CHECK (((disposition IS NULL) = (concluded_at IS NULL)))"
+    ),
+    ("outreach_send", "ck_outreach_send_disposition"): (
+        "CHECK (((disposition IS NULL) OR (disposition = ANY (ARRAY['accepted'::text, "
+        "'blocked'::text, 'failed'::text]))))"
+    ),
+    ("outreach_send", "ck_outreach_send_failure_reason"): (
+        "CHECK (((disposition IS NULL) OR ((disposition = ANY (ARRAY['blocked'::text, "
+        "'failed'::text])) = (failure_reason IS NOT NULL))))"
+    ),
+    ("outreach_send", "ck_outreach_send_fields_present"): (
+        "CHECK (((length(btrim(idempotency_key)) > 0) AND (length(btrim(recipient_address)) > "
+        "0) AND (length(btrim(from_address)) > 0) AND (length(btrim(unsubscribe_token_hash)) "
+        "> 0)))"
+    ),
+    ("outreach_send", "ck_outreach_send_message_id_means_accepted"): (
+        "CHECK (((provider_message_id IS NULL) OR (disposition = 'accepted'::text)))"
+    ),
+    ("suppression_record", "ck_suppression_record_address_present"): (
+        "CHECK ((length(btrim(address)) > 0))"
+    ),
+    ("suppression_record", "ck_suppression_record_source"): (
+        "CHECK ((source = ANY (ARRAY['unsubscribe_link'::text, 'one_click'::text, "
+        "'coordinator'::text, 'bounce'::text, 'complaint'::text])))"
+    ),
     ("attendance_record", "ck_attendance_record_method"): (
         "CHECK ((method = ANY (ARRAY['qr_scan'::text, 'coordinator_entry'::text, 'import'::text])))"
     ),
@@ -94,6 +214,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): "CHECK ((amount <> 0))",
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "CHECK (((attended_at IS NULL) = (attended_attendance_id IS NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
+        "CHECK ((matched_provenance = ANY (ARRAY['synthetic / coordinator-accepted'::text, "
+        "'match-engine'::text])))"
     ),
     ("pipeline_record", "ck_pipeline_record_stage_order"): (
         "CHECK ((((contacted_at IS NULL) OR (contacted_at >= matched_at)) AND "
@@ -151,6 +275,370 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): (
         "CHECK (((state = 'reserved'::text) = (lease_token IS NOT NULL)))"
     ),
+    # Migration 0017 — the P6 event model (cards S3-S5f).
+    ("event", "ck_event_time_precision"): (
+        "CHECK ((time_precision = ANY (ARRAY['exact'::text, 'date_only'::text, "
+        "'unresolved'::text])))"
+    ),
+    ("event", "ck_event_temporal_shape"): (
+        "CHECK ((((time_precision = 'exact'::text) AND (starts_at IS NOT NULL) AND "
+        "(on_date IS NULL) AND (time_zone IS NOT NULL)) OR ((time_precision = "
+        "'date_only'::text) AND (starts_at IS NULL) AND (on_date IS NOT NULL) AND "
+        "(time_zone IS NOT NULL)) OR ((time_precision = 'unresolved'::text) AND "
+        "(starts_at IS NULL) AND (on_date IS NULL) AND (time_zone IS NULL))))"
+    ),
+    ("event", "ck_event_identity_iff_resolved"): (
+        "CHECK (((time_precision = 'unresolved'::text) = (resolved_date IS NULL)))"
+    ),
+    ("event", "ck_event_publication_status"): (
+        "CHECK ((publication_status = ANY (ARRAY['unpublished'::text, 'published'::text])))"
+    ),
+    ("event", "ck_event_review_status"): (
+        "CHECK ((review_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))"
+    ),
+    ("event", "ck_event_quarantined_tag_count_non_negative"): (
+        "CHECK ((quarantined_tag_count >= 0))"
+    ),
+    ("event", "ck_event_publishable"): (
+        "CHECK (((publication_status = 'unpublished'::text) OR ((time_precision <> "
+        "'unresolved'::text) AND (quarantined_tag_count = 0))))"
+    ),
+    ("event", "ck_event_origin"): (
+        "CHECK ((origin = ANY (ARRAY['coordinator_entry'::text, 'extraction'::text])))"
+    ),
+    ("event", "ck_event_provenance_evidence"): (
+        "CHECK ((((origin = 'extraction'::text) = (source_url IS NOT NULL)) AND "
+        "((source_url IS NULL) = (fetched_at IS NULL)) AND ((fetched_at IS NULL) = "
+        "(extractor_version IS NULL))))"
+    ),
+    # Migration 0022 — the end instant an .ics document needs and cannot invent.
+    # The `time_precision = 'exact'` clause is load-bearing rather than
+    # decorative: without it a row could hold an end and no start, because
+    # `ends_at > NULL` is unknown rather than false and an unknown CHECK passes.
+    # The `>` is pinned for the same reason the numeric thresholds above are —
+    # relaxing it to `>=` admits the zero-length event an adapter writes when it
+    # copies `starts_at` across, which no behavioural test that only tries a
+    # reversed pair would notice.
+    ("event", "ck_event_end_after_start"): (
+        "CHECK (((ends_at IS NULL) OR ((time_precision = 'exact'::text) AND "
+        "(ends_at > starts_at))))"
+    ),
+    # Migration 0033 — OQ-CBA-014's closure. The mirror of
+    # ck_event_provenance_evidence above: that one says a source URL may exist
+    # only on an 'extraction' row, this says a filer may exist only on a
+    # 'coordinator_entry' one. An extracted event has no author, and a filer on
+    # a crawled row would attribute a fetch to a person.
+    ("event", "ck_event_filed_by_manual_origin"): (
+        "CHECK (((filed_by_user_id IS NULL) OR (origin = 'coordinator_entry'::text)))"
+    ),
+    ("event_tag", "ck_event_tag_resolution"): (
+        "CHECK ((resolution = ANY (ARRAY['mapped'::text, 'quarantined'::text])))"
+    ),
+    ("event_tag", "ck_event_tag_resolution_shape"): (
+        "CHECK ((((resolution = 'mapped'::text) = (term IS NOT NULL)) AND "
+        "((resolution = 'quarantined'::text) = (raw_value IS NOT NULL))))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_kind"): (
+        "CHECK ((kind = ANY (ARRAY['unmapped_tag'::text, 'unresolved_time'::text, "
+        "'first_seen_event'::text])))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_status"): (
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text])))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_decision_evidence"): (
+        "CHECK ((((status = 'pending'::text) = (decided_at IS NULL)) AND "
+        "((decided_at IS NULL) = (decided_by IS NULL))))"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_tag_evidence"): (
+        "CHECK ((((kind = 'unmapped_tag'::text) = (raw_value IS NOT NULL)) AND "
+        "((raw_value IS NULL) = (vocabulary_version IS NULL))))"
+    ),
+    # Migration 0018, the immutable match_run snapshot. The table's other
+    # guarantee — that no UPDATE succeeds at all — is a trigger rather than a
+    # CHECK, because a CHECK sees only the new row and cannot know one existed
+    # before. It is exercised in test_match_run_snapshot.py and has no entry
+    # here, because this file is about CHECK constraints.
+    ("match_run", "ck_match_run_supersedes_is_not_self"): (
+        "CHECK (((supersedes_run_id IS NULL) OR (supersedes_run_id <> id)))"
+    ),
+    ("match_run", "ck_match_run_pins_present"): (
+        "CHECK (((length(btrim(event_need_id)) > 0) AND (length(btrim(inputs_hash)) > 0) "
+        "AND (length(btrim(registry_version)) > 0) AND (length(btrim(registry_hash)) > 0) "
+        "AND (length(btrim(optimizer_model_version)) > 0) AND (length(btrim(solver_name)) "
+        "> 0) AND (length(btrim(solver_version)) > 0) AND "
+        "(length(btrim(route_estimate_version)) > 0)))"
+    ),
+    ("match_run", "ck_match_run_weights_object"): (
+        "CHECK (((jsonb_typeof(weights) = 'object'::text) AND (weights <> '{}'::jsonb)))"
+    ),
+    ("match_run", "ck_match_run_portfolio_size"): "CHECK ((portfolio_size >= 1))",
+    ("match_run", "ck_match_run_random_seed"): "CHECK ((random_seed >= 0))",
+    ("match_run", "ck_match_run_route_estimate_source"): (
+        "CHECK ((route_estimate_source = ANY (ARRAY['straight_line'::text, 'route_matrix'::text])))"
+    ),
+    ("match_run", "ck_match_run_portfolio_status"): (
+        "CHECK ((portfolio_status = ANY (ARRAY['optimal'::text, 'feasible'::text, "
+        "'infeasible'::text, 'unknown'::text])))"
+    ),
+    # Migration 0032, OQ-CBA-028. **Partial on purpose**, and the pinned
+    # expression is where that is held: the `scoring_mode IS NULL` arm is what
+    # makes a pre-ADR-0016 run storable, and an edit that dropped it — a
+    # "tightening" to a plain IN — would put every historical row in violation
+    # and could not be applied to a populated database at all. It is also why
+    # `ck_match_run_pins_present` above still names eight fields and not nine:
+    # the two constraints say different things, and the older one is about pins
+    # that were always required.
+    ("match_run", "ck_match_run_scoring_mode"): (
+        "CHECK (((scoring_mode IS NULL) OR (scoring_mode = ANY (ARRAY["
+        "'cba-physical-1'::text, 'cba-virtual-1'::text]))))"
+    ),
+    # Migration 0019, the durable redemption and the representable debit. The
+    # ledger's other new guarantee — that no UPDATE succeeds — is a trigger, as
+    # match_run's is, and so has no entry here; the two partial unique indexes
+    # are indexes and likewise not CHECK constraints. All three are exercised in
+    # test_redemption_durability.py.
+    #
+    # ck_point_ledger_entry_kind is the one that earns the most from being
+    # pinned as text. It is what keeps source_attendance_id's new nullability
+    # from being a hole, and the ways to weaken it — dropping one conjunct from
+    # a disjunct, admitting a fourth kind, relaxing a sign — all keep the name
+    # and most of the behaviour.
+    ("point_ledger_entry", "ck_point_ledger_entry_kind"): (
+        "CHECK ((((kind = 'attendance_credit'::text) AND (source_attendance_id IS NOT NULL) "
+        "AND (source_redemption_id IS NULL) AND (amount > 0)) OR ((kind = 'reversal'::text) "
+        "AND (source_attendance_id IS NOT NULL) AND (source_redemption_id IS NULL) AND "
+        "(amount < 0)) OR ((kind = 'redemption_debit'::text) AND (source_attendance_id IS "
+        "NULL) AND (source_redemption_id IS NOT NULL) AND (amount < 0))))"
+    ),
+    ("redemption", "ck_redemption_state"): (
+        "CHECK ((state = ANY (ARRAY['requested'::text, 'approved'::text, 'fulfilled'::text, "
+        "'denied'::text, 'expired'::text])))"
+    ),
+    ("redemption", "ck_redemption_approval_evidence"): (
+        "CHECK ((((approved_at IS NULL) = (approved_by IS NULL)) AND ((state <> "
+        "'fulfilled'::text) OR (approved_at IS NOT NULL)) AND ((state <> 'requested'::text) "
+        "OR (approved_at IS NULL))))"
+    ),
+    ("redemption", "ck_redemption_closure_evidence"): (
+        "CHECK ((((state = ANY (ARRAY['fulfilled'::text, 'denied'::text, 'expired'::text])) "
+        "= (closed_at IS NOT NULL)) AND ((closed_by IS NULL) OR (closed_at IS NOT NULL))))"
+    ),
+    ("redemption", "ck_redemption_snapshot_present"): (
+        "CHECK (((points_cost_snapshot > 0) AND (length(btrim(item_name_snapshot)) > 0)))"
+    ),
+    # Migration 0020, pilot login credentials and sessions.
+    ("pilot_credential", "ck_pilot_credential_algorithm"): (
+        "CHECK ((algorithm = 'pbkdf2_hmac_sha256'::text))"
+    ),
+    ("pilot_credential", "ck_pilot_credential_material"): (
+        "CHECK (((octet_length(salt) >= 16) AND (octet_length(password_hash) = 32) "
+        "AND (iterations >= 100000)))"
+    ),
+    ("pilot_session", "ck_pilot_session_window"): (
+        "CHECK (((expires_at > issued_at) AND ((revoked_at IS NULL) OR (revoked_at >= issued_at))))"
+    ),
+    ("pilot_session", "ck_pilot_session_token_hash"): "CHECK ((octet_length(token_hash) = 32))",
+    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "CHECK ((count >= 0))",
+    # --- CBA classification storage (migration 0024) --------------------
+    #
+    # The two vocabulary constraints below are the only place in the running
+    # database where customer §§7-8's closed taxonomies appear, and pinning
+    # their rendered text is what this file's "quietly widened vocabulary" case
+    # is *for*: a twenty-first sector code added to a CHECK and to nothing else
+    # passes every behavioural test, because no attempted write knows to try
+    # it. The complementary direction — a code released in
+    # `smartmatch_domain` that never reached a migration — is caught in
+    # test_cba_classification_schema.py, which parametrizes over the domain's
+    # own tuples. Neither test catches what the other does.
+    ("event", "ck_event_location_present"): (
+        "CHECK ((((location_city IS NULL) OR (length(btrim(location_city)) > 0)) "
+        "AND ((location_postal_code IS NULL) "
+        "OR (length(btrim(location_postal_code)) > 0))))"
+    ),
+    ("event", "ck_event_virtual_has_no_location"): (
+        "CHECK (((NOT is_virtual) OR ((location_city IS NULL) AND (location_postal_code IS NULL))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_code"): (
+        "CHECK (((primary_industry_code IS NULL) OR (primary_industry_code = ANY "
+        "(ARRAY['11'::text, '21'::text, '22'::text, '23'::text, '31-33'::text, '42'::text, "
+        "'44-45'::text, '48-49'::text, '51'::text, '52'::text, '53'::text, '54'::text, "
+        "'55'::text, '56'::text, '61'::text, '62'::text, '71'::text, '72'::text, "
+        "'81'::text, '92'::text]))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_versioned"): (
+        "CHECK (((primary_industry_code IS NULL) = (industry_taxonomy_version IS NULL)))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_code"): (
+        "CHECK (((primary_role_code IS NULL) OR (primary_role_code = ANY "
+        "(ARRAY['accounting'::text, 'finance'::text, 'marketing'::text, "
+        "'management_strategy'::text, 'human_resources'::text, "
+        "'operations_supply_chain'::text, 'information_systems_analytics'::text, "
+        "'international_business'::text, 'entrepreneurship_founder'::text, "
+        "'sales_business_development'::text]))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_versioned"): (
+        "CHECK (((primary_role_code IS NULL) = (role_taxonomy_version IS NULL)))"
+    ),
+    # Migration 0028. Three enumerated arms per axis rather than four
+    # independent couplings — pinned in full here because the weakening this
+    # constraint is most exposed to cannot be reached by any *permitted* write:
+    # dropping the `AND (..._classified_by_user_id IS NULL)` conjunct from the
+    # `inferred` arm leaves every accepted row still accepted, and only widens
+    # the one row that matters — a machine's proposal recorded as somebody's
+    # judgment. The behavioural half covers it too, by attempting exactly that
+    # row; the pin is what catches the constraint being re-added weakened while
+    # nobody re-reads the test.
+    ("speaker_profile", "ck_speaker_profile_industry_provenance"): (
+        "CHECK ((((industry_classification_source IS NULL) "
+        "AND (primary_industry_code IS NULL) AND (industry_classified_at IS NULL) "
+        "AND (industry_classified_by_user_id IS NULL)) "
+        "OR ((industry_classification_source = 'inferred'::text) "
+        "AND (primary_industry_code IS NOT NULL) AND (industry_classified_at IS NOT NULL) "
+        "AND (industry_classified_by_user_id IS NULL)) "
+        "OR ((industry_classification_source = 'human'::text) "
+        "AND (primary_industry_code IS NOT NULL) "
+        "AND (industry_classified_at IS NOT NULL))))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_provenance"): (
+        "CHECK ((((role_classification_source IS NULL) "
+        "AND (primary_role_code IS NULL) AND (role_classified_at IS NULL) "
+        "AND (role_classified_by_user_id IS NULL)) "
+        "OR ((role_classification_source = 'inferred'::text) "
+        "AND (primary_role_code IS NOT NULL) AND (role_classified_at IS NOT NULL) "
+        "AND (role_classified_by_user_id IS NULL)) "
+        "OR ((role_classification_source = 'human'::text) "
+        "AND (primary_role_code IS NOT NULL) AND (role_classified_at IS NOT NULL))))"
+    ),
+    # Widened by migration 0025: `full_name` leads (NOT NULL, so no NULL arm —
+    # the clause exists to refuse '   ') and `company`/`title` join the tail.
+    ("speaker_profile", "ck_speaker_profile_text_present"): (
+        "CHECK (((length(btrim(full_name)) > 0) "
+        "AND ((topic_text IS NULL) OR (length(btrim(topic_text)) > 0)) "
+        "AND ((prior_talk IS NULL) OR (length(btrim(prior_talk)) > 0)) "
+        "AND ((location_city IS NULL) OR (length(btrim(location_city)) > 0)) "
+        "AND ((location_postal_code IS NULL) "
+        "OR (length(btrim(location_postal_code)) > 0)) "
+        "AND ((company IS NULL) OR (length(btrim(company)) > 0)) "
+        "AND ((title IS NULL) OR (length(btrim(title)) > 0))))"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_code"): (
+        "CHECK ((((kind = 'industry'::text) AND (code = ANY "
+        "(ARRAY['11'::text, '21'::text, '22'::text, '23'::text, '31-33'::text, '42'::text, "
+        "'44-45'::text, '48-49'::text, '51'::text, '52'::text, '53'::text, '54'::text, "
+        "'55'::text, '56'::text, '61'::text, '62'::text, '71'::text, '72'::text, "
+        "'81'::text, '92'::text]))) OR ((kind = 'role'::text) AND (code = ANY "
+        "(ARRAY['accounting'::text, 'finance'::text, 'marketing'::text, "
+        "'management_strategy'::text, 'human_resources'::text, "
+        "'operations_supply_chain'::text, 'information_systems_analytics'::text, "
+        "'international_business'::text, 'entrepreneurship_founder'::text, "
+        "'sales_business_development'::text])))))"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_kind"): (
+        "CHECK ((kind = ANY (ARRAY['industry'::text, 'role'::text])))"
+    ),
+    # Migration 0026. Two values, and the *absence* of a third is the part worth
+    # pinning: `waitlisted` is not here because no capacity exists anywhere in
+    # this schema for it to overflow from (OQ-CBA-029), and a value no writer
+    # could produce would be a vocabulary invented by DDL. Recording the
+    # definition literally means adding one has to pass through this file.
+    ("event_registration", "ck_event_registration_status"): (
+        "CHECK ((status = ANY (ARRAY['registered'::text, 'cancelled'::text])))"
+    ),
+    # Migration 0027. Both tables get the same pair, and the *weakness* of the
+    # first is the thing worth pinning: it requires a JSON object and says
+    # nothing about which keys or values are acceptable. That is deliberate — a
+    # CHECK cannot see the factor registry, and encoding the factor vocabulary
+    # here would make DDL one more place a factor key is written down, which is
+    # the duplication `CBA-MATCH-WEIGHTS` exists to prevent. The admissible keys,
+    # the refusal of negatives and non-finite values, and the zero-total rule all
+    # live in `smartmatch_domain.weight_settings`. Recording the definition
+    # literally means strengthening it here has to be a deliberate edit.
+    ("match_weight_setting", "ck_match_weight_setting_overrides_object"): (
+        "CHECK ((jsonb_typeof(overrides) = 'object'::text))"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_version"): "CHECK ((version >= 1))",
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_overrides_object"): (
+        "CHECK ((jsonb_typeof(overrides) = 'object'::text))"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_version"): (
+        "CHECK ((version >= 1))"
+    ),
+    # --- Speaker invitations (migration 0029) --------------------------
+    #
+    # Nine, and the load-bearing one is `ck_cba_invitation_response_status`.
+    # It is the schema-level statement that a Speaker's answer and a mail
+    # provider's disposition are disjoint vocabularies: all three admitted
+    # values name the *invitation*, so none of them can be spelled like
+    # `outreach_send.disposition`'s 'accepted'. A provider taking custody of
+    # some bytes is not a person agreeing to come and talk to students, and an
+    # Event Host handed the first as the second books a room for nobody.
+    # Recording the expression literally means widening that set has to be a
+    # deliberate edit here as well as in the migration.
+    #
+    # Five of the nine are written as equivalences rather than implications —
+    # `(a) = (b)` — so neither half can be relaxed without the other. A skip
+    # says why and only a skip does; an addressed row holds all three of
+    # channel, address and draft while a skipped one holds none; a dispatched
+    # row has both a job and a time; an answered row has both a timestamp and a
+    # channel; and exactly the connector-recorded answers name a coordinator.
+    ("cba_invitation", "ck_cba_invitation_status"): (
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'dispatched'::text, 'skipped'::text])))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skip_reason"): (
+        "CHECK (((status = 'skipped'::text) = (skip_reason IS NOT NULL)))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_addressed"): (
+        "CHECK (((status = 'skipped'::text) = ((contact_channel_id IS NULL) AND "
+        "(recipient_address IS NULL) AND (outreach_draft_id IS NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_dispatched"): (
+        "CHECK (((status = 'dispatched'::text) = ((outreach_send_job_id IS NOT NULL) AND "
+        "(dispatched_at IS NOT NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_status"): (
+        "CHECK ((response_status = ANY (ARRAY['awaiting_response'::text, "
+        "'accepted_invitation'::text, 'declined_invitation'::text])))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_dated"): (
+        "CHECK (((response_status = 'awaiting_response'::text) = "
+        "((response_recorded_at IS NULL) AND (response_channel IS NULL))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_channel"): (
+        "CHECK (((response_channel IS NULL) OR (response_channel = ANY "
+        "(ARRAY['speaker_link'::text, 'connector_recorded'::text]))))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_actor"): (
+        "CHECK (((response_channel = 'connector_recorded'::text) = "
+        "(response_recorded_by_user_id IS NOT NULL)))"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
+        "CHECK (((status <> 'skipped'::text) OR ((response_status = 'awaiting_response'::text) "
+        "AND (response_token_hash IS NULL))))"
+    ),
+    # --- Student speaker feedback (migration 0031) ----------------------
+    #
+    # OQ-CBA-003, decided 6 September 2026. The rating bound is the constraint
+    # most worth pinning as text: the decision approved *one* dimension scored
+    # 1-5, and a widened range is exactly the kind of product change that would
+    # otherwise arrive silently in DDL. Two of the five are equivalences, so
+    # neither half can be relaxed alone — exactly the submitted rows carry a
+    # rating, and a withdrawal takes the free text with it.
+    ("student_speaker_feedback", "ck_student_speaker_feedback_status"): (
+        "CHECK ((status = ANY (ARRAY['submitted'::text, 'withdrawn'::text])))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_range"): (
+        "CHECK (((rating IS NULL) OR ((rating >= 1) AND (rating <= 5))))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_present"): (
+        "CHECK (((status = 'submitted'::text) = (rating IS NOT NULL)))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_comment_shape"): (
+        "CHECK (((comment IS NULL) OR ((length(btrim(comment)) > 0) AND "
+        "(length(comment) <= 2000))))"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_withdrawn_is_silent"): (
+        "CHECK (((status <> 'withdrawn'::text) OR (comment IS NULL)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -158,6 +646,102 @@ CHECK_CONSTRAINT_DEFINITIONS = {
 #: it, and are recorded here rather than duplicated — a reader asking "is
 #: ``ck_job_status`` exercised?" gets an answer without grepping.
 BEHAVIOURAL_COVERAGE = {
+    # --- Outreach (migration 0021) -------------------------------------
+    ("contact_channel", "ck_contact_channel_address_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_dated"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_consent_source"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_kind"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    ("contact_channel", "ck_contact_channel_sendable_consent"): (
+        "test_outreach_persistence.py::TestContactConstraints — attempts each refusable "
+        "consent source and the absent one"
+    ),
+    ("contact_channel", "ck_contact_channel_state"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_contact_channel_refuses"
+    ),
+    # --- The consent audit trail (migration 0022) ----------------------
+    ("contact_channel_transition", "ck_contact_channel_transition_consent_source"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_consented_source"): (
+        "test_contact_channel_lifecycle.py::TestTheDatabaseRefusesWhatTheDomainRefuses — a "
+        "scraped source and an absent one, the second being the three-valued-logic case"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_from_state"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_moves"): (
+        "test_contact_channel_lifecycle.py::TestTheDatabaseRefusesWhatTheDomainRefuses"
+        "::test_a_transition_to_the_state_it_came_from_is_not_a_transition"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_text_present"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("contact_channel_transition", "ck_contact_channel_transition_to_state"): (
+        "test_contact_channel_lifecycle.py::TestVocabularyAndShapeConstraints::test_a_transition_refuses_a_value_outside_its_vocabulary"
+    ),
+    ("delivery_event", "ck_delivery_event_detail_object"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_delivery_event_refuses "
+        "— a JSON array and a JSON scalar"
+    ),
+    ("delivery_event", "ck_delivery_event_type"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_delivery_event_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approval_dated"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_approved_has_approver"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_content_status"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_status"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_supersession"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses "
+        "— both halves: a non-superseded draft naming a successor, and a draft naming itself"
+    ),
+    ("outreach_draft", "ck_outreach_draft_text_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_draft", "ck_outreach_draft_version"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_draft_refuses"
+    ),
+    ("outreach_send", "ck_outreach_send_accepted_has_provider"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_an_acceptance_without_a_provider_is_refused"
+    ),
+    ("outreach_send", "ck_outreach_send_concluded"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses "
+        "— both directions"
+    ),
+    ("outreach_send", "ck_outreach_send_disposition"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses"
+    ),
+    ("outreach_send", "ck_outreach_send_failure_reason"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_a_refusal_must_say_why"
+    ),
+    ("outreach_send", "ck_outreach_send_fields_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_an_outreach_send_refuses "
+        "— one case per field"
+    ),
+    ("outreach_send", "ck_outreach_send_message_id_means_accepted"): (
+        "test_outreach_persistence.py::TestConcludeSend::test_a_blocked_send_cannot_carry_a_provider_message_id"
+    ),
+    ("suppression_record", "ck_suppression_record_address_present"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_suppression_record_refuses"
+    ),
+    ("suppression_record", "ck_suppression_record_source"): (
+        "test_outreach_persistence.py::TestVocabularyConstraints::test_a_suppression_record_refuses"
+    ),
     ("job", "ck_job_status"): (
         "test_job_states_match_domain.py — reads the admitted set out of the "
         "catalogue and compares it to JobState both directions, and inserts one "
@@ -172,6 +756,9 @@ BEHAVIOURAL_COVERAGE = {
     ("pipeline_record", "ck_pipeline_record_stage_order"): "test_pipeline_record_constraints.py",
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "test_pipeline_record_constraints.py"
+    ),
+    ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
+        "test_pipeline_provenance_migration.py"
     ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
@@ -193,6 +780,328 @@ BEHAVIOURAL_COVERAGE = {
     ("spend_reservation", "ck_spend_reservation_actual_non_negative"): "this file",
     ("spend_reservation", "ck_spend_reservation_state"): "this file",
     ("spend_reservation", "ck_spend_reservation_lease_token_iff_reserved"): "this file",
+    # Migration 0017. Every one of these attempts the forbidden write against a
+    # real database in the file named; none of them is covered by existence alone.
+    ("event", "ck_event_time_precision"): "test_event_schema_constraints.py",
+    ("event", "ck_event_temporal_shape"): "test_event_schema_constraints.py",
+    ("event", "ck_event_identity_iff_resolved"): "test_event_schema_constraints.py",
+    ("event", "ck_event_publication_status"): "test_event_schema_constraints.py",
+    ("event", "ck_event_review_status"): "test_event_schema_constraints.py",
+    ("event", "ck_event_quarantined_tag_count_non_negative"): ("test_event_schema_constraints.py"),
+    ("event", "ck_event_publishable"): (
+        "test_event_schema_constraints.py — refused on INSERT and on UPDATE, for both "
+        "reasons an event is unpublishable; test_event_identity_upsert.py covers the "
+        "same rule through EventRepository.publish"
+    ),
+    ("event", "ck_event_origin"): "test_event_schema_constraints.py",
+    ("event", "ck_event_provenance_evidence"): "test_event_schema_constraints.py",
+    # Migration 0022. Both halves, in the file the other event constraints use:
+    # the forbidden writes are a reversed pair, an equal pair, and an end at a
+    # precision that carries no start; the permitted ones are a ninety-minute
+    # exact event and a NULL end at all three precisions. The permitted half is
+    # what an inverted expression fails, and the NULL half is what a migration
+    # that backfilled nothing depends on. Refused on UPDATE as well as INSERT.
+    ("event", "ck_event_end_after_start"): "test_event_schema_constraints.py",
+    ("event", "ck_event_filed_by_manual_origin"): (
+        "test_event_filed_by_migration.py::test_an_extracted_event_cannot_be_given_a_filer "
+        "(forbidden — an extracted row refuses a filer on UPDATE); the permitted half is "
+        "exercised by every filing in test_speaker_request_persistence.py, which writes a "
+        "filer on a coordinator_entry row through EventRepository.upsert_returning_outcome"
+    ),
+    ("event_tag", "ck_event_tag_resolution"): "test_event_schema_constraints.py",
+    ("event_tag", "ck_event_tag_resolution_shape"): "test_event_schema_constraints.py",
+    ("discovery_review_item", "ck_discovery_review_item_kind"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_status"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_decision_evidence"): (
+        "test_event_schema_constraints.py"
+    ),
+    ("discovery_review_item", "ck_discovery_review_item_tag_evidence"): (
+        "test_event_schema_constraints.py"
+    ),
+    # Migration 0018. Every one attempts the forbidden write against a real
+    # database in the file named, alongside the permitted write that catches an
+    # inverted expression.
+    ("match_run", "ck_match_run_supersedes_is_not_self"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_pins_present"): (
+        "test_match_run_snapshot.py — one case per pin, so a constraint narrowed "
+        "to fewer columns than it names fails rather than passing on the one "
+        "column a single case happened to blank"
+    ),
+    ("match_run", "ck_match_run_weights_object"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_portfolio_size"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_random_seed"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_route_estimate_source"): "test_match_run_snapshot.py",
+    ("match_run", "ck_match_run_portfolio_status"): "test_match_run_snapshot.py",
+    # Migration 0032.
+    ("match_run", "ck_match_run_scoring_mode"): (
+        "test_match_run_snapshot.py — one accepted row per released mode, "
+        "parametrized over CBA_SCORING_MODES from the domain rather than over a "
+        "literal, so a mode added in Python without a migration fails here; one "
+        "accepted row with no mode at all, which is the arm a 'tightening' to a "
+        "plain IN would silently remove; and one refused row naming the "
+        "constraint, using the `legacy-pre-adr-0016` sentinel OQ-CBA-028 "
+        "rejected, so the value that would reopen the closed vocabulary is the "
+        "value proved unstorable"
+    ),
+    # Migration 0019.
+    ("point_ledger_entry", "ck_point_ledger_entry_kind"): (
+        "test_redemption_durability.py — one refused case per kind for each of "
+        "the three fields that kind constrains (the wrong source, both sources, "
+        "neither source, the wrong sign), and one accepted row per kind, so a "
+        "disjunct quietly widened to fewer conjuncts fails rather than passing "
+        "on the one column a single case happened to vary"
+    ),
+    ("redemption", "ck_redemption_state"): "test_redemption_durability.py",
+    ("redemption", "ck_redemption_approval_evidence"): (
+        "test_redemption_durability.py — including the UPDATE case, which is "
+        "the one that matters: this constraint is what makes 'fulfilled is "
+        "reachable only from approved' true of a hand-written statement and "
+        "not only of the domain state machine"
+    ),
+    ("redemption", "ck_redemption_closure_evidence"): "test_redemption_durability.py",
+    ("redemption", "ck_redemption_snapshot_present"): "test_redemption_durability.py",
+    # Migration 0020.
+    ("pilot_credential", "ck_pilot_credential_algorithm"): "this file",
+    ("pilot_credential", "ck_pilot_credential_material"): "this file",
+    ("pilot_session", "ck_pilot_session_window"): "this file",
+    ("pilot_session", "ck_pilot_session_token_hash"): "this file",
+    ("pilot_login_attempt", "ck_pilot_login_attempt_count"): "this file",
+    # Migration 0024. Every one of these is exercised in both directions —
+    # forbidden write and permitted write — by the module written alongside the
+    # migration, which is where the taxonomy fixtures and row builders already
+    # live. Recorded here rather than duplicated, exactly as the outreach
+    # entries above are.
+    ("event", "ck_event_location_present"): (
+        "test_event_schema_constraints.py"
+        "::test_a_blank_location_value_is_refused_rather_than_stored, with the permitted "
+        "half in ::test_a_physical_event_stores_its_city_and_zip"
+    ),
+    ("event", "ck_event_virtual_has_no_location"): (
+        "test_event_schema_constraints.py::test_a_virtual_event_cannot_carry_a_location "
+        "and ::test_an_event_cannot_be_made_virtual_while_it_still_holds_a_location, with "
+        "the permitted half in ::test_a_virtual_event_stores"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_code"): (
+        "test_cba_classification_schema.py"
+        "::test_an_industry_value_outside_the_taxonomy_is_refused, with the permitted half "
+        "in ::test_every_released_sector_code_is_storable — parametrized over the domain's "
+        "own SECTOR_CODES rather than a list repeated here"
+    ),
+    ("speaker_profile", "ck_speaker_profile_industry_versioned"): (
+        "test_cba_classification_schema.py"
+        "::test_a_stored_classification_must_name_the_taxonomy_it_was_resolved_against — "
+        "both directions, a code with no version and a version with no code"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_code"): (
+        "test_cba_classification_schema.py::test_a_role_value_outside_the_taxonomy_is_refused "
+        "and ::test_an_adr_0012_event_tag_cannot_be_stored_as_a_cba_role, with the permitted "
+        "half in ::test_every_released_role_category_code_is_storable"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_versioned"): (
+        "test_cba_classification_schema.py"
+        "::test_a_stored_classification_must_name_the_taxonomy_it_was_resolved_against"
+    ),
+    # Migration 0028. Every one of the three arms is exercised in both
+    # directions, per axis, because this constraint's arms are not
+    # interchangeable: the forbidden case that matters most —
+    # ::test_an_inferred_classification_cannot_name_an_actor — is the one no
+    # other test in the repository could reach, since nothing in the application
+    # can construct it (`inferred_classification` offers no actor parameter).
+    # Asserting it here is what makes the rule a property of the database rather
+    # than of the domain module's shape.
+    ("speaker_profile", "ck_speaker_profile_industry_provenance"): (
+        "test_cba_import_classification.py"
+        "::test_an_inferred_classification_cannot_name_an_actor, "
+        "::test_a_classified_axis_must_state_its_provenance, "
+        "::test_an_unclassified_axis_cannot_carry_provenance and "
+        "::test_a_classification_source_outside_the_vocabulary_is_refused, with the "
+        "permitted half in ::test_an_inferred_proposal_is_storable_without_an_actor, "
+        "::test_a_human_classification_is_storable_with_its_actor and "
+        "::test_an_unclassified_contact_is_storable — both axes throughout, "
+        "parametrized rather than written twice so an arm tightened on one axis "
+        "cannot be left slack on the other"
+    ),
+    ("speaker_profile", "ck_speaker_profile_role_provenance"): (
+        "test_cba_import_classification.py — the same seven, parametrized over "
+        "both axes; see the industry entry above"
+    ),
+    ("speaker_profile", "ck_speaker_profile_text_present"): (
+        "test_cba_classification_schema.py"
+        "::test_a_blank_speaker_field_is_refused_rather_than_stored — every one of the four "
+        "columns 0024 added — with the permitted half in "
+        "::test_a_speaker_stores_topic_prior_talk_and_location; and, for the three columns "
+        "0025 added, test_cba_contact_schema.py::test_a_blank_name_is_refused and "
+        "::test_a_blank_company_or_title_is_refused, with the permitted half in "
+        "::test_a_contact_stores_name_company_and_title and "
+        "::test_an_absent_company_or_title_is_a_real_state"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_code"): (
+        "test_cba_classification_schema.py"
+        "::test_the_two_vocabularies_cannot_be_stored_under_each_others_kind and "
+        "::test_an_adr_0012_event_tag_is_not_a_speaker_request_classification, with the "
+        "permitted half in ::test_every_released_sector_code_is_targetable and "
+        "::test_every_released_role_category_code_is_targetable"
+    ),
+    ("speaker_request_classification", "ck_speaker_request_classification_kind"): (
+        "test_cba_classification_schema.py::test_the_classification_kind_vocabulary_is_closed, "
+        "with the permitted half in "
+        "::test_a_speaker_request_targets_many_industries_and_many_roles, which writes both "
+        "kinds"
+    ),
+    ("event_registration", "ck_event_registration_status"): (
+        "0026 added, test_event_registration.py"
+        "::TestRegistrationIsScopedToItsTenantAndItsStudent"
+        "::test_an_unknown_status_is_refused_by_the_database, which attempts the "
+        "`waitlisted` value this constraint deliberately omits (OQ-CBA-029), plus "
+        "::TestTheTableHasTheShapeTheBlockedCardSpecified"
+        "::test_the_status_vocabulary_is_exactly_two_values reading the definition "
+        "back. The permitted half is every write in TestRegisteringIsIdempotent and "
+        "TestCancellingIsATransitionAndNotADelete, which store both admitted values"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_overrides_object"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_database_refuses_a_non_object_override_payload, which inserts a JSON "
+        "array. The permitted half is every write in that file, including "
+        "::test_a_reset_stores_an_empty_map_rather_than_the_registry_values — `{}` is an "
+        "object and is admitted deliberately, because a unit that reset its weights is a "
+        "different history from one that never configured any"
+    ),
+    ("match_weight_setting", "ck_match_weight_setting_version"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_database_refuses_a_version_below_one, with the permitted half in "
+        "::test_a_written_setting_is_in_the_table_not_only_in_the_response (version 1) and "
+        "::test_the_current_version_is_accepted_as_expected_version (version 2)"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_overrides_object"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_revision_log_refuses_a_non_object_payload, which inserts a JSON string. "
+        "The permitted half is ::test_each_accepted_change_appends_one_revision"
+    ),
+    ("match_weight_setting_revision", "ck_match_weight_setting_revision_version"): (
+        "0027 added, test_cba_weight_settings_persistence.py"
+        "::test_the_revision_log_refuses_a_version_below_one, with the permitted half in "
+        "::test_each_accepted_change_appends_one_revision, which stores versions 1 and 2"
+    ),
+    # --- Speaker invitations (migration 0029) --------------------------
+    #
+    # All nine are exercised in test_cba_invitation_batch.py, which is the
+    # card's own file, rather than duplicated here — the arrangement the
+    # outreach and weight-settings constraints already use.
+    ("cba_invitation", "ck_cba_invitation_status"): (
+        "0029 added. Covered by construction rather than by a refusal test: every write "
+        "in test_cba_invitation_batch.py goes through InvitationRepository, whose callers "
+        "pass an InvitationStatus value, and ::test_no_delivery_word_at_all_is_storable_as"
+        "_an_answer proves the sibling response column refuses an unlisted word by the "
+        "same mechanism. The permitted half is every helper in that file — `pending` in "
+        "_Rows.invite, `dispatched` in TestDispatch, `skipped` in TestSkipsAreStoredAndInert"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skip_reason"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_must_say_why, which inserts a skipped "
+        "row with no reason. The permitted half is every other write in that class, plus "
+        "every non-skipped row in the file, which carry no reason at all"
+    ),
+    ("cba_invitation", "ck_cba_invitation_addressed"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_cannot_carry_an_address, which is the "
+        "half that matters — nobody was written to, so there is no address the row can "
+        "name. The permitted half is _Rows.invite, which supplies all three of channel, "
+        "address and draft together"
+    ),
+    ("cba_invitation", "ck_cba_invitation_dispatched"): (
+        "0029 added. The forbidden half is unreachable through the repository — "
+        "mark_dispatched sets the job and the time in one statement — so it is covered by "
+        "the permitted half plus its guard: ::TestDispatch::test_marking_dispatched_records"
+        "_the_job_and_the_time stores both, and ::test_a_second_dispatch_of_the_same_"
+        "invitation_writes_nothing proves the pair cannot be half-rewritten afterwards"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_status"): (
+        "0029 added, and the most thoroughly exercised constraint in the file: "
+        "test_cba_invitation_batch.py::TestTheTwoVocabulariesCannotCollide::test_no_"
+        "delivery_word_at_all_is_storable_as_an_answer is parametrized over the *live* "
+        "SendDisposition and DeliveryEventType enums, so every word the delivery side "
+        "uses is proved unstorable here — not a transcribed list that could fall behind. "
+        "::test_the_response_column_refuses_a_provider_disposition names 'accepted' "
+        "specifically. The permitted half is TestResponses, which stores both answers"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_dated"): (
+        "0029 added. Reachable only by a raw insert, which is what _Rows.raw_answered_"
+        "insert exists for: it supplies a well-formed answer so the vocabulary tests above "
+        "isolate their own constraint rather than tripping this one first. The permitted "
+        "half is TestResponses::test_a_speakers_own_answer_names_no_coordinator (answered, "
+        "dated) and every unanswered row in the file (no answer, no date)"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_channel"): (
+        "0029 added. The forbidden half is unreachable through the repository, whose two "
+        "call sites pass literals; the permitted half is TestResponses, which stores "
+        "'speaker_link', and the contract suite's TestConnectorRecordedResponse, which "
+        "stores 'connector_recorded' over HTTP"
+    ),
+    ("cba_invitation", "ck_cba_invitation_response_actor"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestResponses::test_a_connector_recorded_answer_must_name_the_coordinator, "
+        "which records a connector answer with no coordinator. The permitted half is "
+        "::test_a_speakers_own_answer_names_no_coordinator — a Speaker's own click has no "
+        "account behind it and the row says so rather than naming a bystander"
+    ),
+    ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
+        "0029 added, test_cba_invitation_batch.py"
+        "::TestSkipsAreStoredAndInert::test_a_skip_cannot_carry_an_answer, which is the "
+        "constraint that stops a skip becoming a fabricated acceptance: nobody sent this "
+        "person anything, so a row saying they accepted answers a message that does not "
+        "exist. The permitted half is every skipped row in the file, all of which are "
+        "awaiting_response with no token"
+    ),
+    # --- Student speaker feedback (migration 0031) ----------------------
+    #
+    # All five are exercised in test_student_speaker_feedback.py, the card's own
+    # integration file, rather than duplicated here — the arrangement the
+    # outreach, weight-settings and invitation constraints already use.
+    ("student_speaker_feedback", "ck_student_speaker_feedback_status"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_the_status_vocabulary_is_"
+        "exactly_two_values, which inserts 'retracted' — a word a reader would expect to "
+        "work and which the decision does not admit. The permitted half is every write in "
+        "the file, which store both 'submitted' and 'withdrawn'"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_range"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_rating_outside_one_to_five_"
+        "is_refused, parametrized over 0, 6 and -1 so both ends of OQ-CBA-003's scale are "
+        "attempted. The permitted half is ::test_every_admitted_rating_is_storable, "
+        "parametrized over all five of 1..5 — which is the half that catches an inverted "
+        "expression, since a bound reading `rating < 1 OR rating > 5` would refuse 0 for "
+        "the wrong reason and would also refuse 3"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_rating_present"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_submitted_row_must_carry_a_"
+        "rating and ::test_a_withdrawn_row_cannot_still_carry_one — both arms of the "
+        "equivalence, attempted separately, because relaxing either one alone is the "
+        "failure it exists to prevent. The permitted half is every ordinary submit and "
+        "every withdrawal in TestWithdrawalIsATransitionAndNotADelete"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_comment_shape"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestTheDatabaseRefusesWhatTheDecisionForbids::test_a_blank_comment_is_refused_"
+        "rather_than_stored_as_a_third_state (inserts '' and '   ') and "
+        "::test_a_comment_past_the_length_bound_is_refused. The permitted half is "
+        "::test_a_rating_may_carry_no_comment_at_all (NULL) and every submit in the file "
+        "that writes real text"
+    ),
+    ("student_speaker_feedback", "ck_student_speaker_feedback_withdrawn_is_silent"): (
+        "0031 added, test_student_speaker_feedback.py"
+        "::TestWithdrawalIsATransitionAndNotADelete::test_a_withdrawal_takes_the_words_back_"
+        "too, which attempts a withdrawn row that kept its comment. This is the constraint "
+        "that stops a retraction being half-honoured — the rating would go and the free "
+        "text, which is the part that names people, would survive it. The permitted half "
+        "is ::test_a_withdrawn_rating_keeps_its_row_and_its_student, which stores a "
+        "withdrawn row with no comment"
+    ),
 }
 
 
@@ -816,6 +1725,173 @@ def test_spend_reservation_rejects_lease_token_state_mismatches(
 def test_spend_reservation_accepts_reserved_with_a_lease_token(engine: Engine, tenant_id) -> None:
     with engine.begin() as conn:
         _insert_spend_reservation(conn, tenant_id)
+
+
+# ---------------------------------------------------------------------------
+# Migration 0020 pilot-login constraints
+# ---------------------------------------------------------------------------
+
+
+def _insert_pilot_credential(
+    conn,
+    tenant_id,
+    *,
+    algorithm: str = "pbkdf2_hmac_sha256",
+    iterations: int = 100_000,
+    salt: bytes = b"0123456789abcdef",
+    password_hash: bytes = b"x" * 32,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_credential "
+            "(id, tenant_id, user_id, algorithm, iterations, salt, password_hash) "
+            "VALUES (:id, :tenant_id, :user_id, :algorithm, :iterations, :salt, :password_hash)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tenant_id": tenant_id,
+            "user_id": _make_user(conn, tenant_id),
+            "algorithm": algorithm,
+            "iterations": iterations,
+            "salt": salt,
+            "password_hash": password_hash,
+        },
+    )
+
+
+def _insert_pilot_session(
+    conn,
+    tenant_id,
+    *,
+    token_hash: bytes = b"x" * 32,
+    issued_at: str = _EARLY,
+    expires_at: str = _LATE,
+    revoked_at: str | None = None,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_session "
+            "(id, tenant_id, user_id, token_hash, issued_at, expires_at, revoked_at) "
+            "VALUES (:id, :tenant_id, :user_id, :token_hash, :issued_at, :expires_at, :revoked_at)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "tenant_id": tenant_id,
+            "user_id": _make_user(conn, tenant_id),
+            "token_hash": token_hash,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "revoked_at": revoked_at,
+        },
+    )
+
+
+def _insert_pilot_login_attempt(conn, *, caller_key: str, count: int) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO pilot_login_attempt (caller_key, window_start, count) "
+            "VALUES (:caller_key, :window_start, :count)"
+        ),
+        {"caller_key": caller_key, "window_start": _EARLY, "count": count},
+    )
+
+
+def test_pilot_credential_algorithm_rejects_unknown_values(engine: Engine, tenant_id) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_credential_algorithm"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_credential(conn, tenant_id, algorithm="argon2id")
+
+
+@pytest.mark.parametrize(
+    ("salt", "password_hash", "iterations"),
+    [
+        (b"short", b"x" * 32, 100_000),
+        (b"0123456789abcdef", b"short", 100_000),
+        (b"0123456789abcdef", b"x" * 32, 99_999),
+    ],
+)
+def test_pilot_credential_material_rejects_invalid_shape(
+    engine: Engine, tenant_id, salt: bytes, password_hash: bytes, iterations: int
+) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_credential_material"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_credential(
+            conn,
+            tenant_id,
+            salt=salt,
+            password_hash=password_hash,
+            iterations=iterations,
+        )
+
+
+def test_pilot_credential_material_accepts_boundary_values(engine: Engine, tenant_id) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_credential(
+            conn, tenant_id, iterations=100_000, salt=b"0" * 16, password_hash=b"x" * 32
+        )
+
+
+@pytest.mark.parametrize(
+    ("issued_at", "expires_at", "revoked_at"),
+    [
+        (_EARLY, _EARLY, None),
+        (_LATE, _EARLY, None),
+        (_LATE, _LATE, _EARLY),
+    ],
+)
+def test_pilot_session_window_rejects_invalid_temporal_order(
+    engine: Engine,
+    tenant_id,
+    issued_at: str,
+    expires_at: str,
+    revoked_at: str | None,
+) -> None:
+    with pytest.raises(IntegrityError, match="ck_pilot_session_window"), engine.begin() as conn:
+        _insert_pilot_session(
+            conn,
+            tenant_id,
+            issued_at=issued_at,
+            expires_at=expires_at,
+            revoked_at=revoked_at,
+        )
+
+
+def test_pilot_session_token_hash_rejects_non_sha256_width(engine: Engine, tenant_id) -> None:
+    with pytest.raises(IntegrityError, match="ck_pilot_session_token_hash"), engine.begin() as conn:
+        _insert_pilot_session(conn, tenant_id, token_hash=b"short")
+
+
+def test_pilot_session_constraints_accept_valid_rows(engine: Engine, tenant_id) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_session(
+            conn, tenant_id, token_hash=b"x" * 32, issued_at=_EARLY, expires_at=_LATE
+        )
+        _insert_pilot_session(
+            conn,
+            tenant_id,
+            token_hash=b"y" * 32,
+            issued_at=_EARLY,
+            expires_at=_LATE,
+            revoked_at=_LATE,
+        )
+
+
+def test_pilot_login_attempt_count_rejects_negative_values(engine: Engine) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_pilot_login_attempt_count"),
+        engine.begin() as conn,
+    ):
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=-1)
+
+
+def test_pilot_login_attempt_count_accepts_zero_and_above(engine: Engine) -> None:
+    with engine.begin() as conn:
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=0)
+        _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=1)
 
 
 # ---------------------------------------------------------------------------

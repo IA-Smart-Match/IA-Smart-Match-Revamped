@@ -5,6 +5,14 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
+from smartmatch_domain.factor_registry import (
+    PROPOSED_FACTORS,
+    SUPERSEDED_SCORING_KEYS,
+    implemented_scoring_keys,
+)
+from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
+from smartmatch_domain.factors.proximity import CBA_PROXIMITY_FACTOR_KEY
+from smartmatch_domain.factors.role_match import ROLE_MATCH_FACTOR_KEY
 from smartmatch_domain.feedback import (
     MAX_FACTOR_DELTA,
     MIN_DECLINES_PER_FACTOR,
@@ -112,8 +120,8 @@ def test_the_floor_is_per_factor_not_per_proposal():
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
-    assert "travel_burden" in proposal.deltas
-    assert "role_fit" not in proposal.deltas
+    assert CBA_PROXIMITY_FACTOR_KEY in proposal.deltas
+    assert ROLE_MATCH_FACTOR_KEY not in proposal.deltas
 
 
 def test_no_proposal_when_there_are_no_categorized_declines():
@@ -130,7 +138,7 @@ def test_other_reason_moves_no_weight():
 def test_declines_raise_the_implicated_factor():
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 5))
     assert proposal is not None
-    assert proposal.deltas["travel_burden"] > 0.0
+    assert proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] > 0.0
 
 
 def test_each_reason_maps_to_its_documented_factor():
@@ -150,14 +158,14 @@ def test_delta_is_clamped_regardless_of_decline_volume():
     """
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 100))
     assert proposal is not None
-    assert proposal.deltas["travel_burden"] == pytest.approx(MAX_FACTOR_DELTA)
+    assert proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] == pytest.approx(MAX_FACTOR_DELTA)
 
 
 def test_every_delta_respects_the_bound():
     entries = [
         *_declines(DeclineReason.TOO_FAR, 40),
         *_declines(DeclineReason.WRONG_ROLE, 40),
-        *_declines(DeclineReason.OVERCOMMITTED, 40),
+        *_declines(DeclineReason.WRONG_TOPIC, 40),
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
@@ -167,10 +175,14 @@ def test_every_delta_respects_the_bound():
 def test_aggregate_movement_is_deliberately_unbounded():
     """Pins the absence of an aggregate bound, which is a deferral, not an oversight.
 
-    Each delta is bounded by ``MAX_FACTOR_DELTA``; their sum is not. Six
-    factors implicated at once propose +0.48 against weights that total 1.0,
-    and nothing here renormalizes — the legacy did both, clamping each factor
-    into a band around its baseline and then renormalizing the vector.
+    Each delta is bounded by ``MAX_FACTOR_DELTA``; their sum is not. The three
+    factors the map implicates propose +0.24 at once against weights that total
+    1.0, and nothing here renormalizes — the legacy did both, clamping each
+    factor into a band around its baseline and then renormalizing the vector.
+    The figures moved on 7 September 2026 only because the map was retargeted
+    from six names (three of them nonexistent, two retired) onto the three
+    active scoring keys that describe a decline reason; the absence of the
+    aggregate bound is unchanged, which is what this test pins.
 
     This is left as it is on purpose. The real defect (review finding F-25,
     ``docs/plans/defect-remediation.md`` §4.5) is that the number a human
@@ -191,9 +203,93 @@ def test_aggregate_movement_is_deliberately_unbounded():
     ]
     proposal = propose_weight_adjustments(entries)
     assert proposal is not None
-    assert len(proposal.deltas) == 6
+    assert len(proposal.deltas) == 3
     assert all(d == pytest.approx(MAX_FACTOR_DELTA) for d in proposal.deltas.values())
-    assert sum(proposal.deltas.values()) == pytest.approx(0.48)
+    assert sum(proposal.deltas.values()) == pytest.approx(0.24)
+
+
+# ---------------------------------------------------------------------------
+# The mapping is pinned to the live registry
+# ---------------------------------------------------------------------------
+#
+# ``REASON_TO_FACTOR`` names factors it does not own. The registry owns them,
+# and the registry moves: OQ-CBA-027 and OQ-CBA-025 retired ``topic_relevance``
+# and ``travel_burden`` in ``2.0.0-approved-oq-cba-004`` without anything
+# failing here, because nothing tied the map to the registry. These three tests
+# are that tie. They are deliberately written against the registry's own
+# accessors rather than a hard-coded list of keys, so the next retirement,
+# rename or addition fails here instead of rotting silently in an unwired
+# module.
+
+
+def test_the_map_targets_the_factors_that_describe_each_reason():
+    """The whole map, stated once, by imported constant rather than by string.
+
+    Resolving each target through the factor module that defines it means a
+    rename of a factor key is a compile-time move here, not a silent miss.
+    """
+    assert REASON_TO_FACTOR == {
+        DeclineReason.WRONG_TOPIC: CBA_SEMANTIC_TOPIC_FACTOR_KEY,
+        DeclineReason.WRONG_ROLE: ROLE_MATCH_FACTOR_KEY,
+        DeclineReason.TOO_FAR: CBA_PROXIMITY_FACTOR_KEY,
+        DeclineReason.UNAVAILABLE: None,
+        DeclineReason.OVERCOMMITTED: None,
+        DeclineReason.RECENTLY_ENGAGED: None,
+        DeclineReason.OTHER: None,
+    }
+
+
+def test_every_mapped_factor_is_an_active_scoring_key():
+    """Each non-``None`` target is implemented, Stage B, and not retired."""
+    active = implemented_scoring_keys()
+    targets = {factor for factor in REASON_TO_FACTOR.values() if factor is not None}
+    assert targets, "the map must implicate at least one live factor"
+    assert targets <= active, f"mapped factors missing from the active registry: {targets - active}"
+
+
+def test_no_mapped_factor_is_retired():
+    """A retired key is never a valid target.
+
+    The registry never reuses a key for a different meaning, so a retired
+    factor cannot be quietly repointed at its successor: it stays retired and
+    the map must move off it.
+    """
+    targets = {factor for factor in REASON_TO_FACTOR.values() if factor is not None}
+    assert not (targets & SUPERSEDED_SCORING_KEYS)
+    retired = {spec.key for spec in PROPOSED_FACTORS if spec.is_retired}
+    assert not (targets & retired)
+
+
+def test_every_mapped_factor_exists_in_the_registry():
+    """No target may be a name the registry cannot look up at all.
+
+    Three of the original targets — ``role_fit``, ``engagement_load`` and
+    ``repeat_penalty`` — were never factors in this repository. A proposal
+    naming one of them would have been a delta against nothing.
+    """
+    known = {spec.key for spec in PROPOSED_FACTORS}
+    targets = {factor for factor in REASON_TO_FACTOR.values() if factor is not None}
+    assert targets <= known, f"mapped factors absent from PROPOSED_FACTORS: {targets - known}"
+
+
+def test_reasons_with_no_factor_move_nothing():
+    """A reason no live factor describes proposes nothing, at any volume.
+
+    ``UNAVAILABLE``, ``OVERCOMMITTED`` and ``RECENTLY_ENGAGED`` have no honest
+    target: availability is a Stage A eligibility filter whose weight is fixed
+    at zero, and nothing in the registry measures engagement load or recency of
+    engagement. Mapping them at the nearest factor would tune something they do
+    not describe, which is what OQ-CBA-040 ("a decline is recorded, never
+    scored") forbids.
+    """
+    for reason in (
+        DeclineReason.UNAVAILABLE,
+        DeclineReason.OVERCOMMITTED,
+        DeclineReason.RECENTLY_ENGAGED,
+    ):
+        assert REASON_TO_FACTOR[reason] is None
+        assert propose_weight_adjustments(_declines(reason, MIN_DECLINES_PER_FACTOR)) is None
+        assert propose_weight_adjustments(_declines(reason, 100)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +354,7 @@ def test_proposal_carries_a_human_readable_rationale():
     proposal = propose_weight_adjustments(_declines(DeclineReason.WRONG_TOPIC, 5))
     assert proposal is not None
     assert proposal.rationale
-    assert "topic_relevance" in proposal.rationale[0]
+    assert CBA_SEMANTIC_TOPIC_FACTOR_KEY in proposal.rationale[0]
 
 
 def test_proposal_records_the_aggregate_it_derived_from():
@@ -274,4 +370,4 @@ def test_deltas_mapping_is_immutable():
     proposal = propose_weight_adjustments(_declines(DeclineReason.TOO_FAR, 5))
     assert proposal is not None
     with pytest.raises(TypeError):
-        proposal.deltas["travel_burden"] = 1.0  # type: ignore[index]
+        proposal.deltas[CBA_PROXIMITY_FACTOR_KEY] = 1.0  # type: ignore[index]

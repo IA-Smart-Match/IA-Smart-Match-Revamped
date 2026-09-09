@@ -1,0 +1,71 @@
+{
+  "id": "G-CBA-10",
+  "title": "An explanation with one policy_neutral factor, round-tripped",
+  "asserts": "State, value, policy_id, policy_version and policy_neutral_factor_keys all survive explanation_to_payload / explanation_from_payload; a payload claiming policy_neutral with a null policy_id is refused rather than repaired. The runner's round-trip test drives both halves.",
+  "adr_proposals": [
+    7
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-10-ROUND-TRIP",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": null,
+      "prior_talk": null,
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-10-ROUND-TRIP"
+    ],
+    "candidates": {
+      "SYNTH-CBA-10-ROUND-TRIP": {
+        "composite_state": "policy_neutral",
+        "heuristic_score": 0.925,
+        "is_shortlistable": true,
+        "unknown_factor_keys": [],
+        "policy_neutral_factor_keys": [
+          "cba_semantic_topic"
+        ],
+        "ui_caption": "Includes a neutral default for missing topic information.",
+        "factors": {
+          "cba_semantic_topic": {
+            "state": "policy_neutral",
+            "value": 0.5,
+            "zero_classification": null,
+            "policy_id": "cba-neutral-topic",
+            "policy_version": "1.0.0",
+            "ui_label": "Neutral — no topic information on file"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # A1b Part 1 — GCP Identity Platform console guide
 
-**Owner / provisioner:** Danny Tran (@dangt) — named 2026-09-03.
+**Owner / provisioner:** Danny Tran (@BrooklynD23) — named 2026-09-03.
 **Worksheet:** `docs/decisions/a1b-idp-configuration-worksheet.md`
 **Status:** Tenant procured; Part 1 fields outstanding.
 

@@ -85,6 +85,18 @@ _LOAD_BEARING_UNIQUE_CONSTRAINTS = (
         "uq_idempotency_scope",
         ("tenant_id", "command_type", "idempotency_key"),
     ),
+    # Migration 0024. Customer §§7-8 give the Speaker Request side *many*
+    # industries and *many* roles, and this constraint is the whole of what
+    # keeps "many" from meaning "the same one twice" — a repeated target is a
+    # weight counted twice by a matcher with nothing on screen to explain it.
+    # Pinned absolutely because the symmetric comparison above passes happily
+    # when a constraint is dropped from the migration and the mirror together,
+    # which is exactly how a set silently becomes a bag.
+    (
+        "speaker_request_classification",
+        "uq_speaker_request_classification",
+        ("tenant_id", "event_id", "kind", "code"),
+    ),
 )
 
 #: Same rule, for the one primary key a query names. ``rate_limit.py`` passes
@@ -95,6 +107,19 @@ _LOAD_BEARING_PRIMARY_KEYS = (
         "rate_limit_counter",
         "pk_rate_limit_counter",
         ("tenant_id", "subject", "operation", "window_start"),
+    ),
+    # Migration 0024, and the reason it is here is the same one that put
+    # `pk_rate_limit_counter` here: the constraint carries a guarantee stated
+    # somewhere other than the mirror. Customer §7's "each speaker should have
+    # **one primary industry sector**" is enforced by this key and by nothing
+    # else — the cardinality is not a CHECK, it is the absence of a second row
+    # to put a second primary value in. Widen these columns and the rule is
+    # gone with no column missing and no CHECK renamed for the symmetric
+    # comparisons above to notice.
+    (
+        "speaker_profile",
+        "speaker_profile_pkey",
+        ("tenant_id", "professional_id"),
     ),
 )
 

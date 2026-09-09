@@ -3,7 +3,11 @@ name = "smartmatch-providers"
 version = "0.1.0"
 description = "SmartMatch provider interfaces and fixture adapters"
 requires-python = ">=3.11,<3.13"
-dependencies = ["smartmatch-domain"]
+# numpy: array arithmetic for LocalEmbeddingSemanticTopicProvider's vendored
+# word-vector table (topic_semantics.py). Already a locked runtime dependency
+# transitively via ortools; declared directly here because this package now
+# imports it, not because the pin changes.
+dependencies = ["smartmatch-domain", "numpy>=2.0,<3"]
 
 [build-system]
 requires = ["hatchling"]

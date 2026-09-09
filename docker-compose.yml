@@ -35,10 +35,18 @@
 # native service first (`sudo service postgresql stop`) or change the published
 # port here and set SMARTMATCH_DATABASE_URL to match.
 #
-# Deliberately absent: a frontend service (the legacy frontend builds on the
-# host, and `npm ci` fails on DrvFs — see docs/plans/orchestrator-handoff.md
-# Blocker 3), any published port beyond the ones below, and any provider
-# credential.
+# A `web` service (the legacy Vite dev server, published on 5173) is now part
+# of this stack, so the stakeholder click-through is one `docker compose up`
+# and a browser rather than a compose stack plus a hand-run npm on the host.
+# `npm ci` failing on DrvFs — docs/plans/orchestrator-handoff.md Blocker 3 —
+# was the reason it was absent, and the `web-node-modules` volume is what
+# resolves it: npm writes into a Docker volume on the VM's filesystem, not
+# onto /mnt/c. See that service's own note.
+#
+# Still deliberately absent: any published port beyond the ones below, and any
+# provider credential. There is also no identity provider and no login — the
+# `web` service authenticates with the same fixture bearer token the curl
+# steps use, and A1b institutional sign-in remains unconnected.
 #
 # -----------------------------------------------------------------------------
 # The seed, scheduler, and dev bearer tokens below — what they are, and are not
@@ -92,15 +100,45 @@ name: smartmatch
 # (`*name`) that references it.
 x-compose-dev-identity:
   pilot_subject: &compose_pilot_subject "compose-pilot-coordinator"
-  # The full SMARTMATCH_DEV_PRINCIPALS value: one token mapped to the subject
-  # above. Kept as a single anchored JSON scalar, rather than assembling it
-  # from separate token/subject anchors, because YAML anchors substitute
-  # whole scalar nodes and cannot be interpolated into a larger string — this
-  # anchor's token half must therefore be read alongside the smoke path in
-  # INSTALL.md, which documents the same literal value for the
+  # The other three portals the product has, one subject each. Every one is a
+  # separate account carrying a single membership, seeded by the
+  # `seed-principals` one-shot below from `tools/seed_pilot_principals.py`'s
+  # own table — which is where the roles and the `.invalid` emails live, and
+  # which `tests/unit/test_compose_dev_principals.py` compares against the map
+  # below, so a token added here without a subject seeded there fails a unit
+  # test rather than a stakeholder's click.
+  #
+  # Four principals rather than one is not a widening. No route's role set
+  # changed and nothing became less strict; a portal that has no readable route
+  # is still unreachable, and nothing configured here may answer that. The
+  # Event Host was the standing example (OQ-CBA-014) and stopped being one on
+  # 7 September 2026, when the gap was closed the only way it could be — by
+  # adding `GET /v1/units/{unit_id}/host/speaker-requests`, scoped to the
+  # requests that host filed, rather than by handing anybody a wider role here.
+  #
+  # Their subjects are `compose-pilot-student`, `compose-pilot-volunteer` and
+  # `compose-pilot-admin`. They are written into the map below as literals and
+  # given no anchors of their own, unlike `pilot_subject` above: an anchor
+  # earns its keep by being aliased somewhere, and `seed` is the only service
+  # that takes a subject as an argument. These three are seeded from a table in
+  # Python, so an anchor here would be a name nothing uses that a reader would
+  # nonetheless have to keep in step.
+  #
+  # `compose-pilot-volunteer` keeps the *stored* role's name. CBA presents that
+  # role to a reader as **Event Host**
+  # (`smartmatch_domain.role_presentation`), and the bearer token below is
+  # named for the persona; the row is not renamed, because authorization is
+  # over storage and never over presentation.
+  #
+  # The full SMARTMATCH_DEV_PRINCIPALS value: four tokens mapped to the four
+  # subjects above. Kept as a single anchored JSON scalar, rather than
+  # assembling it from separate token/subject anchors, because YAML anchors
+  # substitute whole scalar nodes and cannot be interpolated into a larger
+  # string — this anchor's token halves must therefore be read alongside the
+  # smoke path in INSTALL.md, which documents the same literal values for the
   # `Authorization: Bearer` header.
   #
-  # All three values below are deliberately SHORT — under the sixteen
+  # All the values below are deliberately SHORT — under the sixteen
   # characters `tools/scan_forbidden.py`'s `hard-coded-credential` rule uses
   # as its threshold for "this is shaped like a real secret". That is the
   # same reason `POSTGRES_PASSWORD: smartmatch` below passes the same scanner,
@@ -117,7 +155,33 @@ x-compose-dev-identity:
   # threshold, it stops being local-only test data and belongs in the
   # environment, not in this file. Do not reshape the text to get past the
   # gate.
-  api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator"}'
+  api_dev_principals_json: &compose_api_dev_principals_json '{"compose-api":"compose-pilot-coordinator","compose-student":"compose-pilot-student","compose-host":"compose-pilot-volunteer","compose-admin":"compose-pilot-admin"}'
+  # The token half of the map above, on its own, because two consumers need it
+  # as a bare `Authorization: Bearer` value rather than as a JSON map: the
+  # `seed-review` service (which submits the demo import through the real API)
+  # and the `web` dev server (which sends it from the browser). YAML anchors
+  # substitute whole scalar nodes and cannot be interpolated, so this cannot be
+  # *derived* from the map above — it is restated, and the two must be edited
+  # together. That is not left to vigilance: `seed-review` authenticates with
+  # this value against a map built from the other, so a drift makes the
+  # appliance fail its own start-up seed with a 401 rather than come up looking
+  # fine, and `scripts/compose_smoke.sh` asserts the seeded queue in CI.
+  # Allowlisted by name in `.gitleaks.toml` for exactly this reason.
+  api_dev_bearer_token: &compose_api_dev_bearer_token "compose-api"
+  # The other three portals' tokens are `compose-student`, `compose-host` and
+  # `compose-admin`, and they get no anchor here for the reason their subjects
+  # get none: nothing in this file aliases them. `compose-api` is restated
+  # above because two services genuinely consume it as a bare header value;
+  # these three are consumed by a person pasting a curl line (INSTALL.md's
+  # "Enter every portal type") and by `tests/e2e/conftest.py`, neither of which
+  # can read a YAML anchor. `tests/unit/test_compose_dev_principals.py` is what
+  # keeps them and the map above from drifting apart.
+  #
+  # `compose-host` rather than `compose-volunteer`, deliberately: seventeen
+  # characters would cross the sixteen `tools/scan_forbidden.py` uses as its
+  # "shaped like a real secret" threshold. Choosing a shorter honest name is
+  # allowed; reshaping the text around the gate is not — see the note above,
+  # which says the same thing about the key.
   worker_task_bearer_token: &compose_worker_task_bearer_token "compose-task"
   # Deliberately a different value from the task token above: a caller holding
   # one must not be able to use the other. The worker refuses to start if they
@@ -227,6 +291,129 @@ services:
     restart: "no"
 
   # -------------------------------------------------------------------------
+  # Seed-principals — one-shot, dev-only. Creates the student, Event Host
+  # (stored role `volunteer`) and admin principals the other three entries in
+  # SMARTMATCH_DEV_PRINCIPALS resolve to, so a stakeholder can enter every
+  # portal the product has rather than only the Speaker Connector's.
+  #
+  # It exists as a second one-shot rather than as more arguments to `seed`
+  # because three identities cannot be expressed as one set of `--subject /
+  # --email / --role` flags, and because `seed` owns the coordinator and has
+  # since before these existed. tools/seed_pilot_principals.py holds the table
+  # and reuses seed_pilot's edition guard, advisory lock and row helpers rather
+  # than restating them — so a change to what "dev fixture settings" means
+  # applies to both, exactly as it does for seed-logins.
+  #
+  # What it is NOT: an authentication system, and not a widening. Each account
+  # gets one membership carrying one role, the same shape the coordinator has
+  # had all along, and every route stays deny-by-default and authorized per
+  # request. A portal with no readable route stays unreachable, and this file
+  # records such gaps rather than answering them. OQ-CBA-014 was the Event
+  # Host's, and it was answered on 7 September 2026 in the API — a new
+  # `{volunteer}` route returning that host's own filings — not by anything
+  # here.
+  # -------------------------------------------------------------------------
+  seed-principals:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_principals.py"
+      # --tenant-slug, --unit-path and the rest stay at the script's defaults
+      # (pilot / pilot / program), the same ones `seed` above relies on, so
+      # every pilot principal lands in one tenant and one unit and the smoke
+      # path can keep looking the unit up by the literal path 'pilot'.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      # seed_pilot_principals.py imports seed_pilot, and both are mounted here
+      # rather than baked into the image.
+      PYTHONPATH: /home/smartmatch
+    # This container serves nothing, so the API image's /api/health probe could
+    # only ever fail — the same reason seed-review and seed-logins disable it.
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_principals.py:/home/smartmatch/seed_pilot_principals.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Seed-logins — one-shot, dev-only. Creates the four pilot logins the
+  # `/login` screen signs in with, from credentials the OWNER supplies in a
+  # gitignored `.env` (see `.env.example`).
+  #
+  # Nothing here is a credential. The eight `${...}` references below read the
+  # host environment / `.env` and default to empty, and empty means the role is
+  # NOT created — tools/seed_pilot_logins.py names each skipped role on stderr
+  # rather than inventing a password for it. So a checkout with no `.env` brings
+  # this stack up with zero logins and says so, which is the correct behaviour:
+  # a default password committed here would be a credential in the repository,
+  # and a compose file is the most likely place for one to be copied from.
+  #
+  # `--require-all` is deliberately NOT passed. An owner who has filled in only
+  # the coordinator pair should still get a working coordinator login and a
+  # clear report about the other three, rather than a stack that refuses to
+  # finish starting.
+  #
+  # Same pattern as `seed` above: the API image with its CMD overridden, and
+  # both scripts mounted read-only (this one imports seed_pilot's edition guard
+  # and row helpers rather than restating them, so a change to what "dev
+  # fixture settings" means applies to both).
+  # -------------------------------------------------------------------------
+  seed-logins:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_logins.py"
+      # --tenant-slug, --unit-path and the rest stay at the script's defaults
+      # (pilot / pilot), the same ones `seed` above relies on, so every pilot
+      # principal lands in one tenant and one unit.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      # seed_pilot_logins.py imports seed_pilot, and both are mounted here
+      # rather than baked into the image.
+      PYTHONPATH: /home/smartmatch
+      # Passed through from the host environment or `.env`; empty by default,
+      # and empty means "do not create this role".
+      SMARTMATCH_PILOT_COORDINATOR_EMAIL: ${SMARTMATCH_PILOT_COORDINATOR_EMAIL:-}
+      SMARTMATCH_PILOT_COORDINATOR_PASSWORD: ${SMARTMATCH_PILOT_COORDINATOR_PASSWORD:-}
+      SMARTMATCH_PILOT_STUDENT_EMAIL: ${SMARTMATCH_PILOT_STUDENT_EMAIL:-}
+      SMARTMATCH_PILOT_STUDENT_PASSWORD: ${SMARTMATCH_PILOT_STUDENT_PASSWORD:-}
+      SMARTMATCH_PILOT_ADMIN_EMAIL: ${SMARTMATCH_PILOT_ADMIN_EMAIL:-}
+      SMARTMATCH_PILOT_ADMIN_PASSWORD: ${SMARTMATCH_PILOT_ADMIN_PASSWORD:-}
+      SMARTMATCH_PILOT_VOLUNTEER_EMAIL: ${SMARTMATCH_PILOT_VOLUNTEER_EMAIL:-}
+      SMARTMATCH_PILOT_VOLUNTEER_PASSWORD: ${SMARTMATCH_PILOT_VOLUNTEER_PASSWORD:-}
+    # This container serves nothing, so the API image's /api/health probe could
+    # only ever fail. Disabled for `seed-review`'s reason: a one-shot reporting
+    # `health: starting` is a misleading signal about a container whose only
+    # meaningful state is its exit code.
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_logins.py:/home/smartmatch/seed_pilot_logins.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Exits 2 when nothing is configured, which is a true report rather than a
+    # transient failure to retry.
+    restart: "no"
+
+  # -------------------------------------------------------------------------
   # API.
   # -------------------------------------------------------------------------
   api:
@@ -235,13 +422,36 @@ services:
       dockerfile: Dockerfile.api
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
-      SMARTMATCH_RELEASE: compose-dev
+      # The release string /api/health reports. It is a variable rather than a
+      # literal so that a deployment can set it to the git SHA it just checked
+      # out — which is what makes "is the running container the code I
+      # deployed?" answerable from a single unauthenticated GET, rather than by
+      # trusting that a restart happened. scripts/vm/deploy.sh exports it,
+      # docker-compose.vm.yml carries it through, and
+      # scripts/compose_health.sh fails when the reported value is not the one
+      # this checkout expects. Locally it stays `compose-dev`.
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
+      # ADR-0017's offline, in-process embedding model for the §9 topic
+      # comparison, gated by Settings.cba_topic_local_embedding_enabled
+      # (services/api/smartmatch_api/config.py). Off by default here too —
+      # this appliance keeps today's fixture-only behaviour unless the shell
+      # that runs `docker compose up` exports the variable, because compose
+      # does not read `.env.example`/`.env` for this passthrough. Whether the
+      # demo appliance should ship with it on is a product decision, not
+      # this file's; see docs/operations/hosted-synthetic-pilot-guide.md.
+      SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED: ${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}
       PORT: "8080"
-      # Maps one local-only bearer token to the subject `seed` creates above.
-      # See the header note on dev bearer tokens: this is not an account
-      # authentication system, has no expiry or revocation, and
-      # Settings._validate_isolation (services/api/smartmatch_api/config.py)
-      # refuses to boot with this set under any edition but dev.
+      # Maps four local-only bearer tokens to the four subjects `seed` and
+      # `seed-principals` create above — one per portal, so a stakeholder can
+      # click through every one of them. See the header note on dev bearer
+      # tokens: this is not an account authentication system, has no expiry or
+      # revocation, and Settings._validate_isolation
+      # (services/api/smartmatch_api/config.py) refuses to boot with this set
+      # under any edition but dev.
+      #
+      # More entries is more *identities*, not more *permission*: each token
+      # yields a bare subject, and PrincipalRepository.load_by_subject reads
+      # the tenant, memberships and grants from rows this file cannot write.
       SMARTMATCH_DEV_PRINCIPALS: *compose_api_dev_principals_json
     ports:
       - "127.0.0.1:8080:8080"
@@ -251,6 +461,12 @@ services:
       migrate:
         condition: service_completed_successfully
       seed:
+        condition: service_completed_successfully
+      # Waited on for `seed`'s reason: the API accepts three tokens whose
+      # subjects this one-shot creates, and a token that resolves to no account
+      # is a 401. Better that the API waits than that a stakeholder's first
+      # click into the student portal is refused because a race was lost.
+      seed-principals:
         condition: service_completed_successfully
 
   # -------------------------------------------------------------------------
@@ -262,7 +478,7 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
-      SMARTMATCH_RELEASE: compose-dev
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       PORT: "8080"
       # SMARTMATCH_COLUMN_CONTRACT_PATH is deliberately NOT set here. The image
       # sets it itself (Dockerfile.worker), so leaving it alone is what proves
@@ -356,5 +572,149 @@ services:
       worker:
         condition: service_healthy
 
+  # -------------------------------------------------------------------------
+  # Seed-review — one-shot, dev-only. Gives the seeded coordinator something
+  # to actually review.
+  #
+  # `seed` above creates the identity. It does not create any work, so an
+  # appliance that has only just come up shows a coordinator an empty queue,
+  # and the first thing a stakeholder sees is "nothing here" — which is
+  # indistinguishable, from the outside, from a broken import path.
+  #
+  # This service closes that gap WITHOUT writing review_item rows directly.
+  # tools/seed_pilot_review.py submits an ordinary import through the running
+  # API, with the ordinary dev bearer token, and then polls until the ordinary
+  # worker/scheduler path has turned it into pending review items. The demo
+  # queue is therefore produced by the product, not staged behind it: if
+  # dispatch is broken this container exits non-zero and says so, rather than
+  # back-filling rows no pipeline produced. `docker compose ps -a seed-review`
+  # is consequently a real signal, not decoration.
+  #
+  # It is idempotent by observation: it exits 0 without submitting anything if
+  # the unit already has pending items, so `docker compose up` a second time
+  # does not deepen the queue.
+  #
+  # Depends on `scheduler` rather than only on `api`: the import it submits is
+  # queued, and only the scheduler sidecar drives it to review. Waiting on the
+  # API alone would make this service's own timeout the first symptom of a
+  # sidecar that never started.
+  # -------------------------------------------------------------------------
+  seed-review:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/seed_pilot_review.py"
+      - "--api-base"
+      # The compose-network name and port, not the published loopback address:
+      # this container is inside the network and 127.0.0.1 here would be
+      # itself.
+      - "http://api:8080"
+      - "--bearer-token"
+      - *compose_api_dev_bearer_token
+      # --tenant-slug and --unit-path stay at the script's defaults (pilot /
+      # pilot), which are the same defaults `seed` above relies on.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+    # The API image carries a HEALTHCHECK that probes /api/health. This
+    # container serves nothing, so that probe can only ever fail, and a
+    # one-shot reporting `health: starting` in `docker compose ps` is a
+    # misleading signal about a container whose only meaningful state is its
+    # exit code. Turned off rather than left to look broken.
+    healthcheck:
+      disable: true
+    volumes:
+      # Both files: seed_pilot_review.py imports seed_pilot's edition guard
+      # rather than restating it, so a change to what "dev fixture settings"
+      # means cannot apply to one seed tool and not the other.
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_pilot_review.py:/home/smartmatch/seed_pilot_review.py:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      scheduler:
+        condition: service_started
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Web — the legacy Vite dev server, so the click-through has a screen.
+  #
+  # The header note above used to say a frontend service was "deliberately
+  # absent" because `npm ci` fails on a Windows-mounted path under WSL
+  # (DrvFs). That is still true of `npm ci` run on the host; it is not true
+  # here, and the difference is the `web-node-modules` volume below. The
+  # checkout is bind-mounted for the source, but node_modules is a Docker
+  # volume living on the VM's own filesystem, so every file npm writes —
+  # which is where the DrvFs failure actually happens — is written to ext4
+  # inside the VM and never touches /mnt/c. The blocker was the filesystem,
+  # not the toolchain.
+  #
+  # Not a production frontend serving story: this is `vite dev`, unminified,
+  # with HMR, on a dev server that also proxies /api and /v1. It publishes on
+  # loopback only, like every other port here, and it is the same command
+  # INSTALL.md previously asked a reader to run by hand on the host.
+  #
+  # The bearer token below is a credential, not an identity: the browser
+  # sends it and the server decides who that is. There is no login here and
+  # this must not be read as one — institutional sign-in (A1b) is not
+  # connected, and without this variable every portal route redirects to
+  # /login, which says so.
+  # -------------------------------------------------------------------------
+  web:
+    # Pinned by digest like the two Python bases, and for the same reason. The
+    # tag is node:20-bookworm-slim; package.json requires node >= 20.
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    working_dir: /app
+    # `npm ci` only when the volume is empty. On a first `up` this fetches the
+    # dependency tree and takes minutes; on every later `up` the volume is
+    # already populated and the dev server starts immediately. `exec` so vite
+    # is PID 1 and a `docker compose down` stops it rather than killing it —
+    # the same reason both Dockerfiles use `sh -c ... exec`.
+    command:
+      - "sh"
+      - "-c"
+      - "[ -x node_modules/.bin/vite ] || npm ci; exec npm run dev -- --host 0.0.0.0"
+    environment:
+      # Config-time (vite.config.ts reads process.env), so this is never
+      # bundled: it points the dev server's /api and /v1 proxy at the compose
+      # API by service name.
+      SMARTMATCH_API_PROXY_TARGET: "http://api:8080"
+      # Build-time (import.meta.env), so this IS in the bundle the browser
+      # runs — which is precisely why it is a short, local-only literal that
+      # authenticates nothing outside this network. Same value the curl steps
+      # in INSTALL.md send.
+      VITE_SMARTMATCH_BEARER_TOKEN: *compose_api_dev_bearer_token
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./apps/web/legacy-frontend:/app
+      # Named, and mounted over the bind above: this is what keeps npm's writes
+      # off the host filesystem (see the DrvFs note above) and what makes the
+      # second `up` fast. `docker compose down -v` discards it along with the
+      # database, so a clean start really is clean.
+      - web-node-modules:/app/node_modules
+    healthcheck:
+      # Node's own http client rather than adding curl: the image has node and
+      # nothing else is needed to answer one request. Until this is `healthy`,
+      # `npm ci` is still running — `docker compose ps web` is how a reader
+      # tells "still installing" from "broken", and the long start_period is
+      # sized for that first install rather than for a steady-state restart.
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "require('http').get('http://127.0.0.1:5173/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   db-data:
+  web-node-modules:

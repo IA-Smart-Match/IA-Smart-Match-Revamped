@@ -1,0 +1,35 @@
+{
+  "id": "G-CBA-12",
+  "title": "A run stored under 1.1.1-approved-g1-m6j, read after the 2.x bump",
+  "asserts": "Reads back at its own pin, is not re-scored, is not re-labelled, and is excluded from any aggregate spanning both registries. Its scoring_mode is null and is never read as cba-physical-1. Driven by the runner's supersession test against the superseded composition, since the CBA scorer cannot produce a 1.x run at all.",
+  "adr_proposals": [
+    7,
+    9
+  ],
+  "registry_version": "1.1.1-approved-g1-m6j",
+  "scoring_mode": null,
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-12-STORED-1X",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {}
+}

@@ -1,183 +1,615 @@
-"""Storage operations for manually managed events and feedback QR redirects."""
+"""``event`` / ``event_tag`` / ``discovery_review_item`` write path (migration ``0017``).
+
+Cards S4 (deterministic identity and upsert) and S5 (vocabulary, quarantine,
+review queue) of `docs/plans/2026-08-28-g3-events-s3-s5-plan.md`. Migration
+``0017`` created the tables; this is the only module that writes them.
+
+**No production caller wires this module yet, and that is deliberate.** The
+same posture ``smartmatch_persistence.pipeline`` and
+``smartmatch_persistence.attendance`` already hold: there is no crawler, no
+event route, and no live fetch in this repository, and G3's standing
+constraints keep it that way ("All network activity is worker-side; API
+handlers record commands and review decisions only", §9). What exists here is
+the write path a synthetic fixture or a coordinator's manual entry lands
+against, tested against every CHECK ``0017`` declares, and left uncalled by
+production code until the card that legitimately calls it arrives.
+
+The identity decision is made in the domain, not here
+------------------------------------------------------
+:meth:`EventRepository.upsert` calls
+``smartmatch_domain.events.resolve_identity_key`` and branches on whether it
+returned a key. That split is deliberate and matches
+``jobs.JobRepository.transition`` against ``smartmatch_domain.jobs``: the rule
+about *what* an identity is belongs to the pure layer where it can be tested
+without a database, and this module only decides which statement expresses it.
+
+Two statements, because unkeyed is a different write from keyed:
+
+* **A resolved event** (`ExactTime` or `DateOnlyTime`) has a key, so the
+  insert carries ``ON CONFLICT ON CONSTRAINT uq_event_identity DO UPDATE``.
+  A second extraction of the same event — from the university calendar, the
+  department page, an aggregator — computes the identical key and updates the
+  row rather than inserting a second one. That is ADR-0012's whole point, and
+  the reason the key is keyed on host org unit rather than source domain.
+* **An unresolved event** has no key at all, and gets a plain insert. ADR-0012:
+  "Two events with unknown dates are not evidence of being the same event, and
+  a key that ignores the date would merge them." There is no ``ON CONFLICT``
+  clause on that path, because there is no conflict to resolve —
+  ``resolved_date`` is NULL and PostgreSQL's UNIQUE treats NULLs as distinct,
+  so two such rows coexist by construction rather than by a branch anyone has
+  to remember.
+
+Provenance is written, never concatenated
+-------------------------------------------
+:meth:`upsert` takes ``title`` and ``provenance`` as separate parameters and
+writes them to separate columns. There is no code path in this module, or in
+``smartmatch_domain.events``, that produces a string combining the two — which
+is how ADR-0012's "titles carrying their source" defect stays closed without
+depending on a caller remembering a convention.
+
+The quarantine path, and the counter it maintains
+---------------------------------------------------
+:meth:`record_tags` resolves every raw value through
+``smartmatch_domain.events.resolve_tag`` and writes each outcome to
+``event_tag``. A quarantined value additionally gets a
+``discovery_review_item`` row — G3 §5's escalation destination, chosen there
+over ``review_item`` because ``review_item`` cascades from ``import_batch``
+and a discovery finding parked on it would be deleted with an unrelated
+import.
+
+It then writes ``event.quarantined_tag_count`` from a ``SELECT count(*)`` over
+the tags it just wrote, rather than incrementing. Recomputing is what makes
+the method idempotent: re-resolving the same extraction inserts no new tag
+rows (both ``ON CONFLICT DO NOTHING``), and an increment would still raise the
+counter, drifting the number away from the rows it is supposed to count and —
+because ``ck_event_publishable`` reads it — silently making a clean event
+unpublishable.
+
+Publishing is refused, twice
+------------------------------
+:meth:`publish` checks the two ADR-pinned reasons in application code and
+raises :class:`EventNotPublishableError` naming the constraint, then issues an
+``UPDATE`` whose ``WHERE`` clause repeats both conditions.
+``ck_event_publishable`` is what still holds the line if either guard were
+skipped, wrong, or raced — the same three-layer arrangement
+``pipeline.advance_stage`` uses against ``ck_pipeline_record_stage_order``.
+"""
 
 from __future__ import annotations
 
-import secrets
 import uuid
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from typing import Final, cast
 
 import sqlalchemy as sa
-from sqlalchemy.engine import RowMapping
+from smartmatch_domain.events import (
+    DateOnlyTime,
+    EventProvenance,
+    EventTime,
+    ExactTime,
+    MappedTag,
+    QuarantinedTag,
+    TagResolution,
+    TagVocabulary,
+    normalize_title,
+    precision_of,
+    resolve_identity_key,
+    resolve_tag,
+    resolved_date,
+)
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
 
-__all__ = ["EventRepository"]
+__all__ = [
+    "EVENT_ORIGINS",
+    "ORIGIN_COORDINATOR_ENTRY",
+    "ORIGIN_EXTRACTION",
+    "EventNotPublishableError",
+    "EventRepository",
+    "EventUpsertOutcome",
+    "ProvenanceRequiredError",
+    "quarantined_values",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class EventUpsertOutcome:
+    """What one upsert did, and to which row.
+
+    ``created`` exists because ADR-0012's key makes a resubmission
+    *indistinguishable* from a first submission at the level of the returned id
+    — which is the whole point of the key, and is also why a caller answering an
+    HTTP request cannot tell ``201 Created`` from ``200 OK`` without being told.
+
+    Attributes:
+        event_id: The row this call inserted or updated.
+        created: ``True`` when this statement inserted the row, ``False`` when
+            it updated one the identity key already named. Read out of the
+            single ``INSERT ... ON CONFLICT`` that decided (see
+            :meth:`EventRepository.upsert_returning_outcome`), never from a
+            prior existence check, which would be a second question with a
+            window in front of it.
+    """
+
+    event_id: uuid.UUID
+    created: bool
+
+
+#: A coordinator typed this event in. ADR-0012: "Manual event entry uses the
+#: same key and the same vocabulary. A coordinator typing an event is not
+#: exempt, or the duplicate class reopens through a second door."
+ORIGIN_COORDINATOR_ENTRY: Final[str] = "coordinator_entry"
+
+#: An extractor produced this event, and must say from where.
+ORIGIN_EXTRACTION: Final[str] = "extraction"
+
+#: ``event.origin``'s closed vocabulary — mirrors ``ck_event_origin`` exactly.
+EVENT_ORIGINS: Final[frozenset[str]] = frozenset({ORIGIN_COORDINATOR_ENTRY, ORIGIN_EXTRACTION})
+
+
+class ProvenanceRequiredError(ValueError):
+    """An ``extraction`` event named no source, or a manual one named a source.
+
+    The application-code twin of ``ck_event_provenance_evidence``. Raised
+    before any statement is issued so a caller gets a message naming the
+    constraint rather than a database round-trip that ends in
+    ``IntegrityError`` — the same courtesy
+    :meth:`~smartmatch_persistence.attendance.AttendanceRepository.record_attendance`
+    extends for ``ck_attendance_record_method``.
+    """
+
+
+class EventNotPublishableError(ValueError):
+    """The event cannot publish: its date is unresolved, or it has quarantined tags.
+
+    ADR-0010 rule 2 and ADR-0012's quarantine rule, refused in application code
+    before the ``UPDATE``. ``ck_event_publishable`` refuses the same write at
+    the database, and that is the guarantee; this exception exists so the
+    ordinary case is a catchable error naming which of the two reasons applied.
+    """
+
+
+def _temporal_columns(event_time: EventTime) -> dict[str, object]:
+    """The five temporal columns an ``EventTime`` writes, and no others.
+
+    Every branch names all five keys, including the ones it sets to ``None``.
+    An ``UPDATE`` that omitted a column would leave the previous extraction's
+    ``starts_at`` on a row that has since become ``date_only`` — a fabricated
+    instant surviving a correction, which is exactly the class ADR-0010 closes.
+
+    ``ends_at`` (migration ``0022``) joins the same discipline for the same
+    reason, and is the one column here that ADR-0010 does not name: an event
+    re-extracted from a source that dropped its end time must lose the end it
+    had, or a stale duration outlives the fact that supported it. ``None`` on
+    the two imprecise branches is not merely tidy — ``ck_event_end_after_start``
+    would reject any other value there.
+    """
+    if isinstance(event_time, ExactTime):
+        return {
+            "starts_at": event_time.starts_at,
+            "ends_at": event_time.ends_at,
+            "on_date": None,
+            "time_zone": event_time.time_zone,
+            "time_precision": str(precision_of(event_time)),
+        }
+    if isinstance(event_time, DateOnlyTime):
+        return {
+            "starts_at": None,
+            "ends_at": None,
+            "on_date": event_time.on_date,
+            "time_zone": event_time.time_zone,
+            "time_precision": str(precision_of(event_time)),
+        }
+    return {
+        "starts_at": None,
+        "ends_at": None,
+        "on_date": None,
+        "time_zone": None,
+        "time_precision": str(precision_of(event_time)),
+    }
+
+
+def _provenance_columns(origin: str, provenance: EventProvenance | None) -> dict[str, object]:
+    """The three provenance columns, checked against ``origin`` first."""
+    if origin not in EVENT_ORIGINS:
+        raise ValueError(
+            f"origin must be one of {sorted(EVENT_ORIGINS)}, not {origin!r} (ck_event_origin)"
+        )
+    if origin == ORIGIN_EXTRACTION and provenance is None:
+        raise ProvenanceRequiredError(
+            "an extraction event must carry EventProvenance — source URL, fetch time, and "
+            "extractor version (ck_event_provenance_evidence). An extracted event that "
+            "cannot say where it came from is the fabricated-field defect, not a lesser "
+            "form of it."
+        )
+    if origin == ORIGIN_COORDINATOR_ENTRY and provenance is not None:
+        raise ProvenanceRequiredError(
+            "a coordinator_entry event must not carry EventProvenance "
+            "(ck_event_provenance_evidence): a human typing an event has no source URL, "
+            "and recording one would attribute their entry to a page nobody fetched."
+        )
+    if provenance is None:
+        return {"source_url": None, "fetched_at": None, "extractor_version": None}
+    return {
+        "source_url": provenance.source_url,
+        "fetched_at": provenance.fetched_at,
+        "extractor_version": provenance.extractor_version,
+    }
 
 
 class EventRepository:
-    """Keep event and QR persistence behind one tenant-scoped boundary."""
+    """Writes ``event``, ``event_tag``, and ``discovery_review_item``.
 
-    def create_draft(
+    Takes a session per call, like every other repository in this package
+    (``jobs.py``, ``review.py``, ``pipeline.py``, ``attendance.py``):
+    transaction boundaries belong to the caller, and no method here commits.
+    """
+
+    def upsert(
         self,
         session: Session,
         *,
         tenant_id: uuid.UUID,
-        unit_id: uuid.UUID,
-        actor_id: uuid.UUID,
-        idempotency_key: str,
-        request_fingerprint: str,
-        values: Mapping[str, Any],
-    ) -> tuple[RowMapping, bool]:
-        existing = session.execute(
-            sa.select(schema.event).where(
-                schema.event.c.tenant_id == tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
-                schema.event.c.idempotency_key == idempotency_key,
-            )
-        ).mappings().one_or_none()
-        if existing is not None:
-            if existing["request_fingerprint"] != request_fingerprint:
-                raise ValueError("idempotency_conflict")
-            return existing, True
+        host_org_unit_id: uuid.UUID,
+        title: str,
+        event_time: EventTime,
+        origin: str,
+        provenance: EventProvenance | None = None,
+        description: str | None = None,
+        is_virtual: bool = False,
+        location_city: str | None = None,
+        location_postal_code: str | None = None,
+    ) -> uuid.UUID:
+        """Insert this event, or update the one its identity key already names.
 
-        event_id = uuid.uuid4()
+        The id-only form of :meth:`upsert_returning_outcome`, kept because every
+        caller that predates that method wants exactly this and unpacking a
+        result it would then discard tells a reader nothing.
+
+        Returns:
+            ``event.id`` — freshly inserted, or the id of the row this event's
+            identity key already named.
+        """
+        return self.upsert_returning_outcome(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=host_org_unit_id,
+            title=title,
+            event_time=event_time,
+            origin=origin,
+            provenance=provenance,
+            description=description,
+            is_virtual=is_virtual,
+            location_city=location_city,
+            location_postal_code=location_postal_code,
+        ).event_id
+
+    def upsert_returning_outcome(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        host_org_unit_id: uuid.UUID,
+        title: str,
+        event_time: EventTime,
+        origin: str,
+        provenance: EventProvenance | None = None,
+        description: str | None = None,
+        is_virtual: bool = False,
+        location_city: str | None = None,
+        location_postal_code: str | None = None,
+        filed_by_user_id: uuid.UUID | None = None,
+    ) -> EventUpsertOutcome:
+        """Insert this event, or update the one its identity key already names.
+
+        Computes ADR-0012's key with
+        ``smartmatch_domain.events.resolve_identity_key`` and branches on the
+        answer — see the module docstring for why the unkeyed path is a
+        different statement rather than the same one with a NULL in it.
+
+        ``host_org_unit_id`` is the key's host component and is passed to the
+        domain as its string form. ADR-0012 specifies a folding rule for the
+        title only and expects the org unit to be "a stable identifier from
+        another table rather than free text", which a UUID is.
+
+        ``is_virtual``, ``location_city`` and ``location_postal_code`` (migration
+        ``0024``, customer §§10–12) join ``_temporal_columns``' discipline rather
+        than getting an exemption: they are named on every path, including the
+        one that sets them back to their empty values. An event re-submitted
+        after moving online must **lose** the city it had, or a place nobody
+        claims any more survives a correction and §11's "ignore Proximity
+        entirely" ends up enforced against stale evidence. The defaults are
+        exactly ``0024``'s column defaults, so a caller that says nothing about
+        location writes what it wrote before these parameters existed.
+
+        ``filed_by_user_id`` (migration ``0033``, OQ-CBA-014) is the account that
+        typed this row, and it is the **one column that does not join
+        ``_temporal_columns``' discipline**: it is named on the insert and
+        deliberately withheld from the update, so a resubmission keeps the
+        *first* filer. ADR-0012's identity key is host unit, folded title and
+        resolved date, and it does not include the filer — so two hosts in one
+        unit filing the same title on the same date are one request, and
+        last-writer-wins would let either take the other's request over by
+        retyping its title. The cost is real and is registered as **OQ-CBA-065**
+        rather than solved here: the second host's call answers ``200`` against a
+        row they cannot then list. Defaults to ``None``, which the database reads
+        as *unknown filer* — never as *no filer*, and never as "the caller"; the
+        extraction path leaves it alone and ``ck_event_filed_by_manual_origin``
+        refuses it a value there in any case.
+
+        Returns:
+            An :class:`EventUpsertOutcome` naming the row and whether this call
+            inserted it.
+
+        Raises:
+            ValueError: ``origin`` is outside :data:`EVENT_ORIGINS`, or
+                ``title`` is blank (from the domain).
+            ProvenanceRequiredError: ``origin`` and ``provenance`` disagree.
+        """
+        columns: dict[str, object] = {
+            "tenant_id": tenant_id,
+            "host_org_unit_id": host_org_unit_id,
+            "title": title,
+            "normalized_title": normalize_title(title),
+            "description": description,
+            "resolved_date": resolved_date(event_time),
+            "origin": origin,
+            "is_virtual": is_virtual,
+            "location_city": location_city,
+            "location_postal_code": location_postal_code,
+            "filed_by_user_id": filed_by_user_id,
+            **_temporal_columns(event_time),
+            **_provenance_columns(origin, provenance),
+        }
+
+        identity = resolve_identity_key(
+            host_org_unit=str(host_org_unit_id), title=title, event_time=event_time
+        )
+        insert = postgresql.insert(schema.event).values(id=uuid.uuid4(), **columns)
+
+        if identity is None:
+            # No key: ADR-0012 leaves this row unmatchable and distinct. A
+            # plain insert, and nothing to conflict with — so it inserted, and
+            # there is no conflict arm that could have done anything else.
+            unkeyed = session.execute(insert.returning(schema.event.c.id)).scalar_one()
+            return EventUpsertOutcome(event_id=cast(uuid.UUID, unkeyed), created=True)
+
+        # Keyed: the second extraction of the same event updates the first.
+        # Every non-key column is refreshed, including the ones this call is
+        # setting to NULL — see _temporal_columns.
+        updated = {
+            key: value
+            for key, value in columns.items()
+            # The four identity columns are what was matched on; rewriting
+            # them with the same values would be noise, and rewriting them
+            # with different ones is impossible by construction.
+            #
+            # `filed_by_user_id` is excluded for a different reason and the
+            # difference matters: it is *not* an identity column, and it very
+            # much could be rewritten with a different value. That is precisely
+            # why it must not be. The key does not include the filer, so a
+            # second host filing the same title on the same date lands on the
+            # first host's row; overwriting the filer there would hand them
+            # somebody else's request by retyping its title. First filer is
+            # kept, the collision is visible rather than resolved, and it is
+            # registered as OQ-CBA-065. See this method's docstring.
+            if key
+            not in (
+                "tenant_id",
+                "host_org_unit_id",
+                "normalized_title",
+                "resolved_date",
+                "filed_by_user_id",
+            )
+        }
+        updated["updated_at"] = sa.func.now()
         row = session.execute(
-            sa.insert(schema.event)
-            .values(
-                id=event_id,
-                tenant_id=tenant_id,
-                owning_unit_id=unit_id,
-                created_by=actor_id,
-                idempotency_key=idempotency_key,
-                request_fingerprint=request_fingerprint,
-                status="draft",
-                source_kind="manual",
-                **values,
+            insert.on_conflict_do_update(constraint="uq_event_identity", set_=updated).returning(
+                schema.event.c.id,
+                # `xmax` is the transaction that deleted or superseded the row
+                # version being returned. `ON CONFLICT DO UPDATE` supersedes,
+                # so an updated row comes back with a non-zero `xmax` and a
+                # freshly inserted one with zero. It is read here — out of the
+                # single statement that decided — rather than inferred from a
+                # `SELECT` beforehand, because a `SELECT` that found nothing
+                # and an `INSERT` that then lost the race would report a
+                # creation that did not happen. There is no second question
+                # asked and therefore no window between two answers.
+                sa.literal_column("xmax = 0").label("created"),
             )
-            .returning(*schema.event.c)
-        ).mappings().one()
-        return row, False
+        ).one()
+        return EventUpsertOutcome(event_id=cast(uuid.UUID, row.id), created=bool(row.created))
 
-    def list_events(
+    def record_tags(
         self,
         session: Session,
         *,
         tenant_id: uuid.UUID,
-        unit_id: uuid.UUID,
-        event_status: str,
-    ) -> list[RowMapping]:
-        query = sa.select(schema.event).where(
-            schema.event.c.tenant_id == tenant_id,
-            schema.event.c.owning_unit_id == unit_id,
-        )
-        if event_status != "all":
-            query = query.where(schema.event.c.status == event_status)
-        query = query.order_by(
-            schema.event.c.starts_at.asc().nullslast(),
-            schema.event.c.on_date.asc().nullslast(),
-            schema.event.c.title,
-        )
-        return list(session.execute(query).mappings().all())
+        event_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        raw_values: Iterable[str],
+        vocabulary: TagVocabulary,
+    ) -> tuple[TagResolution, ...]:
+        """Resolve each raw value, store it, and escalate the unmapped ones.
 
-    def get_event(
-        self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID, event_id: uuid.UUID
-    ) -> RowMapping | None:
-        return session.execute(
-            sa.select(schema.event).where(
+        Every value goes through ``smartmatch_domain.events.resolve_tag``, so
+        the mapped/quarantined decision is made in the pure layer and this
+        method only persists it. Both inserts are ``ON CONFLICT DO NOTHING``
+        against ``event_tag``'s two natural keys, so re-resolving the same
+        extraction is a no-op rather than a duplicate row.
+
+        A quarantined value also lands one ``discovery_review_item`` row —
+        G3 §5's escalation destination. That insert is idempotent on
+        ``uq_discovery_review_item_event_value``, so a re-resolved extraction
+        does not re-queue a value a reviewer has already decided.
+
+        Finally ``event.quarantined_tag_count`` is **recomputed** from the
+        stored rows rather than incremented; see the module docstring for why
+        an increment would drift.
+
+        Returns:
+            The resolutions, in the order the raw values arrived — so a caller
+            can see which quarantined without re-reading the table.
+        """
+        resolutions: list[TagResolution] = [
+            resolve_tag(raw_value, vocabulary) for raw_value in raw_values
+        ]
+
+        for resolution in resolutions:
+            if isinstance(resolution, MappedTag):
+                session.execute(
+                    postgresql.insert(schema.event_tag)
+                    .values(
+                        id=uuid.uuid4(),
+                        tenant_id=tenant_id,
+                        event_id=event_id,
+                        resolution="mapped",
+                        term=resolution.term,
+                        raw_value=None,
+                        vocabulary_version=resolution.vocabulary_version,
+                    )
+                    .on_conflict_do_nothing(constraint="uq_event_tag_term")
+                )
+                continue
+
+            # No cast: the `isinstance(resolution, MappedTag)` branch above
+            # ends in `continue`, so `TagResolution`'s union is already
+            # narrowed to `QuarantinedTag` here and mypy says so.
+            quarantined = resolution
+            session.execute(
+                postgresql.insert(schema.event_tag)
+                .values(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    event_id=event_id,
+                    resolution="quarantined",
+                    term=None,
+                    raw_value=quarantined.raw_value,
+                    vocabulary_version=quarantined.vocabulary_version,
+                )
+                .on_conflict_do_nothing(constraint="uq_event_tag_raw_value")
+            )
+            session.execute(
+                postgresql.insert(schema.discovery_review_item)
+                .values(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    owning_unit_id=owning_unit_id,
+                    event_id=event_id,
+                    kind="unmapped_tag",
+                    raw_value=quarantined.raw_value,
+                    vocabulary_version=quarantined.vocabulary_version,
+                )
+                .on_conflict_do_nothing(constraint="uq_discovery_review_item_event_value")
+            )
+
+        self._refresh_quarantined_tag_count(session, tenant_id=tenant_id, event_id=event_id)
+        return tuple(resolutions)
+
+    def matchable_terms(
+        self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID
+    ) -> tuple[str, ...]:
+        """The event's mapped terms. A quarantined value cannot appear here.
+
+        ADR-0012: a quarantined value is "never rendered and never matched on".
+        The filter is ``resolution = 'mapped'``, and it is belt to
+        ``ck_event_tag_resolution_shape``'s braces: a quarantined row's
+        ``term`` column is NULL, so even a query that forgot this predicate
+        would surface no term to match on.
+        """
+        rows = session.execute(
+            sa.select(schema.event_tag.c.term)
+            .where(
+                schema.event_tag.c.tenant_id == tenant_id,
+                schema.event_tag.c.event_id == event_id,
+                schema.event_tag.c.resolution == "mapped",
+            )
+            .order_by(schema.event_tag.c.term)
+        ).scalars()
+        return tuple(str(term) for term in rows)
+
+    def publish(self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID) -> None:
+        """Move the event to ``published``, or refuse and say which rule stopped it.
+
+        Raises:
+            EventNotPublishableError: the event's date is unresolved
+                (ADR-0010 rule 2), it carries quarantined tags (ADR-0012), or
+                no such event exists in this tenant.
+        """
+        row = session.execute(
+            sa.select(schema.event.c.time_precision, schema.event.c.quarantined_tag_count).where(
                 schema.event.c.tenant_id == tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
                 schema.event.c.id == event_id,
             )
-        ).mappings().one_or_none()
+        ).one_or_none()
+        if row is None:
+            raise EventNotPublishableError(f"no event {event_id} in tenant {tenant_id} to publish")
+        if row.time_precision == "unresolved":
+            raise EventNotPublishableError(
+                f"event {event_id} has no resolved date, so it cannot reach a publishable "
+                "state (ADR-0010 rule 2, ck_event_publishable). It has no identity key "
+                "either, and both are the same fact about it."
+            )
+        if row.quarantined_tag_count:
+            raise EventNotPublishableError(
+                f"event {event_id} carries {row.quarantined_tag_count} quarantined tag(s) "
+                "awaiting review, so it cannot publish (ADR-0012, ck_event_publishable). "
+                "A human resolves them through discovery_review_item."
+            )
 
-    def update_event(
-        self,
-        session: Session,
-        *,
-        tenant_id: uuid.UUID,
-        unit_id: uuid.UUID,
-        event_id: uuid.UUID,
-        values: Mapping[str, Any],
-    ) -> RowMapping | None:
-        return session.execute(
+        # The WHERE clause repeats both conditions: between the SELECT above
+        # and this UPDATE, a concurrent record_tags could have quarantined a
+        # tag on this row. The database CHECK would refuse the write anyway;
+        # repeating the predicate makes it a no-op rather than an
+        # IntegrityError the caller has to interpret.
+        session.execute(
             sa.update(schema.event)
             .where(
                 schema.event.c.tenant_id == tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
+                schema.event.c.id == event_id,
+                schema.event.c.time_precision != "unresolved",
+                schema.event.c.quarantined_tag_count == 0,
+            )
+            .values(publication_status="published", updated_at=sa.func.now())
+        )
+
+    def _refresh_quarantined_tag_count(
+        self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID
+    ) -> None:
+        """Set the counter to the number of quarantined tags actually stored."""
+        count = (
+            sa.select(sa.func.count())
+            .select_from(schema.event_tag)
+            .where(
+                schema.event_tag.c.tenant_id == tenant_id,
+                schema.event_tag.c.event_id == event_id,
+                schema.event_tag.c.resolution == "quarantined",
+            )
+        )
+        session.execute(
+            sa.update(schema.event)
+            .where(
+                schema.event.c.tenant_id == tenant_id,
                 schema.event.c.id == event_id,
             )
-            .values(**values, updated_at=sa.func.now())
-            .returning(*schema.event.c)
-        ).mappings().one_or_none()
-
-    def get_qr(
-        self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID
-    ) -> RowMapping | None:
-        qr = schema.event_feedback_qr
-        opens = schema.event_feedback_qr_open
-        return session.execute(
-            sa.select(
-                *qr.c,
-                sa.func.count(opens.c.id).label("open_count"),
-                sa.func.max(opens.c.opened_at).label("last_opened_at"),
-            )
-            .outerjoin(
-                opens,
-                sa.and_(opens.c.tenant_id == qr.c.tenant_id, opens.c.qr_id == qr.c.id),
-            )
-            .where(qr.c.tenant_id == tenant_id, qr.c.event_id == event_id)
-            .group_by(*qr.c)
-        ).mappings().one_or_none()
-
-    def upsert_qr(
-        self,
-        session: Session,
-        *,
-        tenant_id: uuid.UUID,
-        unit_id: uuid.UUID,
-        event_id: uuid.UUID,
-        actor_id: uuid.UUID,
-        destination_url: str,
-    ) -> RowMapping:
-        qr = schema.event_feedback_qr
-        session.execute(
-            sa.dialects.postgresql.insert(qr)
             .values(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                owning_unit_id=unit_id,
-                event_id=event_id,
-                public_token=secrets.token_urlsafe(24),
-                destination_url=destination_url,
-                created_by=actor_id,
-            )
-            .on_conflict_do_update(
-                constraint="uq_event_feedback_qr_event",
-                set_={"destination_url": destination_url, "updated_at": sa.func.now()},
+                quarantined_tag_count=count.scalar_subquery(),
+                updated_at=sa.func.now(),
             )
         )
-        row = self.get_qr(session, tenant_id=tenant_id, event_id=event_id)
-        assert row is not None
-        return row
 
-    def record_open(self, session: Session, *, public_token: str) -> str | None:
-        qr = schema.event_feedback_qr
-        event = schema.event
-        row = session.execute(
-            sa.select(qr.c.id, qr.c.tenant_id, qr.c.destination_url)
-            .join(
-                event,
-                sa.and_(event.c.tenant_id == qr.c.tenant_id, event.c.id == qr.c.event_id),
-            )
-            .where(qr.c.public_token == public_token, event.c.status == "published")
-        ).one_or_none()
-        if row is None:
-            return None
-        session.execute(
-            sa.insert(schema.event_feedback_qr_open).values(
-                id=uuid.uuid4(), tenant_id=row.tenant_id, qr_id=row.id
-            )
-        )
-        return str(row.destination_url)
+
+def quarantined_values(resolutions: Sequence[TagResolution]) -> tuple[str, ...]:
+    """The raw values among ``resolutions`` that did not map.
+
+    A convenience over ``smartmatch_domain.events.quarantined_tags`` for
+    callers that want the strings rather than the objects. Lives here rather
+    than in the domain because the domain deliberately returns the typed
+    values — a function handing back bare strings is the shape that lets a
+    quarantined value be mistaken for a matchable one, and it belongs on the
+    side of the boundary that already knows the difference.
+    """
+    return tuple(r.raw_value for r in resolutions if isinstance(r, QuarantinedTag))

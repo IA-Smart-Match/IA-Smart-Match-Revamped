@@ -38,21 +38,27 @@ Every entry encodes ADR-0011's four rules:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from enum import Enum
+from types import MappingProxyType
 
 __all__ = [
+    "CBA_EXCLUDED_METRICS",
+    "CBA_METRIC_DISPLAY_NAMES",
     "METRIC_REGISTER",
     "OPPORTUNITY_IN_LIST_CATEGORIES",
     "MetricDefinition",
     "OpportunityCategoryShape",
+    "cba_metric_register",
     "get_metric",
+    "is_cba_visible_metric",
     "shape_opportunity_category",
 ]
 
 # The ratified in-list programmatic engagement types, copied verbatim from
 # `docs/decisions/p8-opportunities-decision-draft.md` §1 (CLOSED 2026-09-02).
-# This set is non-exhaustive by design: the IA West Coordinator may extend
+# This set is non-exhaustive by design: the CBA coordinator may extend
 # practice through review without treating an unmapped label as an error.
 # Comparison against it must be case-insensitive (see
 # `shape_opportunity_category`), so the set itself is stored lower-cased.
@@ -180,12 +186,12 @@ METRIC_REGISTER: tuple[MetricDefinition, ...] = (
     ),
     MetricDefinition(
         canonical_name="opportunities",
-        display_name="Opportunities",
+        display_name="Speaker Requests",
         definition=(
             "An event row counts toward opportunities when its category is one of the "
             "in-list programmatic engagement types: hackathon, datathon, competition, "
             "guest lecturer event, school event. Rows whose category is out-of-list "
-            "(including raw/unmapped examples) do not count until the IA West Coordinator "
+            "(including raw/unmapped examples) do not count until the CBA coordinator "
             "reviews and either assigns an in-list category or explicitly approves "
             "inclusion. Out-of-list does not mean invalid — the in-list set is "
             "non-exhaustive; coordinators may extend practice through review without "
@@ -202,4 +208,85 @@ def get_metric(canonical_name: str) -> MetricDefinition | None:
     return next(
         (metric for metric in METRIC_REGISTER if metric.canonical_name == canonical_name),
         None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The CBA view of the register (track CBA-HANDOFF-PIPELINE)
+# ---------------------------------------------------------------------------
+#
+# :data:`METRIC_REGISTER` above is unchanged and stays the whole register: seven
+# entries, ``pipeline_member_inquiry`` among them, with the same canonical
+# names, definitions and owning queries they have always had. Deleting that
+# entry would delete the *definition* of a number rows in ``pipeline_record``
+# still carry, which is how a preserved history becomes an unreadable one.
+#
+# What follows is the CBA product's *view* of that same register.
+# ``Capability.MEMBER_INQUIRY_NARRATIVE`` (``smartmatch_domain.product_scope``)
+# is ``False`` under ``ProductScope.CBA`` and already says why in as many words:
+# "The stored stage and its history are preserved; CBA has no approved
+# equivalent outcome, so the narrative and its tile are not offered and no CBA
+# writer may produce one." This section is the "not offered" half, expressed
+# once, so the API adapter and the frontend filter the same list rather than
+# each keeping its own copy of which name to drop.
+
+#: The canonical names the CBA product does not present. One entry, and the
+#: single place the exclusion is stated on the register side --
+#: ``smartmatch_domain.pipeline.CBA_EXCLUDED_STAGES`` is its counterpart on the
+#: stage side, and :func:`cba_metric_register` is the only thing that reads it.
+CBA_EXCLUDED_METRICS: frozenset[str] = frozenset({"pipeline_member_inquiry"})
+
+#: What the CBA product calls the four funnel metrics it does present.
+#:
+#: The register's own ``display_name`` is the funnel's generic vocabulary
+#: ("Matched", "Contacted"), which is correct for the register and vague on a
+#: CBA screen: the thing being counted is a *speaker*, and "Contacted" beside a
+#: speaker's name reads as an activity log rather than as a funnel stage.
+#:
+#: These are labels only. No ``canonical_name``, ``definition``,
+#: ``owning_query`` or ``drill_down`` is restated here, because a second copy of
+#: a definition is a second definition and the two would disagree the first time
+#: either moved. A metric absent from this mapping keeps the register's own
+#: display name -- ``pending_review_items`` and ``opportunities`` are already
+#: written for this customer and need no second spelling.
+CBA_METRIC_DISPLAY_NAMES: Mapping[str, str] = MappingProxyType(
+    {
+        "pipeline_matched": "Speakers matched",
+        "pipeline_contacted": "Speakers invited",
+        "pipeline_confirmed": "Speakers confirmed",
+        "pipeline_attended": "Speakers who presented",
+    }
+)
+
+
+def is_cba_visible_metric(canonical_name: str) -> bool:
+    """Whether the CBA product presents the metric named ``canonical_name``.
+
+    ``True`` for a name that is not registered at all: this function answers
+    "does CBA hide this?", and a caller asking about an unregistered name has a
+    different problem, which :func:`get_metric` returning ``None`` is what
+    reports. Answering ``False`` here would let a typo read as a correctly
+    closed gate.
+    """
+    return canonical_name not in CBA_EXCLUDED_METRICS
+
+
+def cba_metric_register() -> tuple[MetricDefinition, ...]:
+    """:data:`METRIC_REGISTER` as the CBA product presents it.
+
+    The same definitions in the same order, with :data:`CBA_EXCLUDED_METRICS`
+    removed and :data:`CBA_METRIC_DISPLAY_NAMES` applied where one exists. Each
+    surviving entry is *copied* with ``dataclasses.replace`` rather than
+    mutated: :class:`MetricDefinition` is frozen, and the register is one shared
+    tuple every caller reads.
+
+    Returns:
+        Six definitions: the register's seven less ``pipeline_member_inquiry``.
+    """
+    return tuple(
+        replace(metric, display_name=CBA_METRIC_DISPLAY_NAMES[metric.canonical_name])
+        if metric.canonical_name in CBA_METRIC_DISPLAY_NAMES
+        else metric
+        for metric in METRIC_REGISTER
+        if is_cba_visible_metric(metric.canonical_name)
     )

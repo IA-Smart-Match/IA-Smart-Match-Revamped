@@ -4,7 +4,7 @@
 run; registry approval and scoring remain blocked until workshop outputs are
 committed. Fail-closed scoring behavior continues until then.
 **Gate:** D1 / G1 (`docs/plans/critical-path-matching-gate.md`, MM-002).  
-**Blocking owner:** **Danny Tran (@dangt)** — program owner, named 2026-09-02.
+**Blocking owner:** **Danny Tran (@BrooklynD23)** — program owner, named 2026-09-02.
 
 ## Purpose
 

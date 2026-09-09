@@ -6,9 +6,9 @@ Prepared from:
 
 - Dr. Wang design decisions (2026-09-03 session direction)
 - `g1-factor-registry-workshop-packet.md`
-- Program owner: **Danny Tran (@dangt)**
+- Program owner: **Danny Tran (@BrooklynD23)**
 
-**Ratified by:** Danny Tran (@dangt)  
+**Ratified by:** Danny Tran (@BrooklynD23)  
 **Date:** 2026-09-03  
 
 ---
@@ -21,7 +21,7 @@ Prepared from:
 - [x] Tie-break rule recorded.
 - [x] Named program owner for ongoing weight governance recorded.
 
-**Ratified by:** Danny Tran (@dangt)  
+**Ratified by:** Danny Tran (@BrooklynD23)  
 **Date:** 2026-09-03  
 **Commit recording ratification:** (this commit) — out of G1 scope (tracked separately)
 
@@ -90,7 +90,7 @@ Prepared from:
 
 ## Agenda item 4 — weight governance
 
-1. **Who may change weights after G1:** Danny Tran (@dangt), program owner (or IA West designee after ratification).
+1. **Who may change weights after G1:** Danny Tran (@BrooklynD23), program owner (or IA West designee after ratification).
 2. **Shadow-mode (MM-005) gates weight changes:** **Yes** — no weight change ships without shadow evaluation pass.
 3. **Registry version pinning for `match_run` (M8):** **Yes** — every run records registry version hash.
 

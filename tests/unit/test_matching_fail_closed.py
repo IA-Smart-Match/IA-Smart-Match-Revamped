@@ -1,9 +1,114 @@
 """Executable fail-closed contracts for gated product surfaces.
 
-G1 (matching/scoring), G3 (crawler/discovery), and D6 (shippable rewards)
+G1 (matching/scoring), G3 (crawler/event catalog), and D6 (shippable rewards)
 remain intentionally closed until named human decisions land. These tests pin
 the absence of HTTP capability and domain guards without substituting for
 workshop approval.
+
+## The G3 event-catalog flip (card P-EVENTS-API)
+
+Two read-only routes now exist where this file previously asserted none:
+``GET /v1/units/{unit_id}/events`` and
+``GET /v1/units/{unit_id}/tag-quarantine``. That is a deliberate flip, made in
+the commit that lands the capability, which is the rule
+``docs/plans/2026-08-28-plan-portfolio-index.md`` states for this file — "each
+deliberate flip happens in the commit that lands the gated capability", naming
+P6·S6b among the four that would do it — and the shape card S6b prescribes:
+"routes, policy-matrix rows, OpenAPI regeneration, and the deliberate flip of
+the fail-closed scan, all in one commit."
+
+## The G1 match-run flip (card P-MATCH-API)
+
+Two routes now exist where this file previously asserted that no match/score/
+rank path could: ``POST /v1/units/{unit_id}/match-runs`` and
+``GET /v1/units/{unit_id}/match-runs/{match_run_id}``. That is a deliberate
+flip made in the commit that lands the capability, on the authority of three
+committed artifacts and no judgement of this file's own:
+
+* ``docs/plans/workshops/g1-workshop-output-worksheet.md`` — gate G1's output,
+  ratified 2026-09-03 by the named program owner, fixing the factor list, the
+  weights, the golden-case ADR-0011 classifications, and the presentation rules
+  (2-3 speakers, no percentage display).
+* ``docs/plans/2026-08-28-g1-matching-m1-m10-plan.md`` card **M8b** — the card
+  that authorizes routes at all, and which states the rule this file is being
+  changed under: "Update the fail-closed OpenAPI scan in the same commit the
+  routes land — that is its deliberate flip."
+* ``smartmatch_domain.factor_registry`` at ``REGISTRY_STATUS == "approved"``
+  with ``assert_scoring_ready()`` passing, which card M6j made the condition
+  for scoring to run at all.
+
+The flip is **narrower than the gate it opens**, in the same shape card
+P-EVENTS-API used. :data:`_G1_FORBIDDEN_SEGMENTS` is *widened* rather than
+relaxed — ``match-run`` and ``match-runs`` are added to it, so the two paths
+below are refused by the segment rule and admitted only by name — and
+:data:`G1_AUTHORIZED_MATCH_RUN_PATHS` is an exact, literal allowlist of two
+paths. A third match-run path, or a ``/v1/units/{unit_id}/matches``, fails here
+whether or not anyone regenerated the contract.
+:func:`test_the_match_run_router_declares_exactly_the_authorized_routes` holds
+the router to the same list from the other side, and
+:func:`test_the_match_run_router_exposes_one_command_and_one_read` pins the
+methods, because "a coordinator may ask for a shortlist and read one back" is
+what was authorized — not a surface that could grow a decision endpoint.
+
+## The D6 rewards flip (card P-REWARDS-API)
+
+Four routes now exist where this file previously asserted that no reward,
+redemption, balance or catalog path could:
+
+* ``GET  /v1/units/{unit_id}/rewards``
+* ``POST /v1/units/{unit_id}/redemptions``
+* ``GET  /v1/units/{unit_id}/redemptions``
+* ``POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision``
+
+Same shape as the two flips above, made in the commit that lands the capability,
+and narrower than the gate it opens. :data:`_D6_FORBIDDEN_SEGMENTS` is
+*untouched* — ``rewards`` and ``redemptions`` are still forbidden segments, so a
+fifth rewards path is refused by the segment rule — and
+:data:`D6_AUTHORIZED_REWARD_PATHS` is an exact, literal allowlist of the three
+paths those four operations occupy, admitted by name. ``balance``, ``balances``
+and ``catalog`` remain forbidden with no exception at all: the balance is a field inside the catalog
+response, not a resource of its own, and there is no route whose path says
+otherwise.
+
+What this flip does **not** open is a catalog *writer reachable through this
+router* or a coordinator's view of other students' redemptions.
+``smartmatch_persistence.rewards.RewardsRepository.create_item`` exists — the
+7 September 2026 authorization recorded beside D6 in
+``docs/plans/open-questions/cba-phase-deferred.md`` — but its only caller in
+this repository is ``tools/seed_pilot_rewards.py``, an operator tool gated on
+``SMARTMATCH_EDITION=dev`` that no route calls. The four method/path pairs are
+pinned by :func:`test_the_rewards_router_exposes_two_reads_and_two_commands`,
+which still passes unchanged, and ``D6_AUTHORIZED_REWARD_PATHS`` cannot grow
+without a visible edit to a named list. The D6/D7 figures themselves are
+untouched: nothing here promotes the tentative earn rate, the bands, or
+calibration N.
+
+## The R2 engagement flip (card R2-ENGAGEMENT-API)
+
+One read-only route now exists where this file previously asserted that the
+engagement router declared no handler at all:
+``GET /v1/units/{unit_id}/engagement/attendance-summary``. The old assertion
+carried the label "D6: engagement handlers must not ship before D6/D7 + S6/S7",
+and all three of those have since landed — ``attendance_record`` is migration
+``0009`` and the rewards surface D6/D7 govern is live above. What remains
+genuinely undecided is **D8**, the disclosure-consent policy, and the flip is
+shaped to keep it undecided: the admitted route counts rows and returns no
+``subject_id``, because ``smartmatch_persistence.engagement`` never selects one.
+:data:`R2_AUTHORIZED_ENGAGEMENT_PATHS` bounds the router to that single path and
+:func:`test_the_engagement_router_is_read_only` pins it to ``GET``, so neither a
+roster route nor the B08 check-in *command* — still blocked on S11 and D8 — can
+arrive without a visible edit here.
+
+What the flip does **not** open is the part G3 actually gates. The forbidden
+segment families below are untouched: no ``crawl``, ``crawler``, ``crawlers``
+or ``discovery`` path may exist, ``POST /api/crawler/start`` remains a named
+non-goal, and ``tests/unit/test_fixture_ingest_wiring.py`` still holds the API
+away from the ingest reader entirely. The two routes admitted here read rows a
+worker already wrote from committed fixtures; they trigger nothing, accept no
+URL, and make no network call. :data:`G3_AUTHORIZED_EVENT_PATHS` is an exact,
+literal allowlist of two paths rather than a loosened pattern, and
+:func:`test_the_authorized_event_routes_are_read_only` holds them to being
+reads — so this gate cannot widen into a command surface without failing here.
 """
 
 from __future__ import annotations
@@ -11,7 +116,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smartmatch_api.routers import engagement, events
+from smartmatch_api.routers import calendar, engagement, events, match_runs, rewards
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
     assert_registry_approved,
@@ -20,9 +125,18 @@ from smartmatch_domain.factor_registry import (
 OPENAPI_PATH = Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "smartmatch.json"
 
 # G1 — forbidden path segments until D1/G1 program owner approves the registry.
+# ``match-run``/``match-runs`` are listed even though card P-MATCH-API landed
+# exactly those paths, and that is the point: the allowlist below is what admits
+# them, so it is load-bearing rather than decorative. Without these two entries
+# ``/v1/units/{unit_id}/match-runs`` would sail past this scan on the technicality
+# that ``"match-runs" != "match"``, and every future match-run path would too.
 _G1_FORBIDDEN_SEGMENTS = frozenset(
     {
         "match",
+        "match-run",
+        "match-runs",
+        "match_run",
+        "match_runs",
         "matches",
         "matching",
         "score",
@@ -44,6 +158,31 @@ _G3_FORBIDDEN_SEGMENTS = frozenset(
     }
 )
 
+# G5 — forbidden path segments until the Calendar API decision lands.
+# ``invite.ics`` is listed even though the ICS slice landed exactly that
+# segment, and that is the point, the same point ``match-runs`` makes in the G1
+# set above: ``G5_AUTHORIZED_CALENDAR_PATHS`` is what admits it, so the
+# allowlist is load-bearing rather than decorative.
+#
+# Segments are matched exactly, never as substrings, which is what makes a bare
+# ``ics`` entry safe here — ``metrics`` is a different segment string and an
+# unrelated, authorized route. That distinction is why
+# ``tests/unit/test_calendar_invite_wiring.py`` cannot use a bare "ics" marker
+# and this set can.
+_G5_FORBIDDEN_SEGMENTS = frozenset(
+    {
+        "calendar",
+        "calendars",
+        "calendar.ics",
+        "ics",
+        "invite",
+        "invites",
+        "invite.ics",
+        "invites.ics",
+        "webcal",
+    }
+)
+
 # D6 — forbidden path segments until D6/D7 budget owners ratify catalog + S6/S7 exist.
 _D6_FORBIDDEN_SEGMENTS = frozenset(
     {
@@ -54,6 +193,118 @@ _D6_FORBIDDEN_SEGMENTS = frozenset(
         "balance",
         "balances",
         "catalog",
+    }
+)
+
+
+# G3 — the exact unit-scoped event paths card P-EVENTS-API authorizes, and no
+# others. A literal set rather than a prefix or a pattern: a pattern would
+# admit whatever a future route happened to hang under `/v1/units/*/events`,
+# including a POST that triggered extraction, and the point of a fail-closed
+# scan is that widening it is a visible edit to a named list. Both are reads,
+# which `test_the_authorized_event_routes_are_read_only` checks rather than
+# assumes.
+G3_AUTHORIZED_EVENT_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events",
+        "/v1/units/{unit_id}/tag-quarantine",
+    }
+)
+
+
+# G5 — the exact calendar-artifact path the ICS slice authorizes, and no others.
+# A literal set for the same reason G3's is one: the rule at the end of
+# `_forbidden_gate_for_path` refuses every unit-scoped path whose segment after
+# `units/{id}` is `events`, and this route is one of those. Admitting it is
+# therefore a visible edit to a named list rather than a loosened pattern — and
+# a pattern would be actively wrong here, because the paths this gate must keep
+# refusing are the ones that look most like this one. A per-unit subscription
+# feed (`/v1/units/{unit_id}/calendar.ics`) is a URL carrying its own long-lived
+# credential; an upload is a write; a bulk export hands over the whole catalog in
+# one request. None of the three is admitted by this entry, and each would fail
+# here.
+#
+# The synthetic pilot development authorization (2026-09-03, §3) permits "ICS
+# artifacts" while G5 (Calendar API) stays deferred, which is exactly one route
+# wide. `tests/unit/test_calendar_invite_wiring.py` states the other half — that
+# no Google Calendar client, scope, or credential appears in either module — and
+# `docs/plans/open-questions/calendar-deferred.md` OQ-001 is the decision both
+# enforce.
+G5_AUTHORIZED_CALENDAR_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events/{event_id}/invite.ics",
+    }
+)
+
+
+# G1 — the exact unit-scoped match-run paths card P-MATCH-API authorizes, and
+# no others. Every segment family this gate guards is *still* forbidden, these
+# two paths included: `_G1_FORBIDDEN_SEGMENTS` names `match-runs`, so admitting
+# them is a deliberate, by-name exception rather than a gap in the pattern. A
+# third match-run path fails here, and so does a path that differs from one of
+# these by a single segment.
+G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/match-runs",
+        "/v1/units/{unit_id}/match-runs/{match_run_id}",
+    }
+)
+
+
+# D6 — the exact unit-scoped rewards paths card P-REWARDS-API authorizes, and
+# no others. `_D6_FORBIDDEN_SEGMENTS` still names `rewards` and `redemptions`,
+# so these four are admitted by name and a fifth is refused; `balance`,
+# `balances` and `catalog` are not admitted at all, by this list or any other.
+D6_AUTHORIZED_REWARD_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/rewards",
+        "/v1/units/{unit_id}/redemptions",
+        "/v1/units/{unit_id}/redemptions/{redemption_id}/decision",
+    }
+)
+
+
+# R2 — the exact unit-scoped engagement path card R2-ENGAGEMENT-API
+# authorizes, and no others. There is no engagement segment family in any of
+# the three forbidden sets above, so this list does not *admit* the path past a
+# segment rule the way the other three allowlists do — it bounds the router
+# instead, which is the half of those flips that actually keeps a second route
+# from arriving unnamed. Stated as a set of one rather than a bare string so
+# adding a second path is the same visible edit it is everywhere else here.
+R2_AUTHORIZED_ENGAGEMENT_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/engagement/attendance-summary",
+    }
+)
+
+
+# OQ-102 — the exact unit-scoped attendance path the coordinator's writer
+# authorizes, and no others.
+#
+# It needs a list of its own, and the reason is worth stating because it is easy
+# to get wrong. No segment of this path is in any forbidden set: `attendance` is
+# in none of them, and `events` is in none of them either. What refuses it is the
+# *last* rule in `_forbidden_gate_for_path` — every unit-scoped path whose
+# segment after `units/{id}` is `events` is G3, whatever hangs below it. That
+# rule is what keeps a second event-catalog surface from arriving unnamed, and it
+# is doing its job here: this route does hang under a unit's events.
+#
+# So it is admitted by name, in the same shape as `G5_AUTHORIZED_CALENDAR_PATHS`
+# beside it, rather than by loosening that rule into a prefix. It is deliberately
+# *not* added to `G3_AUTHORIZED_EVENT_PATHS`: that set is pinned to
+# `events.router`'s own declared routes, and
+# `test_the_authorized_event_routes_are_read_only` holds every path in it to
+# being a read. This one is a write, in a different router, and merging the two
+# lists would quietly retire that read-only assertion.
+#
+# What it is not: not an event catalog, not a crawl, not a discovery surface. It
+# writes one `attendance_record` for one named subject at one event the unit
+# already hosts, and it returns no event the caller did not name. G3 guards the
+# arrival of external event acquisition; nothing on this path acquires anything.
+# See `docs/plans/open-questions/pipeline-stage-writers-deferred.md` OQ-102.
+OQ102_AUTHORIZED_ATTENDANCE_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events/{event_id}/attendance",
     }
 )
 
@@ -69,13 +320,56 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     """Return the gate id blocking ``path``, or None when the path is allowed."""
     segments = [segment.lower() for segment in _path_segments(path)]
 
+    # The by-name exception comes first, and is the single place a match-run
+    # path is admitted. G1's allowlist has to precede the segment loop rather
+    # than follow it (as G3's does) because `_G1_FORBIDDEN_SEGMENTS`
+    # deliberately contains `match-runs`: the loop below refuses these paths.
+    # A path not spelled out here gets no such exception, which is the property
+    # that keeps the flip narrow.
+    if path in G1_AUTHORIZED_MATCH_RUN_PATHS:
+        return None
+
+    # D6's exception, for the identical reason and in the identical position:
+    # `_D6_FORBIDDEN_SEGMENTS` contains `rewards` and `redemptions`, so the loop
+    # below refuses these paths and only this list admits them.
+    if path in D6_AUTHORIZED_REWARD_PATHS:
+        return None
+
+    # G5's exception, in the same position and for the same reason:
+    # `_G5_FORBIDDEN_SEGMENTS` contains `invite.ics`, so the loop below refuses
+    # this path and only this list admits it. A subscription feed, an upload, or
+    # a bulk export is refused by that same loop and appears in no list.
+    if path in G5_AUTHORIZED_CALENDAR_PATHS:
+        return None
+
     for segment in segments:
         if segment in _G1_FORBIDDEN_SEGMENTS:
             return "G1"
         if segment in _G3_FORBIDDEN_SEGMENTS:
             return "G3"
+        if segment in _G5_FORBIDDEN_SEGMENTS:
+            return "G5"
         if segment in _D6_FORBIDDEN_SEGMENTS:
             return "D6"
+
+    # The two reads card P-EVENTS-API landed. Checked before the rule below
+    # and by exact path, so every *other* unit-scoped event path stays refused
+    # — including one that differed from these by a single segment.
+    if path in G3_AUTHORIZED_EVENT_PATHS:
+        return None
+
+    # OQ-102's exception, checked immediately before the rule that refuses it.
+    # Placed here rather than at the top because no segment rule touches this
+    # path — only the unit-scoped `events` rule below does, and this is the
+    # single by-name admission past it. See the constant's own comment.
+    if path in OQ102_AUTHORIZED_ATTENDANCE_PATHS:
+        return None
+
+    # G3 unit-scoped event catalog — distinct from durable-command job lifecycle events.
+    if "units" in segments:
+        unit_index = segments.index("units")
+        if unit_index + 1 < len(segments) and segments[unit_index + 1] == "events":
+            return "G3"
 
     return None
 
@@ -90,16 +384,264 @@ def test_assert_registry_approved_succeeds():
     assert_registry_approved()
 
 
-def test_manual_events_do_not_reopen_crawler_routes_and_engagement_stays_closed():
-    """Manual event entry is authorized without opening crawler or rewards gates."""
-    event_paths = {route.path for route in (*events.router.routes, *events.public_router.routes)}
-    assert event_paths
-    assert all(
-        not (set(_path_segments(path)) & _G3_FORBIDDEN_SEGMENTS) for path in event_paths
-    ), "G3: manual event entry must not expose crawl or discovery routes"
-    assert engagement.router.routes == [], (
-        "D6: engagement handlers must not ship before D6/D7 + S6/S7"
+def test_the_engagement_router_declares_exactly_the_authorized_routes():
+    """The R2 flip is bounded by a list, not by the router's own contents.
+
+    Before card R2-ENGAGEMENT-API this asserted ``engagement.router.routes ==
+    []`` under the label "D6: engagement handlers must not ship before D6/D7 +
+    S6/S7". S6 shipped — ``attendance_record`` is migration ``0009`` and has
+    held rows since — and D6/D7 shipped as far as they gate anything: the
+    rewards surface they actually govern is live under
+    :data:`D6_AUTHORIZED_REWARD_PATHS`. What the old assertion was protecting is
+    therefore not "no engagement route" but "no engagement route that discloses
+    a student", which is D8's question and is unanswered.
+
+    So the successor is the same one the other three flips took: an exact
+    equality against :data:`R2_AUTHORIZED_ENGAGEMENT_PATHS`. A second engagement
+    path fails here whether or not anyone regenerated the contract, and the one
+    admitted path is held to being a count rather than a roster by
+    ``tests/contract/test_engagement_api.py`` and by
+    ``smartmatch_persistence.engagement`` never selecting ``subject_id`` at all.
+    """
+    declared = {str(route.path) for route in engagement.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == R2_AUTHORIZED_ENGAGEMENT_PATHS, (
+        "R2: the engagement router declares routes outside the "
+        f"R2-ENGAGEMENT-API allowlist: {sorted(declared - R2_AUTHORIZED_ENGAGEMENT_PATHS)}"
     )
+
+
+def test_the_engagement_router_is_read_only():
+    """A read was authorized. A check-in was not.
+
+    B08 (``docs/plans/frontend-broken-buttons.md``) puts the QR check-in *flow*
+    behind S11 and D8, and :mod:`smartmatch_domain.checkin` deliberately lands
+    the token rule unwired rather than a route. A ``POST`` under this router
+    would be that flow arriving without either decision, so the methods are
+    pinned rather than the path alone.
+    """
+    offenders = sorted(
+        f"{method} {route.path}"  # type: ignore[attr-defined]
+        for route in engagement.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"GET", "HEAD"}
+    )
+
+    assert offenders == [], f"R2: the engagement router is read-only; found {offenders}"
+
+
+def test_the_events_router_declares_exactly_the_authorized_routes():
+    """The G3 flip is bounded by a list, not by the router's own contents.
+
+    Before card P-EVENTS-API this asserted ``events.router.routes == []``. The
+    honest successor is not "the events router may now declare things" — that
+    would be a gate replaced by nothing — but an exact equality against
+    :data:`G3_AUTHORIZED_EVENT_PATHS`. A third route added to this router fails
+    here whether or not anyone regenerated the contract, which is the property
+    the original assertion actually provided.
+    """
+    declared = {str(route.path) for route in events.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == G3_AUTHORIZED_EVENT_PATHS, (
+        "G3: the events router declares routes outside the P-EVENTS-API "
+        f"allowlist: {sorted(declared - G3_AUTHORIZED_EVENT_PATHS)}"
+    )
+
+
+def test_the_authorized_event_routes_are_read_only():
+    """A read was authorized. A trigger was not.
+
+    G3 §9 leaves API handlers "commands and review decisions only" and puts
+    every network action worker-side, and card S6b makes an HTTP *command*
+    surface conditional on a signed artifact calling for one — which none does.
+    A ``POST`` under either of these paths would be that surface arriving
+    without the artifact, so the methods are pinned rather than the paths
+    alone.
+    """
+    offenders = sorted(
+        f"{method} {route.path}"  # type: ignore[attr-defined]
+        for route in events.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"GET", "HEAD"}
+    )
+
+    assert offenders == [], f"G3: the events router is read-only; found {offenders}"
+
+
+def test_the_calendar_router_declares_exactly_the_authorized_routes():
+    """G5's flip is bounded by a list, not by the router's own contents.
+
+    The same shape as :func:`test_the_events_router_declares_exactly_the_authorized_routes`,
+    and for the same reason: "a calendar router may now declare things" would be
+    a gate replaced by nothing. A second route added to this module fails here
+    whether or not anyone regenerated the contract.
+    """
+    declared = {str(route.path) for route in calendar.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == G5_AUTHORIZED_CALENDAR_PATHS, (
+        "G5: the calendar router declares routes outside the ICS allowlist: "
+        f"{sorted(declared - G5_AUTHORIZED_CALENDAR_PATHS)}"
+    )
+
+
+def test_the_authorized_calendar_route_is_read_only():
+    """An artifact download was authorized. A write was not.
+
+    G3 §9 leaves API handlers "commands and review decisions only", and a
+    ``POST`` or ``PUT`` under this path would be an .ics *upload* — a write into
+    the event catalog through the one surface that exists to read out of it. The
+    methods are pinned rather than the path alone, exactly as they are for the
+    two event reads.
+    """
+    offenders = sorted(
+        f"{method} {route.path}"  # type: ignore[attr-defined]
+        for route in calendar.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"GET", "HEAD"}
+    )
+
+    assert offenders == [], f"G5: the calendar router is read-only; found {offenders}"
+
+
+def test_the_calendar_allowlist_admits_no_feed_upload_or_bulk_export():
+    """The near misses this gate exists to refuse, named so they stay refused.
+
+    Each of these differs from the authorized path by little more than a
+    segment, and each is a materially different authorization question — a
+    subscription URL carrying its own long-lived credential, a write, and a
+    whole-catalog read. Without this, `G5_AUTHORIZED_CALENDAR_PATHS` would be a
+    list nothing proved was narrow.
+    """
+    near_misses = (
+        # A subscription feed: one URL, returning the unit's whole calendar,
+        # carrying its own long-lived credential.
+        "/v1/units/{unit_id}/calendar.ics",
+        "/v1/units/{unit_id}/calendar",
+        "/v1/units/{unit_id}/events/calendar.ics",
+        # A bulk export of every invite in one request.
+        "/v1/units/{unit_id}/events/invites.ics",
+        "/v1/units/{unit_id}/events/{event_id}/invites",
+        # The same artifact one segment away from the authorized spelling.
+        "/v1/units/{unit_id}/events/{event_id}/invite",
+        "/v1/units/{unit_id}/events/{event_id}/ics",
+        # And the capability the gate is actually about.
+        "/v1/units/{unit_id}/events/{event_id}/webcal",
+    )
+
+    for path in near_misses:
+        assert _forbidden_gate_for_path(path) == "G5", (
+            f"{path} is not the authorized calendar artifact and must stay refused"
+        )
+
+
+def test_the_match_run_router_declares_exactly_the_authorized_routes():
+    """The G1 flip is bounded by a list, not by the router's own contents.
+
+    The honest successor to "no match router exists" is not "a match router may
+    now declare things" — that would be a gate replaced by nothing — but an
+    exact equality against :data:`G1_AUTHORIZED_MATCH_RUN_PATHS`, exactly as
+    :func:`test_the_events_router_declares_exactly_the_authorized_routes` does
+    for G3. A third route added to this router fails here whether or not anyone
+    regenerated the contract.
+    """
+    declared = {str(route.path) for route in match_runs.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == G1_AUTHORIZED_MATCH_RUN_PATHS, (
+        "G1: the match-run router declares routes outside the P-MATCH-API "
+        f"allowlist: {sorted(declared - G1_AUTHORIZED_MATCH_RUN_PATHS)}"
+    )
+
+
+def test_the_match_run_router_exposes_one_command_and_one_read():
+    """One submission and one read — and nothing that decides anything.
+
+    Card M8b authorizes routes that "submit the command and read the row back".
+    A ``PATCH`` or ``PUT`` on a match run would contradict the snapshot's whole
+    design (``0018``'s ``match_run_is_immutable`` trigger, and
+    ``MatchRunRepository`` having no update method by construction); a
+    ``DELETE`` would contradict it harder. Pinning the methods rather than the
+    paths alone is what keeps a later card from hanging a decision endpoint off
+    an already-admitted path.
+    """
+    observed = {
+        (str(route.path), method)  # type: ignore[attr-defined]
+        for route in match_runs.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert observed == {
+        ("/v1/units/{unit_id}/match-runs", "POST"),
+        ("/v1/units/{unit_id}/match-runs/{match_run_id}", "GET"),
+    }, f"G1: unexpected match-run methods: {sorted(observed)}"
+
+
+def test_a_match_run_path_outside_the_allowlist_is_still_refused():
+    """The widened segment list is load-bearing, not decoration.
+
+    If the first two assertions ever pass trivially — because ``match-runs``
+    left :data:`_G1_FORBIDDEN_SEGMENTS` — then the allowlist above stopped
+    admitting anything and started merely describing, and the next match-run
+    path added would clear the scan without anyone naming it.
+    """
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs/{run_id}/decision") == "G1"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/matches") == "G1"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/match-runs") is None
+
+
+def test_the_rewards_router_declares_exactly_the_authorized_routes():
+    """The D6 flip is bounded by a list, not by the router's own contents.
+
+    The same successor the G3 and G1 flips took: an exact equality against
+    :data:`D6_AUTHORIZED_REWARD_PATHS`, so a fifth rewards path added to this
+    router fails here whether or not anyone regenerated the contract.
+    """
+    declared = {str(route.path) for route in rewards.router.routes}  # type: ignore[attr-defined]
+
+    assert declared == D6_AUTHORIZED_REWARD_PATHS, (
+        "D6: the rewards router declares routes outside the P-REWARDS-API "
+        f"allowlist: {sorted(declared - D6_AUTHORIZED_REWARD_PATHS)}"
+    )
+
+
+def test_the_rewards_router_exposes_two_reads_and_two_commands():
+    """Exactly what was authorized: read a catalog, ask, read your tickets, decide.
+
+    Pinning the methods rather than the paths alone is what keeps a later card
+    from hanging a catalog *writer* off ``/rewards`` — a ``POST`` there would
+    seed items the D6/D7 artifacts do not authorize — or a ``DELETE`` off
+    ``/redemptions``, which would contradict the state machine's terminal states
+    outright: a redemption is closed by moving it, never by removing it.
+    """
+    observed = {
+        (str(route.path), method)  # type: ignore[attr-defined]
+        for route in rewards.router.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert observed == {
+        ("/v1/units/{unit_id}/rewards", "GET"),
+        ("/v1/units/{unit_id}/redemptions", "POST"),
+        ("/v1/units/{unit_id}/redemptions", "GET"),
+        ("/v1/units/{unit_id}/redemptions/{redemption_id}/decision", "POST"),
+    }, f"D6: unexpected rewards methods: {sorted(observed)}"
+
+
+def test_a_rewards_path_outside_the_allowlist_is_still_refused():
+    """The untouched segment list is load-bearing, not decoration.
+
+    If these assertions ever pass trivially — because ``rewards`` or
+    ``redemptions`` left :data:`_D6_FORBIDDEN_SEGMENTS` — the allowlist stopped
+    admitting anything and started merely describing, and the next rewards path
+    added would clear the scan without anyone naming it. The balance and catalog
+    families are checked here too, because no allowlist admits either and none
+    should: neither is a resource this API exposes.
+    """
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/rewards/{item_id}") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/balance") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/catalog") == "D6"
+    assert _forbidden_gate_for_path("/v1/units/{unit_id}/rewards") is None
 
 
 def test_openapi_exposes_no_gated_product_surface_routes():

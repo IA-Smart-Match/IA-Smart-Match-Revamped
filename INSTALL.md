@@ -9,6 +9,97 @@ about getting the thing installed and verified.
 
 ---
 
+## The short path: the launchers
+
+Two scripts at the repository root are the canonical commands. Everything after
+this section is the manual toolchain they wrap — still correct, still the right
+reference when a step fails, and no longer the first thing to read.
+
+### Ubuntu 24.04 and WSL
+
+```bash
+./setup.sh                # Git, Docker Engine, Compose v2. Idempotent.
+./smartmatch.sh install   # validate, build, start, wait for health, print the URL
+```
+
+### Windows with Docker Desktop
+
+```powershell
+.\setup.ps1                # Git and Docker Desktop, through winget. Idempotent.
+.\smartmatch.ps1 install   # the same eight commands, the same exit codes
+```
+
+Then open **http://127.0.0.1:5173/**.
+
+Docker Compose is the runtime dependency installer: PostgreSQL 16, the Python
+service dependencies, the migrations, the seed data, the scheduler, and the
+frontend's `npm ci` all happen inside containers. Neither `install` needs Python
+or Node on the host.
+
+Add `--developer` (PowerShell: `-Developer`) to either script to also set up the
+host toolchain — Python 3.11, Node 22, `.venv` with hash-verified dependencies,
+`npm ci`, and a run of the local gates.
+
+### The commands
+
+| Command | What it does |
+|---|---|
+| `install [--developer]` | Validate, build, start, wait for health, print URLs |
+| `start` / `stop` / `restart` | `stop` keeps the data volumes |
+| `status [--json]` | Per-service state, health, and exit code |
+| `health [--wait]` | The bounded health suite. Non-mutating |
+| `verify [--full]` | Health, plus (`--full`) the end-to-end smoke path |
+| `logs [service] [-f]` | Container logs |
+
+Exit codes are stable and tested: `0` ok, `1` unhealthy or verification failed,
+`2` usage error, `3` missing prerequisite, `4` a published port is already held
+by something else, `5` timed out waiting for health.
+
+### What `health` actually checks
+
+Eleven checks, all reads, and the command exits nonzero unless every one passes:
+
+1. PostgreSQL's own healthcheck is green.
+2. `alembic_version` equals the head computed from `db/migrations/versions/`.
+3. `migrate` exited 0.
+4. `seed` exited 0.
+5. `seed-review` exited 0.
+6. `GET /api/health` is 200, `status=ok`, and the release is the one this
+   checkout expects.
+7. `GET /health` on the worker is 200 and `status=ok`.
+8. The worker reports a completed dispatch pass recent enough to mean the
+   scheduler sidecar is still driving it.
+9. `GET /` on the frontend is 200.
+10. `GET /coordinator-portal` is 200 — the SPA deep-route fallback.
+11. `GET /v1/me` **through the frontend's proxy** authenticates as the seeded
+    coordinator.
+
+`health` never writes. `verify --full` runs
+[`scripts/compose_smoke.sh`](scripts/compose_smoke.sh) afterwards, which does —
+it imports, dispatches, reviews, and asserts the metrics move. That is the
+mutating command, and the split is the point.
+
+### Common failures
+
+**`4` — port collision.** Something already holds 5432, 8080, 8081, or 5173. On
+5432 the usual cause is a native PostgreSQL; `docker-compose.yml`'s header says
+it outright: pick one database. `sudo service postgresql stop`, or change the
+published port and set `SMARTMATCH_DATABASE_URL` to match.
+
+**`3` — missing prerequisite.** `docker` is absent, `docker compose` is the
+legacy v1 binary, or the daemon is not running. On Linux the most common cause
+is that `setup.sh` added you to the `docker` group and you have not logged back
+in yet; it says so at the end of its run.
+
+**`5` — timed out.** The first `install` builds two images and runs `npm ci`
+into an empty volume, which is minutes. `./smartmatch.sh status` shows which
+service is stuck and `./smartmatch.sh logs <service>` shows why.
+
+Neither launcher, nor either setup script, ever writes `.env`. If you have one
+it is left exactly as it is.
+
+---
+
 ## Prerequisites
 
 | Requirement | Notes |
@@ -129,21 +220,229 @@ The API runs against fixture providers by default and **cannot** be configured
 into a live provider without credentials that do not exist in this repository.
 
 There is also a container stack (`docker-compose.yml`) providing PostgreSQL, a
-migration step, a one-shot dev-only seed step, the API, the worker, and a
-dev-only scheduler sidecar. Bringing it up is not a deployment — see the file's
-own header for what it deliberately does not claim.
+migration step, two one-shot dev-only seed steps, the API, the worker, a
+dev-only scheduler sidecar, and the legacy Vite frontend. Bringing it up is not
+a deployment — see the file's own header for what it deliberately does not
+claim.
 
 ```bash
-docker compose up --build -d
+./smartmatch.sh start      # or: docker compose up --build -d
 ```
+
+The launcher is the canonical command: it additionally checks for a port
+collision before it starts, and waits on the health suite rather than returning
+the moment the containers exist.
+
+---
+
+## The stakeholder click-through
+
+One command, one browser tab, and one thing to click. This is the section to
+follow if the goal is to *show* the pilot rather than to develop against it;
+everything below it is the same path expressed as curl, plus the developer
+detail.
+
+**1. Start the appliance.**
+
+```bash
+./smartmatch.sh install
+```
+
+The first run builds two images and installs the frontend's dependencies, so
+give it several minutes; `install` waits for the whole stack to become healthy
+and then prints the URL, so there is nothing to watch for. (`docker compose up
+--build -d` does the same starting, without the validation, the port check, or
+the wait.)
+
+`./smartmatch.sh status` reports the state below, and
+`./smartmatch.sh status --json` reports it in a form a script can read. It is
+finished when it shows this:
+
+| Service | Expected state | Published on |
+|---|---|---|
+| `db` | `running (healthy)` | `127.0.0.1:5432` — see the port-collision note below |
+| `migrate` | `exited (0)` | — |
+| `seed` | `exited (0)` | — |
+| `seed-principals` | `exited (0)` | — |
+| `api` | `running (healthy)` | `127.0.0.1:8080` |
+| `worker` | `running (healthy)` | `127.0.0.1:8081` |
+| `scheduler` | `running` | — (outbound only) |
+| `seed-review` | `exited (0)` | — |
+| `web` | `running (healthy)` | `127.0.0.1:5173` |
+
+`docker compose up -d` returns when the containers have *started*, not when
+they are finished — `seed-review` submits its import and then waits several
+seconds for the dispatch path to turn it into review items, so a `ps` run
+immediately afterwards can still show it `running`. Give it a moment and look
+again. `web` likewise stays `starting` while `npm ci` runs on a first start —
+that is the long step, and `docker compose logs -f web` shows it happening. A `seed-review` that
+is `exited (1)` rather than `exited (0)` means the demo import never reached
+review; `docker compose logs seed-review` names the stage it stopped at, and
+that is a real failure of the import path, not a cosmetic one.
+
+**2. Open the coordinator portal.**
+
+<http://127.0.0.1:5173/coordinator-portal>
+
+There is **no login screen and no sign-in step**, and this is deliberate:
+institutional sign-in (A1b) is not connected, and nothing here pretends
+otherwise. The `web` container is built with the same local-only fixture
+bearer token the curl steps below send, so the browser presents a credential
+and the *server* decides who that is. The shell calls `GET /v1/me` before it
+renders and shows what the server answered — the seeded email
+`compose-pilot-coordinator@example.invalid` and the server-assigned
+`coordinator` role on the `pilot` unit. Nothing on that screen is chosen in
+the browser.
+
+**3. Find the review queue.** The `seed-review` one-shot has already put two
+synthetic professionals — *Grace Hopper* and *Katherine Johnson*, both
+`metro_region: Portland` — into the queue. It did not write them into the
+database directly: it submitted an ordinary import through the API and waited
+for the worker and scheduler to turn it into review items, which is why their
+presence is evidence that the import path works rather than decoration.
+
+**4. Accept one, and watch a metric move.** The metric is the point; a decision
+that changes no count has not been recorded anywhere that matters. Read it
+before and after:
+
+```bash
+UNIT_ID=$(docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" \
+  -tAc "select id from org_unit where path = 'pilot'")
+
+curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+  -H "Authorization: Bearer compose-api" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"))'
+```
+
+`2` before the decision, `1` after it. Step 6 of the smoke path below is the
+same decision as a curl, if the portal's own control is not reachable.
+
+**5. Enter every portal type.** The appliance pre-loads **four** principals,
+one per portal, so a stakeholder can see each shell rather than only the
+Speaker Connector's. Each is a separate account holding a single membership
+carrying a single role, seeded by the `seed` and `seed-principals` one-shots;
+`docker-compose.yml`'s `SMARTMATCH_DEV_PRINCIPALS` maps one bearer token to
+each. Ask the server which portal a token opens — the answer comes from
+`membership` rows, never from anything the caller sends:
+
+```bash
+for TOKEN in compose-api compose-student compose-host compose-admin; do
+  echo "== $TOKEN"
+  curl -s "http://127.0.0.1:8080/v1/me/portals" \
+    -H "Authorization: Bearer $TOKEN" \
+    | python3 -c 'import json,sys
+for p in json.load(sys.stdin)["portals"]:
+    print("  {role:12} -> {display_name} at {home_path}".format(**p))'
+done
+```
+
+which prints exactly one line per token:
+
+```
+== compose-api
+  coordinator  -> Connector Dashboard at /coordinator-portal
+== compose-student
+  student      -> Student Portal at /student-portal
+== compose-host
+  volunteer    -> Event Host Portal at /volunteer-portal
+== compose-admin
+  admin        -> CBA Administration at /dashboard
+```
+
+| Bearer token | Signs in as | Stored role | Portal | Home path |
+|---|---|---|---|---|
+| `compose-api` | `compose-pilot-coordinator@example.invalid` | `coordinator` | Connector Dashboard | `/coordinator-portal` |
+| `compose-student` | `compose-pilot-student@example.invalid` | `student` | Student Portal | `/student-portal` |
+| `compose-host` | `compose-pilot-volunteer@example.invalid` | `volunteer` | Event Host Portal | `/volunteer-portal` |
+| `compose-admin` | `compose-pilot-admin@example.invalid` | `admin` | CBA Administration | `/dashboard` |
+
+These are **not credentials** and must never be treated as any. They have no
+password, no expiry and no revocation, they authenticate nothing outside this
+compose network, and `Settings._validate_isolation`
+(`services/api/smartmatch_api/config.py`) refuses to start the API with them
+set under any edition but `dev`. The addresses are under RFC 2606's reserved
+`.invalid` TLD, so no message this pilot composes can reach a person. The
+separate, owner-supplied `/login` credentials — a real password path — are a
+different mechanism entirely — the owner fills in
+`SMARTMATCH_PILOT_*_EMAIL` / `_PASSWORD` in a gitignored `.env`, the
+`seed-logins` one-shot writes a `pilot_credential` row for each pair that is
+set, and a role whose pair is unset is simply not created. See `.env.example`
+and `docs/decisions/pilot-login-decision-2026-09-04.md`. Nothing in this
+repository ships a password.
+
+Four tokens is four *identities*, not four *permissions*. A token yields a bare
+subject; the tenant, the memberships and the grants are read from rows an
+administrator wrote. Each principal therefore opens exactly one portal and is
+refused the others — `tests/e2e/test_pilot_clickthrough.py`'s step 03b asserts
+both halves, and the coordinator is still refused the student-gated rewards
+catalog in step 14.
+
+**What each principal can actually reach, stated plainly:**
+
+- **Speaker Connector (`compose-api`)** — the full path this file walks:
+  imports, the review queue, metrics and drill-downs, match runs, events,
+  outreach, invitations, the confirmed-speaker hand-off, and the thresholded
+  speaker-feedback aggregate.
+- **Student (`compose-student`)** — the rewards catalog and their own
+  redemptions, the published-event browse and agenda, event registration, and
+  their own speaker-feedback listing. Two things are reachable but empty on a
+  fresh appliance and are not defects: nothing seeds a **funded reward item**,
+  so the catalog is `[]` and there is nothing to redeem; and no event is
+  published, so the browse list reports what it withheld rather than showing
+  rows. Submitting a speaker rating additionally needs an `attendance_record`,
+  and **no `/v1` route creates one** — the route answers `403
+  student_feedback_not_eligible`, which is the check working, not a gap in the
+  principal.
+- **Admin (`compose-admin`)** — the administration surface, including
+  tenant-wide metric aggregates.
+- **Event Host (`compose-host`)** — **one write and no reads.** Filing a
+  Speaker Request works (`POST /v1/units/{unit_id}/speaker-requests` returns
+  the filed request). Reading the queue back does not: it is granted to the
+  Speaker Connector and to nobody else, because the queue holds *every* host's
+  request text for the unit and handing one host the others' filings would be a
+  widening no committed artifact supports. Whether a host should be able to
+  list back **their own** requests is open question **OQ-CBA-014**, recorded
+  rather than answered. Until it is answered, a stakeholder can *enter* the
+  Event Host portal and file a request, and there is nothing for that portal to
+  display afterwards. Step 26 of the e2e asserts exactly this, refusal
+  included.
+
+**Two things this walkthrough does not show, stated rather than glossed:**
+
+- **Portal page content.** The pages fetch `/api/portals/*`, a legacy backend
+  this repository does not contain and this stack does not run, so each page
+  renders its own load-failure state under the signed-in chrome. Identity, the
+  route guard, and the sign-out path are what the browser exercises here; the
+  data path's proof is the curl sequence below and
+  `scripts/compose_smoke.sh`.
+- **Sign-in.** There is none. See step 2.
+
+**A port collision worth knowing about.** This stack publishes `5432`, and so
+does a native `apt install postgresql-16`. If `docker compose ps db` shows
+`5432/tcp` with **no** `127.0.0.1:5432->` prefix, a native PostgreSQL already
+holds the port and host-side `psql` reaches *that* database, not this one. Use
+`docker compose exec -T db psql` — as every command in this file does — or
+stop the native service first.
+
+Tear down when finished; `-v` discards both the database volume and the
+frontend's installed dependencies, so the next start really is clean:
+
+```bash
+docker compose down -v
+```
+
+---
 
 ### Smoke-testing the full import path
 
-This is the complete path from an empty stack through a coordinator's review
-decision and back out to the metric that decision moved:
+This is the complete path from a freshly started stack through a
+coordinator's review decision and back out to the metric that decision moved.
+"Freshly started" is not "empty": `seed-review` has already queued two rows,
+so the counts below start at `2` and this path's own row makes `3`.
 
-    import  ->  scheduler dispatch  ->  pending_review_items == 1
-            ->  review decision     ->  pending_review_items == 0
+    import  ->  scheduler dispatch  ->  pending_review_items == 3
+            ->  review decision     ->  pending_review_items == 2
 
 with **no manual dispatch step** anywhere in it — the `scheduler` sidecar
 drives the import to completion on its own, the same way Cloud Scheduler would
@@ -155,12 +454,21 @@ change actually changes.
 **1. Bring the stack up.**
 
 ```bash
-docker compose up --build -d
+./smartmatch.sh install
 ```
 
-Wait for it to settle (`docker compose ps` — `api`, `worker`, and `scheduler`
-should all be `running`/`healthy`; `migrate` and `seed` should be
-`exited (0)`).
+`install` does not return until the stack is healthy, so there is nothing to
+wait for afterwards. If you started it some other way, `./smartmatch.sh health
+--wait` is the bounded wait, and `./smartmatch.sh status` shows the same states
+by hand (`api`, `worker`, `scheduler`, and `web` `running`/`healthy`;
+`migrate`, `seed`, and `seed-review` `exited (0)`). The state table in "The
+stakeholder click-through" above lists every service and its published port.
+
+Note that a settled stack is **not** an empty one: `seed-review` has already
+put two pending review items on the `pilot` unit, so `pending_review_items`
+reads `2` before step 3 imports anything. The counts in steps 4, 7, 9 and 12
+below are stated as that baseline plus or minus this path's own row, which is
+exactly how `scripts/compose_smoke.sh` asserts them.
 
 **2. Recover the seeded unit's UUID.** `seed` created a `pilot` org unit under
 a synthetic `pilot` tenant (`tools/seed_pilot.py`'s own defaults); look it up
@@ -202,7 +510,8 @@ has been imported yet. The `scheduler` sidecar is what moves it the rest of
 the way, on its own two-second loop.
 
 **4. Poll `GET /v1/units/$UNIT_ID/metrics` for at most 30 seconds**, watching
-for `pending_review_items` to reach `1`:
+for `pending_review_items` to reach `3` — the two rows `seed-review` already
+queued, plus this one:
 
 ```bash
 for i in $(seq 1 30); do
@@ -210,14 +519,14 @@ for i in $(seq 1 30); do
     -H "Authorization: Bearer compose-api" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"), "null"))')
   echo "attempt $i: pending_review_items.value = $value"
-  [ "$value" = "1" ] && break
+  [ "$value" = "3" ] && break
   sleep 1
 done
-[ "$value" = "1" ] || { echo "FAILED: expected pending_review_items.value == 1, got $value"; exit 1; }
-echo "OK: one row queued through the dev-only scheduler, no manual dispatch"
+[ "$value" = "3" ] || { echo "FAILED: expected pending_review_items.value == 3, got $value"; exit 1; }
+echo "OK: one more row queued through the dev-only scheduler, no manual dispatch"
 ```
 
-If this never reaches `1`, check the `scheduler` sidecar **before** blaming the
+If this never reaches `3`, check the `scheduler` sidecar **before** blaming the
 poll budget — it exits rather than retrying when the worker answers `401`,
 `403`, or `501`, so a stopped sidecar is a misconfiguration, not a slow start:
 
@@ -229,7 +538,10 @@ docker compose logs scheduler | tail -5
 **5. Recover the pending review item's UUID.** The API exposes no list route
 for review items — `POST /v1/review-items/{id}/decision` is the only route in
 `smartmatch_api/routers/review.py` — so read the id from the database the same
-way step 2 read the unit id:
+way step 2 read the unit id. The query is narrowed to this path's own row by
+name, because the queue also holds the two rows `seed-review` put there and
+accepting one of those instead would move the same metric for a different
+reason:
 
 ```bash
 REVIEW_ITEM_ID=$(docker compose exec -T db psql \
@@ -241,6 +553,8 @@ REVIEW_ITEM_ID=$(docker compose exec -T db psql \
     join org_unit ou
       on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
    where ou.path = 'pilot' and ri.status = 'pending'
+     and ib.dataset = 'professionals'
+     and ri.row_data->>'name' = 'Ada Lovelace'
    order by ri.row_index
    limit 1")
 echo "$REVIEW_ITEM_ID"
@@ -272,12 +586,145 @@ for i in $(seq 1 30); do
     -H "Authorization: Bearer compose-api" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pending_review_items"), "null"))')
   echo "attempt $i: pending_review_items.value = $value"
-  [ "$value" = "0" ] && break
+  [ "$value" = "2" ] && break
   sleep 1
 done
-[ "$value" = "0" ] || { echo "FAILED: expected pending_review_items.value == 0, got $value"; exit 1; }
+[ "$value" = "2" ] || { echo "FAILED: expected pending_review_items.value == 2, got $value"; exit 1; }
 echo "OK: import -> scheduler dispatch -> review -> decision -> metric"
 ```
+
+**8. Submit one inline `events` row.** `pending_review_items` is not the only
+metric a coordinator's accept can move. This row uses the columns
+`docs/pilot-data/columns.yaml` ratifies for `events` (`Event / Program` and
+`Category` required) with an in-list category, so it queues the same way the
+professionals row in step 3 did.
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/v1/units/$UNIT_ID/imports" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: smoke-events-$(date +%s)" \
+  -d '{
+        "dataset": "events",
+        "dry_run": false,
+        "rows": [
+          {"Event / Program": "Portland Hackathon", "Category": "hackathon"}
+        ]
+      }'
+```
+
+**9. Poll for `pending_review_items` to reach `3` again**, exactly as step 4
+did.
+
+**10. Recover the new review item's UUID**, narrowing step 5's query to the
+`events` batch. Note the key: the import pipeline normalizes the ratified
+header `Event / Program` into `event_program` before it stores the row, so
+that — not the header — is what `row_data` is keyed by:
+
+```bash
+EVENTS_REVIEW_ITEM_ID=$(docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc "
+  select ri.id
+    from review_item ri
+    join import_batch ib
+      on ib.tenant_id = ri.tenant_id and ib.id = ri.import_batch_id
+    join org_unit ou
+      on ou.tenant_id = ib.tenant_id and ou.id = ib.owning_unit_id
+   where ou.path = 'pilot' and ri.status = 'pending' and ib.dataset = 'events'
+     and ri.row_data->>'event_program' = 'Portland Hackathon'
+   order by ri.row_index
+   limit 1")
+echo "$EVENTS_REVIEW_ITEM_ID"
+```
+
+**11. Accept it**, exactly as step 6 did:
+
+```bash
+curl -sf -X POST "http://127.0.0.1:8080/v1/review-items/$EVENTS_REVIEW_ITEM_ID/decision" \
+  -H "Authorization: Bearer compose-api" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "accepted"}'
+```
+
+**12. Confirm `pipeline_matched` moved from `0` to `1`.** This is the smoke
+path's other half, and the reason this branch exists: `pipeline_record` has
+never had a production caller before this branch, so `pipeline_matched` has
+been a permanent measured zero for every unit this appliance has ever seeded.
+A `2xx` from step 11 is not evidence of that on its own (§1.10 of the plan
+this branch implements) — the positive count polled below is.
+
+```bash
+for i in $(seq 1 30); do
+  value=$(curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+    -H "Authorization: Bearer compose-api" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((m["value"] for m in d["metrics"] if m["name"]=="pipeline_matched"), "null"))')
+  echo "attempt $i: pipeline_matched.value = $value"
+  [ "$value" = "1" ] && break
+  sleep 1
+done
+[ "$value" = "1" ] || { echo "FAILED: expected pipeline_matched.value == 1, got $value"; exit 1; }
+echo "OK: pipeline_matched moved 0 -> 1"
+```
+
+**13. Confirm `opportunities` also moved, from the same metrics route:**
+
+```bash
+curl -s "http://127.0.0.1:8080/v1/units/$UNIT_ID/metrics" \
+  -H "Authorization: Bearer compose-api" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(m["value"] for m in d["metrics"] if m["name"]=="opportunities"))'
+```
+
+Expect `1`.
+
+**14. Confirm the stored row says it is synthetic**, read directly from the
+table rather than through any route — this is the database-level half of the
+same claim step 12 makes at the metrics layer:
+
+```bash
+docker compose exec -T db psql \
+  "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc \
+  "select matched_provenance from pipeline_record"
+```
+
+Expect exactly one row, reading `synthetic / coordinator-accepted`.
+
+**What `pipeline_matched` becoming `1` proves, and what it does not.** It
+proves that a coordinator accepted a synthetic, in-list `events` row for a
+synthetic professional inside this compose appliance, through the same
+authenticated route a real coordinator uses, and that the row it produced
+records itself in the database as synthetic rather than merely claiming so
+in a log line. It proves nothing about matching quality: there is no score,
+confidence, or ranking anywhere in this path (plan §1.3), and it says
+nothing about the separate matching engine landing on `pilot/match-engine-m2-m7`
+(`PR #12`), which this branch does not import from, depend on, or reference.
+
+For a demo that wants funnel *depth* — a coordinator's accept only ever opens
+a journey at Matched — `tools/seed_demo_pipeline.py` is the optional
+follow-on: a dev-only operator tool that walks already-open journeys toward
+Contacted, Confirmed, Attended, and Member Inquiry. It is **not** part of
+either shipped container image (its own module docstring says so), so it is
+invoked from the host, against the compose stack's published database port,
+the same way `tools/seed_pilot.py` already is. It exits non-zero if it finds
+nothing to advance, so a demo run that silently did nothing is never
+mistaken for one that worked:
+
+```bash
+SMARTMATCH_EDITION=dev \
+SMARTMATCH_USE_FIXTURE_PROVIDERS=true \
+SMARTMATCH_DATABASE_URL="postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch" \
+.venv/bin/python tools/seed_demo_pipeline.py \
+  --tenant-slug pilot --unit-path pilot --through attended --limit 2
+```
+
+`localhost:5432` above is the same port a native PostgreSQL install (§2)
+would also bind — on a host running both, the native instance can silently
+shadow the compose appliance's `db` with no error to say so, and the command
+above would then seed the wrong database. Check `docker compose ps db`
+first: a `5432/tcp` entry with **no** `127.0.0.1:5432->` prefix means the
+port is shadowed, and you cannot reach the appliance from the host at all —
+use the same `docker compose exec -T db psql` this file's steps 10/14 and
+`scripts/compose_smoke.sh`'s own `psql_scalar` helper already use instead of
+the host-side invocation above.
 
 Tear down when finished:
 
@@ -287,21 +734,168 @@ docker compose down -v
 
 ### The same path, non-interactively
 
-`scripts/compose_smoke.sh` runs steps 2 through 7 above as one command, with
+`scripts/compose_smoke.sh` runs steps 2 through 14 above as one command, with
 every assertion made explicit and the relevant `docker compose logs` dumped on
 the first failure. It is what the `compose smoke` CI job
 (`.github/workflows/build.yml`) runs, so the documented path and the enforced
 path are one sequence rather than two that can drift:
 
 ```bash
+./smartmatch.sh install
+./smartmatch.sh verify --full     # health suite, then compose_smoke.sh
+docker compose down -v            # teardown stays explicit, and destroys data
+```
+
+`verify --full` is what the `compose smoke` CI job runs, so the documented
+command and the enforced command are the same command. It runs the bounded
+health suite first and then `scripts/compose_smoke.sh`; running that script
+directly still works and is unchanged.
+
+Neither the script nor the launcher brings the stack up or tears it down — CI
+wants the containers alive after a failure so it can read their logs, and so
+does anyone debugging by hand. `docker compose down -v` above is the one
+command in this file that discards the database, which is why it is still typed
+out rather than hidden behind a launcher subcommand.
+
+### The rest of the pilot: `make e2e`
+
+The smoke path above is the documented happy path. `make e2e` walks what a
+coordinator does with the appliance *beyond* it, against the same running
+stack, and the `pilot e2e` CI job runs exactly this target:
+
+```bash
 docker compose up --build -d
-scripts/compose_smoke.sh
+make e2e
 docker compose down -v
 ```
 
-It deliberately does not bring the stack up or tear it down — CI wants the
-containers alive after a failure so it can read their logs, and so does anyone
-debugging by hand.
+`tests/e2e/test_pilot_clickthrough.py` is the sequence: fixture auth with the
+role read from `GET /v1/me`; the `docs/pilot-data/columns.yaml` contract
+refusing a row that omits a required column; a live import through the
+scheduler; a review **accept** *and* a review **reject** (plus the `409` on
+re-deciding a decided item); the metrics read and the drill-down rows behind
+the number; a match run with its shortlist and per-factor explanation; the
+events and tag-quarantine reads; and rewards.
+
+It is written to fail on dishonesty rather than only on breakage. It goes red
+if a score is a constant instead of a computation, if an unknown is rendered as
+`0` (ADR-0011), if a role could be chosen by the caller instead of resolved by
+the server, or if any match score is presented as a percentage.
+
+Since the appliance pre-loads one principal per portal, the suite also proves
+that each of the four tokens above opens exactly one portal and is refused the
+others (step 03b), walks the **rewards catalog** as the student while asserting
+the coordinator is still refused it (step 14), and files a **Speaker Request**
+as the Event Host while asserting that host is refused every read of it (step
+26, OQ-CBA-014).
+
+**Three steps still cannot run on this appliance and are skipped by name, never
+faked.** `make e2e` passes `-ra` so each one is printed in the summary:
+
+- A **redemption decision** has nothing to decide. The role gate is gone — a
+  student principal exists and reaches the request route, which the suite
+  proves by getting a `404` (not a `403`) for an item id nobody issued. What is
+  missing is a **funded reward item**: nothing seeds a rewards catalog and no
+  `/v1` route creates one, so there is nothing to request and therefore nothing
+  for the coordinator-gated decision route to act on.
+- **Student speaker feedback** cannot be submitted. Here too the role gate is
+  closed — the student reads their own (empty) feedback listing and reaches the
+  submit route — but the route requires an `attendance_record` for the caller
+  at that event and **no `/v1` route creates one**
+  (`smartmatch_persistence/attendance.py` says no route imports it and none
+  may). The refusal is asserted as `403 student_feedback_not_eligible`, which
+  is a different code from the role gate's `forbidden`, so the suite can tell
+  which gate is standing. Seeding the row directly would manufacture the
+  evidence the feature exists to check.
+- The **portal pages** fetch `/api/portals/*`, a backend no service in this
+  repository serves, so they render a load-failure state. Nothing stands in
+  for it; the web service's real behaviour is covered by
+  `scripts/compose_smoke.sh` stage 16 instead.
+
+Two ids the suite needs are read from the database rather than from the API,
+because no `/v1` route returns them: a **review item's id** (the API exposes
+only `POST /v1/review-items/{id}/decision`, with no listing) and a **unit id
+for a unit path** (`GET /v1/me` names the path and nothing resolves it). Both
+are recorded gaps, not shortcuts — the same lookups `scripts/compose_smoke.sh`
+already makes.
+
+### Clicking through the portals as the compose principal
+
+The stack now runs the legacy frontend itself, as the `web` service, published
+on <http://127.0.0.1:5173>. Nothing needs to be installed or started on the
+host — `docker compose up --build -d` is the whole command, and the two
+environment variables that used to be typed by hand are set in
+`docker-compose.yml`:
+
+- `SMARTMATCH_API_PROXY_TARGET=http://api:8080` forwards the dev server's
+  `/api` and `/v1` to the compose API by service name. It is read at config
+  time and is never bundled.
+- `VITE_SMARTMATCH_BEARER_TOKEN=compose-api` is the local-only dev token
+  `docker-compose.yml` maps to the seeded subject `compose-pilot-coordinator`
+  — the same `Authorization: Bearer compose-api` the curl steps above use.
+  Substituting one of the other three tokens from the table in step 5 and
+  restarting the dev server is how the browser enters a *different* portal:
+  the bundle carries the token, `GET /v1/me/portals` decides which shell it
+  opens, and nothing about that decision happens in the browser. It
+  is a credential, not an identity: the browser sends it and the server
+  decides who that is. Being a build-time variable, it *is* in the bundle the
+  browser runs, which is exactly why it is a short compose-only string that
+  authenticates nothing outside this network.
+
+`npm ci` used to fail here on a Windows-mounted path under WSL (DrvFs), which
+is why this was a host step for so long. The `web-node-modules` volume is what
+resolves it: npm writes into a Docker volume on the VM's own filesystem rather
+than onto `/mnt/c`. The first start therefore takes minutes and every later
+start does not.
+
+Then open <http://127.0.0.1:5173/coordinator-portal>. The shell calls
+`GET /v1/me` before it renders anything and shows what the server answered —
+the seeded email `compose-pilot-coordinator@example.invalid` and the
+server-assigned `coordinator` membership on the `pilot` unit. Nothing on that
+screen is chosen in the browser.
+
+To run the dev server on the host instead — for frontend work, where the
+container's install cycle is in the way — the old sequence still works and is
+unchanged:
+
+```bash
+cd apps/web/legacy-frontend
+npm ci
+SMARTMATCH_API_PROXY_TARGET=http://127.0.0.1:8080 \
+VITE_SMARTMATCH_BEARER_TOKEN=compose-api \
+npm run dev
+```
+
+Stop the `web` container first (`docker compose stop web`), or the host dev
+server cannot bind 5173.
+
+Two things are worth checking deliberately, because they are what Fix #7
+closed:
+
+1. **Start the dev server without `VITE_SMARTMATCH_BEARER_TOKEN`.** Every
+   portal URL — `/student-portal`, `/coordinator-portal`,
+   `/volunteer-portal`, `/dashboard` — redirects to `/login`, which states
+   that institutional sign-in is not connected yet (A1b). There is no
+   fallback identity to fall into, because there is no longer one to fall
+   back to. Against the container, that means removing the variable from the
+   `web` service and running `docker compose up -d --force-recreate web`; the
+   host sequence above is the quicker way to see it.
+2. **Sign out from the portal.** It clears the browser-held token and
+   re-asks `GET /v1/me`. A bundle started with `VITE_SMARTMATCH_BEARER_TOKEN`
+   carries its token in the bundle, so the server answers again and the
+   portal stays open — sign-out cannot revoke a build-time fixture, and the
+   UI does not pretend it can. Stop the dev server to end that session.
+
+What compose does **not** demonstrate is portal *content*: the pages fetch
+`/api/portals/*`, a legacy backend this repository does not contain and the
+stack does not run, so each page shows its own load-failure state under the
+signed-in chrome. Identity, the route guard, and the sign-out path are what
+this walkthrough exercises; `scripts/compose_smoke.sh` above is the proof for
+the data path. Its stage 16 asserts exactly the three things the browser can
+be held to here — the dev server serves, the documented portal route answers
+`200` rather than `404`, and `GET /v1/me` through the proxy resolves to the
+seeded coordinator — and asserts nothing about page content, for the same
+reason.
 
 ---
 
@@ -315,8 +909,13 @@ debugging by hand.
 | Integration tests report `skipped` | No reachable database. Verify with the `psql` checks above. |
 | `ModuleNotFoundError: No module named 'sqlalchemy'` | You used the system `python3`. Use `.venv/bin/python` and `.venv/bin/pytest`. |
 | `alembic_version` behind the newest migration file | `make migrate`. |
-| Smoke path never reaches `pending_review_items == 1` | Check `docker compose ps -a scheduler` first. `exited` means the sidecar was refused (`401`/`403`/`501`) and stopped rather than looping — a bearer-token or dispatch misconfiguration, not a slow start. `docker compose logs scheduler` names the status. |
+| Smoke path never reaches the expected `pending_review_items` count | Check `docker compose ps -a scheduler` first. `exited` means the sidecar was refused (`401`/`403`/`501`) and stopped rather than looping — a bearer-token or dispatch misconfiguration, not a slow start. `docker compose logs scheduler` names the status. |
 | `409 review_item_already_decided` | That item was already accepted or rejected. Submit a fresh import, or `docker compose down -v` and start clean. |
+| `docker compose ps -a seed-review` shows `exited (1)` | The demo import never reached review. `docker compose logs seed-review` names the stage it stopped at — most often the `scheduler` sidecar was refused, so check that next. The review queue really is empty; nothing back-filled it to hide the failure. |
+| `web` stays `starting` for minutes on a first `up` | Expected: `npm ci` is installing into the empty `web-node-modules` volume. `docker compose logs -f web` shows progress. Later starts reuse the volume and are fast. |
+| `web` is `unhealthy`, or 5173 refuses connections | Read `docker compose logs web`. An `npm ci` that failed on a registry error is the common cause — `docker compose up -d --force-recreate web` retries it. A host process already on 5173 (an earlier `npm run dev`) is the other. |
+| Portal pages render an error panel under signed-in chrome | Expected, and not a compose fault: they fetch `/api/portals/*`, a legacy backend this repository does not contain. Identity and routing work; page content has no server here. |
+| The portal shows no login screen | Also expected. Institutional sign-in (A1b) is not connected; the browser carries a build-time fixture bearer token and the server decides the identity. Nothing here is a sign-in. |
 
 Error-keyed troubleshooting beyond this table is in
 [`CONTRIBUTING.md`](CONTRIBUTING.md#troubleshooting).

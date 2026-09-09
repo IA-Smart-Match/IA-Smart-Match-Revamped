@@ -13,12 +13,14 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
+from datetime import date
 from typing import Any
 
 import pytest
 
 pytest.importorskip("sqlalchemy")
 
+from smartmatch_domain.events import normalize_title
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -68,9 +70,104 @@ _TENANT_SCOPED_TABLES = (
     "job_event",
     "outbox_record",
     "redrive_record",
+    # Migration 0018. Before `job`, which it references ON DELETE RESTRICT, and
+    # before `org_unit` for the same reason. It is deletable even though its
+    # rows are immutable: 0018 blocks UPDATE only, because retention is a
+    # question that card does not decide and a table nothing could delete from
+    # would make its tenant undeletable.
+    # Migration 0029, and the most heavily referenced pair in this tuple: an
+    # invitation holds ON DELETE RESTRICT references to `org_unit`,
+    # `contact_channel`, `outreach_draft`, `job` and `user_account`, and its
+    # batch holds them to `org_unit`, `match_run` and `user_account`. So both go
+    # above every one of those, `match_run` included — which is why they are
+    # listed here rather than beside the 0021 outreach tables they also
+    # reference. Getting this wrong is precisely the ordering failure PR #26 had
+    # to fix for `match_run`/`job`, and it was found here the same way: the
+    # teardown's `job` sweep failed on a foreign key from a row a test left.
+    "cba_invitation",
+    "cba_invitation_batch",
+    "match_run",
+    # Migration 0021, in dependency order among themselves and all before
+    # `job`, which `outreach_send` references ON DELETE RESTRICT — the same
+    # ordering hazard `match_run` above records. `suppression_record` is listed
+    # with them although it references only `tenant`: this tuple is read as the
+    # full set of tenant-scoped tables, not as the minimum a cascade would miss.
+    "delivery_event",
+    "outreach_send",
+    "outreach_draft",
+    # Migration 0022. Before `contact_channel` and before `user_account`, both
+    # of which it references ON DELETE RESTRICT. Deletable although its rows are
+    # immutable, for `match_run`'s reason: 0022 blocks UPDATE only, because
+    # retention is a separate decision and a table nothing could delete from
+    # would make its tenant undeletable.
+    "contact_channel_transition",
+    "contact_channel",
+    "suppression_record",
     "job",
     "membership",
     "resource_grant",
+    # Migration 0017. Both cascade from `event`, and are listed anyway so this
+    # tuple stays the full set of tenant-scoped tables — which is how a reader
+    # uses it — rather than only the rows a cascade would have reached.
+    "event_tag",
+    "discovery_review_item",
+    # Migration 0024. Before `event`, which it cascades from, and listed anyway
+    # for the reason `event_tag` above is: this tuple is read as the full set of
+    # tenant-scoped tables, not as the minimum a cascade would miss.
+    "speaker_request_classification",
+    # Migration 0026. Holds ON DELETE RESTRICT references to `event`,
+    # `user_account` *and* `org_unit`, so it goes above all three — the ordering
+    # failure PR #26 had to fix for `match_run`/`job`.
+    #
+    # Unlike `attendance_record`, which the note below records as deliberately
+    # absent, this one is listed. Attendance is written by a handful of modules
+    # that already delete it in their own fixtures; a registration can be left
+    # behind by any test that exercises the student write routes, and one row
+    # nobody remembered to clean makes the whole tenant undeletable.
+    "event_registration",
+    # Migration 0027. Both hold ON DELETE RESTRICT references to `org_unit`
+    # *and* `user_account`, so they go above both — the ordering failure PR #26
+    # had to fix for `match_run`/`job`. The revision log is listed first because
+    # nothing references it and it is the more surprising of the two to forget.
+    #
+    # Listed even though its rows are immutable, for `match_run`'s reason: 0027
+    # blocks UPDATE only, because retention (OQ-CBA-034) is a question that card
+    # does not decide, and a table nothing could delete from would make its
+    # tenant undeletable.
+    "match_weight_setting_revision",
+    "match_weight_setting",
+    # Before `user_account` and `org_unit`, both of which `event` and
+    # `discovery_review_item` hold ON DELETE RESTRICT references to.
+    # `attendance_record` is deliberately still not in this tuple: it also
+    # references `event` under RESTRICT, and the test modules that write it
+    # delete it in their own fixtures, which finalize before this one does.
+    "event",
+    # Migration 0020. Both cascade from `user_account`, and both are listed
+    # before it for the reason `event_tag` is listed before `event`: this tuple
+    # is read as the full set of tenant-scoped tables, not as the minimum set a
+    # cascade would not already reach. Getting the *order* wrong here is the
+    # failure PR #26 had to fix for `match_run`/`job`, so they go above
+    # `user_account` rather than beside it.
+    "pilot_session",
+    "pilot_credential",
+    # Migration 0031. Holds ON DELETE RESTRICT references to `org_unit`,
+    # `speaker_profile` *and* `attendance_record`, so it goes above all three —
+    # the ordering failure PR #26 had to fix for `match_run`/`job`, with one
+    # more parent than `event_registration` has.
+    #
+    # `attendance_record` is still deliberately absent from this tuple (see the
+    # note above `event`), and that is exactly why this entry cannot be the whole
+    # story: a feedback row deleted here leaves its attendance row behind for the
+    # module that wrote it. `test_student_speaker_feedback.py` therefore deletes
+    # both in its own fixture, feedback first, and this entry is the belt to that
+    # braces — one row left by a test that exercises the student write routes
+    # makes the whole tenant undeletable, which is the argument
+    # `event_registration` is listed on.
+    "student_speaker_feedback",
+    # Migration 0024. Holds ON DELETE RESTRICT references to *both*
+    # `user_account` and `org_unit`, so it goes above the pair — getting this
+    # order wrong is the failure PR #26 had to fix for `match_run`/`job`.
+    "speaker_profile",
     "user_account",
     "org_unit",
     "tenant_budget",
@@ -116,11 +213,40 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
 
     Only the coordination tables are cleared. Tenants and their identity rows are
     owned by the fixtures that create them.
+
+    ``match_run`` is cleared here too, and it is the one table in this sweep that
+    is not itself a coordination table. Migration ``0018`` gives it an
+    ``ON DELETE RESTRICT`` foreign key to ``job``, so a run left behind by an
+    aborted earlier run would make the ``DELETE FROM job`` below fail — in
+    *every* test, including every test written before that table existed. It is
+    deleted first for that reason, and it is safe to delete globally for the
+    same reason ``job`` is: nothing but these tests writes one today.
     """
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM job_event"))
         conn.execute(text("DELETE FROM outbox_record"))
         conn.execute(text("DELETE FROM redrive_record"))
+        conn.execute(text("DELETE FROM match_run"))
+        # Migration 0021, for exactly the reason `match_run` is here: both hold
+        # an ON DELETE RESTRICT foreign key to `job`, so a send left behind by
+        # an aborted earlier run would make the `DELETE FROM job` below fail in
+        # *every* test, including every test written before these tables
+        # existed. `delivery_event` first, since it RESTRICTs against
+        # `outreach_send` in turn.
+        conn.execute(text("DELETE FROM delivery_event"))
+        conn.execute(text("DELETE FROM outreach_send"))
+        # Migration 0029, for the third time the same reason: `cba_invitation`
+        # holds an ON DELETE RESTRICT foreign key to `job`, so an invitation left
+        # behind by an aborted earlier run makes the `DELETE FROM job` below fail
+        # in *every* integration test, including all of the ones written before
+        # invitations existed. That is how this line was found.
+        #
+        # Only the invitation, not its batch: the batch references `match_run`
+        # and `org_unit` rather than `job`, so it is a tenant-scoped row and
+        # `_TENANT_SCOPED_TABLES` is where it belongs. Clearing it globally here
+        # would delete another test's batch while its own tenant fixture still
+        # expects it.
+        conn.execute(text("DELETE FROM cba_invitation"))
         conn.execute(text("DELETE FROM job"))
     yield
 
@@ -193,6 +319,83 @@ def ensure_owning_unit(executor: Any, tenant_id: uuid.UUID) -> uuid.UUID:
         {"id": unit_id, "tid": tenant_id, "path": JOB_OWNING_UNIT_PATH},
     )
     return unit_id
+
+
+#: Title of the synthetic event :func:`ensure_event` creates, before the ``slug``
+#: suffix. Fixed rather than generated, for the same reason
+#: :data:`JOB_OWNING_UNIT_PATH` is: `uq_event_identity` is scoped per tenant, so
+#: two tests in one tenant asking for the same slug converge on the same row
+#: instead of colliding.
+SYNTHETIC_EVENT_TITLE = "Synthetic Pilot Event"
+
+#: The date :func:`ensure_event` resolves its events to. A fixed literal, not
+#: `date.today()`: the identity key folds this date in, so a generated one would
+#: make the helper non-idempotent across a midnight boundary — the kind of
+#: once-a-day flake nobody reproduces.
+SYNTHETIC_EVENT_DATE = date(2026, 9, 14)
+
+
+def ensure_event(executor: Any, tenant_id: uuid.UUID, slug: str = "default") -> uuid.UUID:
+    """Return a synthetic ``event`` row for this tenant, creating it once if absent.
+
+    Migration ``0017`` gave ``attendance_record.event_id`` the foreign key
+    ``0009`` said "whichever migration adds one should also add", which means an
+    attendance row now needs an event the way a job has needed a unit since
+    ``0006``. Most tests that write attendance are not *about* the event — they
+    are about points, funnel stages, or the method vocabulary — and threading a
+    real event through their signatures would have changed a lot of call sites
+    to say the same uninteresting thing. So they call this, exactly as they
+    already call :func:`ensure_owning_unit`, and the tests are left alone.
+
+    ``slug`` distinguishes events within one tenant, for the tests that are
+    genuinely about two *different* events —
+    ``uq_attendance_record_subject_event`` needs a second one to prove a student
+    can attend twice at different events. It varies the title, so each slug
+    resolves to its own ADR-0012 identity key.
+
+    The event is ``date_only`` and ``coordinator_entry``: the honest shape for a
+    row a test fixture typed in. It carries no provenance, because nothing
+    fetched it — ``ck_event_provenance_evidence`` would refuse a source URL on a
+    ``coordinator_entry`` row, and inventing one to satisfy a column would be
+    the fabricated-field defect arriving through a test helper.
+
+    Takes any object with SQLAlchemy's ``.execute(text, params)`` — a ``Session``
+    or a ``Connection`` — as :func:`ensure_owning_unit` does.
+
+    Cleanup: ``event`` is in :data:`_TENANT_SCOPED_TABLES`, listed after the
+    tables that cite it, so teardown removes it once the attendance rows a test
+    module owns are already gone.
+    """
+    title = f"{SYNTHETIC_EVENT_TITLE} {slug}"
+    normalized = normalize_title(title)
+    existing = executor.execute(
+        text(
+            "SELECT id FROM event WHERE tenant_id = :tid AND normalized_title = :title "
+            "AND resolved_date = :on_date"
+        ),
+        {"tid": tenant_id, "title": normalized, "on_date": SYNTHETIC_EVENT_DATE},
+    ).scalar_one_or_none()
+    if existing is not None:
+        return uuid.UUID(str(existing))
+
+    event_id = uuid.uuid4()
+    executor.execute(
+        text(
+            "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+            "on_date, time_zone, time_precision, resolved_date, origin) "
+            "VALUES (:id, :tid, :unit, :title, :normalized, :on_date, "
+            "'America/Los_Angeles', 'date_only', :on_date, 'coordinator_entry')"
+        ),
+        {
+            "id": event_id,
+            "tid": tenant_id,
+            "unit": ensure_owning_unit(executor, tenant_id),
+            "title": title,
+            "normalized": normalized,
+            "on_date": SYNTHETIC_EVENT_DATE,
+        },
+    )
+    return event_id
 
 
 @pytest.fixture

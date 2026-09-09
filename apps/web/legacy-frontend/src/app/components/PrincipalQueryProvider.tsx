@@ -3,13 +3,15 @@
  * tree and drives its identity seam.
  *
  * On mount this resolves the active principal (`src/lib/principalKey.ts`,
- * which calls `fetchMe()`) and applies it through
+ * which keys off the session `src/lib/session.ts` resolved from
+ * `GET /v1/me`) and applies it through
  * `PrincipalIdentityTracker.apply`, which clears the whole query cache
  * whenever the observed key differs from the one currently in effect --
  * including the very first resolution (`null -> key`) and any failure
- * (treated as `null`). Plan P2 card A2 will call the same tracker from the
- * sign-in/out flow once a real session exists; this provider only covers
- * the "resolve on load" path for now.
+ * (treated as `null`). This provider covers the "resolve on load" path;
+ * plan P2 card A2 will drive the same tracker from the sign-in/out flow
+ * once an IdP session exists (see `signOut` in
+ * `src/app/hooks/useSession.tsx` for what sign-out does today).
  *
  * IMPORTANT (R2 -- first paint must never block): the `QueryClient` is
  * created synchronously and `<QueryClientProvider>` renders `children`

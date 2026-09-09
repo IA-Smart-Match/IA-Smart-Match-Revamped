@@ -1,0 +1,14 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Event",
+      "name": "Autumn Data Ethics Seminar",
+      "startDate": "2026-09-20",
+      "location": "Library Commons",
+      "description": "A synthetic fixture event for the crawl-ingest scaffold.",
+      "keywords": ["Careers", "Underwater Basket Weaving"],
+      "url": "https://example.edu/events/autumn-data-ethics-seminar"
+    }
+  ]
+}

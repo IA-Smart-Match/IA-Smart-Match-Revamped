@@ -8,6 +8,7 @@ construct a live provider client, which the verification matrix requires.
 from __future__ import annotations
 
 import pytest
+from smartmatch_domain.product_scope import ProductScope, enabled_capabilities
 from smartmatch_providers import (
     Edition,
     FixtureEmailProvider,
@@ -16,6 +17,16 @@ from smartmatch_providers import (
     SendRequest,
     build_email_provider,
     build_route_matrix_provider,
+)
+from smartmatch_providers.cba_classification import (
+    FixtureContactClassifier,
+    build_contact_classifier,
+)
+from smartmatch_providers.topic_semantics import (
+    FixtureSemanticTopicProvider,
+    LocalEmbeddingSemanticTopicProvider,
+    TopicComparisonUnavailable,
+    build_semantic_topic_provider,
 )
 
 
@@ -65,13 +76,20 @@ def test_no_classroom_path_can_construct_a_live_client():
 
 
 # ---------------------------------------------------------------------------
-# Live adapters are skeletons and cannot initialize
+# Live adapters cannot initialize
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("edition", [Edition.DEV, Edition.STAGING, Edition.PRODUCTION])
-def test_live_email_adapter_is_not_implemented(edition: Edition):
-    with pytest.raises(ProviderConfigurationError, match="not implemented"):
+def test_live_email_adapter_cannot_initialize_without_a_transport(edition: Edition):
+    """The Resend adapter exists now; nothing connects it.
+
+    This assertion used to read "not implemented", and the rewrite is the
+    point: a credential alone still fails at boot, and the reason it fails
+    changed from "no code" to "no approved tenant" (OQ-002). See
+    ``tests/unit/test_resend_email_adapter.py`` for the adapter itself.
+    """
+    with pytest.raises(ProviderConfigurationError, match="no transport is wired"):
         build_email_provider(edition, api_key="live-key")
 
 
@@ -129,3 +147,347 @@ def test_route_provider_reports_unavailable_rather_than_guessing():
     assert not estimate.is_available
     assert estimate.duration is None
     assert estimate.quality == "unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Product scope is not deployment Edition (CBA-SCOPE-POLICY, Wave 0)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("scope", list(ProductScope))
+@pytest.mark.parametrize("edition", list(Edition))
+def test_product_scope_cannot_change_provider_selection(scope: ProductScope, edition: Edition):
+    """A product-scope flag must not be able to reach provider selection.
+
+    The CBA pivot introduces a second axis — which product this is — beside the
+    existing one — which deployment this is. If the two were ever read from the
+    same value, "switch the product to CBA" would silently be "switch the
+    deployment", and the classroom isolation assertions above would be arguing
+    about the wrong variable. ``build_email_provider`` takes an ``Edition`` and
+    nothing else, and this test pins that: no scope changes what it returns.
+    """
+    assert isinstance(build_email_provider(edition, use_fixture=True), FixtureEmailProvider)
+    assert isinstance(
+        build_route_matrix_provider(edition, use_fixture=True), FixtureRouteMatrixProvider
+    )
+    # The scope is a product decision that provider construction never consults.
+    assert scope in ProductScope
+
+
+def test_no_product_scope_enables_a_live_provider_capability():
+    """No scope may name a capability that would authorize live provider work.
+
+    ``ALLOW_LIVE_PROVIDERS=false`` is an environment gate, not a product
+    decision. A capability such as ``live_email`` would give a product flag a
+    route into that gate, so the vocabulary itself is constrained.
+    """
+    forbidden = ("live", "resend", "provider_credential", "deploy")
+    for scope in ProductScope:
+        for capability in enabled_capabilities(scope):
+            assert not any(term in capability.value for term in forbidden), (
+                f"{scope} enables {capability!r}, which names live provider work"
+            )
+
+
+def test_classroom_isolation_holds_under_every_product_scope():
+    """Changing the product must never weaken the classroom boundary."""
+    for _scope in ProductScope:
+        with pytest.raises(ProviderConfigurationError, match="must have no provider secrets"):
+            build_email_provider(Edition.CLASSROOM, api_key="live-key")
+
+
+# ---------------------------------------------------------------------------
+# Semantic Topic comparison is a provider, and it is fixture-only
+# (CBA-MATCH-TOPIC, Wave 3; customer §9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_every_edition_gets_the_fixture_topic_semantics_provider(edition: Edition):
+    """The fixture stays the default even after ADR-0017 approves an offline model.
+
+    ADR-0017 closes OQ-CBA-026 by approving an offline, in-process embedding
+    provider — but only for a caller who opts in with
+    ``use_local_embedding=True``. The safe outcome remains what a caller gets
+    by writing nothing, in every edition, not only the classroom one, so
+    existing golden pins and CI stay reproducible with no model file on the
+    runner.
+    """
+    provider = build_semantic_topic_provider(edition)
+
+    assert isinstance(provider, FixtureSemanticTopicProvider)
+    assert provider.name.startswith("fixture-")
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_live_topic_model_is_refused_under_every_edition(edition: Edition):
+    """Asking for a live model is the only way to request one, and it is refused."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(edition, use_fixture=False)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_topic_model_credential_fails_closed_under_every_edition(edition: Edition):
+    """No environment in this repository should hold a model credential at all."""
+    with pytest.raises(ProviderConfigurationError, match="credential"):
+        build_semantic_topic_provider(edition, api_key="live-key")
+
+
+def test_allowing_live_providers_still_does_not_reach_a_live_topic_model():
+    """The env gate is necessary, not sufficient: the adapter does not exist."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(
+            Edition.PRODUCTION, use_fixture=False, allow_live_providers=True
+        )
+
+
+def test_no_classroom_path_can_construct_a_live_topic_model():
+    """The verification-matrix assertion, extended to the new provider kind."""
+    assert type(build_semantic_topic_provider(Edition.CLASSROOM)).__name__.startswith("Fixture")
+    with pytest.raises(ProviderConfigurationError):
+        build_semantic_topic_provider(Edition.CLASSROOM, use_fixture=False)
+
+
+def test_the_fixture_topic_provider_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """No live HTTP in tests — asserted by removing the ability to make one.
+
+    A provider that quietly grew a network call would pass every behavioural
+    test above and fail this one, which is the only reason this test exists.
+    """
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the fixture topic-semantics provider must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+    provider.record(
+        "An event about supply chains.",
+        "supply chain analytics",
+        score=0.7,
+        rationale="Their recorded analytics work addresses the request.",
+    )
+
+    assert provider.compare("An event about supply chains.", "supply chain analytics").score == 0.7
+
+
+def test_the_fixture_topic_provider_never_stores_an_assumption_as_fact():
+    """An unrecorded pair is refused, not filled in with a plausible number."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+
+    with pytest.raises(TopicComparisonUnavailable):
+        provider.compare("An event about supply chains.", "nothing was recorded for this")
+
+
+def test_the_fixture_topic_provider_does_not_call_itself_a_semantic_model():
+    """A playback fixture that claimed to be a model would be a permanent lie."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM)
+
+    assert provider.is_semantic_model is False
+
+
+# ---------------------------------------------------------------------------
+# ADR-0017: the offline, in-process embedding path is opt-in, genuinely
+# semantic, and does not weaken the live-vendor refusal above.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_the_local_embedding_provider_is_reached_only_by_opting_in(edition: Edition):
+    """``use_local_embedding=True`` is the only way in, under every edition."""
+    provider = build_semantic_topic_provider(edition, use_local_embedding=True)
+
+    assert isinstance(provider, LocalEmbeddingSemanticTopicProvider)
+    assert provider.name == "local-embedding-topic-semantics"
+
+
+def test_the_local_embedding_provider_scores_a_pair_the_fixture_never_recorded():
+    """The whole point of ADR-0017: real topic text now gets a measured score.
+
+    ``supply chain analytics`` and ``logistics optimization`` share no tokens
+    at all — a lexical comparator would see nothing in common — but a
+    semantic one should score them well above the low end, which is the
+    property that actually distinguishes this provider from the rejected
+    token-overlap comparator.
+    """
+    provider = build_semantic_topic_provider(Edition.PRODUCTION, use_local_embedding=True)
+
+    result = provider.compare(
+        "An event about supply chain analytics and logistics optimization.",
+        "logistics optimization and inventory management",
+    )
+
+    assert 0.0 <= result.score <= 1.0
+    assert result.score > 0.6
+    assert result.is_semantic_model is True
+    assert result.model_id == "glove-wiki-gigaword-50-20k-v1"
+    assert result.provider == "local-embedding-topic-semantics"
+
+
+def test_the_local_embedding_provider_is_a_genuine_semantic_model():
+    """Unlike the fixture, this provider's semantic claim is actually true."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+
+    assert provider.is_semantic_model is True
+
+
+def test_the_local_embedding_provider_refuses_text_with_no_recognized_words():
+    """No recognized vocabulary is an unknown, never a guessed default score."""
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+
+    with pytest.raises(TopicComparisonUnavailable):
+        provider.compare("zzqxv wibbleflorp", "supply chain analytics")
+
+
+def test_the_local_embedding_provider_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """The offline path makes no network call either — it is a vendored file."""
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "the local-embedding topic-semantics provider must not touch the network"
+        )
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    provider = build_semantic_topic_provider(Edition.CLASSROOM, use_local_embedding=True)
+    result = provider.compare("supply chain analytics", "logistics optimization")
+
+    assert 0.0 <= result.score <= 1.0
+
+
+def test_a_topic_model_credential_still_fails_closed_with_local_embedding_requested():
+    """A found credential is still a deployment defect, even asking for the offline path.
+
+    The offline path needs no credential at all; a caller passing one anyway
+    is exactly the misconfiguration ``api_key`` exists to catch.
+    """
+    with pytest.raises(ProviderConfigurationError, match="credential"):
+        build_semantic_topic_provider(
+            Edition.PRODUCTION, api_key="live-key", use_local_embedding=True
+        )
+
+
+def test_the_live_vendor_refusal_survives_the_offline_path_being_approved():
+    """ADR-0017 approves an offline model; it does not reopen the vendor question."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-026"):
+        build_semantic_topic_provider(Edition.PRODUCTION, use_fixture=False)
+
+
+def test_cba_semantic_topic_factor_key_still_resolves_in_the_registry():
+    """The registry key this factor binds to is untouched by the provider change."""
+    from smartmatch_domain.factor_registry import implemented_scoring_keys
+    from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
+
+    assert CBA_SEMANTIC_TOPIC_FACTOR_KEY in implemented_scoring_keys()
+
+
+# ---------------------------------------------------------------------------
+# Contact classification is a provider, and it is fixture-only
+# (CBA-IMPORT-CLASSIFY; customer §19)
+# ---------------------------------------------------------------------------
+#
+# The same assertions the topic provider gets, for the same failures, plus one
+# this seam needs and that one does not. §19's classifier reads a named person's
+# employer and job title, so the "may this leave the building" question
+# (OQ-CBA-039) is sharper here than OQ-CBA-026 is there — and customer §20
+# independently puts looking a company up out of scope, which is why the socket
+# test below is a scope assertion and not only a provider one.
+#
+# Restated in this file rather than left to
+# tests/unit/test_cba_contact_classifier.py because this is the file the
+# verification matrix reads: architecture v1.1 §3.3's "a diagram label is not a
+# control" applies to a classifier exactly as it applies to an email adapter, and
+# a provider whose isolation is asserted only in its own card's test file is one
+# nobody checks when the isolation mechanism is audited.
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_every_edition_gets_the_fixture_contact_classifier(edition: Edition):
+    """Customer §19 assigns an initial classification; no approved model exists.
+
+    OQ-CBA-039 — which model, on whose credentials, under whose terms, and
+    whether a named person's employer and job title may be sent to a third party
+    at all — is open, so every edition gets the deterministic fixture.
+    """
+    assert isinstance(build_contact_classifier(edition), FixtureContactClassifier)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_live_contact_classifier_is_refused_under_every_edition(edition: Edition):
+    """Not only the classroom one: the refusal is about approval, not deployment."""
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
+        build_contact_classifier(edition, use_fixture=False)
+
+
+@pytest.mark.parametrize("edition", list(Edition))
+def test_a_contact_classifier_credential_fails_closed_under_every_edition(edition: Edition):
+    """No classification-model secret should exist in any project here.
+
+    Finding one means the deployment or secret binding is wrong, so this fails
+    rather than quietly ignoring the credential — ``build_email_provider``'s rule
+    for classroom secrets, widened to every edition because no edition has an
+    approved model for this seam.
+    """
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
+        build_contact_classifier(edition, api_key="live-key")
+
+
+def test_allowing_live_providers_still_does_not_reach_a_live_contact_classifier():
+    """The environment gate is necessary and not sufficient.
+
+    ``ALLOW_LIVE_PROVIDERS=true`` reaches an adapter that does not exist. Worth
+    asserting because it is the flag an operator would reach for first, and the
+    thing it must not do is silently succeed.
+    """
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
+        build_contact_classifier(Edition.PRODUCTION, use_fixture=False, allow_live_providers=True)
+
+
+def test_the_fixture_contact_classifier_opens_no_socket(monkeypatch: pytest.MonkeyPatch):
+    """§20's scope boundary, enforced by removing the ability to cross it.
+
+    "Finding new speakers on the internet" and "scraping other external sources"
+    are out of scope for this phase outright, so a classifier that grew a lookup
+    would be a scope violation before it was a provider one. It would pass every
+    behavioural test in ``test_cba_contact_classifier.py`` and fail here.
+    """
+    import socket
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the fixture contact classifier must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+
+    classifier = build_contact_classifier(Edition.CLASSROOM)
+
+    assert classifier.propose(company="Reyes Analytics", title=None).proposes_anything is False
+
+
+def test_the_fixture_contact_classifier_does_not_call_itself_a_model():
+    """A dictionary and two taxonomy lookups are not a model.
+
+    ``is_model`` is what a later reader of the stored data will believe about how
+    a classification was produced, long after anybody remembers what was behind
+    this seam in September 2026.
+    """
+    assert build_contact_classifier(Edition.CLASSROOM).is_model is False
+
+
+@pytest.mark.parametrize("scope", list(ProductScope))
+def test_no_product_scope_reaches_a_live_contact_classifier(scope: ProductScope):
+    """Changing the product must not weaken this boundary either.
+
+    ``scope`` is deliberately not passed to the builder — it is not a parameter,
+    which is the assertion: ``test_product_scope_cannot_change_provider_selection``
+    above makes the same point about email and routing, and a seam that answered
+    differently per scope would be a control somebody could move by editing a
+    product definition.
+    """
+    assert enabled_capabilities(scope) is not None
+    with pytest.raises(ProviderConfigurationError, match="OQ-CBA-039"):
+        build_contact_classifier(Edition.PRODUCTION, use_fixture=False)

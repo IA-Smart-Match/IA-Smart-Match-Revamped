@@ -41,6 +41,10 @@ locals {
   task_queue             = "example-smartmatch-classroom-jobs"
   api_service_account    = "example-smartmatch-classroom-api@example.invalid"
   worker_service_account = "example-smartmatch-classroom-worker@example.invalid"
+  api_service            = "example-smartmatch-classroom-api-service"
+  worker_service         = "example-smartmatch-classroom-worker-service"
+  scheduler_job          = "example-smartmatch-classroom-dispatch-job"
+  database_secret_id     = "example-smartmatch-classroom-database-url"
   provider_secret_id     = null
   release_tag_prefix     = "classroom-v"
 
@@ -55,5 +59,8 @@ locals {
   data_class       = "synthetic"
   min_instances    = 0
   max_instances    = 2
+  database_version = "POSTGRES_16"
+  database_tier    = "db-custom-1-3840"
+  dispatch_cron    = "*/5 * * * *"
   promotion_source = null
 }

@@ -35,6 +35,10 @@ locals {
   task_queue             = "example-smartmatch-prod-jobs"
   api_service_account    = "example-smartmatch-prod-api@example.invalid"
   worker_service_account = "example-smartmatch-prod-worker@example.invalid"
+  api_service            = "example-smartmatch-prod-api-service"
+  worker_service         = "example-smartmatch-prod-worker-service"
+  scheduler_job          = "example-smartmatch-prod-dispatch-job"
+  database_secret_id     = "example-smartmatch-prod-database-url"
   provider_secret_id     = "example-smartmatch-prod-provider-credentials"
   release_tag_prefix     = "prod-v"
 
@@ -49,5 +53,8 @@ locals {
   data_class       = "live-pilot"
   min_instances    = 1
   max_instances    = 8
+  database_version = "POSTGRES_16"
+  database_tier    = "db-custom-1-3840"
+  dispatch_cron    = "*/5 * * * *"
   promotion_source = "staging"
 }

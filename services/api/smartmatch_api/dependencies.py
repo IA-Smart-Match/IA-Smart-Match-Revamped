@@ -39,6 +39,8 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Header, Request, status
+from smartmatch_domain.pilot_credentials import hash_session_token
+from smartmatch_persistence.pilot_auth import PilotSessionRepository
 from smartmatch_persistence.principals import PrincipalRepository, ResolvedPrincipal
 from smartmatch_persistence.rate_limit import RateLimit, RateLimiter
 from smartmatch_providers import TokenVerificationError, TokenVerifier
@@ -81,6 +83,39 @@ def get_token_verifier(request: Request) -> TokenVerifier:
     return verifier
 
 
+def _subject_for_token(session: Session, verifier: TokenVerifier, token: str) -> str | None:
+    """The verified subject behind a bearer token, or ``None`` if there is none.
+
+    Two credential kinds reach this API, and both resolve to the *same* kind of
+    answer — a bare ``external_subject``:
+
+    1. A **pilot session token** (``POST /v1/auth/login``). Looked up
+       server-side by hash in ``pilot_session``, which is what makes it
+       unforgeable: the browser holds 32 random bytes that mean nothing except
+       that a row names them, and the row names an account rather than a role.
+       Checked first because it is the credential a person signing in actually
+       holds, and because the fixture verifier below would reject it anyway.
+    2. A **token the configured verifier accepts** — today the dev fixture
+       mapping (``config.py``'s ``dev_principals``), and eventually a real
+       identity provider's. Unchanged by this function's existence.
+
+    That both paths end at a subject is the load-bearing part. Neither returns
+    a tenant, a unit, or a role; :meth:`PrincipalRepository.load_by_subject`
+    reads those from ``user_account`` and ``membership`` afterwards, so a pilot
+    session can no more assert a role than a JWT could.
+    """
+    subject = PilotSessionRepository().resolve_subject(
+        session, token_hash=hash_session_token(token)
+    )
+    if subject is not None:
+        return subject
+
+    try:
+        return verifier.verify(token).subject
+    except TokenVerificationError:
+        return None
+
+
 def get_current_principal(
     session: Annotated[Session, Depends(get_session)],
     verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
@@ -88,10 +123,13 @@ def get_current_principal(
 ) -> ResolvedPrincipal:
     """Resolve the caller from their bearer token.
 
-    Three failure modes, all answered with the same 401 and the same message:
-    no token, an invalid token, and a valid token with no local account. The
+    Four failure modes, all answered with the same 401 and the same message: no
+    token, a token no credential path recognises (an expired or revoked pilot
+    session included), and a recognised token with no local account. The
     distinction matters in the log, not in the response — telling a caller that
-    their token was fine but they have no account reveals which subjects exist.
+    their token was fine but they have no account reveals which subjects exist,
+    and telling them their session merely *expired* would confirm it had once
+    been real.
 
     A suspended account is *not* rejected here. It resolves normally, carrying
     ``suspended=True``, and policy denies it with a specific reason so the denial
@@ -114,12 +152,11 @@ def get_current_principal(
     if not token:
         raise unauthenticated
 
-    try:
-        identity = verifier.verify(token)
-    except TokenVerificationError as exc:
-        raise unauthenticated from exc
+    subject = _subject_for_token(session, verifier, token)
+    if subject is None:
+        raise unauthenticated
 
-    resolved = PrincipalRepository().load_by_subject(session, external_subject=identity.subject)
+    resolved = PrincipalRepository().load_by_subject(session, external_subject=subject)
     if resolved is None:
         raise unauthenticated
 

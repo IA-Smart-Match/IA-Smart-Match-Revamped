@@ -228,14 +228,41 @@ class ExactTime:
             zone to produce the date ADR-0012 keys on, so a real-but-misspelled
             name is no longer something an adapter layer can be left to catch
             later. See `_require_known_time_zone`.
+        ends_at: The instant the event finishes, when the source actually
+            stated one, and `None` when it did not. Optional rather than
+            required, and *never* derived from `starts_at`: a duration nobody
+            wrote down is the same class of fabrication as a date nobody wrote
+            down (F-003), and `smartmatch_domain.calendar_invite` refuses to
+            issue an invite rather than guessing an hour.
+
+            Optional here does not reintroduce the nullable-instant defect
+            ADR-0010 forbids, because the axis is different. `TimePrecision`
+            answers "how much of the *start* is known", and nothing reads
+            `ends_at` to decide that: `precision_of`, `is_resolved`,
+            `resolved_date` and `resolve_identity_key` are all defined over
+            `starts_at` alone, so an event with an unstated end is still
+            exactly as resolved, as matchable and as identifiable as it was.
+            What it is not is downloadable as a calendar entry — which is a
+            statement about one artifact, not about the event.
     """
 
     starts_at: datetime
     time_zone: str
+    ends_at: datetime | None = None
 
     def __post_init__(self) -> None:
         _require_aware_datetime(self.starts_at, "starts_at")
         _require_known_time_zone(self.time_zone, "time_zone")
+        if self.ends_at is not None:
+            _require_aware_datetime(self.ends_at, "ends_at")
+            # Strictly after, not merely "not before". A zero-length event is
+            # not something a source states; it is what an adapter produces
+            # when it copies `starts_at` into the end field for want of a
+            # better value. Admitting it would let that mistake reach a
+            # calendar as a real-looking entry, so it is refused at the only
+            # place that can still name the field that was wrong.
+            if self.ends_at <= self.starts_at:
+                raise ValueError("ends_at must be strictly after starts_at")
 
 
 @dataclass(frozen=True, slots=True)

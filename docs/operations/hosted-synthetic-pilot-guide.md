@@ -1,0 +1,365 @@
+# Hosted synthetic click-through — operator guide
+
+**Date:** 2026-09-03  
+**Audience:** program owner (Danny Tran) standing up a demo for stakeholders such as Dr. Wang.  
+**Posture:** synthetic data only. Not production. Not live student data. `ALLOW_CLOUD_DEPLOY` remains **false**.
+
+This document answers three questions:
+
+1. How do I run the whole repo on this machine?
+2. How do I give someone a **link** (and what Google Cloud can and cannot do today)?
+3. Do I need Google **Identity Platform** (IdP) so Dr. Wang can click through?
+
+Companion docs (do not duplicate): [`INSTALL.md`](../../INSTALL.md), [`containers.md`](containers.md), [`deploy-runbook.md`](deploy-runbook.md), [`a1b-gcp-console-guide.md`](../decisions/a1b-gcp-console-guide.md), [`f5-deploy-target-note-2026-09-03.md`](../decisions/f5-deploy-target-note-2026-09-03.md).
+
+---
+
+## Bottom line
+
+| Goal | What to do now | What is not ready |
+|---|---|---|
+| Run the backend + import/review/metrics smoke path | `docker compose up --build -d` then `scripts/compose_smoke.sh` (or the curl sequence in `INSTALL.md`) | Matching scores, outreach send, Calendar API, crawler |
+| Let Dr. Wang click a **UI** | Compose API + **legacy frontend** on Vite, with fixture bearer token | New product UI (`apps/web` is on hold); many legacy screens still 404 / fallback identities |
+| Share a **HTTPS link** | Run the stack locally, then a **tunnel** (Cloudflare Tunnel or ngrok) to the Vite port | Terraform apply, Cloud Run, Artifact Registry push |
+| Google login / “real” institutional sign-in | Fill A1b worksheet Part 1, then engineering implements JWKS (not in tree) | Identity Platform tenant exists; **code still only accepts fixture tokens** |
+| Deploy the app itself on GCP | Wait for F5 modules + S-001 OIDC; first target is the **classroom** project | `infra/terraform` is a non-applyable skeleton; CI builds images and pushes nowhere |
+
+**IdP is not required for a synthetic click-through.** It is required for a Google-account login that the API actually verifies. Those are different milestones.
+
+---
+
+## What “the entire repo” actually boots
+
+Compose brings up **database + migrate + seed + API + worker + scheduler**. It does **not** start the frontend.
+
+| Process | Local address | Role |
+|---|---|---|
+| PostgreSQL | `127.0.0.1:5432` | Schema + seed |
+| API | `127.0.0.1:8080` (compose) or `:8000` (`make run-api`) | HTTP product API |
+| Worker | `127.0.0.1:8081` | Dispatch + task execute (dev bearers only) |
+| Scheduler sidecar | no published port | Emulates Cloud Scheduler every ~2s |
+| Legacy UI | `http://127.0.0.1:5173` | Vite; **not** in compose |
+
+Compose publishes ports on **loopback only** (`127.0.0.1`). That is why a colleague on another network cannot hit `:8080` until you add a tunnel. It is also why a tunnel must run **on the same machine** as Docker.
+
+The Vite proxy in `apps/web/legacy-frontend/vite.config.ts` targets **`http://127.0.0.1:8000`**, which matches `make run-api`, **not** compose’s `:8080`. If you use compose, change both `/api` and `/v1` `target` values to `http://127.0.0.1:8080` for that demo (revert afterward; do not commit a demo-only port unless product agrees).
+
+The same split trips up `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` (ADR-0017's offline embedding model for §9 topic scoring, off by default — see the `.env` inventory below). `make run-api` reads it from `.env`, so the host-run path both matches the proxy above and picks up this flag from the same file. Compose does not read `.env` for it — `docker-compose.yml` passes it through with an explicit `${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}` default — so a compose run only turns it on if you `export` it in the shell that runs `docker compose up`.
+
+---
+
+## Path A — run it on Windows (recommended for Friday)
+
+Prerequisites: **Docker Desktop** (Linux engine), **Node 20+**, Git. Python 3.11 is only required if you skip Docker and use `make` (WSL/Linux). Python **3.13 does not work**.
+
+### 1. Backend appliance
+
+From the repo root:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+```
+
+Expect `api`, `worker`, and `scheduler` **running/healthy**; `migrate` and `seed` **exited 0**.
+
+Health:
+
+```powershell
+curl http://127.0.0.1:8080/api/health
+curl http://127.0.0.1:8081/health
+```
+
+API should look like `{"status":"ok","release":"compose-dev"}`.
+
+### 2. Prove import → review (no UI)
+
+Git Bash / WSL: `scripts/compose_smoke.sh`  
+Or follow `INSTALL.md` “Smoke-testing the full import path”.
+
+Compose maps bearer token `compose-api` → subject `compose-pilot-coordinator` (seeded coordinator). That is **not** a password. Anyone with the URL and that token is the coordinator.
+
+### 3. Legacy frontend (click-through)
+
+```powershell
+cd apps\web\legacy-frontend
+npm ci
+```
+
+Create `apps/web/legacy-frontend/.env.local` (gitignored; never commit):
+
+```
+VITE_SMARTMATCH_BEARER_TOKEN=compose-api
+VITE_SMARTMATCH_UNIT_ID=<uuid from step below>
+```
+
+Recover the unit id:
+
+```powershell
+docker compose exec -T db psql "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" -tAc "select id from org_unit where path = 'pilot'"
+```
+
+Paste that UUID into `VITE_SMARTMATCH_UNIT_ID`. Restart Vite after changing env (Vite bakes `VITE_*` at start).
+
+Point `vite.config.ts` proxies at `:8080` if using compose, then:
+
+```powershell
+npm run dev
+```
+
+Open `http://localhost:5173`. Authenticated `/v1` calls use the bearer above. Login **role cards** and `mockLogin` are not this API; they 404. Do not ask Dr. Wang to “pick a portal role” as if it were real authorization — roles come from seeded membership.
+
+### 4. Share a link (same day, no Cloud Run)
+
+Keep compose + Vite running. In a second terminal, create a tunnel to **5173** (the UI). The Vite proxy then reaches the API on loopback.
+
+**Cloudflare Tunnel (quick tunnel, no account required for a throwaway URL):**
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:5173
+```
+
+Send Dr. Wang the `https://….trycloudflare.com` URL. Treat it as a **demo secret**: it exposes the fixture coordinator token baked into the frontend build.
+
+**ngrok** is the same idea: `ngrok http 5173`.
+
+Rules:
+
+- Synthetic data only. No real student spreadsheets.
+- Stop the tunnel when the session ends.
+- Do not bind compose ports to `0.0.0.0` “to make GCP easier” — that publishes unauthenticated worker task routes on your LAN. Tunnel the UI instead.
+
+This is **not** a GCP deployment. It is a hosted *session* of your laptop.
+
+**24/7 for Wang (still not Cloud Run):** a classroom GCE VM running the same
+compose stack, plus a **named Cloudflare Tunnel** and **Access** email
+allowlist — [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md).
+
+---
+
+## Path B — Google Cloud as people imagine it (not runnable from this repo yet)
+
+Architecture intent (v1.1): four **separate GCP projects** (`dev`, `staging`, `classroom`, `prod`). Stakeholder synthetic demo belongs in **`classroom`** when F5 lands — see the F5 note. Classroom is fixtures-only, no provider secrets, no promotion to prod.
+
+What exists in-repo:
+
+| Piece | State |
+|---|---|
+| `infra/terraform/envs/*/main.tf` | Comment-only skeletons. `make infra-check` **fails the build** if real resources appear. **Do not `terraform apply`.** |
+| Container images | Built in CI; **not pushed** to Artifact Registry |
+| Cloud Run `PORT=8080` | Images listen on `PORT`; no service is deployed |
+| Cloud SQL / Cloud Tasks / Cloud Scheduler | Not provisioned. Compose **emulates** Tasks/Scheduler with bearers that **refuse to boot** unless `SMARTMATCH_EDITION=dev` |
+
+`ALLOW_CLOUD_DEPLOY=false` is a standing constraint, not a missing checkbox in `.env`. Flipping a local env var does not create a registry, OIDC, or SQL instance.
+
+When F5 + S-001 actually land, the cloud path is roughly:
+
+1. Separate **classroom** GCP project (synthetic only).
+2. Enable APIs listed under [GCP APIs](#gcp-apis).
+3. Artifact Registry + Cloud Run (API + worker) + Cloud SQL Postgres 16.
+4. Secret Manager for `SMARTMATCH_DATABASE_URL` (never a committed `.env`).
+5. Cloud Tasks queue + Cloud Scheduler job with **distinct** OIDC audiences/allowlists (`SMARTMATCH_TASK_*` vs `SMARTMATCH_SCHEDULER_*`).
+6. Worker signature backend (today the OIDC verifier **refuses every delivery** without one).
+7. Only then: a stable `https://….run.app` URL.
+
+Until that work merges, Path A is the only honest “link.”
+
+---
+
+## Identity Platform (IdP) — required for Wang click-through?
+
+**IdP** here means **Google Cloud Identity Platform** (Firebase-compatible OIDC): users sign in with Google; the API verifies a JWT against the tenant’s JWKS; the server looks up role from `user_account` / membership. It is **not** “turning on GCP so the site has a URL.” Hosting and login are separate.
+
+| Question | Answer |
+|---|---|
+| Does Dr. Wang need Google login to click import / metrics / coordinator screens on **synthetic** data? | **No.** Fixture bearer `compose-api` + seeded coordinator is enough for API-backed screens that exist. |
+| Does program direction want a **single standard login** (no “choose your portal”)? | **Yes** (G1 worksheet). That is P2 / A1b, not a compose feature. |
+| Can Identity Platform do that today if you fill the console? | **Not in this codebase.** The API uses `FixtureTokenVerifier` only. There is **no** committed JWKS verifier. `SMARTMATCH_JWKS_*` appears in the A1b console guide as **future** settings; `services/api/smartmatch_api/config.py` does **not** read them. |
+| Is the GCP IdP tenant already created? | **Yes** (recorded 2026-09-02). Worksheet Part 1 (issuer, audience, JWKS, client ID, redirects, approval) is still **unfilled**. Agents must not invent those URLs. |
+| After you fill the worksheet, are you done? | **No.** Engineering still implements A1–A4 (verifier, frontend OIDC redirect, remove `iaw_session` fallbacks). Then a feature-flagged JWKS path can accept real Google tokens. |
+
+### What you should do in GCP for IdP (human, this week)
+
+Follow [`a1b-gcp-console-guide.md`](../decisions/a1b-gcp-console-guide.md) in the **dev/test** Identity Platform project (not prod SSO). Then transcribe exact values into [`a1b-idp-configuration-worksheet.md`](../decisions/a1b-idp-configuration-worksheet.md) §1.1–1.4, sign the approval block, and commit the worksheet. That unblocks the JWKS implementation; it does **not** by itself log Dr. Wang in.
+
+For a Friday UI demo, skip waiting on IdP. Use Path A. Tell Wang: this is a **synthetic coordinator session**, not IA West SSO.
+
+---
+
+## `.env` inventory — what `.env.example` has vs what the code reads
+
+Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. Compose **ignores** `.env` for the values it hard-sets in `docker-compose.yml`.
+
+### In `.env.example` (enough for host API)
+
+| Variable | Needed for local API? | Notes |
+|---|---|---|
+| `SMARTMATCH_EDITION` | Yes (keep `dev`) | Non-dev refuses `SMARTMATCH_DEV_PRINCIPALS` |
+| `SMARTMATCH_DATABASE_URL` | Yes | Default matches compose/native Postgres |
+| `SMARTMATCH_USE_FIXTURE_PROVIDERS` | Yes (`true`) | Setting `false` does **not** enable live providers; construction fails |
+| `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` | Optional (default `false`) | Off keeps the recorded-fixture §9 topic comparator and today's dropout behaviour. On routes that seam to ADR-0017's offline, in-process embedding model instead — no vendor, no network call, and still not a live provider. `make run-api` reads this from `.env`; compose does not (see below) |
+| `SMARTMATCH_DEV_PRINCIPALS` | Yes for authenticated API without compose | JSON `{"token":"subject"}`; every subject must be one that `make seed-pilot` / `make seed-pilot-principals` created, or that token resolves to nobody and 401s. Compose already sets all four — see "Pre-loaded pilot principals" below |
+| `SMARTMATCH_EMAIL_API_KEY` | Leave empty | Outreach (G4) not implemented |
+| `SMARTMATCH_ROUTES_API_KEY` | Leave empty | Routes adapter not live |
+| `SMARTMATCH_RELEASE` | Optional | Health payload only |
+
+You are **not** missing live SendGrid/Google Maps keys. Empty is correct.
+
+### Pre-loaded pilot principals
+
+The appliance seeds one principal per portal, so a stakeholder can enter every
+shell rather than only the Speaker Connector's. Each is a separate account with
+a single membership carrying a single role; `GET /v1/me/portals` reports which
+shell a token opens, from `membership` rows and never from anything the caller
+sends.
+
+| Bearer token | Subject | Role | Portal |
+|---|---|---|---|
+| `compose-api` | `compose-pilot-coordinator` | `coordinator` | Connector Dashboard (`/coordinator-portal`) |
+| `compose-student` | `compose-pilot-student` | `student` | Student Portal (`/student-portal`) |
+| `compose-host` | `compose-pilot-volunteer` | `volunteer` | Event Host Portal (`/volunteer-portal`) |
+| `compose-admin` | `compose-pilot-admin` | `admin` | CBA Administration (`/dashboard`) |
+
+Four tokens is four **identities**, not four permissions: a token yields a bare
+subject and the database supplies the rest, so each principal opens exactly one
+portal and is refused the others. All four are dev-only — no password, no
+expiry, no revocation — and the API refuses to boot with them set under any
+edition but `dev`. The accounts sit on `@example.invalid` addresses, which
+resolve nowhere.
+
+The Event Host portal carries two API surfaces and no more: the `volunteer` role
+may file a Speaker Request (`POST /v1/units/{unit_id}/speaker-requests`) and may
+list back **the requests that host filed**
+(`GET /v1/units/{unit_id}/host/speaker-requests`). That second route is
+**OQ-CBA-014**, closed 7 September 2026 by adding a narrower query rather than a
+wider permit. The Connector's queue at `GET /v1/units/{unit_id}/speaker-requests`
+is unchanged and still refuses a host: it holds every host's request text for the
+unit, and one host reading it would learn what the others asked for.
+
+Two things a demo should expect. A host sees only their own filings, so a second
+Event Host account signed into the same unit sees a different list rather than
+the same one. And **a request filed before migration `0033` is listed by
+nobody**: `event.filed_by_user_id` is NULL on those rows, NULL means the filer is
+unknown, and nothing was backfilled — so on an appliance whose database predates
+it, expect the host's list to be empty until they file something new.
+
+The owner-supplied `/login` passwords (`SMARTMATCH_PILOT_*_EMAIL` /
+`_PASSWORD`, seeded by `seed-logins`) are a separate mechanism and are not in
+this repository; see `.env.example`.
+
+### Seeding a funded reward item
+
+The catalog is empty by default, deliberately — `docs/pilot-data/rewards-catalog-worksheet.md`
+says engineering "must not invent owners, funding, or point costs." A funded
+item exists only once the product owner has filled a row in that worksheet's
+table and an operator has run, after `seed-principals`:
+
+```
+make seed-pilot-rewards SEED_PILOT_REWARD_ARGS='--name "..." --points-cost 300 \
+  --fulfilment-cost 10.00 --budget-owner-subject pilot-login-coordinator --funded'
+```
+
+Every value on that line comes from the worksheet row, typed by the operator —
+there is no default for `--name`, `--points-cost`, `--fulfilment-cost`,
+`--budget-owner-subject`, or `--funded`/`--unfunded`, and the command exits
+non-zero if any is omitted. `--budget-owner-subject` is a
+`user_account.external_subject` that already has a seeded login (one of
+`seed-pilot`, `seed-pilot-principals`, or `seed-pilot-logins`'s accounts), not
+a name. The command is idempotent for an identical repeat and refuses a
+repeat with different values rather than silently changing a catalog row.
+There is no compose one-shot for this — see `tools/seed_pilot_rewards.py`'s
+docstring for why.
+
+### Used by compose/worker, **absent** from `.env.example`
+
+These are set in `docker-compose.yml` for the appliance. Add them to a host `.env` only if you run the worker **without** compose:
+
+| Variable | Default / compose value | Purpose |
+|---|---|---|
+| `SMARTMATCH_DEV_TASK_BEARER_TOKEN` | `compose-task` | `POST /tasks/execute` in `dev` only |
+| `SMARTMATCH_DEV_SCHEDULER_BEARER_TOKEN` | `compose-sched` | `POST /operations/dispatch` in `dev` only; **must differ** from the task token |
+| `SMARTMATCH_LOCAL_SCHEDULER_BEARER_TOKEN` | same as scheduler token | Sidecar only |
+| `SMARTMATCH_LOCAL_TASK_QUEUE_ENABLED` | `true` in compose | Loopback queue |
+| `SMARTMATCH_LOCAL_TASK_TARGET_URL` | `http://127.0.0.1:8080/tasks/execute` | Must be loopback HTTP, path exactly `/tasks/execute` |
+| `PORT` | `8080` in images | Cloud Run injects this |
+| `SMARTMATCH_COLUMN_CONTRACT_PATH` | set in worker image | Path to `columns.yaml` |
+
+### Cloud / OIDC — unset on purpose (fail-closed)
+
+Do **not** put real values in a local `.env` until S-001/F5 exist. Unset means refuse, which is correct.
+
+| Variable | Consumed? | Status |
+|---|---|---|
+| `SMARTMATCH_TASK_AUDIENCE` | Worker yes | Empty → OIDC path 401/501 |
+| `SMARTMATCH_TASK_SERVICE_ACCOUNTS` | Worker yes | Empty allowlist = nobody |
+| `SMARTMATCH_SCHEDULER_AUDIENCE` | Worker yes | Separate from task audience |
+| `SMARTMATCH_SCHEDULER_SERVICE_ACCOUNTS` | Worker yes | Separate allowlist |
+| `SMARTMATCH_JWKS_ISSUER` / `_AUDIENCE` / `_URI` / `_ALGORITHMS` / `_ENABLED` | **Documented for A1b, not in API Settings** | Filling them today does nothing |
+| `SMARTMATCH_SPEND_CEILING_JOB` / `_TENANT_DAY` / `_TENANT_MONTH` | Worker yes | All three required to enable paid extraction; leave unset |
+
+### Frontend (not in `.env.example` at all)
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `VITE_SMARTMATCH_BEARER_TOKEN` | `apps/web/legacy-frontend/.env.local` | Maps to API fixture token (`compose-api` on compose) |
+| `VITE_SMARTMATCH_UNIT_ID` | same | Metrics/unit-scoped UI |
+
+There is no `VITE_GOOGLE_CLIENT_ID` wired. OAuth client ID belongs in the A1b worksheet, then in a future A2 implementation.
+
+---
+
+## GCP APIs
+
+### For Identity Platform only (do this; hosting is separate)
+
+In the **dev/test** project that already has the tenant:
+
+- Identity Platform API  
+- Identity Toolkit API (often enabled with Identity Platform)
+
+Then create the OAuth **Web** client and redirect URIs as in the A1b console guide (`http://localhost:5173/...` plus the tunnel hostname **if** you later do real OIDC against a tunneled UI).
+
+### For a future classroom Cloud Run deploy (do **not** enable hoping the repo will deploy)
+
+When F5 exists, classroom project typically needs:
+
+- Cloud Run Admin  
+- Artifact Registry  
+- Cloud SQL Admin  
+- Cloud Tasks  
+- Cloud Scheduler  
+- Secret Manager  
+- IAM / Service Usage  
+
+Plus Identity Platform **if** A1b is in that same project (product may keep IdP in the existing tenant project and point classroom Cloud Run at that issuer — record the choice on the worksheet; do not invent it).
+
+**Do not enable** Calendar API, Maps/Routes, Gmail/SendGrid, or crawl-related APIs for this pilot. G4/G5/G3 live paths are gated; classroom must not hold those credentials.
+
+---
+
+## What Dr. Wang can vs cannot click (honest)
+
+**Can (if Path A works and the screen calls a real `/v1` route):** health, import command, metrics (empty/zero funnel until pipeline writers exist), review decision via API (UI may or may not expose it yet).
+
+**Cannot, regardless of GCP:** live matching scores (registry approved; scorers M2–M3 not built), outreach send (G4), Google Calendar (G5), live crawl, production SSO, “the new SmartMatch UI.”
+
+The rewards ledger APIs are no longer on this list — `feat(rewards): server
+catalog listing and durable redemption APIs` shipped `GET
+/v1/units/{unit_id}/rewards`, `POST`/`GET /v1/units/{unit_id}/redemptions` and
+the decision route before this guide's "Cannot" line was last checked, and they
+work: a student can read their balance and an empty catalog, and a coordinator
+can decide a redemption once one is open. What still gates a click-through is
+data, not a missing route — the catalog has no *funded* item until an operator
+runs `make seed-pilot-rewards` with owner-supplied values (below), so a
+redemption cannot be opened before that.
+
+If a button looks real and 404s, that is the legacy frontend vs this contract — OpenAPI wins.
+
+---
+
+## Safety
+
+- Never commit `.env`, `.env.local`, OAuth client secrets, or service-account JSON.  
+- Never import live student CSVs.  
+- Never set `SMARTMATCH_EDITION` to `staging`/`classroom`/`production` on compose; seed, local queue, and fixture principals will refuse to start.  
+- A public tunnel + a baked `compose-*` token is a **demo**, not an access-control model. That is as true of the four pre-loaded principals as it was of the one: more identities is not more security, and none of these tokens may leave the compose network.

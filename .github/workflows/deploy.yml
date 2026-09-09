@@ -1,0 +1,323 @@
+# Deploy the synthetic pilot instance to the GCE VM on every push to `deploy`.
+#
+# ---------------------------------------------------------------------------
+# What this deploys, and what it emphatically does not
+# ---------------------------------------------------------------------------
+# The target is one e2-medium VM running the same docker compose appliance a
+# developer runs locally: SMARTMATCH_EDITION=dev, fixture providers, synthetic
+# seed data, compose-only bearer tokens, and the legacy frontend. It has no
+# identity provider, no real user, no live provider credential, and no
+# production data. ALLOW_CLOUD_DEPLOY=false still holds — this workflow
+# provisions no Cloud Run service, no Cloud SQL instance, no queue, no bucket
+# and no secret, and it publishes no image to any registry. The gates that must
+# close before any of that becomes appropriate are listed in
+# docs/operations/vm-deploy.md and in verify.yml's deferred-gate table.
+#
+# ---------------------------------------------------------------------------
+# The shape of a deployment
+# ---------------------------------------------------------------------------
+#   1. `build` and `verify` — the two existing CI workflows, called rather than
+#      copied, so the deployment gate cannot drift from the pull-request gate.
+#   2. Authenticate to GCP with GitHub OIDC through Workload Identity
+#      Federation. There is no service-account JSON key anywhere in this
+#      repository or in its secrets, and there is nothing here to steal that
+#      outlives the job: the federated token lasts an hour and is bound to this
+#      repository and this workflow by the provider's attribute condition.
+#   3. Reach the VM through IAP and OS Login. The instance has no public SSH
+#      and no external IP rule that would allow one.
+#   4. Run scripts/vm/deploy.sh on the VM, under its own flock. That script —
+#      not this workflow — is what backs up, fast-forwards, builds, migrates
+#      once, recreates, health-checks, and rolls the application back on
+#      failure. Keeping those steps on the VM is what makes them runnable by
+#      hand, identically, when a human has to.
+#   5. Probe the public Cloudflare URL with a Cloudflare Access service token,
+#      which is the only step that proves the tunnel and Access policy are
+#      actually serving the release that was just deployed.
+#
+# ---------------------------------------------------------------------------
+# Required environment configuration (GitHub environment `pilot-vm`)
+# ---------------------------------------------------------------------------
+# Variables (not secret — they are identifiers, and pretending otherwise makes
+# a failed deployment unreadable):
+#   GCP_PROJECT_ID                  e.g. smartmatch-pilot-1234
+#   GCP_ZONE                        us-west1-a
+#   GCE_INSTANCE                    smartmatch-pilot
+#   GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+#   GCP_DEPLOY_SERVICE_ACCOUNT      deployer@<project>.iam.gserviceaccount.com
+#   SMARTMATCH_PUBLIC_URL           https://<host> — the Cloudflare Tunnel hostname
+#
+# Secrets — exactly two, and neither is a cloud credential:
+#   CLOUDFLARE_ACCESS_CLIENT_ID
+#   CLOUDFLARE_ACCESS_CLIENT_SECRET
+#
+# The Cloudflare TUNNEL token is deliberately absent: it is installed on the VM
+# out-of-band and never passes through GitHub. A tunnel token in a workflow is
+# a tunnel anyone with workflow-edit rights can re-point.
+#
+# Actions are pinned to immutable commit SHAs, matching verify.yml. The GCP
+# authentication below is done with curl and the runner's preinstalled gcloud
+# rather than with a third-party action, for the same reason the rest of this
+# repository pins: this is the one workflow that holds a credential able to
+# reach a machine, and adding a marketplace action to it widens the set of
+# people who can change what that credential does.
+
+name: deploy
+
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deployments serialize and are NEVER cancelled. Cancelling mid-run could kill
+# scripts/vm/deploy.sh between its migration and its health check, leaving the
+# VM in a state no later run reasons about. Queued pushes therefore wait; each
+# one then fast-forwards to whatever the current `deploy` head is, so a queue
+# of three pushes converges on the newest commit rather than replaying three
+# intermediate ones.
+concurrency:
+  group: deploy-pilot-vm
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  deploy:
+    name: deploy — IAP to the pilot VM, then probe the public URL
+    needs: [build, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: pilot-vm
+
+    permissions:
+      contents: read
+      # The only elevated permission in this repository, and it is what makes a
+      # long-lived service-account key unnecessary.
+      id-token: write
+
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_ZONE: ${{ vars.GCP_ZONE }}
+      GCE_INSTANCE: ${{ vars.GCE_INSTANCE }}
+      SMARTMATCH_PUBLIC_URL: ${{ vars.SMARTMATCH_PUBLIC_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Required configuration is present
+        # Fail here, before authenticating, with a message that names the
+        # missing variable. An unset variable otherwise surfaces as an opaque
+        # 400 from an API three steps later.
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in GCP_PROJECT_ID GCP_ZONE GCE_INSTANCE SMARTMATCH_PUBLIC_URL; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::environment variable ${name} is not set on the 'pilot-vm' environment"
+              missing=1
+            fi
+          done
+          if [ -z "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
+            echo "::error::GCP_WORKLOAD_IDENTITY_PROVIDER is not set on the 'pilot-vm' environment"
+            missing=1
+          fi
+          if [ -z "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" ]; then
+            echo "::error::GCP_DEPLOY_SERVICE_ACCOUNT is not set on the 'pilot-vm' environment"
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Authenticate to GCP with Workload Identity Federation
+        # Three calls, no key file:
+        #   1. GitHub mints a short-lived OIDC token for this job.
+        #   2. Google STS exchanges it for a federated token, but only if the
+        #      provider's attribute condition matches this repository.
+        #   3. IAM Credentials exchanges that for an access token for the
+        #      deployment service account.
+        # Every intermediate value is masked before it can reach the log.
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+
+          github_token="$(curl -sS -f \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://iam.googleapis.com/${WIF_PROVIDER}" \
+            | jq -r '.value')"
+          [ -n "$github_token" ] && [ "$github_token" != "null" ] \
+            || { echo "::error::could not mint a GitHub OIDC token"; exit 1; }
+          echo "::add-mask::${github_token}"
+
+          federated="$(curl -sS -f -X POST 'https://sts.googleapis.com/v1/token' \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg audience "//iam.googleapis.com/${WIF_PROVIDER}" --arg subject "${github_token}" '{
+                  audience: $audience,
+                  grantType: "urn:ietf:params:oauth:grant-type:token-exchange",
+                  requestedTokenType: "urn:ietf:params:oauth:token-type:access_token",
+                  scope: "https://www.googleapis.com/auth/cloud-platform",
+                  subjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
+                  subjectToken: $subject
+                }')" | jq -r '.access_token')"
+          [ -n "$federated" ] && [ "$federated" != "null" ] \
+            || { echo "::error::Workload Identity Federation refused the exchange. Check the provider's attribute condition and that it names this repository."; exit 1; }
+          echo "::add-mask::${federated}"
+
+          impersonated="$(curl -sS -f -X POST \
+            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${DEPLOY_SERVICE_ACCOUNT}:generateAccessToken" \
+            -H "Authorization: Bearer ${federated}" \
+            -H 'Content-Type: application/json' \
+            -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"],"lifetime":"3600s"}' \
+            | jq -r '.accessToken')"
+          [ -n "$impersonated" ] && [ "$impersonated" != "null" ] \
+            || { echo "::error::could not impersonate ${DEPLOY_SERVICE_ACCOUNT}; the federated principal needs roles/iam.serviceAccountTokenCreator on it"; exit 1; }
+          echo "::add-mask::${impersonated}"
+
+          # gcloud reads this instead of a credentials file. It expires in an
+          # hour and exists only in this job's environment.
+          echo "CLOUDSDK_AUTH_ACCESS_TOKEN=${impersonated}" >> "$GITHUB_ENV"
+          echo "CLOUDSDK_CORE_PROJECT=${GCP_PROJECT_ID}" >> "$GITHUB_ENV"
+          echo "CLOUDSDK_COMPUTE_ZONE=${GCP_ZONE}" >> "$GITHUB_ENV"
+          echo "authenticated as ${DEPLOY_SERVICE_ACCOUNT}"
+
+      - name: Deploy over IAP
+        # --tunnel-through-iap is what makes a VM with no public SSH reachable,
+        # and OS Login is what makes the service account's access auditable and
+        # revocable centrally rather than by editing an authorized_keys file.
+        #
+        # The deployment itself is scripts/vm/deploy.sh, running on the VM as
+        # the unprivileged `smartmatch` user under its own flock. This step's
+        # only job is to invoke it and surface its exit code.
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          gcloud compute ssh "${GCE_INSTANCE}" \
+            --zone "${GCP_ZONE}" \
+            --tunnel-through-iap \
+            --quiet \
+            --command 'sudo -u smartmatch /opt/smartmatch/app/scripts/vm/deploy.sh'
+
+      - name: Read the revision the VM actually deployed
+        # NOT ${{ github.sha }}. Deployments serialize and each one
+        # fast-forwards to whatever `deploy` points at when it runs, so a push
+        # that lands while this job is queued means the VM correctly ends up on
+        # a NEWER commit than the one that started this run. Asserting the
+        # probe against github.sha would fail that correct deployment.
+        #
+        # The VM writes the SHA it deployed to /opt/smartmatch/release.env for
+        # its systemd unit; reading it back is how this job learns what is
+        # actually running rather than what it expected to be.
+        run: |
+          set -euo pipefail
+          recorded="$(gcloud compute ssh "${GCE_INSTANCE}" \
+            --zone "${GCP_ZONE}" --tunnel-through-iap --quiet \
+            --command 'cat /opt/smartmatch/release.env')"
+          deployed="${recorded#SMARTMATCH_RELEASE=}"
+          deployed="$(printf '%s' "$deployed" | tr -d '\r\n[:space:]')"
+          if [ -z "$deployed" ]; then
+            echo "::error::the VM recorded no deployed revision"
+            exit 1
+          fi
+          echo "DEPLOYED_SHA=${deployed}" >> "$GITHUB_ENV"
+          echo "the VM is running ${deployed}"
+          if [ "$deployed" != "${GITHUB_SHA}" ]; then
+            echo "::notice::the VM is on ${deployed}, newer than this run's ${GITHUB_SHA} — a later push to deploy superseded it, which is the intended convergence"
+          fi
+
+      - name: Record the deployed revision
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deployed"
+            echo ""
+            echo "- deployed commit: \`${DEPLOYED_SHA}\`"
+            echo "- this run's commit: \`${GITHUB_SHA}\`"
+            echo "- instance: \`${GCE_INSTANCE}\` (${GCP_ZONE})"
+            echo "- url: ${SMARTMATCH_PUBLIC_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Probe the public URL through Cloudflare Access
+        # The VM's own health suite has already passed at this point. This step
+        # answers the different question that only an external caller can: does
+        # the tunnel exist, is Access in front of it, and is the thing it is
+        # serving the release we just deployed?
+        #
+        # A service token is used rather than a bypass rule. Making the probe
+        # work by punching a hole in the Access policy would test a policy
+        # nobody actually runs.
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CF_ACCESS_CLIENT_ID}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "::error::the Cloudflare Access service-token secrets are not configured on the 'pilot-vm' environment"
+            exit 1
+          fi
+
+          probe() {
+            curl -sS -o /tmp/probe.body -w '%{http_code}' --max-time 30 \
+              -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+              "$1"
+          }
+
+          # The tunnel and the frontend.
+          for path in "/" "/coordinator-portal"; do
+            code="$(probe "${SMARTMATCH_PUBLIC_URL}${path}")"
+            echo "GET ${path} -> ${code}"
+            if [ "$code" != "200" ]; then
+              echo "::error::${SMARTMATCH_PUBLIC_URL}${path} answered ${code}, not 200"
+              [ "$code" = "403" ] && echo "::error::403 usually means the Access service token is not authorized by the application's policy"
+              exit 1
+            fi
+          done
+
+          # The API, through the frontend's own proxy — one request that
+          # crosses Cloudflare, the tunnel, the frontend, and the API.
+          code="$(probe "${SMARTMATCH_PUBLIC_URL}/api/health")"
+          echo "GET /api/health -> ${code}"
+          [ "$code" = "200" ] || { echo "::error::the proxied API health endpoint answered ${code}"; exit 1; }
+
+          status="$(jq -r '.status' < /tmp/probe.body)"
+          release="$(jq -r '.release' < /tmp/probe.body)"
+          echo "status=${status} release=${release}"
+
+          [ "$status" = "ok" ] || { echo "::error::the API reported status=${status}"; exit 1; }
+
+          # The release must be the commit the VM reported deploying. Anything
+          # else means the containers serving the public URL are not the code
+          # the deployment just put there — a stale container, or a tunnel
+          # pointed somewhere other than this VM.
+          if [ "$release" != "${DEPLOYED_SHA}" ]; then
+            echo "::error::the public URL is serving release '${release}', not the deployed commit ${DEPLOYED_SHA}"
+            exit 1
+          fi
+          echo "the public URL is serving ${DEPLOYED_SHA}"
+
+      - name: Deployment failed — what to look at
+        if: failure()
+        run: |
+          {
+            echo "### Deployment failed"
+            echo ""
+            echo "scripts/vm/deploy.sh rolls the APPLICATION back to the previous"
+            echo "commit and re-runs its health suite before failing, so the VM is"
+            echo "most likely serving the previous release. Database migrations are"
+            echo "forward-only and are never undone automatically."
+            echo ""
+            echo "On the VM (over IAP):"
+            echo ""
+            echo '```'
+            echo "ls -t /opt/smartmatch/logs | head"
+            echo "cat /opt/smartmatch/deployments/\$(ls -t /opt/smartmatch/deployments | head -1)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

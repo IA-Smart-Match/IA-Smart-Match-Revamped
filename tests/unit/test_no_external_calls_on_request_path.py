@@ -58,10 +58,25 @@ _R3_FORBIDDEN_SEGMENTS = frozenset(
         "chat",
         "prompt",
         # outreach family
-        "outreach",
-        "email",
-        "emails",
-        "send",
+        #
+        # NARROWED for R4/G4 (plan card L7,
+        # `docs/plans/2026-09-04-r4-outreach-g4-implementation-plan.md`). This
+        # guard was never about outreach being forbidden — it is about the
+        # *request path* reaching a provider, which is the R3 lag defect. G4
+        # closed, the outreach routes shipped, and they submit a durable command
+        # rather than sending anything, so the segments they use are removed
+        # here and the guard's real subject is untouched.
+        #
+        # Removed: "outreach" (four routes), "send" (the command-submission
+        # route `.../drafts/{draft_id}/send`), "email" and "emails" (no route
+        # uses them today, dropped with the family so a later `/outreach/emails`
+        # read does not have to reopen this discussion).
+        #
+        # What still holds, and is what actually pins R3: Guard 2 below, which
+        # forbids every module under `services/api/` from importing an HTTP
+        # client at all. A synchronous send from a route is not merely absent
+        # from the contract — it has nothing to send *with*. The crawl, LLM, and
+        # vendor families below are unchanged.
         # named third-party crawl/LLM/search vendors
         "tavily",
         "openai",
@@ -70,17 +85,17 @@ _R3_FORBIDDEN_SEGMENTS = frozenset(
     }
 )
 
-# Checked and confirmed against the committed contract on 2026-08-28: the
-# current paths are /api/health, /u/{token}, /v1/jobs/{job_id}(/abandon|
-# /events|/redrive), /v1/me, /v1/units/{unit_id}/imports,
-# /v1/units/{unit_id}/metrics(/{metric_name}/drill-down). None of these
-# segments (job, jobs, abandon, events, redrive, me, units, imports, metrics,
-# metric_name, drill, down, health, u, token) collide with any forbidden
-# family above, so no term needed to be narrowed for this test to pass. If a
-# future legitimate route did collide (for example a durable-command job
-# lifecycle "events" route is already distinct from the G3 unit-scoped event
-# catalog guarded in test_matching_fail_closed.py), narrow the specific
-# colliding term here with a comment — never delete the guard.
+# Re-checked against the committed contract on 2026-09-04. The outreach family
+# above is the first term this guard has had to narrow, and it was narrowed the
+# way the original note asked for — the specific colliding terms, with a comment
+# naming the plan card that authorized it, and nothing deleted. Every other
+# family is intact and no current path collides with one.
+#
+# The rule for the next person stands unchanged: if a future legitimate route
+# collides, narrow the specific colliding term here with a comment. Never delete
+# the guard, and never narrow a term because a route you are adding happens to
+# be named awkwardly — the question to answer first is whether the route
+# genuinely does no provider work on the request path.
 
 
 def _normalized_subwords(path: str) -> list[str]:
@@ -222,3 +237,54 @@ def test_no_request_path_module_imports_an_http_client() -> None:
     assert violations == [], "R3 violation(s) — HTTP client import(s) in services/api/:\n" + (
         "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# Guard 3 — the CBA product scope names external acquisition as out of scope.
+# ---------------------------------------------------------------------------
+#
+# Guards 1 and 2 are structural: no such route is declared, and no request-path
+# module can reach the network. This third guard is the *product* statement
+# behind them — customer §20 puts finding speakers on the internet, scraping
+# LinkedIn, scraping other external sources, automatic external event
+# discovery, and cold outreach to unknown contacts out of scope for this phase.
+#
+# It belongs beside guards 1 and 2 rather than only in the scope-policy test
+# file: if a later change ever re-enables the capability, the person reading
+# *this* file needs to see it, because these guards are what would otherwise
+# have to be narrowed to let such a route exist.
+
+
+def test_cba_scope_disables_external_acquisition_capabilities() -> None:
+    """Customer §20: external acquisition and cold outreach are out of scope."""
+    from smartmatch_domain.product_scope import (
+        DEFAULT_PRODUCT_SCOPE,
+        Capability,
+        is_capability_enabled,
+    )
+
+    for capability in (
+        Capability.EXTERNAL_SPEAKER_ACQUISITION,
+        Capability.COLD_UNKNOWN_CONTACT_OUTREACH,
+    ):
+        assert not is_capability_enabled(DEFAULT_PRODUCT_SCOPE, capability), (
+            f"{capability} is out of scope for the CBA phase (customer §20); "
+            "re-enabling it requires an explicit customer authorization, not a code edit"
+        )
+
+
+def test_consented_outreach_is_not_gated_by_the_external_acquisition_gate() -> None:
+    """Gating cold outreach must not take the consented path down with it.
+
+    The two share the word "outreach" and nothing else: one contacts people who
+    never agreed to be contacted, the other sends an approved draft to a
+    consented contact and is explicitly preserved. A blanket gate on the word
+    would remove a working, in-scope capability.
+    """
+    from smartmatch_domain.product_scope import (
+        DEFAULT_PRODUCT_SCOPE,
+        Capability,
+        is_capability_enabled,
+    )
+
+    assert is_capability_enabled(DEFAULT_PRODUCT_SCOPE, Capability.CONSENTED_OUTREACH)

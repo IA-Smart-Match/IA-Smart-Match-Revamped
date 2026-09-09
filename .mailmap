@@ -1,0 +1,12 @@
+# Canonical identities for `git log`, `git shortlog` and GitHub's contributor
+# list. A .mailmap changes how names are *displayed*; it rewrites no history and
+# invalidates no commit id.
+#
+# The repository has one human author writing under several git configurations
+# across machines and GitHub accounts. Collapsing them here keeps `git shortlog
+# -sne` honest about who wrote this repository — and, in particular, stops
+# decisions recorded in docs/decisions from appearing to come from an unrelated
+# GitHub account that happens to hold the `dangt` handle.
+Danny Tran <91554483+BrooklynD23@users.noreply.github.com> <12945296+dangt@users.noreply.github.com>
+Danny Tran <91554483+BrooklynD23@users.noreply.github.com> <dt110202@gmail.com>
+Danny Tran <91554483+BrooklynD23@users.noreply.github.com> <dangtran1022@gmail.com>

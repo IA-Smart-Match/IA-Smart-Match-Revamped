@@ -33,6 +33,10 @@ locals {
   task_queue             = "example-smartmatch-staging-jobs"
   api_service_account    = "example-smartmatch-staging-api@example.invalid"
   worker_service_account = "example-smartmatch-staging-worker@example.invalid"
+  api_service            = "example-smartmatch-staging-api-service"
+  worker_service         = "example-smartmatch-staging-worker-service"
+  scheduler_job          = "example-smartmatch-staging-dispatch-job"
+  database_secret_id     = "example-smartmatch-staging-database-url"
   provider_secret_id     = "example-smartmatch-staging-provider-credentials"
   release_tag_prefix     = "staging-v"
 
@@ -47,5 +51,8 @@ locals {
   data_class       = "synthetic"
   min_instances    = 1
   max_instances    = 4
+  database_version = "POSTGRES_16"
+  database_tier    = "db-custom-1-3840"
+  dispatch_cron    = "*/5 * * * *"
   promotion_source = "dev"
 }

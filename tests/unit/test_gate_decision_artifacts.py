@@ -14,6 +14,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 G1_PACKET = REPO_ROOT / "docs/plans/workshops/g1-factor-registry-workshop-packet.md"
 G3_THREAT_MODEL = REPO_ROOT / "docs/security/crawler-threat-model-draft.md"
 D6_WORKSHEET = REPO_ROOT / "docs/pilot-data/rewards-catalog-worksheet.md"
+CBA_SCORING_ADR = REPO_ROOT / "docs/architecture/decisions/ADR-0016-cba-scoring-policy.md"
+
+#: OQ-CBA-004's named owner, and the reason every approval assertion about
+#: ADR-0016 is expected to fail. Duplicated deliberately from
+#: ``tests/unit/test_cba_scoring_decision_artifact.py``: that file is the
+#: artifact's own completeness suite, this one is the register of *gates*, and a
+#: gate whose reason string lived in another module would be a gate whose
+#: justification a reader has to go and find.
+OQ_CBA_004_OWNER = "Danny Tran"
 
 
 def test_g1_packet_remains_unapproved_prep() -> None:
@@ -75,10 +84,23 @@ def test_g3_threat_model_names_required_controls_and_signoff() -> None:
 
 
 def test_d6_worksheet_retains_do_not_seed_warning() -> None:
-    """D6 worksheet must warn engineering not to seed placeholder catalog rows."""
+    """D6 worksheet must still refuse invented catalog values, seeded or not.
+
+    Until 7 September 2026 this asserted a literal "do not seed" — no operator
+    tool existed, so any seed was an invented one. The 7 September decision
+    (`docs/plans/open-questions/cba-phase-deferred.md`, "Decision taken
+    2026-09-07 — Rewards catalog seeding", recorded beside D6 rather than by
+    editing it) authorized exactly one seeding path: an operator tool whose
+    every value is owner-supplied, with no default. So "do not seed" is no
+    longer the true rule; "do not *invent*" still is, and is what this test
+    pins now — together with the worksheet still pointing at the one
+    authorized command, so a reader cannot mistake this for an open door to
+    any other writer.
+    """
     text = D6_WORKSHEET.read_text(encoding="utf-8").lower()
-    assert "do not seed" in text
     assert "human completion required" in text
+    assert "must not invent" in text
+    assert "make seed-pilot-rewards" in text
 
 
 def test_d6_worksheet_names_required_catalog_and_calibration_fields() -> None:
@@ -95,3 +117,68 @@ def test_d6_worksheet_names_required_catalog_and_calibration_fields() -> None:
     )
     for phrase in required_phrases:
         assert phrase in lowered, f"D6 worksheet missing required field: {phrase!r}"
+
+
+def test_cba_scoring_adr_reads_as_the_approval_it_now_is() -> None:
+    """ADR-0016 must read as ratified now that OQ-CBA-004 is closed.
+
+    Until 5 September 2026 this asserted the opposite, and the reasoning still
+    holds in mirror: the danger is a decision document whose voice and whose
+    header disagree. Then, the risk was a proposal that read as settled. Now it
+    is an accepted policy still carrying "must not be implemented", which would
+    stop engineering from applying values the owner has approved and leave the
+    downstream reader unable to tell what is in force.
+    """
+    text = CBA_SCORING_ADR.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "**status:** accepted" in lowered
+    assert "must not be implemented" not in lowered, (
+        "ADR-0016 is accepted; the do-not-implement banner must be gone"
+    )
+    assert "not approved" not in lowered
+    assert "oq-cba-004" in lowered
+    assert OQ_CBA_004_OWNER.lower() in lowered
+
+
+def test_cba_scoring_adr_names_every_field_the_owner_must_decide() -> None:
+    """ADR-0016 must enumerate every field the OQ-CBA-004 owner has to rule on."""
+    lowered = CBA_SCORING_ADR.read_text(encoding="utf-8").lower()
+    required_phrases = (
+        "neutral topic",
+        "policy_neutral",
+        "unknown",
+        "cba_neutral_topic_value",
+        "proximity band",
+        "boundary ownership",
+        "lower-inclusive, upper-exclusive",
+        "virtual",
+        "cba-virtual-1",
+        "proportional renormalization",
+        "serialization",
+        "ui label",
+        "registry_version",
+        "pin policy",
+        "golden case",
+        "program owner of record",
+    )
+    for phrase in required_phrases:
+        assert phrase in lowered, f"ADR-0016 missing required decision field: {phrase!r}"
+
+
+def test_cba_scoring_adr_is_accepted_with_an_owner_and_a_date() -> None:
+    """The gate itself. Fails while the owner has not decided — correctly.
+
+    ``strict=True`` so this cannot stay quietly red after the decision lands:
+    the moment the status flips and the ``**Decided:**`` line names the owner
+    and a date, the test XPASSes and the suite fails until the marker is
+    removed. That is the point — the marker records an *open* gate, and an
+    open-gate marker outliving its gate is exactly the stale artifact this file
+    exists to prevent.
+    """
+    text = CBA_SCORING_ADR.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "**status:** accepted" in lowered, "ADR-0016 status is not Accepted"
+    assert "**decided:**" in lowered, "ADR-0016 records no decision date"
+    assert OQ_CBA_004_OWNER.lower() in lowered.split("**decided:**", 1)[1][:200], (
+        "ADR-0016's decision line does not name the approving owner"
+    )

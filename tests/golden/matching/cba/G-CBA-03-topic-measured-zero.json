@@ -1,0 +1,88 @@
+{
+  "id": "G-CBA-03",
+  "title": "The topic comparison runs and genuinely scores 0.0",
+  "asserts": "State measured, zero_classification 'measured_zero', label '0 — measured', never 'unknown'. A measured zero is a real claim about a speaker whose recorded topics were read and do not address the request.",
+  "adr_proposals": [
+    1,
+    8
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-03-MEASURED-ZERO",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.0,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-03-MEASURED-ZERO"
+    ],
+    "candidates": {
+      "SYNTH-CBA-03-MEASURED-ZERO": {
+        "composite_state": "measured",
+        "heuristic_score": 0.85,
+        "is_shortlistable": true,
+        "unknown_factor_keys": [],
+        "policy_neutral_factor_keys": [],
+        "ui_caption": null,
+        "factors": {
+          "industry_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "role_match": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null
+          },
+          "cba_semantic_topic": {
+            "state": "measured",
+            "value": 0.0,
+            "zero_classification": "measured_zero",
+            "policy_id": null,
+            "policy_version": null,
+            "ui_label": "0 — measured"
+          },
+          "proximity": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null,
+            "band": "near",
+            "ui_label": "Near"
+          }
+        }
+      }
+    }
+  }
+}

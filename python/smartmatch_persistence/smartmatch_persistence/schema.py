@@ -42,25 +42,41 @@ __all__ = [
     "METADATA",
     "attendance_record",
     "concurrency_lease",
+    "contact_channel",
+    "contact_channel_transition",
+    "delivery_event",
+    "discovery_review_item",
     "event",
-    "event_feedback_qr",
-    "event_feedback_qr_open",
+    "event_registration",
+    "event_tag",
     "idempotency_record",
     "import_batch",
     "job",
     "job_event",
+    "match_run",
+    "match_weight_setting",
+    "match_weight_setting_revision",
     "membership",
     "org_unit",
     "outbox_record",
+    "outreach_draft",
+    "outreach_send",
+    "pilot_credential",
+    "pilot_login_attempt",
+    "pilot_session",
     "point_ledger_entry",
     "professional_unit_relationship",
     "rate_limit_counter",
+    "redemption",
     "redrive_record",
     "resource_grant",
     "review_item",
     "reward_item",
+    "speaker_profile",
+    "speaker_request_classification",
     "spend_ceiling_bucket",
     "spend_reservation",
+    "suppression_record",
     "tenant",
     "tenant_budget",
     "user_account",
@@ -85,8 +101,6 @@ class LTree(sa.types.UserDefinedType):  # type: ignore[type-arg]
 
 _UUID = postgresql.UUID(as_uuid=True)
 _TS = sa.DateTime(timezone=True)
-
-_EVENT_CATEGORIES = "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
 
 
 tenant = sa.Table(
@@ -117,433 +131,6 @@ org_unit = sa.Table(
     sa.PrimaryKeyConstraint("id", name="org_unit_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_org_unit_tenant_id"),
     sa.UniqueConstraint("tenant_id", "path", name="uq_org_unit_tenant_path"),
-)
-
-
-event = sa.Table(
-    "event",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("created_by", _UUID, nullable=False),
-    sa.Column("idempotency_key", sa.Text, nullable=False),
-    sa.Column("request_fingerprint", sa.Text, nullable=False),
-    sa.Column("title", sa.Text, nullable=False),
-    sa.Column("normalized_title", sa.Text, nullable=False),
-    sa.Column("description", sa.Text, nullable=True),
-    sa.Column("category", sa.Text, nullable=True),
-    sa.Column("time_precision", sa.Text, nullable=False, server_default="unresolved"),
-    sa.Column("starts_at", _TS, nullable=True),
-    sa.Column("ends_at", _TS, nullable=True),
-    sa.Column("on_date", sa.Date, nullable=True),
-    sa.Column("time_zone", sa.Text, nullable=True),
-    sa.Column("location", sa.Text, nullable=True),
-    sa.Column("capacity", sa.Integer, nullable=True),
-    sa.Column("volunteer_openings", sa.Integer, nullable=True),
-    sa.Column("volunteer_needs", sa.Text, nullable=True),
-    sa.Column("audience", sa.Text, nullable=True),
-    sa.Column("contact_name", sa.Text, nullable=True),
-    sa.Column("contact_email", sa.Text, nullable=True),
-    sa.Column("speaker_topics", postgresql.JSONB, nullable=False, server_default="[]"),
-    sa.Column("region", sa.Text, nullable=True),
-    sa.Column("status", sa.Text, nullable=False, server_default="draft"),
-    sa.Column("source_kind", sa.Text, nullable=False, server_default="manual"),
-    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
-    sa.Column("attendance_closed_at", _TS, nullable=True),
-    sa.Column("attendance_closed_by", _UUID, nullable=True),
-    sa.Column("cancelled_at", _TS, nullable=True),
-    sa.Column("cancelled_by", _UUID, nullable=True),
-    sa.Column("cancellation_reason", sa.Text, nullable=True),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="event_pkey"),
-    sa.UniqueConstraint("tenant_id", "id", name="uq_event_tenant_id"),
-    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_event_tenant_unit_id"),
-    sa.UniqueConstraint(
-        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_event_idempotency"
-    ),
-    sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "created_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "attendance_closed_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "cancelled_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.CheckConstraint(
-        f"category IS NULL OR category IN ({_EVENT_CATEGORIES})",
-        name="ck_event_category",
-    ),
-    sa.CheckConstraint(
-        "time_precision IN ('exact', 'date_only', 'unresolved')",
-        name="ck_event_time_precision",
-    ),
-    sa.CheckConstraint("status IN ('draft', 'published', 'cancelled')", name="ck_event_status"),
-    sa.CheckConstraint("source_kind = 'manual'", name="ck_event_source_kind"),
-    sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_event_capacity"),
-    sa.CheckConstraint(
-        "volunteer_openings IS NULL OR volunteer_openings >= 0",
-        name="ck_event_openings_nonnegative",
-    ),
-    sa.CheckConstraint(
-        "capacity IS NULL OR volunteer_openings IS NULL OR volunteer_openings <= capacity",
-        name="ck_event_openings_within_capacity",
-    ),
-    sa.CheckConstraint(
-        "(time_precision = 'unresolved' AND starts_at IS NULL AND ends_at IS NULL "
-        "AND on_date IS NULL) OR (time_precision = 'exact' AND starts_at IS NOT NULL "
-        "AND on_date IS NULL AND time_zone IS NOT NULL) OR (time_precision = 'date_only' "
-        "AND starts_at IS NULL AND ends_at IS NULL AND on_date IS NOT NULL "
-        "AND time_zone IS NOT NULL)",
-        name="ck_event_temporal_shape",
-    ),
-    sa.CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="ck_event_end_after_start"),
-    sa.CheckConstraint(
-        "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
-        "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
-        "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
-        "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' "
-        "AND audience IS NOT NULL AND btrim(audience) <> '' AND contact_name IS NOT NULL "
-        "AND btrim(contact_name) <> '' AND contact_email IS NOT NULL "
-        "AND btrim(contact_email) <> '')",
-        name="ck_event_publishable",
-    ),
-)
-
-sa.Index(
-    "uq_event_resolved_identity",
-    event.c.tenant_id,
-    event.c.owning_unit_id,
-    event.c.normalized_title,
-    sa.text("COALESCE(on_date, (starts_at AT TIME ZONE time_zone)::date)"),
-    unique=True,
-    postgresql_where=sa.text("time_precision <> 'unresolved'"),
-)
-
-_SPEAKER_EVENT_STATUSES = (
-    "'not_emailed_yet', 'awaiting_response', 'declined', 'ready_for_handoff', "
-    "'handed_off', 'awaiting_final_confirmation', 'confirmed', 'withdrawn', "
-    "'attended', 'did_not_attend', 'event_cancelled'"
-)
-
-speaker = sa.Table(
-    "speaker",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("created_by", _UUID, nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
-    sa.Column("title", sa.Text, nullable=True),
-    sa.Column("company", sa.Text, nullable=True),
-    sa.Column("board_role", sa.Text, nullable=True),
-    sa.Column("expertise_topics", postgresql.JSONB, nullable=False, server_default="[]"),
-    sa.Column("home_region", sa.Text, nullable=True),
-    sa.Column("service_regions", postgresql.JSONB, nullable=False, server_default="[]"),
-    sa.Column("contact_email", sa.Text, nullable=True),
-    sa.Column("contact_phone", sa.Text, nullable=True),
-    sa.Column("available", sa.Boolean, nullable=False, server_default=sa.true()),
-    sa.Column("active", sa.Boolean, nullable=False, server_default=sa.true()),
-    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_pkey"),
-    sa.UniqueConstraint("tenant_id", "id", name="uq_speaker_tenant_id"),
-    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_tenant_unit_id"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "created_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.CheckConstraint("btrim(name) <> ''", name="ck_speaker_name"),
-)
-
-speaker_roster = sa.Table(
-    "speaker_roster",
-    METADATA,
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("version", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("published_by", _UUID, nullable=True),
-    sa.Column("published_at", _TS, nullable=True),
-    sa.PrimaryKeyConstraint("tenant_id", "owning_unit_id", name="speaker_roster_pkey"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="CASCADE"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "published_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-)
-speaker_roster_entry = sa.Table(
-    "speaker_roster_entry",
-    METADATA,
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("speaker_id", _UUID, nullable=False),
-    sa.Column("roster_version", sa.Integer, nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
-    sa.Column("title", sa.Text, nullable=True),
-    sa.Column("company", sa.Text, nullable=True),
-    sa.Column("board_role", sa.Text, nullable=True),
-    sa.Column("expertise_topics", postgresql.JSONB, nullable=False),
-    sa.Column("home_region", sa.Text, nullable=True),
-    sa.Column("service_regions", postgresql.JSONB, nullable=False),
-    sa.PrimaryKeyConstraint(
-        "tenant_id", "owning_unit_id", "speaker_id", name="speaker_roster_entry_pkey"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id"],
-        ["speaker_roster.tenant_id", "speaker_roster.owning_unit_id"],
-        ondelete="CASCADE",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "speaker_id"],
-        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
-        ondelete="CASCADE",
-    ),
-)
-
-speaker_match_run = sa.Table(
-    "speaker_match_run",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("event_id", _UUID, nullable=False),
-    sa.Column("requested_by", _UUID, nullable=False),
-    sa.Column("idempotency_key", sa.Text, nullable=False),
-    sa.Column("request_fingerprint", sa.Text, nullable=False),
-    sa.Column("roster_version", sa.Integer, nullable=False),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_match_run_pkey"),
-    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_match_run_scope"),
-    sa.UniqueConstraint(
-        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_speaker_match_run_idempotency"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "event_id"],
-        ["event.tenant_id", "event.owning_unit_id", "event.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "requested_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-)
-speaker_match_result = sa.Table(
-    "speaker_match_result",
-    METADATA,
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("match_run_id", _UUID, nullable=False),
-    sa.Column("speaker_id", _UUID, nullable=False),
-    sa.Column("position", sa.Integer, nullable=False),
-    sa.Column("topic_score", sa.Numeric(6, 5), nullable=False),
-    sa.Column("proximity_score", sa.Numeric(6, 5), nullable=False),
-    sa.Column("total_score", sa.Numeric(6, 5), nullable=False),
-    sa.Column("explanations", postgresql.JSONB, nullable=False),
-    sa.PrimaryKeyConstraint(
-        "tenant_id",
-        "owning_unit_id",
-        "match_run_id",
-        "speaker_id",
-        name="speaker_match_result_pkey",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "match_run_id"],
-        ["speaker_match_run.tenant_id", "speaker_match_run.owning_unit_id", "speaker_match_run.id"],
-        ondelete="CASCADE",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "speaker_id"],
-        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
-        ondelete="RESTRICT",
-    ),
-)
-
-speaker_event = sa.Table(
-    "speaker_event",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("event_id", _UUID, nullable=False),
-    sa.Column("speaker_id", _UUID, nullable=False),
-    sa.Column("assigned_host_id", _UUID, nullable=False),
-    sa.Column("status", sa.Text, nullable=False, server_default="not_emailed_yet"),
-    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_event_pkey"),
-    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_event_scope"),
-    sa.UniqueConstraint(
-        "tenant_id", "owning_unit_id", "event_id", "speaker_id", name="uq_speaker_event_pair"
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "event_id"],
-        ["event.tenant_id", "event.owning_unit_id", "event.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "speaker_id"],
-        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "assigned_host_id"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.CheckConstraint(f"status IN ({_SPEAKER_EVENT_STATUSES})", name="ck_speaker_event_status"),
-)
-speaker_shortlist_submission = sa.Table(
-    "speaker_shortlist_submission",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("match_run_id", _UUID, nullable=False),
-    sa.Column("idempotency_key", sa.Text, nullable=False),
-    sa.Column("request_fingerprint", sa.Text, nullable=False),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_shortlist_submission_pkey"),
-    sa.UniqueConstraint(
-        "tenant_id",
-        "owning_unit_id",
-        "idempotency_key",
-        name="uq_speaker_shortlist_idempotency",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "match_run_id"],
-        [
-            "speaker_match_run.tenant_id",
-            "speaker_match_run.owning_unit_id",
-            "speaker_match_run.id",
-        ],
-        ondelete="CASCADE",
-    ),
-)
-speaker_event_history = sa.Table(
-    "speaker_event_history",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("speaker_event_id", _UUID, nullable=False),
-    sa.Column("from_status", sa.Text, nullable=True),
-    sa.Column("to_status", sa.Text, nullable=False),
-    sa.Column("action_kind", sa.Text, nullable=False),
-    sa.Column("actor_id", _UUID, nullable=False),
-    sa.Column("note", sa.Text, nullable=True),
-    sa.Column("correction_reason", sa.Text, nullable=True),
-    sa.Column("idempotency_key", sa.Text, nullable=True),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_event_history_pkey"),
-    sa.UniqueConstraint(
-        "tenant_id",
-        "owning_unit_id",
-        "idempotency_key",
-        name="uq_speaker_event_history_idempotency",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "speaker_event_id"],
-        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
-        ondelete="CASCADE",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "actor_id"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-)
-speaker_event_note = sa.Table(
-    "speaker_event_note",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("speaker_event_id", _UUID, nullable=False),
-    sa.Column("actor_id", _UUID, nullable=False),
-    sa.Column("body", sa.Text, nullable=False),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="speaker_event_note_pkey"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "speaker_event_id"],
-        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
-        ondelete="CASCADE",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "actor_id"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-    sa.CheckConstraint("btrim(body) <> ''", name="ck_speaker_event_note_body"),
-)
-
-event_feedback_qr = sa.Table(
-    "event_feedback_qr",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("owning_unit_id", _UUID, nullable=False),
-    sa.Column("event_id", _UUID, nullable=False),
-    sa.Column("public_token", sa.Text, nullable=False),
-    sa.Column("destination_url", sa.Text, nullable=False),
-    sa.Column("created_by", _UUID, nullable=False),
-    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_pkey"),
-    sa.UniqueConstraint("tenant_id", "id", name="uq_event_feedback_qr_tenant_id"),
-    sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
-    sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "event_id"],
-        ["event.tenant_id", "event.owning_unit_id", "event.id"],
-        ondelete="CASCADE",
-    ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "created_by"],
-        ["user_account.tenant_id", "user_account.id"],
-        ondelete="RESTRICT",
-    ),
-)
-
-event_feedback_qr_open = sa.Table(
-    "event_feedback_qr_open",
-    METADATA,
-    sa.Column("id", _UUID, nullable=False),
-    sa.Column("tenant_id", _UUID, nullable=False),
-    sa.Column("qr_id", _UUID, nullable=False),
-    sa.Column("opened_at", _TS, nullable=False, server_default=sa.text("now()")),
-    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_open_pkey"),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "qr_id"],
-        ["event_feedback_qr.tenant_id", "event_feedback_qr.id"],
-        ondelete="CASCADE",
-    ),
-)
-sa.Index(
-    "ix_event_feedback_qr_open_qr_time",
-    event_feedback_qr_open.c.qr_id,
-    event_feedback_qr_open.c.opened_at,
 )
 
 
@@ -852,8 +439,9 @@ attendance_record = sa.Table(
     sa.Column("owning_unit_id", _UUID, nullable=False),
     # The student who attended.
     sa.Column("subject_id", _UUID, nullable=False),
-    # Migration 0016 adds this as NOT VALID so legacy orphan rows do not block
-    # deployment; the metadata mirror records the intended relationship.
+    # The event attended. Composite foreign key below, added by migration
+    # 0017 (card S5f) alongside the event table itself -- the constraint 0009
+    # asked "whichever migration adds one" to write.
     sa.Column("event_id", _UUID, nullable=False),
     sa.Column("method", sa.Text, nullable=False),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
@@ -875,11 +463,13 @@ attendance_record = sa.Table(
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
     ),
+    # RESTRICT (migration 0017): attendance is the only input to points
+    # (ADR-0013), so deleting the event out from under a credited attendance
+    # would leave a ledger entry nothing could explain.
     sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "event_id"],
-        ["event.tenant_id", "event.owning_unit_id", "event.id"],
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
         ondelete="RESTRICT",
-        name="fk_attendance_record_event",
     ),
     sa.CheckConstraint(
         "method IN ('qr_scan','coordinator_entry','import')",
@@ -899,8 +489,20 @@ point_ledger_entry = sa.Table(
     # else in this schema — a balance is a fold over this ledger, computed
     # server-side, never stored.
     sa.Column("amount", sa.Integer, nullable=False),
+    # Which of the three shapes this row is: an attendance credit, a
+    # compensating reversal, or a redemption debit. NOT NULL with no server
+    # default — every writer names the kind it is writing (migration 0019).
+    # Derivable from the sign and the source, and tied to that derivation by
+    # ck_point_ledger_entry_kind below, so the two cannot drift.
+    sa.Column("kind", sa.Text, nullable=False),
     # The attendance record this entry derives from — ADR-0013's "source".
-    sa.Column("source_attendance_id", _UUID, nullable=False),
+    # Nullable since migration 0019: a redemption debit derives from a
+    # redemption, not from an attendance, and borrowing an unrelated
+    # attendance id to satisfy a NOT NULL would be fabricated evidence.
+    sa.Column("source_attendance_id", _UUID, nullable=True),
+    # The redemption this entry debits for. Set on exactly the rows where
+    # source_attendance_id is null, and null on every other row.
+    sa.Column("source_redemption_id", _UUID, nullable=True),
     sa.Column("reason", sa.Text, nullable=False),
     # Nullable, no foreign key: mirrors job.actor_id. Automatic derivation
     # from attendance — the ordinary case — has no human actor to name.
@@ -914,7 +516,27 @@ point_ledger_entry = sa.Table(
         ["attendance_record.tenant_id", "attendance_record.id"],
         ondelete="RESTRICT",
     ),
+    # RESTRICT: the redemption a debit was taken for must not disappear out
+    # from under the entry that cites it, or the debit becomes unexplainable.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "source_redemption_id"],
+        ["redemption.tenant_id", "redemption.id"],
+        ondelete="RESTRICT",
+    ),
     sa.CheckConstraint("amount <> 0", name="ck_point_ledger_entry_amount_nonzero"),
+    # Exactly one of three shapes, each carrying the fields its kind requires
+    # (migration 0019). This is what keeps source_attendance_id's nullability
+    # from being a hole: a row naming neither source, or both, or a kind
+    # outside the three, satisfies none of the disjuncts.
+    sa.CheckConstraint(
+        "(kind = 'attendance_credit' AND source_attendance_id IS NOT NULL "
+        "AND source_redemption_id IS NULL AND amount > 0) "
+        "OR (kind = 'reversal' AND source_attendance_id IS NOT NULL "
+        "AND source_redemption_id IS NULL AND amount < 0) "
+        "OR (kind = 'redemption_debit' AND source_attendance_id IS NULL "
+        "AND source_redemption_id IS NOT NULL AND amount < 0)",
+        name="ck_point_ledger_entry_kind",
+    ),
 )
 
 
@@ -939,6 +561,11 @@ reward_item = sa.Table(
     sa.Column("funded", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="reward_item_pkey"),
+    # What redemption.item_id references (migration 0019). Deferred by 0009,
+    # which said "nothing in this migration references reward_item by
+    # composite key" -- something now does, so it is added by the migration
+    # that creates the reference.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_reward_item_tenant_id"),
     sa.ForeignKeyConstraint(
         ["tenant_id", "budget_owner_id"],
         ["user_account.tenant_id", "user_account.id"],
@@ -946,6 +573,103 @@ reward_item = sa.Table(
     ),
     sa.CheckConstraint("points_cost > 0", name="ck_reward_item_points_cost_positive"),
     sa.CheckConstraint("fulfilment_cost >= 0", name="ck_reward_item_fulfilment_cost_non_negative"),
+)
+
+
+# ---------------------------------------------------------------------------
+# redemption (migration 0019, plan cards L2/L4). One of the two tables
+# docs/architecture/engagement-model.md §1 describes that migration 0009
+# deferred and 0017 did not settle -- disclosure_consent, gated on ADR-0014, is
+# the other. 0009 deferred this one behind D6's shipped-catalog gate, which
+# closed for pilot scope on 2026-09-02.
+#
+# Deliberately mutable, unlike point_ledger_entry and match_run: a redemption's
+# purpose is to move through requested -> approved -> fulfilled | denied |
+# expired, and each move is an UPDATE. What keeps that honest is the pair of
+# evidence CHECKs below, which hold on an UPDATE exactly as on an INSERT.
+#
+# The two partial unique / access indexes have no representation in SQLAlchemy
+# Core and so are absent from this mirror, as every other index is;
+# tests/integration/test_redemption_durability.py is what holds them to
+# account. So is the append-only trigger 0019 puts on point_ledger_entry.
+# ---------------------------------------------------------------------------
+
+redemption = sa.Table(
+    "redemption",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # The student redeeming.
+    sa.Column("subject_id", _UUID, nullable=False),
+    sa.Column("item_id", _UUID, nullable=False),
+    # D7's two "consequences that must survive into any implementation":
+    # existing redemptions retain their point-cost snapshot, and a deactivated
+    # reward stays visible on existing tickets. Columns, not a join back to
+    # reward_item -- a join returns today's price and today's name.
+    sa.Column("item_name_snapshot", sa.Text, nullable=False),
+    sa.Column("points_cost_snapshot", sa.Integer, nullable=False),
+    sa.Column("state", sa.Text, nullable=False),
+    sa.Column("requested_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # The approval hop, recorded as evidence rather than inferred from state.
+    sa.Column("approved_at", _TS, nullable=True),
+    sa.Column("approved_by", _UUID, nullable=True),
+    # The terminal hop. closed_by stays null for an expiry: time is not a
+    # person, and naming one would be a fabricated field.
+    sa.Column("closed_at", _TS, nullable=True),
+    sa.Column("closed_by", _UUID, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="redemption_pkey"),
+    # What point_ledger_entry.source_redemption_id references.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_redemption_tenant_id"),
+    # RESTRICT throughout: a redemption is a promise made to a named student
+    # against a named reward, and neither may vanish out from under it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "item_id"],
+        ["reward_item.tenant_id", "reward_item.id"],
+        ondelete="RESTRICT",
+    ),
+    # Constrained, unlike point_ledger_entry.actor_id: a credit is derived and
+    # usually has no human author, but an approval is something a person did.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "approved_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "closed_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # ADR-0013's vocabulary, and the spelling
+    # smartmatch_domain.rewards.RedemptionState carries.
+    sa.CheckConstraint(
+        "state IN ('requested','approved','fulfilled','denied','expired')",
+        name="ck_redemption_state",
+    ),
+    # The structural statement of "fulfilled is reachable only from approved":
+    # a fulfilled row with no approval behind it cannot be written or updated
+    # into existence.
+    sa.CheckConstraint(
+        "(approved_at IS NULL) = (approved_by IS NULL) "
+        "AND (state <> 'fulfilled' OR approved_at IS NOT NULL) "
+        "AND (state <> 'requested' OR approved_at IS NULL)",
+        name="ck_redemption_approval_evidence",
+    ),
+    # A terminal state has a close time; a live one does not.
+    sa.CheckConstraint(
+        "(state IN ('fulfilled','denied','expired')) = (closed_at IS NOT NULL) "
+        "AND (closed_by IS NULL OR closed_at IS NOT NULL)",
+        name="ck_redemption_closure_evidence",
+    ),
+    # A snapshot that says nothing is not a snapshot.
+    sa.CheckConstraint(
+        "points_cost_snapshot > 0 AND length(btrim(item_name_snapshot)) > 0",
+        name="ck_redemption_snapshot_present",
+    ),
 )
 
 
@@ -959,14 +683,23 @@ pipeline_record = sa.Table(
     sa.Column("owning_unit_id", _UUID, nullable=False),
     # The student whose journey through the funnel this row is.
     sa.Column("subject_id", _UUID, nullable=False),
-    # The event. Migration 0016 adds the relationship as NOT VALID so existing
-    # pilot orphans remain readable while all new rows are constrained.
+    # The opportunity. No foreign key: no event table exists yet in this
+    # schema (P6 owns it). Whichever migration adds one should add this
+    # constraint and attendance_record.event_id's together.
     sa.Column("opportunity_event_id", _UUID, nullable=False),
     # The five stages as the times they were reached, not as one status
     # column: the register counts records that "reached X or a later stage",
     # and a stalled journey has still reached the stages it passed. Only the
     # first is NOT NULL — a record exists because a match does.
     sa.Column("matched_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Where the match came from. NOT NULL, no server default (migration
+    # 0016): a default would let a caller omit provenance and still write a
+    # row, which is exactly what this column exists to make impossible. Full
+    # rationale — why the vocabulary is closed to exactly these two members,
+    # why the first is spelled with a space and a slash, why a third member is
+    # always a new revision — lives in that migration's module docstring;
+    # only what a reader of this mirror needs is repeated here.
+    sa.Column("matched_provenance", sa.Text, nullable=False),
     sa.Column("contacted_at", _TS, nullable=True),
     sa.Column("confirmed_at", _TS, nullable=True),
     sa.Column("attended_at", _TS, nullable=True),
@@ -999,12 +732,6 @@ pipeline_record = sa.Table(
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
     ),
-    sa.ForeignKeyConstraint(
-        ["tenant_id", "owning_unit_id", "opportunity_event_id"],
-        ["event.tenant_id", "event.owning_unit_id", "event.id"],
-        ondelete="RESTRICT",
-        name="fk_pipeline_record_event",
-    ),
     # RESTRICT: deleting the attendance a funnel row cites would leave a count
     # nothing could explain.
     sa.ForeignKeyConstraint(
@@ -1034,6 +761,13 @@ pipeline_record = sa.Table(
     sa.CheckConstraint(
         "(attended_at IS NULL) = (attended_attendance_id IS NULL)",
         name="ck_pipeline_record_attendance_evidence",
+    ),
+    # The provenance vocabulary is closed to exactly these two members; full
+    # rationale lives in migration 0016's module docstring, only what a
+    # reader of this mirror needs is repeated here.
+    sa.CheckConstraint(
+        "matched_provenance IN ('synthetic / coordinator-accepted', 'match-engine')",
+        name="ck_pipeline_record_matched_provenance",
     ),
 )
 
@@ -1305,4 +1039,2080 @@ professional_unit_relationship = sa.Table(
         ["org_unit.tenant_id", "org_unit.id"],
         ondelete="RESTRICT",
     ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The P6 event model (migration 0017): ADR-0010's temporal triple, ADR-0012's
+# deterministic identity and closed tag vocabulary, and the G3 §5 discovery
+# review queue. See the migration's docstring for the reasoning behind every
+# constraint mirrored below; it is not repeated here.
+# ---------------------------------------------------------------------------
+
+event = sa.Table(
+    "event",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # ADR-0012: the org unit the event belongs to, not the page it was found on.
+    sa.Column("host_org_unit_id", _UUID, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    # smartmatch_domain.events.normalize_title()'s output.
+    sa.Column("normalized_title", sa.Text, nullable=False),
+    sa.Column("description", sa.Text, nullable=True),
+    # ADR-0010's temporal triple. starts_at is present only at 'exact',
+    # on_date only at 'date_only', and time_zone at both but never at
+    # 'unresolved' -- ck_event_temporal_shape below is the enforcement.
+    sa.Column("starts_at", _TS, nullable=True),
+    # Migration 0022. Not part of ADR-0010's triple and deliberately outside
+    # time_precision's remit: precision describes how much of the *start* is
+    # known, and an event whose source stated no end is exactly as resolved as
+    # one that did. NULL means "the source stated no end" -- never a duration
+    # nobody wrote down, which is what an .ics download is refused for rather
+    # than served with. See ck_event_end_after_start below.
+    sa.Column("ends_at", _TS, nullable=True),
+    sa.Column("on_date", sa.Date, nullable=True),
+    sa.Column("time_zone", sa.Text, nullable=True),
+    sa.Column("time_precision", sa.Text, nullable=False),
+    # The identity key's date component. NULL exactly when unresolved, which
+    # is what keeps an unresolved event out of uq_event_identity.
+    sa.Column("resolved_date", sa.Date, nullable=True),
+    sa.Column("publication_status", sa.Text, nullable=False, server_default="unpublished"),
+    sa.Column("review_status", sa.Text, nullable=False, server_default="pending"),
+    # Denormalised, maintained by smartmatch_persistence.events: a CHECK
+    # cannot see event_tag, and ck_event_publishable has to name the
+    # quarantine half of ADR-0012 somehow.
+    sa.Column("quarantined_tag_count", sa.Integer, nullable=False, server_default="0"),
+    # ADR-0012's structured provenance -- EventProvenance field for field,
+    # never folded into title or description.
+    sa.Column("origin", sa.Text, nullable=False),
+    sa.Column("source_url", sa.Text, nullable=True),
+    sa.Column("fetched_at", _TS, nullable=True),
+    sa.Column("extractor_version", sa.Text, nullable=True),
+    # Migration 0024. Customer §12: an Event Host must be able to "specify
+    # physical vs. virtual" and "specify event location". NOT NULL with a
+    # server default so 0024 needed no backfill: every event that existed
+    # before it was entered or extracted with a place attached, and a nullable
+    # column would have created a third "nobody said" state that §11's
+    # proximity-redistribution rule has no branch for.
+    sa.Column("is_virtual", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    # §10: "City or ZIP code is sufficient for this phase." Two independent
+    # nullable columns, because "or" is what the requirement says. Deliberately
+    # NOT part of uq_event_identity below — two requests differing only in city
+    # are the same event, and widening ADR-0012's key would un-deduplicate the
+    # discovery path it exists to make deterministic.
+    sa.Column("location_city", sa.Text, nullable=True),
+    sa.Column("location_postal_code", sa.Text, nullable=True),
+    # Migration 0033, OQ-CBA-014. The account that typed this request, taken
+    # from the verified principal and never from a body. Nullable, and the NULL
+    # means **unknown filer** -- never "no filer" and never "the caller". Every
+    # row that existed before 0033 keeps NULL and none was backfilled: writing
+    # the unit's coordinator, or its only volunteer, would be a reconstruction
+    # indistinguishable from a recorded fact (ADR-0011 rule 1, applied to an
+    # identity rather than a number). The consequence is that a host cannot list
+    # a request they filed before 0033, which is a true statement about what
+    # this database knows.
+    sa.Column("filed_by_user_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_pkey"),
+    # What attendance_record, event_tag, and discovery_review_item reference.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_event_tenant_id"),
+    # ADR-0012's deterministic key. Named here rather than only in the
+    # migration because events.py passes it to ON CONFLICT ON CONSTRAINT,
+    # which makes the name an interface.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "host_org_unit_id",
+        "normalized_title",
+        "resolved_date",
+        name="uq_event_identity",
+    ),
+    # RESTRICT: reorganizing a unit must not silently delete its events.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "host_org_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # Migration 0033. Composite, like every account reference in this schema
+    # (attendance_record.subject_id is the standing example): a single-column
+    # key would accept an account from another tenant -- the row exists, it is
+    # simply somebody else's -- and tenant isolation here is structural rather
+    # than a predicate each reader has to remember. RESTRICT, so deleting an
+    # account that has filed a request is an error rather than a silent
+    # orphaning; the same trade attendance_record already makes.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "filed_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_event_filed_by_user",
+    ),
+    sa.CheckConstraint(
+        "time_precision IN ('exact','date_only','unresolved')",
+        name="ck_event_time_precision",
+    ),
+    sa.CheckConstraint(
+        "(time_precision = 'exact' AND starts_at IS NOT NULL "
+        "AND on_date IS NULL AND time_zone IS NOT NULL) "
+        "OR (time_precision = 'date_only' AND starts_at IS NULL "
+        "AND on_date IS NOT NULL AND time_zone IS NOT NULL) "
+        "OR (time_precision = 'unresolved' AND starts_at IS NULL "
+        "AND on_date IS NULL AND time_zone IS NULL)",
+        name="ck_event_temporal_shape",
+    ),
+    sa.CheckConstraint(
+        "(time_precision = 'unresolved') = (resolved_date IS NULL)",
+        name="ck_event_identity_iff_resolved",
+    ),
+    # Migration 0022. An end may exist only where a start does, and must come
+    # after it. Without the time_precision clause a row could hold an end and
+    # no start -- ck_event_temporal_shape keeps starts_at NULL at the other two
+    # precisions -- and every other constraint would still pass. Strictly `>`
+    # because a zero-length event is what an adapter writes when it copies
+    # starts_at across, not something a source states; ExactTime refuses the
+    # same value in Python.
+    sa.CheckConstraint(
+        "ends_at IS NULL OR (time_precision = 'exact' AND ends_at > starts_at)",
+        name="ck_event_end_after_start",
+    ),
+    sa.CheckConstraint(
+        "publication_status IN ('unpublished','published')",
+        name="ck_event_publication_status",
+    ),
+    sa.CheckConstraint(
+        "review_status IN ('pending','approved','rejected')",
+        name="ck_event_review_status",
+    ),
+    sa.CheckConstraint(
+        "quarantined_tag_count >= 0",
+        name="ck_event_quarantined_tag_count_non_negative",
+    ),
+    # Unpublished means: unresolved dates, or quarantined tags.
+    sa.CheckConstraint(
+        "publication_status = 'unpublished' "
+        "OR (time_precision <> 'unresolved' AND quarantined_tag_count = 0)",
+        name="ck_event_publishable",
+    ),
+    sa.CheckConstraint(
+        "origin IN ('coordinator_entry','extraction')",
+        name="ck_event_origin",
+    ),
+    sa.CheckConstraint(
+        "(origin = 'extraction') = (source_url IS NOT NULL) "
+        "AND (source_url IS NULL) = (fetched_at IS NULL) "
+        "AND (fetched_at IS NULL) = (extractor_version IS NULL)",
+        name="ck_event_provenance_evidence",
+    ),
+    # Migration 0024. Customer §11: "for virtual events — ignore Proximity
+    # entirely". A location stored on a virtual event is a value the scoring
+    # rule is required to ignore, which is the shape of a field that gets read
+    # by accident later; refusing it makes "entirely" structural.
+    sa.CheckConstraint(
+        "NOT is_virtual OR (location_city IS NULL AND location_postal_code IS NULL)",
+        name="ck_event_virtual_has_no_location",
+    ),
+    # ADR-0011, and load-bearing rather than tidy: a location_city of '' passes
+    # the NULL test above while the row still claims a place.
+    sa.CheckConstraint(
+        "(location_city IS NULL OR length(btrim(location_city)) > 0) "
+        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0)",
+        name="ck_event_location_present",
+    ),
+    # Migration 0033. The mirror of ck_event_provenance_evidence above, which
+    # says a source URL may exist only on an 'extraction' row: this says a filer
+    # may exist only on a 'coordinator_entry' one. An extracted event has no
+    # author, and a filer on a crawled row would attribute a fetch to a person.
+    # Partial by construction, which is what let it be added to a populated
+    # table -- every pre-0033 row satisfies the IS NULL arm without being read.
+    sa.CheckConstraint(
+        "filed_by_user_id IS NULL OR origin = 'coordinator_entry'",
+        name="ck_event_filed_by_manual_origin",
+    ),
+)
+
+
+event_tag = sa.Table(
+    "event_tag",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # The two arms of smartmatch_domain.events.TagResolution.
+    sa.Column("resolution", sa.Text, nullable=False),
+    # MappedTag.term -- NULL on a quarantined row, so a query selecting terms
+    # cannot pick a quarantined value up by forgetting a filter.
+    sa.Column("term", sa.Text, nullable=True),
+    # QuarantinedTag.raw_value, exactly as received.
+    sa.Column("raw_value", sa.Text, nullable=True),
+    sa.Column("vocabulary_version", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_tag_pkey"),
+    # CASCADE: a tag cannot outlive the event it describes.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    # Both are named in ON CONFLICT by events.py.
+    sa.UniqueConstraint("event_id", "term", name="uq_event_tag_term"),
+    sa.UniqueConstraint("event_id", "raw_value", name="uq_event_tag_raw_value"),
+    sa.CheckConstraint(
+        "resolution IN ('mapped','quarantined')",
+        name="ck_event_tag_resolution",
+    ),
+    sa.CheckConstraint(
+        "(resolution = 'mapped') = (term IS NOT NULL) "
+        "AND (resolution = 'quarantined') = (raw_value IS NOT NULL)",
+        name="ck_event_tag_resolution_shape",
+    ),
+)
+
+
+discovery_review_item = sa.Table(
+    "discovery_review_item",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("raw_value", sa.Text, nullable=True),
+    sa.Column("vocabulary_version", sa.Text, nullable=True),
+    sa.Column("status", sa.Text, nullable=False, server_default="pending"),
+    sa.Column("decided_at", _TS, nullable=True),
+    sa.Column("decided_by", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="discovery_review_item_pkey"),
+    # CASCADE: a queue entry about an event cannot outlive it. This is the
+    # relationship that made review_item the wrong home -- its own CASCADE is
+    # to import_batch, which has nothing to do with discovery (G3 §5).
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "decided_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.UniqueConstraint("event_id", "raw_value", name="uq_discovery_review_item_event_value"),
+    sa.CheckConstraint(
+        "kind IN ('unmapped_tag','unresolved_time','first_seen_event')",
+        name="ck_discovery_review_item_kind",
+    ),
+    sa.CheckConstraint(
+        "status IN ('pending','accepted','rejected')",
+        name="ck_discovery_review_item_status",
+    ),
+    sa.CheckConstraint(
+        "(status = 'pending') = (decided_at IS NULL) "
+        "AND (decided_at IS NULL) = (decided_by IS NULL)",
+        name="ck_discovery_review_item_decision_evidence",
+    ),
+    sa.CheckConstraint(
+        "(kind = 'unmapped_tag') = (raw_value IS NOT NULL) "
+        "AND (raw_value IS NULL) = (vocabulary_version IS NULL)",
+        name="ck_discovery_review_item_tag_evidence",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The G1 match-run snapshot (migration 0018, plan card M8a). Immutable: the
+# migration installs a BEFORE UPDATE trigger that refuses every UPDATE, and a
+# correction is a new row naming the one it supersedes. See the migration's
+# docstring for the reasoning behind every constraint mirrored below; it is not
+# repeated here.
+#
+# The trigger has no representation in SQLAlchemy Core and so is absent from
+# this mirror, as indexes are. `test_match_run_snapshot.py` is what holds it to
+# account, by attempting the UPDATE and requiring the refusal.
+# ---------------------------------------------------------------------------
+
+match_run = sa.Table(
+    "match_run",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped: the unit every authorization decision about this run is scoped
+    # against, as job.owning_unit_id and event.host_org_unit_id are.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The durable command that produced this run. Constrained, which is what
+    # makes "written on the command path, never by a route" a property of the
+    # schema rather than a convention.
+    sa.Column("job_id", _UUID, nullable=False),
+    # PortfolioRequest.event_need_id. Text, not a foreign key -- the need
+    # belongs to card S12's surface.
+    sa.Column("event_need_id", sa.Text, nullable=False),
+    # smartmatch_domain.match_run.inputs_fingerprint over the candidate pool,
+    # the requested size, the seed, and the weights.
+    sa.Column("inputs_hash", sa.Text, nullable=False),
+    sa.Column("portfolio_size", sa.Integer, nullable=False),
+    sa.Column("random_seed", sa.BigInteger, nullable=False),
+    sa.Column("registry_version", sa.Text, nullable=False),
+    sa.Column("registry_hash", sa.Text, nullable=False),
+    # The readable copy of what registry_hash fingerprints: a digest is one-way,
+    # and "which weights were in force in March" is not answerable from a hash.
+    sa.Column("weights", postgresql.JSONB, nullable=False),
+    sa.Column("optimizer_model_version", sa.Text, nullable=False),
+    sa.Column("solver_name", sa.Text, nullable=False),
+    sa.Column("solver_version", sa.Text, nullable=False),
+    sa.Column("route_estimate_source", sa.Text, nullable=False),
+    sa.Column("route_estimate_version", sa.Text, nullable=False),
+    # Which of the registry's models produced this run (migration 0032,
+    # OQ-CBA-028). Nullable, and NULL means the run predates ADR-0016's mode
+    # vocabulary -- not that the mode went unrecorded. Reading a NULL here as
+    # 'cba-physical-1' would claim a proximity factor was scored under a
+    # rulebook that had no modes at all.
+    #
+    # The pairing rule -- both set or neither -- lives in
+    # smartmatch_domain.match_run.MatchRunPins.__post_init__ rather than in a
+    # CHECK, so a caller is told which half it left out at the point it left it
+    # out. See 0032's docstring.
+    sa.Column("scoring_mode", sa.Text, nullable=True),
+    sa.Column("scoring_mode_version", sa.Text, nullable=True),
+    # Mirrors smartmatch_domain.optimizer.PortfolioStatus: 'infeasible' is a
+    # claim about the model, 'unknown' one about the search stopping early, and
+    # the two are never conflated.
+    sa.Column("portfolio_status", sa.Text, nullable=False),
+    # A correction is a new run naming the one it replaces.
+    sa.Column("supersedes_run_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # No updated_at, deliberately: carrying one would be a statement that
+    # mutation is expected here, and the trigger forbids it.
+    sa.PrimaryKeyConstraint("id", name="match_run_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_match_run_tenant_id"),
+    # One snapshot per command, so a re-driven job cannot write a second row for
+    # the same run. Named here because match_runs.py passes it to
+    # ON CONFLICT ON CONSTRAINT, which makes the name an interface.
+    sa.UniqueConstraint("tenant_id", "job_id", name="uq_match_run_job"),
+    # RESTRICT: reorganizing a unit must not silently delete the record of what
+    # was recommended under it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: the job is this run's provenance.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "supersedes_run_id"],
+        ["match_run.tenant_id", "match_run.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "supersedes_run_id IS NULL OR supersedes_run_id <> id",
+        name="ck_match_run_supersedes_is_not_self",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(event_need_id)) > 0 "
+        "AND length(btrim(inputs_hash)) > 0 "
+        "AND length(btrim(registry_version)) > 0 "
+        "AND length(btrim(registry_hash)) > 0 "
+        "AND length(btrim(optimizer_model_version)) > 0 "
+        "AND length(btrim(solver_name)) > 0 "
+        "AND length(btrim(solver_version)) > 0 "
+        "AND length(btrim(route_estimate_version)) > 0",
+        name="ck_match_run_pins_present",
+    ),
+    sa.CheckConstraint(
+        "jsonb_typeof(weights) = 'object' AND weights <> '{}'::jsonb",
+        name="ck_match_run_weights_object",
+    ),
+    sa.CheckConstraint("portfolio_size >= 1", name="ck_match_run_portfolio_size"),
+    sa.CheckConstraint("random_seed >= 0", name="ck_match_run_random_seed"),
+    sa.CheckConstraint(
+        "route_estimate_source IN ('straight_line','route_matrix')",
+        name="ck_match_run_route_estimate_source",
+    ),
+    sa.CheckConstraint(
+        "portfolio_status IN ('optimal','feasible','infeasible','unknown')",
+        name="ck_match_run_portfolio_status",
+    ),
+    # ADR-0016 Proposal 5's closed mode vocabulary, and **partial** on purpose:
+    # it constrains a mode that is present and says nothing about a run that has
+    # none. `ck_match_run_pins_present` above was deliberately left alone rather
+    # than widened to cover this column -- every row stored before 0032 would
+    # have violated it the moment the revision ran.
+    sa.CheckConstraint(
+        "scoring_mode IS NULL OR scoring_mode IN ('cba-physical-1','cba-virtual-1')",
+        name="ck_match_run_scoring_mode",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Pilot login (migration 0020)
+#
+# The storage behind the owner-authorized, pilot-scoped substitute for
+# institutional sign-in — see ``docs/decisions/pilot-login-decision-2026-09-04.md``
+# and the migration's own docstring, which carries the reasoning these mirrors
+# deliberately do not restate.
+#
+# Note what is absent from all three tables: any column naming a **role**, a
+# tenant the caller chose, or a unit. A credential resolves *who*; ``membership``
+# above decides *what*, and it is written by an administrator rather than by
+# anyone signing in.
+# ---------------------------------------------------------------------------
+
+
+pilot_credential = sa.Table(
+    "pilot_credential",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("user_id", _UUID, nullable=False),
+    # Stored, not assumed: verify_password compares this against the one
+    # identifier it knows and refuses anything else rather than re-deriving an
+    # unfamiliar row under today's defaults.
+    sa.Column("algorithm", sa.Text, nullable=False),
+    sa.Column("iterations", sa.Integer, nullable=False),
+    sa.Column("salt", sa.LargeBinary, nullable=False),
+    sa.Column("password_hash", sa.LargeBinary, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="pilot_credential_pkey"),
+    # CASCADE: a digest for a deleted account is a secret nobody owns.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="CASCADE",
+    ),
+    # Named because pilot_auth.py passes it to ON CONFLICT DO UPDATE when the
+    # seed rewrites an existing credential.
+    sa.UniqueConstraint("tenant_id", "user_id", name="uq_pilot_credential_account"),
+    sa.CheckConstraint("algorithm = 'pbkdf2_hmac_sha256'", name="ck_pilot_credential_algorithm"),
+    sa.CheckConstraint(
+        "octet_length(salt) >= 16 AND octet_length(password_hash) = 32 AND iterations >= 100000",
+        name="ck_pilot_credential_material",
+    ),
+)
+
+
+pilot_session = sa.Table(
+    "pilot_session",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("user_id", _UUID, nullable=False),
+    # The SHA-256 of the token the browser holds; the token itself is stored
+    # nowhere, so this column cannot be replayed as a credential.
+    sa.Column("token_hash", sa.LargeBinary, nullable=False),
+    sa.Column("issued_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("expires_at", _TS, nullable=False),
+    # Log-out sets this rather than deleting the row: "ended deliberately" is a
+    # fact, and an absent row cannot state it.
+    sa.Column("revoked_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="pilot_session_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="CASCADE",
+    ),
+    # Named because every authenticated request resolves through this column,
+    # and its uniqueness is what makes ``.one_or_none()`` sound there.
+    sa.UniqueConstraint("token_hash", name="uq_pilot_session_token_hash"),
+    sa.CheckConstraint(
+        "expires_at > issued_at AND (revoked_at IS NULL OR revoked_at >= issued_at)",
+        name="ck_pilot_session_window",
+    ),
+    sa.CheckConstraint("octet_length(token_hash) = 32", name="ck_pilot_session_token_hash"),
+)
+
+
+pilot_login_attempt = sa.Table(
+    "pilot_login_attempt",
+    METADATA,
+    # Text and tenant-less, because a caller who has not authenticated has
+    # neither a tenant nor a user id. See migration 0020 for why this is a
+    # separate table rather than a relaxation of rate_limit_counter.
+    sa.Column("caller_key", sa.Text, primary_key=True),
+    sa.Column("window_start", _TS, primary_key=True),
+    sa.Column("count", sa.Integer, nullable=False, server_default="0"),
+    # Named because pilot_auth.py passes this name to ON CONFLICT DO UPDATE.
+    sa.PrimaryKeyConstraint("caller_key", "window_start", name="pk_pilot_login_attempt"),
+    sa.CheckConstraint("count >= 0", name="ck_pilot_login_attempt_count"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Outreach (migration 0021)
+#
+# Contacts and their consent evidence, drafts and their approvals, sends and
+# their delivery streams, and the one authoritative suppression list. Every
+# constraint's reasoning lives in that migration's module docstring and is not
+# repeated here; what is repeated is only what a reader of this mirror needs in
+# order to use the tables correctly.
+#
+# The one thing worth restating, because its absence is easy to read as an
+# oversight: there is **no `suppressed` column** on `contact_channel`.
+# Suppression lives only in `suppression_record`, so the two can never disagree
+# — see `OutreachRepository.load_recipient`, which computes eligibility by
+# joining rather than by reading a cached flag.
+# ---------------------------------------------------------------------------
+
+
+contact_channel = sa.Table(
+    "contact_channel",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as job.owning_unit_id and match_run.owning_unit_id are.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # No foreign key: no professional table exists in this schema yet, the same
+    # situation professional_unit_relationship.professional_id is already in.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("channel_kind", sa.Text, nullable=False),
+    sa.Column("address", sa.Text, nullable=False),
+    sa.Column("contact_state", sa.Text, nullable=False),
+    # Nullable because most lifecycle states legitimately have no consent
+    # behind them. What is not legitimate is 'active_candidate' without an
+    # approved one, which ck_contact_channel_sendable_consent forbids.
+    sa.Column("consent_source", sa.Text, nullable=True),
+    sa.Column("consent_recorded_at", _TS, nullable=True),
+    sa.Column("consent_evidence", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Carried, unlike match_run's deliberate omission: a contact's state moves
+    # through the lifecycle, so mutation is expected here.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="contact_channel_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_contact_channel_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "channel_kind", "address", name="uq_contact_channel_address"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("channel_kind IN ('email')", name="ck_contact_channel_kind"),
+    sa.CheckConstraint(
+        "contact_state IN ('discovered', 'corroborated', 'reviewed', "
+        "'relationship_recorded', 'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_state",
+    ),
+    sa.CheckConstraint(
+        "consent_source IS NULL OR consent_source IN ('self_service', 'authenticated', "
+        "'in_person', 'institutional_relationship', 'scraped', 'purchased', 'inferred')",
+        name="ck_contact_channel_consent_source",
+    ),
+    # The constraint this table exists for: the one state that authorizes a
+    # send must name an approved source for it. Research evidence can be
+    # recorded and reviewed; it can never reach 'active_candidate'.
+    sa.CheckConstraint(
+        "contact_state <> 'active_candidate' OR (consent_source IS NOT NULL "
+        "AND consent_source IN ('self_service', 'authenticated', 'in_person', "
+        "'institutional_relationship'))",
+        name="ck_contact_channel_sendable_consent",
+    ),
+    sa.CheckConstraint(
+        "(consent_source IS NULL) = (consent_recorded_at IS NULL)",
+        name="ck_contact_channel_consent_dated",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(address)) > 0 AND position('@' in address) > 1",
+        name="ck_contact_channel_address_present",
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The consent audit trail (migration 0022)
+#
+# `contact_channel.contact_state` says where a contact is now; this table says
+# how it got there, who moved it, and on what evidence. Append-only, enforced
+# by a trigger the same way `delivery_event` is — an audit trail whose rows can
+# be edited is a second mutable copy of the current state, not a trail.
+#
+# The legal edges are *not* mirrored here. They live in
+# `smartmatch_domain.consent.STATE_TRANSITIONS` and nowhere else; this table
+# records the moves that were made, and the domain decides which moves are
+# legal. See migration 0022's docstring for why that separation is deliberate.
+# ---------------------------------------------------------------------------
+
+
+contact_channel_transition = sa.Table(
+    "contact_channel_transition",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    # NULL only for the registration row: a contact's first appearance is a
+    # move from nothing to its initial state, recorded rather than implied.
+    sa.Column("from_state", sa.Text, nullable=True),
+    sa.Column("to_state", sa.Text, nullable=False),
+    # Snapshotted, not referenced: a later correction to the contact must not
+    # rewrite what an earlier transition was made on.
+    sa.Column("consent_source", sa.Text, nullable=True),
+    sa.Column("consent_evidence", sa.Text, nullable=True),
+    sa.Column("reason", sa.Text, nullable=True),
+    # NOT NULL: there is no lifecycle move nobody made.
+    sa.Column("actor_user_id", _UUID, nullable=False),
+    sa.Column("occurred_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="contact_channel_transition_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "from_state IS NULL OR from_state IN ('discovered', 'corroborated', 'reviewed', "
+        "'relationship_recorded', 'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_transition_from_state",
+    ),
+    sa.CheckConstraint(
+        "to_state IN ('discovered', 'corroborated', 'reviewed', 'relationship_recorded', "
+        "'rejected', 'consented', 'active_candidate', 'stale')",
+        name="ck_contact_channel_transition_to_state",
+    ),
+    sa.CheckConstraint(
+        "from_state IS NULL OR from_state <> to_state",
+        name="ck_contact_channel_transition_moves",
+    ),
+    sa.CheckConstraint(
+        "consent_source IS NULL OR consent_source IN ('self_service', 'authenticated', "
+        "'in_person', 'institutional_relationship', 'scraped', 'purchased', 'inferred')",
+        name="ck_contact_channel_transition_consent_source",
+    ),
+    # The same rule as ck_contact_channel_sendable_consent, stated about the
+    # move rather than about the resulting row.
+    sa.CheckConstraint(
+        "to_state NOT IN ('consented', 'active_candidate') OR (consent_source IS NOT NULL "
+        "AND consent_source IN ('self_service', 'authenticated', 'in_person', "
+        "'institutional_relationship'))",
+        name="ck_contact_channel_transition_consented_source",
+    ),
+    sa.CheckConstraint(
+        "(reason IS NULL OR length(btrim(reason)) > 0) "
+        "AND (consent_evidence IS NULL OR length(btrim(consent_evidence)) > 0)",
+        name="ck_contact_channel_transition_text_present",
+    ),
+)
+
+outreach_draft = sa.Table(
+    "outreach_draft",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    # A key of smartmatch_domain.outreach.TEMPLATES. Text, not a foreign key:
+    # the registry is code, closed, and reviewed in a diff.
+    sa.Column("template_id", sa.Text, nullable=False),
+    # Copied from the template at composition time. A template's status can
+    # change; what was composed did not.
+    sa.Column("content_status", sa.Text, nullable=False),
+    # The rendered text, stored — not re-rendered at send time, so the approved
+    # text and the sent text cannot differ.
+    sa.Column("subject", sa.Text, nullable=False),
+    sa.Column("body", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    # Which revision a coordinator approved. Stored rather than assumed because
+    # SendRequest.approved_draft_version is a required field of the provider
+    # interface, and a constant there would be a plausible number nobody
+    # measured.
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("approved_by", _UUID, nullable=True),
+    sa.Column("approved_at", _TS, nullable=True),
+    sa.Column("superseded_by_draft_id", _UUID, nullable=True),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="outreach_draft_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_outreach_draft_tenant_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "approved_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "superseded_by_draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('draft', 'approved', 'superseded')", name="ck_outreach_draft_status"
+    ),
+    sa.CheckConstraint(
+        "content_status IN ('synthetic', 'reviewed')",
+        name="ck_outreach_draft_content_status",
+    ),
+    sa.CheckConstraint(
+        "(approved_by IS NULL) = (approved_at IS NULL)",
+        name="ck_outreach_draft_approval_dated",
+    ),
+    # One-directional on purpose: a superseded draft that was once approved
+    # keeps its approval columns, because erasing them would destroy the record
+    # of who signed off on text that may already have been sent.
+    sa.CheckConstraint(
+        "status <> 'approved' OR approved_by IS NOT NULL",
+        name="ck_outreach_draft_approved_has_approver",
+    ),
+    sa.CheckConstraint(
+        "superseded_by_draft_id IS NULL "
+        "OR (status = 'superseded' AND superseded_by_draft_id <> id)",
+        name="ck_outreach_draft_supersession",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(template_id)) > 0 AND length(btrim(subject)) > 0 AND length(btrim(body)) > 0",
+        name="ck_outreach_draft_text_present",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_outreach_draft_version"),
+)
+
+
+outreach_send = sa.Table(
+    "outreach_send",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("draft_id", _UUID, nullable=False),
+    # NOT NULL and constrained, which is what makes "no synchronous send" a
+    # property of the schema: jobs are created only by commands.submit_command.
+    sa.Column("job_id", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    # Snapshots taken at send time. "Who did we actually write to" must not
+    # change when the contact's address is later corrected.
+    sa.Column("recipient_address", sa.Text, nullable=False),
+    sa.Column("from_address", sa.Text, nullable=False),
+    # SHA-256 of the unsubscribe token, never the token itself.
+    sa.Column("unsubscribe_token_hash", sa.Text, nullable=False),
+    # NULL until the attempt concludes — an attempt in flight has no outcome,
+    # and ADR-0011's rule is that unknown is never silently something else.
+    sa.Column("disposition", sa.Text, nullable=True),
+    sa.Column("provider", sa.Text, nullable=True),
+    sa.Column("provider_message_id", sa.Text, nullable=True),
+    sa.Column("failure_reason", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("concluded_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="outreach_send_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_outreach_send_tenant_id"),
+    # Named here because outreach.py passes both to ON CONFLICT ON CONSTRAINT,
+    # which makes the names an interface.
+    sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_outreach_send_idempotency"),
+    sa.UniqueConstraint("tenant_id", "job_id", name="uq_outreach_send_job"),
+    # Globally unique, not tenant-scoped: the unsubscribe POST is
+    # unauthenticated and has no tenant to scope a lookup by.
+    sa.UniqueConstraint("unsubscribe_token_hash", name="uq_outreach_send_unsubscribe_token"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "disposition IS NULL OR disposition IN ('accepted', 'blocked', 'failed')",
+        name="ck_outreach_send_disposition",
+    ),
+    sa.CheckConstraint(
+        "(disposition IS NULL) = (concluded_at IS NULL)",
+        name="ck_outreach_send_concluded",
+    ),
+    # No fake success, structurally: a blocked or failed send cannot carry an
+    # id a reader — or a UI — would take for a receipt.
+    sa.CheckConstraint(
+        "provider_message_id IS NULL OR disposition = 'accepted'",
+        name="ck_outreach_send_message_id_means_accepted",
+    ),
+    sa.CheckConstraint(
+        "disposition <> 'accepted' OR (provider IS NOT NULL AND provider_message_id IS NOT NULL)",
+        name="ck_outreach_send_accepted_has_provider",
+    ),
+    sa.CheckConstraint(
+        "disposition IS NULL "
+        "OR (disposition IN ('blocked', 'failed')) = (failure_reason IS NOT NULL)",
+        name="ck_outreach_send_failure_reason",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(idempotency_key)) > 0 "
+        "AND length(btrim(recipient_address)) > 0 "
+        "AND length(btrim(from_address)) > 0 "
+        "AND length(btrim(unsubscribe_token_hash)) > 0",
+        name="ck_outreach_send_fields_present",
+    ),
+)
+
+
+delivery_event = sa.Table(
+    "delivery_event",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("send_id", _UUID, nullable=False),
+    sa.Column("event_type", sa.Text, nullable=False),
+    # Two columns because they genuinely differ: a bounce webhook can arrive
+    # hours after the bounce. Collapsing them would make the stream's ordering
+    # a claim about our network rather than about the message.
+    sa.Column("occurred_at", _TS, nullable=False),
+    sa.Column("recorded_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # NULL for events this platform wrote itself. PostgreSQL treats NULLs as
+    # distinct in a unique index, so our own events never collide while a
+    # replayed provider webhook does.
+    sa.Column("provider_event_id", sa.Text, nullable=True),
+    sa.Column("detail", postgresql.JSONB, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="delivery_event_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id", "send_id", "provider_event_id", name="uq_delivery_event_provider_event"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "send_id"],
+        ["outreach_send.tenant_id", "outreach_send.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "event_type IN ('queued', 'blocked', 'accepted', 'delivered', 'bounced', "
+        "'complained', 'unsubscribed', 'failed')",
+        name="ck_delivery_event_type",
+    ),
+    sa.CheckConstraint(
+        "detail IS NULL OR jsonb_typeof(detail) = 'object'",
+        name="ck_delivery_event_detail_object",
+    ),
+)
+
+
+suppression_record = sa.Table(
+    "suppression_record",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # By address rather than by contact_channel_id: a person who unsubscribes
+    # is telling us to stop writing to *them*, and a suppression must outlive
+    # the record that provoked it.
+    sa.Column("address", sa.Text, nullable=False),
+    sa.Column("suppressed_at", _TS, nullable=False),
+    sa.Column("source", sa.Text, nullable=False),
+    # No foreign key to outreach_send: a suppression must survive the deletion
+    # of the message that caused it, and a RESTRICT here would instead make
+    # that message undeletable.
+    sa.Column("origin_send_id", _UUID, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="suppression_record_pkey"),
+    # A repeated unsubscribe is the same instruction, not a second one. The
+    # repository relies on this to make it idempotent rather than an error the
+    # recipient would see.
+    sa.UniqueConstraint("tenant_id", "address", name="uq_suppression_record_address"),
+    sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
+    sa.CheckConstraint(
+        "source IN ('unsubscribe_link', 'one_click', 'coordinator', 'bounce', 'complaint')",
+        name="ck_suppression_record_source",
+    ),
+    sa.CheckConstraint("length(btrim(address)) > 0", name="ck_suppression_record_address_present"),
+)
+
+
+# ---------------------------------------------------------------------------
+# The CBA classification model (migration 0024): customer §§7-8's two closed
+# taxonomies, stored at two different cardinalities.
+#
+# A speaker has zero or one primary industry and zero or one primary role; a
+# Speaker Request may target many of each. That asymmetry is why one side is
+# columns on a table keyed by (tenant_id, professional_id) and the other is a
+# child table — see the migration's docstring, which is not repeated here.
+#
+# Neither is `event_tag`. ADR-0012's twelve terms describe what kind of event
+# this is and what function a speaker performs at it; these describe the
+# industry a person works in and the career discipline they work within. The
+# word "role" appears in both vocabularies and means unrelated things
+# (`docs/product/cba-taxonomies.md`), which is exactly why the storage is
+# separate and each row names the taxonomy version that evaluated it.
+# ---------------------------------------------------------------------------
+
+
+speaker_profile = sa.Table(
+    "speaker_profile",
+    METADATA,
+    # Composite NATURAL key, no surrogate id — and unlike
+    # professional_unit_relationship, which uses the same shape to *permit*
+    # many rows per professional, this one uses it to forbid them. Customer
+    # §7's "one primary industry sector" per speaker is this key: a second
+    # primary value has no row to live in.
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # This professional_id *does* carry a foreign key, unlike its two older
+    # namesakes on professional_unit_relationship and contact_channel. Both of
+    # those say "whichever migration gives professionals a persisted identity
+    # should add this foreign key alongside it", and one has since: Choice A of
+    # the synthetic pilot authorization makes `user_account` the persisted
+    # professional identity, and pipeline_record.subject_id already references
+    # it. Retrofitting the two older columns is its own migration
+    # (OQ-CBA-009).
+    sa.Column("professional_id", _UUID, nullable=False),
+    # A5-shaped, as contact_channel.owning_unit_id and match_run.owning_unit_id
+    # are: the unit whose Speaker Connector is accountable for this record.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # Customer §13's three identity fields, added by migration 0025. Before it
+    # nothing in the schema held a person's name: the only `title` was
+    # `event.title`, and `user_account.external_subject` is an identity key
+    # whose `.invalid` placeholder must not be overloaded as a display field.
+    #
+    # NOT NULL, because a contact with no name is a row a Speaker Connector
+    # cannot act on and §13's list surface would render blank. No server
+    # default: a placeholder name outlives the uncertainty that produced it.
+    sa.Column("full_name", sa.Text, nullable=False),
+    # Optional, and genuinely so — a retired professional, an independent
+    # consultant, or a contact met before the Connector learned where they
+    # work. NULL says "nobody told us"; see the blank-text CHECK below for why
+    # that is different from ''.
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("title", sa.Text, nullable=True),
+    # Customer §7. Nullable because §19 imports a contact first and classifies
+    # it after — an unclassified speaker is a storable state, the same argument
+    # ADR-0010 makes for an unresolved event date.
+    sa.Column("primary_industry_code", sa.Text, nullable=True),
+    # Which released taxonomy the code was resolved against. Both taxonomy
+    # modules stamp one onto every `Classified…` value for the reason it is
+    # stored: a code stays interpretable after a revision only if the row says
+    # which table evaluated it.
+    sa.Column("industry_taxonomy_version", sa.Text, nullable=True),
+    # Customer §8, same shape for the same reason.
+    sa.Column("primary_role_code", sa.Text, nullable=True),
+    sa.Column("role_taxonomy_version", sa.Text, nullable=True),
+    # §18's "Topic/interests/expertise text" and "optional prior talk
+    # information". §9 compares them semantically against an event description;
+    # nothing in persistence parses them.
+    sa.Column("topic_text", sa.Text, nullable=True),
+    sa.Column("prior_talk", sa.Text, nullable=True),
+    # §10: city or ZIP is sufficient, so neither is derived from the other and
+    # neither is required.
+    sa.Column("location_city", sa.Text, nullable=True),
+    sa.Column("location_postal_code", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # §§7-8 require a Speaker Connector to correct an assigned classification,
+    # and a correction updates this row rather than superseding it — P9 Gate A
+    # §2's current-state treatment of board_role. Whether the previous value is
+    # retained anywhere was OQ-CBA-008, open when 0024 landed; it was decided on
+    # 6 September 2026 as *provenance, no history*, which is the six columns
+    # below and still no previous value anywhere.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # OQ-CBA-008's answer, added by migration 0028. Three columns per axis, and
+    # they answer "can I trust this classification?" rather than "what changed?".
+    #
+    # `classification_source` is §19's review gate made visible: `inferred` is a
+    # classifier's reading of the company/title text, a proposal awaiting step
+    # five, and `human` is somebody's judgment. Without the column a proposed
+    # '52' and a reviewed '52' are the same four characters and the gate is
+    # invisible.
+    #
+    # The actor may appear only beside `human` — a classifier has no judgment to
+    # attribute — and it is nullable rather than NOT NULL only so 0028's backfill
+    # can describe rows written before the column existed. Nothing this package
+    # builds produces a `human` row without one:
+    # `smartmatch_domain.cba_classification.human_classification` requires the id.
+    sa.Column("industry_classification_source", sa.Text, nullable=True),
+    sa.Column("industry_classified_by_user_id", _UUID, nullable=True),
+    sa.Column("industry_classified_at", _TS, nullable=True),
+    sa.Column("role_classification_source", sa.Text, nullable=True),
+    sa.Column("role_classified_by_user_id", _UUID, nullable=True),
+    sa.Column("role_classified_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("tenant_id", "professional_id", name="speaker_profile_pkey"),
+    # RESTRICT: a classification that outlived its subject would be an
+    # assertion about nobody, and one that vanished with them would delete a
+    # Speaker Connector's reviewed judgment as a side effect.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # The closed vocabularies, transcribed into the migration and mirrored here
+    # for the same reason every other CHECK in this file is. The behavioural
+    # binding back to smartmatch_domain lives in
+    # tests/integration/test_cba_classification_schema.py, which parametrizes
+    # over SECTOR_CODES and ROLE_CATEGORY_CODES from the domain modules, so a
+    # taxonomy revision that never reached a migration fails there.
+    sa.CheckConstraint(
+        "primary_industry_code IS NULL OR primary_industry_code IN "
+        "('11','21','22','23','31-33','42','44-45','48-49','51','52','53','54','55','56',"
+        "'61','62','71','72','81','92')",
+        name="ck_speaker_profile_industry_code",
+    ),
+    sa.CheckConstraint(
+        "(primary_industry_code IS NULL) = (industry_taxonomy_version IS NULL)",
+        name="ck_speaker_profile_industry_versioned",
+    ),
+    sa.CheckConstraint(
+        "primary_role_code IS NULL OR primary_role_code IN "
+        "('accounting','finance','marketing','management_strategy','human_resources',"
+        "'operations_supply_chain','information_systems_analytics','international_business',"
+        "'entrepreneurship_founder','sales_business_development')",
+        name="ck_speaker_profile_role_code",
+    ),
+    sa.CheckConstraint(
+        "(primary_role_code IS NULL) = (role_taxonomy_version IS NULL)",
+        name="ck_speaker_profile_role_versioned",
+    ),
+    # ADR-0011: absent is a value, blank is a writer that forgot. §9 scores a
+    # speaker with no topic information neutrally rather than at zero, which is
+    # a decision about NULL — an empty string would reach it as text.
+    #
+    # Widened by migration 0025 to cover §13's two new nullable identity
+    # columns, and to refuse a whitespace-only `full_name` — NOT NULL rejects
+    # the absence and says nothing about '   ', which is a name-shaped value
+    # that renders as nothing. One constraint rather than two, so there is a
+    # single answer to "which text columns refuse blanks".
+    sa.CheckConstraint(
+        "length(btrim(full_name)) > 0 "
+        "AND (topic_text IS NULL OR length(btrim(topic_text)) > 0) "
+        "AND (prior_talk IS NULL OR length(btrim(prior_talk)) > 0) "
+        "AND (location_city IS NULL OR length(btrim(location_city)) > 0) "
+        "AND (location_postal_code IS NULL OR length(btrim(location_postal_code)) > 0) "
+        "AND (company IS NULL OR length(btrim(company)) > 0) "
+        "AND (title IS NULL OR length(btrim(title)) > 0)",
+        name="ck_speaker_profile_text_present",
+    ),
+    # Migration 0028's provenance keys and constraints, mirrored. Composite and
+    # tenant-scoped, so an account in one tenant cannot be recorded as the
+    # reviewer of a classification in another; RESTRICT, for the reason
+    # match_weight_setting.updated_by_user_id gives — deleting an account must
+    # not silently erase the authorship of a judgment it made. MATCH SIMPLE (the
+    # default) is what lets a NULL actor satisfy the key with no row to point at.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "industry_classified_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_profile_industry_classified_by",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "role_classified_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_profile_role_classified_by",
+    ),
+    # Three enumerated arms per axis, not four independent couplings. 0028's
+    # docstring argues it: `(source = 'human') = (actor IS NOT NULL)` evaluates
+    # to NULL when the source is NULL, a CHECK treats NULL as satisfied, and the
+    # constraint would then admit an unclassified row carrying an actor. Spelled
+    # here exactly as 0028 spells it, since
+    # tests/integration/test_schema_matches_migration.py compares the two.
+    #
+    # The middle arm is the card's non-negotiable in the database: an `inferred`
+    # value may never carry an actor, so no path can record a review that did not
+    # happen. The last arm omits the actor clause deliberately — see 0028 on why
+    # a pre-provenance `human` row has a NULL actor rather than an invented one.
+    sa.CheckConstraint(
+        "(industry_classification_source IS NULL AND primary_industry_code IS NULL "
+        "AND industry_classified_at IS NULL AND industry_classified_by_user_id IS NULL)"
+        " OR (industry_classification_source = 'inferred' AND primary_industry_code IS NOT NULL "
+        "AND industry_classified_at IS NOT NULL AND industry_classified_by_user_id IS NULL)"
+        " OR (industry_classification_source = 'human' AND primary_industry_code IS NOT NULL "
+        "AND industry_classified_at IS NOT NULL)",
+        name="ck_speaker_profile_industry_provenance",
+    ),
+    sa.CheckConstraint(
+        "(role_classification_source IS NULL AND primary_role_code IS NULL "
+        "AND role_classified_at IS NULL AND role_classified_by_user_id IS NULL)"
+        " OR (role_classification_source = 'inferred' AND primary_role_code IS NOT NULL "
+        "AND role_classified_at IS NOT NULL AND role_classified_by_user_id IS NULL)"
+        " OR (role_classification_source = 'human' AND primary_role_code IS NOT NULL "
+        "AND role_classified_at IS NOT NULL)",
+        name="ck_speaker_profile_role_provenance",
+    ),
+    # Migration 0030's one piece of DDL. It backs the duplicate hint the §13
+    # create returns beside a successful 201 — "this unit already holds
+    # somebody by this name, here they are" — which replaced the
+    # `409 speaker_contact_name_already_used` that OQ-CBA-017's decision
+    # removed. The hint runs on every create, so the read is indexed rather
+    # than a scan of the tenant's profiles.
+    #
+    # **NOT unique, and it must never become unique — OQ-CBA-021.** A unique
+    # index over a unit's folded names makes the name identifying again, which
+    # is exactly the property opaque identity exists to remove; it would also
+    # fail harder than the 409 did, because a constraint violation cannot name
+    # the person it collided with or let a Connector proceed once they have
+    # confirmed these are two different people. 0025 declined this constraint
+    # and 0030 declines it again.
+    #
+    # `lower(btrim(...))` is the SQL spelling of `full_name.strip().casefold()`.
+    # `smartmatch_persistence.cba_contacts` folds identically in the query, so
+    # the index is usable rather than decorative.
+    sa.Index(
+        "ix_speaker_profile_unit_folded_name",
+        "tenant_id",
+        "owning_unit_id",
+        sa.text("lower(btrim(full_name))"),
+        unique=False,
+    ),
+)
+
+
+speaker_request_classification = sa.Table(
+    "speaker_request_classification",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A Speaker Request is persisted as an `event` row: customer §4 renames
+    # "Volunteer opportunity" to "Speaker Request", and the terminology
+    # document maps that page onto the existing opportunity/event surface.
+    sa.Column("event_id", _UUID, nullable=False),
+    # Which of §§7-8's two axes this row targets, and therefore which closed
+    # vocabulary `code` is held to.
+    sa.Column("kind", sa.Text, nullable=False),
+    # NOT NULL: a target naming nothing is not a target. There is no quarantine
+    # arm here — a host picks from a list rather than resolving a spreadsheet
+    # cell (OQ-CBA-010).
+    sa.Column("code", sa.Text, nullable=False),
+    # Unconditionally NOT NULL, unlike speaker_profile's pair, because `code`
+    # is NOT NULL too: there is no absent case for it to mirror.
+    sa.Column("taxonomy_version", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_request_classification_pkey"),
+    # CASCADE, as event_tag's reference to the same parent is: a target cannot
+    # outlive the request stating it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+    ),
+    # Multi-select is a set, not a bag: a repeated target is a weight counted
+    # twice by a matcher with nothing on screen to explain it. Named here
+    # because it is also pinned absolutely by
+    # tests/integration/test_schema_matches_migration.py.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "event_id",
+        "kind",
+        "code",
+        name="uq_speaker_request_classification",
+    ),
+    sa.CheckConstraint(
+        "kind IN ('industry', 'role')",
+        name="ck_speaker_request_classification_kind",
+    ),
+    # `kind` decides which vocabulary applies. Without this conditional, `kind`
+    # would be a label the row carries rather than a statement the database
+    # holds it to, and an industry target reading 'finance' could sit beside a
+    # role target reading '52'.
+    sa.CheckConstraint(
+        "(kind = 'industry' AND code IN "
+        "('11','21','22','23','31-33','42','44-45','48-49','51','52','53','54','55','56',"
+        "'61','62','71','72','81','92')) "
+        "OR (kind = 'role' AND code IN "
+        "('accounting','finance','marketing','management_strategy','human_resources',"
+        "'operations_supply_chain','information_systems_analytics','international_business',"
+        "'entrepreneurship_founder','sales_business_development'))",
+        name="ck_speaker_request_classification_code",
+    ),
+)
+
+
+event_registration = sa.Table(
+    "event_registration",
+    METADATA,
+    # Migration 0026, closing OQ-CBA-018. A student's intent to attend, which
+    # is a different fact from having attended -- and the reason it is not a
+    # fourth `attendance_record.method` is that ADR-0013 makes attendance the
+    # only input to points, so a row written at sign-up time would be credited
+    # as a row written at check-in time with nothing able to tell them apart.
+    #
+    # There is deliberately NO relationship from this table to
+    # `point_ledger_entry`, in either direction: no source column, no foreign
+    # key, and no `uq_event_registration_tenant_id` for one to reference. That
+    # absence is the guarantee; adding the constraint "just in case" is how the
+    # separation would erode.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, same as attendance_record.owning_unit_id: the unit whose
+    # student surface the registration was made through, stored at write time
+    # rather than joined back through event.host_org_unit_id later.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # The student. Every read of this table filters on it from the verified
+    # principal, never from a request field (MM-A01).
+    sa.Column("subject_id", _UUID, nullable=False),
+    # 'registered' or 'cancelled'. `waitlisted` is absent because no capacity
+    # exists anywhere in this schema for it to overflow from (OQ-CBA-029), and
+    # a value no writer could produce is a vocabulary invented by DDL.
+    sa.Column("status", sa.Text, nullable=False),
+    # When the place was taken. Never moves, including across a
+    # cancel-then-re-register, so it stays able to say how late a cancellation
+    # was.
+    sa.Column("registered_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # When `status` last moved. This is what makes cancellation-as-a-transition
+    # legible rather than a row that says only that it is cancelled.
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_registration_pkey"),
+    # The natural key, and the whole of this table's idempotency: one row per
+    # student per event whatever its status, so a second sign-up is the same
+    # registration rather than a second one. The same triple
+    # uq_attendance_record_subject_event uses, for a neighbouring reason.
+    sa.UniqueConstraint(
+        "tenant_id", "subject_id", "event_id", name="uq_event_registration_subject_event"
+    ),
+    # RESTRICT: an event must not be deleted out from under a student holding a
+    # place at it. Contrast speaker_request_classification's CASCADE onto the
+    # same parent -- that is part of the event; this is a second party's
+    # statement about it.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "subject_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('registered','cancelled')",
+        name="ck_event_registration_status",
+    ),
+)
+
+
+match_weight_setting = sa.Table(
+    "match_weight_setting",
+    METADATA,
+    # Migration 0027, customer §5's "one configurable location". What this row
+    # holds is *overrides* and nothing else: a factor key absent from
+    # `overrides` has no stored weight anywhere in this database, and its value
+    # is read from `smartmatch_domain.factor_registry` at scoring time.
+    #
+    # That absence is the design, not an omission. A row seeded with all four
+    # approved weights would be a second copy of ADR-0016's figures, and the two
+    # copies would disagree the first time either changed with nothing able to
+    # say which one scored a run. So there is no server default naming a weight
+    # here, and clearing an override deletes the entry rather than writing the
+    # registry value back.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as import_batch.owning_unit_id and event_registration's are:
+    # the unit whose matching this configures.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # A JSON object, possibly empty. `{}` is a unit that configured something
+    # and then reset it -- which has an author and a timestamp that a unit with
+    # no row at all does not, so the two states stay distinguishable.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    # Monotonic from 1. What a client echoes back to say which version it meant
+    # to modify, so two Connectors editing one unit's weights cannot silently
+    # overwrite each other.
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("updated_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_pkey"),
+    # One weighting per unit, not a most-recent one.
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", name="uq_match_weight_setting_unit"),
+    # RESTRICT: reorganizing a unit must not silently delete its configuration.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # RESTRICT: deleting an account must not erase the authorship of a change
+    # it made.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "updated_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    # An object, so `{}` is admissible and a bare array or scalar is not. It
+    # says nothing about which keys or values are acceptable: a CHECK cannot see
+    # the registry, and encoding the factor vocabulary in DDL would make this
+    # one more place a factor key is written down.
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_version"),
+)
+
+
+match_weight_setting_revision = sa.Table(
+    "match_weight_setting_revision",
+    METADATA,
+    # Migration 0027. One insert-only row per accepted change, so "what is in
+    # force and who set it" (the table above) is joined by "and what was it
+    # before". Held immutable by the `match_weight_setting_revision_is_immutable`
+    # trigger, which is 0018's device for 0018's reason: a CHECK cannot express
+    # "this row may not change", and a log that survives a hand-written UPDATE
+    # is the only kind worth keeping.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The state this change put the unit into, in full rather than as a diff: a
+    # diff is only readable next to the row it applies to, and the row it
+    # applies to is the one that moved.
+    sa.Column("overrides", postgresql.JSONB, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False),
+    sa.Column("changed_by_user_id", _UUID, nullable=False),
+    sa.Column("changed_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="match_weight_setting_revision_pkey"),
+    # One row per version per unit -- also this log's idempotency, so a re-driven
+    # write cannot append a second entry claiming a change that happened once.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "version",
+        name="uq_match_weight_setting_revision_version",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "changed_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "jsonb_typeof(overrides) = 'object'",
+        name="ck_match_weight_setting_revision_overrides_object",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_match_weight_setting_revision_version"),
+)
+
+
+cba_invitation_batch = sa.Table(
+    "cba_invitation_batch",
+    METADATA,
+    # Migration 0029, customer §6 step 7 and §13's "batch-invite candidates where
+    # supported". One row per act of composing invitations: which shortlist they
+    # came from, which template said the words, and who pressed the button.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as match_weight_setting.owning_unit_id is: the unit whose
+    # Connector is accountable for every message in this batch.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    # The caller's Idempotency-Key, unique per unit. What makes a re-submitted
+    # batch return the first submission's outcomes rather than invite everybody
+    # again — the guarantee that matters most on a surface that sends email.
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    # The shortlist this came from, when it came from one. Nullable because a
+    # Connector may pick people by hand, and a required run id would make the
+    # honest case unrepresentable.
+    sa.Column("match_run_id", _UUID, nullable=True),
+    sa.Column("template_id", sa.Text, nullable=False),
+    # `event_date` is Text and is never parsed: the date as the Connector wrote
+    # it, appearing in the message verbatim. A timestamp here would mean guessing
+    # a timezone and a format for a string whose only job is to be read.
+    sa.Column("event_name", sa.Text, nullable=False),
+    sa.Column("event_date", sa.Text, nullable=False),
+    sa.Column("created_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_invitation_batch_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_invitation_batch_tenant_id"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_cba_invitation_batch_key"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "match_run_id"],
+        ["match_run.tenant_id", "match_run.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.Index("ix_cba_invitation_batch_unit", "tenant_id", "owning_unit_id", "created_at"),
+)
+
+
+cba_invitation = sa.Table(
+    "cba_invitation",
+    METADATA,
+    # Migration 0029. One row per *named* recipient, including the ones nobody
+    # was written to: a batch of twelve names that produced nine invitations
+    # stores twelve rows, because the three skips are the ones a Connector has to
+    # act on and a shorter list would report the good news only.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("batch_id", _UUID, nullable=False),
+    # No foreign key, and unlike contact_channel.professional_id this is not
+    # waiting for one: `not_on_roster` is a storable outcome, and a reference to
+    # speaker_profile would make the one skip reason about a *mistake* the one
+    # skip reason that cannot be recorded.
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("skip_reason", sa.Text, nullable=True),
+    sa.Column("contact_channel_id", _UUID, nullable=True),
+    # Snapshotted for outreach_send.recipient_address's reason: a later
+    # correction to the channel must not rewrite what an invitation said.
+    sa.Column("recipient_address", sa.Text, nullable=True),
+    sa.Column("outreach_draft_id", _UUID, nullable=True),
+    # The send *command*, not the send. Whether a message left is
+    # `outreach_send.disposition`, read through this job id and deliberately not
+    # copied here — a second copy would be a second place the answer lives.
+    sa.Column("outreach_send_job_id", _UUID, nullable=True),
+    sa.Column("dispatched_at", _TS, nullable=True),
+    # **The column this table exists for.** What the Speaker said, in a
+    # vocabulary that shares no value with SendDisposition or DeliveryEventType:
+    # 'awaiting_response', 'accepted_invitation', 'declined_invitation'. A
+    # provider taking custody of bytes is not a person agreeing to speak, and an
+    # Event Host handed the first as the second books a room for nobody.
+    sa.Column("response_status", sa.Text, nullable=False),
+    sa.Column("response_recorded_at", _TS, nullable=True),
+    # 'speaker_link' or 'connector_recorded'. Kept apart because a Connector
+    # typing what they were told on the phone is a weaker evidentiary claim than
+    # a Speaker following the link in their own invitation.
+    sa.Column("response_channel", sa.Text, nullable=True),
+    sa.Column("response_recorded_by_user_id", _UUID, nullable=True),
+    # SHA-256 only; the token itself is never stored, so a reader of this
+    # database cannot answer on anybody's behalf. Globally unique, like
+    # outreach_send.unsubscribe_token_hash, because the public respond route has
+    # no tenant to scope by.
+    sa.Column("response_token_hash", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_invitation_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_invitation_tenant_id"),
+    # One outcome per named recipient per batch — the replay guarantee at the row
+    # level, so a re-submitted batch cannot double-invite even if a route forgot.
+    sa.UniqueConstraint(
+        "tenant_id", "batch_id", "professional_id", name="uq_cba_invitation_batch_recipient"
+    ),
+    sa.UniqueConstraint("tenant_id", "outreach_send_job_id", name="uq_cba_invitation_send_job"),
+    sa.UniqueConstraint("response_token_hash", name="uq_cba_invitation_response_token"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "batch_id"],
+        ["cba_invitation_batch.tenant_id", "cba_invitation_batch.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "outreach_draft_id"],
+        ["outreach_draft.tenant_id", "outreach_draft.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "outreach_send_job_id"],
+        ["job.tenant_id", "job.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "response_recorded_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('pending', 'dispatched', 'skipped')", name="ck_cba_invitation_status"
+    ),
+    sa.CheckConstraint(
+        "(status = 'skipped') = (skip_reason IS NOT NULL)", name="ck_cba_invitation_skip_reason"
+    ),
+    sa.CheckConstraint(
+        "(status = 'skipped') = (contact_channel_id IS NULL AND recipient_address IS NULL "
+        "AND outreach_draft_id IS NULL)",
+        name="ck_cba_invitation_addressed",
+    ),
+    sa.CheckConstraint(
+        "(status = 'dispatched') = "
+        "(outreach_send_job_id IS NOT NULL AND dispatched_at IS NOT NULL)",
+        name="ck_cba_invitation_dispatched",
+    ),
+    sa.CheckConstraint(
+        "response_status IN ('awaiting_response', 'accepted_invitation', 'declined_invitation')",
+        name="ck_cba_invitation_response_status",
+    ),
+    sa.CheckConstraint(
+        "(response_status = 'awaiting_response') = "
+        "(response_recorded_at IS NULL AND response_channel IS NULL)",
+        name="ck_cba_invitation_response_dated",
+    ),
+    sa.CheckConstraint(
+        "response_channel IS NULL OR response_channel IN ('speaker_link', 'connector_recorded')",
+        name="ck_cba_invitation_response_channel",
+    ),
+    sa.CheckConstraint(
+        "(response_channel = 'connector_recorded') = (response_recorded_by_user_id IS NOT NULL)",
+        name="ck_cba_invitation_response_actor",
+    ),
+    sa.CheckConstraint(
+        "status <> 'skipped' OR "
+        "(response_status = 'awaiting_response' AND response_token_hash IS NULL)",
+        name="ck_cba_invitation_skipped_unanswered",
+    ),
+    sa.Index("ix_cba_invitation_batch", "tenant_id", "batch_id", "professional_id"),
+)
+
+
+student_speaker_feedback = sa.Table(
+    "student_speaker_feedback",
+    METADATA,
+    # Migration 0031, customer §§15-16 and OQ-CBA-003 (decided 6 September
+    # 2026). One student's overall rating of one speaker at one event they
+    # attended, plus an optional comment.
+    #
+    # `student_id` is stored and never displayed beside a rating. The anonymity
+    # in OQ-CBA-003 is an API display rule, not an absence here, and that is
+    # deliberate: retraction, de-duplication and abuse tracing all need to know
+    # whose row this is. The migration's docstring carries the argument.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as attendance_record.owning_unit_id is: the unit whose student
+    # surface the rating was written through, and the unit a Connector's read
+    # of the aggregate is authorized against.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("student_id", _UUID, nullable=False),
+    # By opaque id. Nothing derives a speaker from a name (OQ-CBA-017).
+    sa.Column("speaker_professional_id", _UUID, nullable=False),
+    # 'submitted' or 'withdrawn'. A withdrawal is a transition and never a
+    # DELETE, for event_registration.status's reason (OQ-CBA-018).
+    sa.Column("status", sa.Text, nullable=False),
+    # The one dimension OQ-CBA-003 approved. Nullable only so a withdrawal can
+    # empty it; ck_student_speaker_feedback_rating_present is what stops that
+    # nullability meaning anything else.
+    sa.Column("rating", sa.Integer, nullable=True),
+    sa.Column("comment", sa.Text, nullable=True),
+    sa.Column("submitted_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="student_speaker_feedback_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_student_speaker_feedback_tenant_id"),
+    # One rating per student per speaker per event, whatever its status. This is
+    # the de-duplication `student_id` exists for.
+    sa.UniqueConstraint(
+        "tenant_id",
+        "student_id",
+        "event_id",
+        "speaker_professional_id",
+        name="uq_student_speaker_feedback_subject",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    # Eligibility as a database fact: targets uq_attendance_record_subject_event,
+    # so a student who did not attend the event has nowhere to store a rating of
+    # it. attendance_record rather than event_registration, because registration
+    # is an intent to attend and a student who stayed home heard nobody speak.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "student_id", "event_id"],
+        [
+            "attendance_record.tenant_id",
+            "attendance_record.subject_id",
+            "attendance_record.event_id",
+        ],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "speaker_professional_id"],
+        ["speaker_profile.tenant_id", "speaker_profile.professional_id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('submitted', 'withdrawn')",
+        name="ck_student_speaker_feedback_status",
+    ),
+    sa.CheckConstraint(
+        "rating IS NULL OR (rating >= 1 AND rating <= 5)",
+        name="ck_student_speaker_feedback_rating_range",
+    ),
+    sa.CheckConstraint(
+        "(status = 'submitted') = (rating IS NOT NULL)",
+        name="ck_student_speaker_feedback_rating_present",
+    ),
+    sa.CheckConstraint(
+        "comment IS NULL OR (length(btrim(comment)) > 0 AND length(comment) <= 2000)",
+        name="ck_student_speaker_feedback_comment_shape",
+    ),
+    sa.CheckConstraint(
+        "status <> 'withdrawn' OR comment IS NULL",
+        name="ck_student_speaker_feedback_withdrawn_is_silent",
+    ),
+    sa.Index(
+        "ix_student_speaker_feedback_speaker",
+        "tenant_id",
+        "owning_unit_id",
+        "speaker_professional_id",
+        "status",
+    ),
+    sa.Index(
+        "ix_student_speaker_feedback_student",
+        "tenant_id",
+        "student_id",
+        "event_id",
+    ),
+)
+_MANAGED_EVENT_CATEGORIES = "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
+
+managed_event = sa.Table(
+    "managed_event",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("request_fingerprint", sa.Text, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    sa.Column("normalized_title", sa.Text, nullable=False),
+    sa.Column("description", sa.Text, nullable=True),
+    sa.Column("category", sa.Text, nullable=True),
+    sa.Column("time_precision", sa.Text, nullable=False, server_default="unresolved"),
+    sa.Column("starts_at", _TS, nullable=True),
+    sa.Column("ends_at", _TS, nullable=True),
+    sa.Column("on_date", sa.Date, nullable=True),
+    sa.Column("time_zone", sa.Text, nullable=True),
+    sa.Column("location", sa.Text, nullable=True),
+    sa.Column("capacity", sa.Integer, nullable=True),
+    sa.Column("volunteer_openings", sa.Integer, nullable=True),
+    sa.Column("volunteer_needs", sa.Text, nullable=True),
+    sa.Column("audience", sa.Text, nullable=True),
+    sa.Column("contact_name", sa.Text, nullable=True),
+    sa.Column("contact_email", sa.Text, nullable=True),
+    sa.Column("speaker_topics", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("region", sa.Text, nullable=True),
+    sa.Column("status", sa.Text, nullable=False, server_default="draft"),
+    sa.Column("source_kind", sa.Text, nullable=False, server_default="manual"),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("attendance_closed_at", _TS, nullable=True),
+    sa.Column("attendance_closed_by", _UUID, nullable=True),
+    sa.Column("cancelled_at", _TS, nullable=True),
+    sa.Column("cancelled_by", _UUID, nullable=True),
+    sa.Column("cancellation_reason", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="managed_event_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_managed_event_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_managed_event_tenant_unit_id"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_managed_event_idempotency"
+    ),
+    sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "attendance_closed_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "cancelled_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        f"category IS NULL OR category IN ({_MANAGED_EVENT_CATEGORIES})",
+        name="ck_managed_event_category",
+    ),
+    sa.CheckConstraint(
+        "time_precision IN ('exact', 'date_only', 'unresolved')",
+        name="ck_managed_event_time_precision",
+    ),
+    sa.CheckConstraint("status IN ('draft', 'published', 'cancelled')", name="ck_managed_event_status"),
+    sa.CheckConstraint("source_kind = 'manual'", name="ck_managed_event_source_kind"),
+    sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_managed_event_capacity"),
+    sa.CheckConstraint(
+        "volunteer_openings IS NULL OR volunteer_openings >= 0",
+        name="ck_managed_event_openings_nonnegative",
+    ),
+    sa.CheckConstraint(
+        "capacity IS NULL OR volunteer_openings IS NULL OR volunteer_openings <= capacity",
+        name="ck_managed_event_openings_within_capacity",
+    ),
+    sa.CheckConstraint(
+        "(time_precision = 'unresolved' AND starts_at IS NULL AND ends_at IS NULL "
+        "AND on_date IS NULL) OR (time_precision = 'exact' AND starts_at IS NOT NULL "
+        "AND on_date IS NULL AND time_zone IS NOT NULL) OR (time_precision = 'date_only' "
+        "AND starts_at IS NULL AND ends_at IS NULL AND on_date IS NOT NULL "
+        "AND time_zone IS NOT NULL)",
+        name="ck_managed_event_temporal_shape",
+    ),
+    sa.CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="ck_managed_event_end_after_start"),
+    sa.CheckConstraint(
+        "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
+        "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
+        "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
+        "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' "
+        "AND audience IS NOT NULL AND btrim(audience) <> '' AND contact_name IS NOT NULL "
+        "AND btrim(contact_name) <> '' AND contact_email IS NOT NULL "
+        "AND btrim(contact_email) <> '')",
+        name="ck_managed_event_publishable",
+    ),
+)
+
+sa.Index(
+    "uq_managed_event_resolved_identity",
+    managed_event.c.tenant_id,
+    managed_event.c.owning_unit_id,
+    managed_event.c.normalized_title,
+    sa.text("COALESCE(on_date, (starts_at AT TIME ZONE time_zone)::date)"),
+    unique=True,
+    postgresql_where=sa.text("time_precision <> 'unresolved'"),
+)
+
+_SPEAKER_EVENT_STATUSES = (
+    "'not_emailed_yet', 'awaiting_response', 'declined', 'ready_for_handoff', "
+    "'handed_off', 'awaiting_final_confirmation', 'confirmed', 'withdrawn', "
+    "'attended', 'did_not_attend', 'event_cancelled'"
+)
+
+speaker = sa.Table(
+    "speaker",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("title", sa.Text, nullable=True),
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("board_role", sa.Text, nullable=True),
+    sa.Column("expertise_topics", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("home_region", sa.Text, nullable=True),
+    sa.Column("service_regions", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("contact_email", sa.Text, nullable=True),
+    sa.Column("contact_phone", sa.Text, nullable=True),
+    sa.Column("available", sa.Boolean, nullable=False, server_default=sa.true()),
+    sa.Column("active", sa.Boolean, nullable=False, server_default=sa.true()),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_speaker_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_tenant_unit_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("btrim(name) <> ''", name="ck_speaker_name"),
+)
+
+speaker_roster = sa.Table(
+    "speaker_roster",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("published_by", _UUID, nullable=True),
+    sa.Column("published_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("tenant_id", "owning_unit_id", name="speaker_roster_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="CASCADE"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "published_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_roster_entry = sa.Table(
+    "speaker_roster_entry",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("roster_version", sa.Integer, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("title", sa.Text, nullable=True),
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("board_role", sa.Text, nullable=True),
+    sa.Column("expertise_topics", postgresql.JSONB, nullable=False),
+    sa.Column("home_region", sa.Text, nullable=True),
+    sa.Column("service_regions", postgresql.JSONB, nullable=False),
+    sa.PrimaryKeyConstraint(
+        "tenant_id", "owning_unit_id", "speaker_id", name="speaker_roster_entry_pkey"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["speaker_roster.tenant_id", "speaker_roster.owning_unit_id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="CASCADE",
+    ),
+)
+
+speaker_match_run = sa.Table(
+    "speaker_match_run",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("requested_by", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("request_fingerprint", sa.Text, nullable=False),
+    sa.Column("roster_version", sa.Integer, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_match_run_pkey"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_match_run_scope"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_speaker_match_run_idempotency"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "event_id"],
+        ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "requested_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_match_result = sa.Table(
+    "speaker_match_result",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("match_run_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("position", sa.Integer, nullable=False),
+    sa.Column("topic_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("proximity_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("total_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("explanations", postgresql.JSONB, nullable=False),
+    sa.PrimaryKeyConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "match_run_id",
+        "speaker_id",
+        name="speaker_match_result_pkey",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "match_run_id"],
+        ["speaker_match_run.tenant_id", "speaker_match_run.owning_unit_id", "speaker_match_run.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="RESTRICT",
+    ),
+)
+
+speaker_event = sa.Table(
+    "speaker_event",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("assigned_host_id", _UUID, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="not_emailed_yet"),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_pkey"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_event_scope"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "event_id", "speaker_id", name="uq_speaker_event_pair"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "event_id"],
+        ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "assigned_host_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(f"status IN ({_SPEAKER_EVENT_STATUSES})", name="ck_speaker_event_status"),
+)
+speaker_shortlist_submission = sa.Table(
+    "speaker_shortlist_submission",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("match_run_id", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("request_fingerprint", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_shortlist_submission_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "idempotency_key",
+        name="uq_speaker_shortlist_idempotency",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "match_run_id"],
+        [
+            "speaker_match_run.tenant_id",
+            "speaker_match_run.owning_unit_id",
+            "speaker_match_run.id",
+        ],
+        ondelete="CASCADE",
+    ),
+)
+speaker_event_history = sa.Table(
+    "speaker_event_history",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_event_id", _UUID, nullable=False),
+    sa.Column("from_status", sa.Text, nullable=True),
+    sa.Column("to_status", sa.Text, nullable=False),
+    sa.Column("action_kind", sa.Text, nullable=False),
+    sa.Column("actor_id", _UUID, nullable=False),
+    sa.Column("note", sa.Text, nullable=True),
+    sa.Column("correction_reason", sa.Text, nullable=True),
+    sa.Column("idempotency_key", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_history_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "idempotency_key",
+        name="uq_speaker_event_history_idempotency",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_event_id"],
+        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_event_note = sa.Table(
+    "speaker_event_note",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_event_id", _UUID, nullable=False),
+    sa.Column("actor_id", _UUID, nullable=False),
+    sa.Column("body", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_note_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_event_id"],
+        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("btrim(body) <> ''", name="ck_speaker_event_note_body"),
+)
+
+event_feedback_qr = sa.Table(
+    "event_feedback_qr",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("public_token", sa.Text, nullable=False),
+    sa.Column("destination_url", sa.Text, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_event_feedback_qr_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
+    sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "event_id"],
+        ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+
+event_feedback_qr_open = sa.Table(
+    "event_feedback_qr_open",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("qr_id", _UUID, nullable=False),
+    sa.Column("opened_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_open_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "qr_id"],
+        ["event_feedback_qr.tenant_id", "event_feedback_qr.id"],
+        ondelete="CASCADE",
+    ),
+)
+sa.Index(
+    "ix_event_feedback_qr_open_qr_time",
+    event_feedback_qr_open.c.qr_id,
+    event_feedback_qr_open.c.opened_at,
 )

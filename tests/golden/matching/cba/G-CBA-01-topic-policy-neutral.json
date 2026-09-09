@@ -1,0 +1,65 @@
+{
+  "id": "G-CBA-01",
+  "title": "Speaker profile exists with no topic text and no prior talk",
+  "asserts": "Topic state policy_neutral, value CBA_NEUTRAL_TOPIC_VALUE, policy_id present, composite not unknown. The observed absence customer §9 states a policy for, kept distinct from an absence the system could not evaluate.",
+  "adr_proposals": [1, 2, 7, 8],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": ["52"],
+    "roles": ["finance"]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-01-THIN-PROFILE",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": null,
+      "prior_talk": null,
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": ["industry_match", "role_match", "cba_semantic_topic", "proximity"],
+    "ranking": ["SYNTH-CBA-01-THIN-PROFILE"],
+    "candidates": {
+      "SYNTH-CBA-01-THIN-PROFILE": {
+        "composite_state": "policy_neutral",
+        "heuristic_score": 0.925,
+        "is_shortlistable": true,
+        "unknown_factor_keys": [],
+        "policy_neutral_factor_keys": ["cba_semantic_topic"],
+        "ui_caption": "Includes a neutral default for missing topic information.",
+        "factors": {
+          "industry_match": { "state": "measured", "value": 1.0, "zero_classification": null },
+          "role_match": { "state": "measured", "value": 1.0, "zero_classification": null },
+          "cba_semantic_topic": {
+            "state": "policy_neutral",
+            "value": 0.5,
+            "zero_classification": null,
+            "policy_id": "cba-neutral-topic",
+            "policy_version": "1.0.0",
+            "ui_label": "Neutral — no topic information on file"
+          },
+          "proximity": {
+            "state": "measured",
+            "value": 1.0,
+            "zero_classification": null,
+            "band": "near",
+            "ui_label": "Near"
+          }
+        }
+      }
+    }
+  }
+}

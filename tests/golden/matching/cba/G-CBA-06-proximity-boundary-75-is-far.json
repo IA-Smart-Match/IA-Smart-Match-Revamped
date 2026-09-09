@@ -1,0 +1,93 @@
+{
+  "id": "G-CBA-06",
+  "title": "d = 74.9 and d = 75.0 miles",
+  "asserts": "Mid then Far; proximity 0.60 then 0.20. The upper boundary owns the same way the lower one does, and the two candidates rank in that order.",
+  "adr_proposals": [
+    3
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-06-A-MID",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 74.9
+    },
+    {
+      "subject_id": "SYNTH-CBA-06-B-FAR",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 75.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-06-A-MID",
+      "SYNTH-CBA-06-B-FAR"
+    ],
+    "candidates": {
+      "SYNTH-CBA-06-A-MID": {
+        "composite_state": "measured",
+        "heuristic_score": 0.85,
+        "is_shortlistable": true,
+        "factors": {
+          "proximity": {
+            "state": "measured",
+            "value": 0.6,
+            "zero_classification": null,
+            "band": "mid",
+            "ui_label": "Mid"
+          }
+        }
+      },
+      "SYNTH-CBA-06-B-FAR": {
+        "composite_state": "measured",
+        "heuristic_score": 0.73,
+        "is_shortlistable": true,
+        "factors": {
+          "proximity": {
+            "state": "measured",
+            "value": 0.2,
+            "zero_classification": null,
+            "band": "far",
+            "ui_label": "Far"
+          }
+        }
+      }
+    }
+  }
+}

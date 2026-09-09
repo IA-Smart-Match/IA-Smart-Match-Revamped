@@ -22,7 +22,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.events import normalize_title
-from smartmatch_persistence.events import EventRepository
+from smartmatch_persistence.manual_events import ManualEventRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.exc import IntegrityError
 
@@ -34,7 +34,7 @@ from smartmatch_api.utils import utc_now
 router = APIRouter(prefix="/v1/units", tags=["events"])
 public_router = APIRouter(tags=["events"])
 
-_events = EventRepository()
+_events = ManualEventRepository()
 _READ_ROLES = frozenset({"admin", "coordinator"})
 _WRITE_ROLES = frozenset({"admin"})
 _CATEGORIES = frozenset(

@@ -6,13 +6,24 @@ gate closes is a route someone will call.
 
 What is **not** present, and why:
 
-* ``POST /auth/mock-login`` — archived (MM-A01). Caller-selected identity was the
-  single most dangerous pattern in the legacy baseline
-  (``bdce024:src/api/routers/portals.py:435``). Identity now comes from a
-  verified token, and the local account, tenant, and roles are read server-side.
-* Automated discovery and email-send commands — these remain absent while their
-  release gates are closed. Manual event entry and the approved, deterministic
-  speaker match workflow are implemented without calling external providers.
+* ``POST /auth/mock-login`` — archived (MM-A01), and **not** what
+  ``routers/auth.py`` restores. Caller-selected identity was the single most
+  dangerous pattern in the legacy baseline
+  (``bdce024:src/api/routers/portals.py:435``): that route let a caller *choose*
+  who they were. ``POST /v1/auth/login`` requires a secret only the account
+  holder has, and the local account, tenant, and roles are still read
+  server-side from ``user_account`` and ``membership`` — never from the request.
+  It is a pilot-scoped stand-in for institutional sign-in, authorized by the
+  owner on 2026-09-04 and recorded in
+  ``docs/decisions/pilot-login-decision-2026-09-04.md``; it is not A1b, does not
+  unblock it, and leaves the JWKS verifier unwired.
+* ``GET /v1/me/portals`` — the authenticated account-to-portal mapping the
+  portal shells were blocked on, derived from the caller's own memberships and
+  taking no parameter at all. Deliberately not ``/api/portals/{id}``: a portal
+  follows from who you are, not from an id you send.
+* Match-run, discovery, and send commands — each waits on its gate: G1 for the
+  factor registry, G3 for agent controls, G4 for consent-origin policy. The
+  submission machinery they will use is built and exercised by ``/imports``.
 * Any handler that calls a provider inline — prohibited by v1.1 §1.6. The
   request path records intent; the dispatcher moves it; the worker performs it.
 """
@@ -23,7 +34,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Final
 
-from fastapi import FastAPI, status
+from fastapi import APIRouter, FastAPI, status
+from fastapi.responses import HTMLResponse
+from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
@@ -32,15 +45,31 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
+    attendance,
+    auth,
+    calendar,
+    cba_contact_channels,
+    cba_contacts,
+    cba_handoff,
+    cba_invitations,
     engagement,
     events,
     imports,
     jobs,
+    match_runs,
+    matching_weights,
     me,
     metrics,
+    outreach,
+    outreach_contacts,
+    pipeline,
+    portals,
     redrive,
     review,
-    speakers,
+    rewards,
+    speaker_requests,
+    student_events,
+    student_speaker_feedback,
 )
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
@@ -162,6 +191,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     app.state.settings = settings
+    # The product-scope decisions this process booted with, resolved once so a
+    # handler or a diagnostic reads the same answers composition used above
+    # rather than re-deriving them from `product_scope` and drifting.
+    app.state.product_scope = settings.product_scope
+    app.state.enabled_capabilities = settings.enabled_capabilities()
     app.state.session_factory = create_session_factory(settings.database_url)
     app.state.token_verifier = build_token_verifier(
         settings.edition,
@@ -209,16 +243,229 @@ for exception_type, handler in EXCEPTION_HANDLERS.items():
 # for an oversized body. See MaxBodySizeMiddleware's docstring.
 app.add_middleware(MaxBodySizeMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
 
+# Infrastructure routers: the durable command/job substrate every capability
+# rides on, and the operator paths that keep it honest. They are not a product
+# capability of their own — there is no version of this product that offers
+# match runs but not the job lifecycle that carries them — so they are mounted
+# unconditionally rather than classified below.
 app.include_router(jobs.router)
-app.include_router(imports.router)
 app.include_router(redrive.router)
-app.include_router(me.router)
-app.include_router(metrics.router)
-app.include_router(events.router)
-app.include_router(events.public_router)
-app.include_router(speakers.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
+
+#: Every router that answers to a named product capability, paired with the
+#: capability it serves.
+#:
+#: This is the API half of the single CBA scope policy in
+#: ``smartmatch_domain.product_scope``; the frontend half is
+#: ``apps/web/legacy-frontend/src/lib/productScope.ts``. Composition asks the
+#: policy rather than restating it, so "which product is this" is answered in
+#: one place and read in two.
+#:
+#: Under the default CBA scope every capability listed here is enabled, so the
+#: mounted route set — and therefore the committed OpenAPI contract — is exactly
+#: what it was before this table existed. The capabilities CBA *does* gate
+#: (external acquisition, cold unknown-contact outreach, chapter dues, the
+#: ``member_inquiry`` narrative) own no router at all: they were never mounted,
+#: and this is the declaration that says so on purpose rather than by accident.
+#:
+#: Mounting is decided once, at import, from the settings the process booted
+#: with. A route set that changed per request would be a different application
+#: on every call, and the generated contract could not describe either one.
+CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
+    (imports.router, Capability.OPERATOR_RECORD_IMPORT),
+    (me.router, Capability.AUTHENTICATED_LOGIN),
+    (metrics.router, Capability.DISCOVERY_METRICS),
+    (events.router, Capability.EVENT_READS),
+    # The .ics download, classified with `events` because that is what it is:
+    # the same event, in a second representation, behind the same roles
+    # (`routers/calendar.py` restates `routers/events.py::_EVENT_ROLES`) and
+    # under the same `/v1/units` prefix. It is not infrastructure — it is a
+    # user-facing read, and a product that did not offer event reads has no
+    # coherent reason to hand out an .ics of an event it does not show.
+    #
+    # Reading it next to `events` here is also how a later change to one is
+    # noticed as a change to the pair.
+    #
+    # G5 (Calendar API) stays deferred and this does not reopen it: the route
+    # makes no network call, holds no credential, and writes into nobody's
+    # calendar. See `docs/plans/open-questions/calendar-deferred.md`.
+    (calendar.router, Capability.EVENT_READS),
+    # The student's two reads of the same catalog (customer §15, card
+    # `CBA-STUDENT-EVENTS`). `EVENT_READS` again, and for the reason `calendar`
+    # is: this is the same event in a third presentation, behind a different
+    # role, and a product that offers no event reads has nothing for a student
+    # to browse. Its own capability would have implied a deployment could offer
+    # the coordinator catalog and withhold the student one, which is not a
+    # decision any committed artifact makes — customer §22 keeps event reads and
+    # §15 says students are among the readers.
+    #
+    # Since `CBA-STUDENT-REGISTRATION` this router also carries the two
+    # registration *writes*, and they ride `EVENT_READS` rather than taking a
+    # capability of their own. That is the opposite of the decision
+    # `SPEAKER_REQUEST_INTAKE` below makes about a write, so it has to be argued
+    # rather than assumed.
+    #
+    # That capability exists because a product showing a coordinator the event
+    # catalog without accepting Speaker Requests is coherent, and so is the
+    # reverse: two genuinely separable products. A student catalog without
+    # registration is not that shape. It is the state this page was in for
+    # exactly one card, and `docs/plans/frontend-broken-buttons.md` B06 names it
+    # a defect rather than a smaller product — a Register button with nothing
+    # behind it, or a browse list relabelled to conceal that there was nothing.
+    # A separate capability would make that degraded state a *supported*
+    # configuration, which is the thing nobody wants to be able to ship again.
+    #
+    # What has not changed is that this is not an *attendance* surface.
+    # Registration writes `event_registration`; `attendance_record` is attendance
+    # and ADR-0013 makes it the only input to points, so nothing on this router
+    # writes it. See `routers/student_events.py` and migration `0026`.
+    (student_events.router, Capability.EVENT_READS),
+    # The Speaker Request intake and its queue (customer §§12-13). Its own
+    # capability rather than a share of `events`, and the distinction is the
+    # direction of the arrow: `events` and `calendar` hand a coordinator what
+    # the system already holds, and this one is how something new gets into it.
+    # A product could offer either without the other, so gating them together
+    # would make one decision look like two.
+    #
+    # It is not `OPERATOR_RECORD_IMPORT` either, which is an operator loading
+    # records the institution already holds through the quarantine/review path.
+    # A host filing a request is a person stating a new intention, and it has no
+    # review queue in front of it — see `routers/speaker_requests.py`.
+    (speaker_requests.router, Capability.SPEAKER_REQUEST_INTAKE),
+    # The other side of the same match: a Speaker Connector's roster of
+    # professional contacts (customer §13, and §§7-8 for the correction). Its
+    # own capability rather than a share of the line above it, because the two
+    # are opposite ends of one arrow and a product could offer either alone —
+    # requests with no roster is a Connector answering from outside the system,
+    # and a roster with no requests is a directory. The authorization rows
+    # already say they are two decisions: §12 admits the Event Host to filing a
+    # request, §13 admits only the Connector to the roster.
+    #
+    # Not `CONSENTED_OUTREACH`, and the distinction is the one this card turns
+    # on: a contact *record* is not a contact *channel*. These routes write no
+    # `contact_channel` row, create no consent, and make nobody writable-to —
+    # an address typed on the create form is discarded and reported as withheld
+    # (OQ-CBA-011). A deployment could enable this with outreach off and the
+    # roster would work exactly as well.
+    #
+    # Not `EXTERNAL_SPEAKER_ACQUISITION` either: every record is typed by a
+    # person about somebody the institution already knows, which is the manual,
+    # inside-the-system growth customer §20 permits. No network call, no scrape,
+    # no external lookup.
+    (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    (match_runs.router, Capability.MATCH_RUNS),
+    # The weights a match run is scored under (customer §5, §13's "manage
+    # matching weights"). `MATCH_RUNS` rather than a capability of its own, and
+    # that is the whole argument: configuring the weighting of a matching engine
+    # a deployment does not offer is not a smaller product, it is a settings
+    # screen for nothing. The two are enabled together or neither is.
+    #
+    # Not `OPERATOR_RECORD_IMPORT` and not an admin capability: this is a
+    # Connector adjusting how their own unit's shortlist is composed, scoped to
+    # that unit, and it authorizes exactly as the match-run routes do.
+    (matching_weights.router, Capability.MATCH_RUNS),
+    (rewards.router, Capability.REWARDS_LEDGER),
+    # The S12 funnel's coordinator-driven write path. Classified with `metrics`,
+    # which reads the same table: `routers/pipeline.py` is what makes the last
+    # three funnel metrics reachable at all, and a reader wondering where a
+    # non-zero `pipeline_confirmed` could come from should find the two next to
+    # each other.
+    (pipeline.router, Capability.DISCOVERY_METRICS),
+    # The attendance writer, classified with the funnel it unblocks. Until
+    # OQ-102 was closed on 7 September 2026 nothing under `/v1` wrote an
+    # `attendance_record`, so the funnel's Attended stage — which *cites* one
+    # and never creates it — was unreachable through the API in both the S12
+    # and the CBA walks. That is the argument for putting it here rather than
+    # under `EVENT_READS` (student feedback eligibility reads the same row) or
+    # `REWARDS_LEDGER` (points derive from it): both of those consume the
+    # evidence, and this is the capability that could not complete without it.
+    # One capability, not three, and `routers/attendance.py` says which.
+    (attendance.router, Capability.DISCOVERY_METRICS),
+    (auth.router, Capability.AUTHENTICATED_LOGIN),
+    (portals.router, Capability.AUTHENTICATED_LOGIN),
+    # Two routers from one module: the unit-scoped operations, and the one
+    # unauthenticated operation. See `routers/outreach.py` — "this route takes
+    # no principal" is worth being visible in a declaration rather than
+    # discoverable by reading a handler.
+    #
+    # Both are CONSENTED outreach, which the CBA scope preserves. The gated
+    # capability is cold contact of someone who never agreed to be contacted —
+    # a different trust model that shares only a word, and that these routes do
+    # not implement.
+    (outreach.router, Capability.CONSENTED_OUTREACH),
+    (outreach.public_router, Capability.CONSENTED_OUTREACH),
+    # The contact-channel surface lives in its own module but authorizes
+    # through `outreach._authorize_outreach` — one question about a unit's
+    # outreach with one answer. See `routers/outreach_contacts.py`. It is
+    # classified with the two above because it is the same trust model: these
+    # routes record and move *consent*, which is exactly what CONSENTED_OUTREACH
+    # names. A product without consented outreach has no contact channels to
+    # administer.
+    (outreach_contacts.router, Capability.CONSENTED_OUTREACH),
+    # The §13 roster's channels — the one place a Speaker Connector's contact
+    # *record* can acquire a contact *channel*. `CONSENTED_OUTREACH` rather than
+    # `SPEAKER_CONTACT_MANAGEMENT`, and the split is the same one the
+    # `cba_contacts` note above draws, applied honestly in the other direction:
+    # a deployment that offers the roster with outreach switched off should get
+    # the roster and no way to make anybody writable-to, which is precisely what
+    # gating these three here produces. Classifying them with the roster would
+    # have handed a consent surface to every deployment that wanted a directory.
+    #
+    # They still authorize through `cba_contacts._authorize_speaker_contacts`,
+    # so the capability flag and the role gate answer two different questions:
+    # whether this product includes consent management at all, and whether this
+    # caller may exercise it on this unit.
+    (cba_contact_channels.router, Capability.CONSENTED_OUTREACH),
+    # Speaker invitations (customer §6 steps 7-8, §13, §14). `CONSENTED_OUTREACH`
+    # and not `SPEAKER_CONTACT_MANAGEMENT`, for the reason the note directly
+    # above gives and more plainly still: these routes put messages in inboxes.
+    # Every one of them is composed from the closed template registry, addressed
+    # to an `active_candidate` channel, and delivered by the one `outreach.send`
+    # handler — so a deployment with consented outreach switched off must not
+    # have them, and a deployment that has them has already accepted the
+    # capability that governs sending.
+    #
+    # Both routers ride the same flag, and the second is the unauthenticated one
+    # — the Speaker's own accept/decline. It is listed here rather than mounted
+    # unconditionally because an invitation nobody can be sent has nothing to
+    # answer: gating the answer with the send is what keeps the pair coherent.
+    (cba_invitations.router, Capability.CONSENTED_OUTREACH),
+    (cba_invitations.public_router, Capability.CONSENTED_OUTREACH),
+    # The speaker handoff (customer §6 step 8, §23). Rides `CONSENTED_OUTREACH`
+    # rather than `DISCOVERY_METRICS` even though it writes funnel stages,
+    # because the fact it writes them *from* is an invitation's stored answer: a
+    # deployment without consented outreach has no `cba_invitation` rows, so
+    # this surface would have nothing to reconcile and would only be able to
+    # report 404. Gating the handoff with the invitation is what keeps the pair
+    # coherent, the same argument the Speaker's own accept/decline route above
+    # is mounted on.
+    (cba_handoff.router, Capability.CONSENTED_OUTREACH),
+    # Student speaker feedback (customer §§15-16, OQ-CBA-003 decided 6 September
+    # 2026). The card's two halves ride two different flags on purpose.
+    #
+    # The student's own routes are `EVENT_READS`, the flag `student_events.router`
+    # already carries: this surface is reached from an event the student attended,
+    # it is scoped to one event throughout, and a deployment with the student
+    # event journey switched off has no page these routes could be opened from.
+    # It is not `REWARDS_LEDGER` or anything else student-shaped -- nothing here
+    # touches points, and ADR-0013 keeps attendance the only input to those.
+    (student_speaker_feedback.router, Capability.EVENT_READS),
+    # The Connector's aggregate is `SPEAKER_CONTACT_MANAGEMENT` instead. It is a
+    # fact about a §13 roster contact, reached from that contact, and it answers
+    # `404` for an id the roster does not hold -- so a deployment that has turned
+    # the roster off must not be answering questions about who is on it. Putting
+    # both halves on one flag would make one of those two statements false, and
+    # the half it would falsify is the privacy-bearing one.
+    #
+    # Deliberately not `CONSENTED_OUTREACH`: this route puts nothing in an inbox
+    # and sends nobody anything. It reads numbers students volunteered.
+    (student_speaker_feedback.connector_router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+)
+
+for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
+    if get_settings().capability_enabled(_required_capability):
+        app.include_router(_capability_router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")
@@ -232,3 +479,84 @@ def health() -> dict[str, Any]:
     """
     settings = get_settings()
     return {"status": "ok", "release": settings.release}
+
+
+@app.get(
+    "/u/{token}",
+    tags=["outreach"],
+    summary="Unsubscribe confirmation page",
+    # Media types are declared per response rather than through
+    # ``response_class=HTMLResponse``. A route-wide response class sets the
+    # media type for *every* response the route publishes, including the error
+    # responses inherited from the application-level ``responses`` above — so
+    # this route, and only this route, documented its 4xx bodies as
+    # ``text/html`` while the exception handlers return ``application/json``.
+    # A generated client would take the contract at its word and try to parse
+    # an error envelope as HTML.
+    #
+    # The handler still returns an ``HTMLResponse``; only the documented
+    # contract changes. Declaring 200 as HTML here keeps that accurate.
+    responses={
+        200: {"content": {"text/html": {}}, "description": "Confirmation page"},
+        **{
+            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
+            for code in (400, 401, 403, 404, 409, 422, 429)
+        },
+    },
+)
+def unsubscribe_page(token: str) -> HTMLResponse:
+    """Render the unsubscribe confirmation page. **Never changes state.**
+
+    Fixes the v1.0 mutating-GET unsubscribe (v1.1 §1.10). A GET here is reached
+    by link scanners, mail-client prefetchers, and security proxies; if it
+    mutated, those would silently unsubscribe recipients who never clicked.
+
+    The actual unsubscribe is the signed POST, or the RFC 8058 one-click POST
+    that mail providers issue directly. Both arrive with R4.
+    """
+    # Rendered from a template in R4. The token is deliberately not echoed into
+    # the HTML — reflecting it invites both leakage and injection.
+    return HTMLResponse(
+        "<!doctype html><title>Unsubscribe</title>"
+        "<h1>Confirm unsubscribe</h1>"
+        "<p>Confirm below to stop receiving these messages.</p>",
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@app.get(
+    "/i/{token}",
+    tags=["speaker-invitations"],
+    summary="Speaker invitation response page",
+    # Declared per response for `unsubscribe_page`'s reason: a route-wide
+    # response class would document this route's inherited 4xx bodies as HTML
+    # while the exception handlers return JSON.
+    responses={
+        200: {"content": {"text/html": {}}, "description": "Response page"},
+        **{
+            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
+            for code in (400, 401, 403, 404, 409, 422, 429)
+        },
+    },
+)
+def invitation_response_page(token: str) -> HTMLResponse:
+    """Render the accept-or-decline page. **Never changes state.**
+
+    The link an invitation actually carries, and a GET for the reason
+    :func:`unsubscribe_page` is one: a link in an email is fetched by scanners,
+    prefetchers and security proxies, so a GET that recorded an answer would
+    have Speakers accepting engagements they never read about. The answer is the
+    POST to ``/v1/speaker-invitations/respond``, which this page submits.
+
+    The token is deliberately not echoed into the HTML — reflecting it invites
+    both leakage and injection — and the page says nothing about whether the
+    token is real, for the same anti-oracle reason the POST answers identically
+    to every token.
+    """
+    return HTMLResponse(
+        "<!doctype html><title>Speaker invitation</title>"
+        "<h1>Respond to this invitation</h1>"
+        "<p>Choose below to accept or decline. Neither choice changes whether "
+        "you receive other messages.</p>",
+        status_code=status.HTTP_200_OK,
+    )

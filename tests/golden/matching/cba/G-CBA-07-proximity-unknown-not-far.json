@@ -1,0 +1,90 @@
+{
+  "id": "G-CBA-07",
+  "title": "Speaker with no city and no postal code",
+  "asserts": "Proximity state unknown, composite unknown, candidate sorts last, never the Far band. Filing a missing address as 'probably far' would be a guess rendered as a measurement, and the speaker who later supplies an address would see their score move for no visible reason.",
+  "adr_proposals": [
+    4,
+    8
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-07-A-NO-LOCATION",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "city": null,
+      "postal_code": null
+    },
+    {
+      "subject_id": "SYNTH-CBA-07-B-LOCATED",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "scored_factor_keys": [
+      "industry_match",
+      "role_match",
+      "cba_semantic_topic",
+      "proximity"
+    ],
+    "ranking": [
+      "SYNTH-CBA-07-B-LOCATED",
+      "SYNTH-CBA-07-A-NO-LOCATION"
+    ],
+    "candidates": {
+      "SYNTH-CBA-07-A-NO-LOCATION": {
+        "composite_state": "unknown",
+        "heuristic_score": null,
+        "is_shortlistable": false,
+        "unknown_factor_keys": [
+          "proximity"
+        ],
+        "policy_neutral_factor_keys": [],
+        "ui_caption": null,
+        "factors": {
+          "proximity": {
+            "state": "unknown",
+            "value": null,
+            "zero_classification": "unknown",
+            "band": null,
+            "ui_label": "Unknown — no location on file"
+          }
+        }
+      },
+      "SYNTH-CBA-07-B-LOCATED": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "is_shortlistable": true,
+        "unknown_factor_keys": []
+      }
+    }
+  }
+}

@@ -153,6 +153,17 @@ def main() -> int:
         set(),
         label="professionals_clean.json",
     )
+    # A CBA-shaped export, spelled the customer's way. Clean is the assertion:
+    # normalize_header folds "Graduation Year" onto `graduation_year`, so
+    # customer §18's headers satisfy a snake_case contract with no alias table.
+    # `Contact Email` is declared, so it is not `unexpected_columns` either --
+    # CBA Gate C withholds the VALUE at the write, which is the worker's
+    # posture and not something validate_columns has an opinion about.
+    assert_codes(
+        run_validation("professionals", "professionals_cba_contact.json", contract=contract),
+        set(),
+        label="professionals_cba_contact.json",
+    )
     assert_codes(
         run_validation("professionals", "professionals_missing_required.json", contract=contract),
         {"missing_required_columns"},

@@ -33,6 +33,10 @@ locals {
   task_queue             = "example-smartmatch-dev-jobs"
   api_service_account    = "example-smartmatch-dev-api@example.invalid"
   worker_service_account = "example-smartmatch-dev-worker@example.invalid"
+  api_service            = "example-smartmatch-dev-api-service"
+  worker_service         = "example-smartmatch-dev-worker-service"
+  scheduler_job          = "example-smartmatch-dev-dispatch-job"
+  database_secret_id     = "example-smartmatch-dev-database-url"
   provider_secret_id     = "example-smartmatch-dev-provider-credentials"
   release_tag_prefix     = "dev-v"
 
@@ -47,5 +51,8 @@ locals {
   data_class       = "synthetic"
   min_instances    = 0
   max_instances    = 2
+  database_version = "POSTGRES_16"
+  database_tier    = "db-custom-1-3840"
+  dispatch_cron    = "*/5 * * * *"
   promotion_source = null
 }

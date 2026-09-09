@@ -1,7 +1,7 @@
 # R3 signing decisions — 2026-09-03
 
 **Status:** **RATIFIED — SESSION POLICY** (engineering record; design requirements only).
-**Ratifier:** Danny Tran (@dangt), Development Lead / Security Reviewer (authority 1a).
+**Ratifier:** Danny Tran (@BrooklynD23), Development Lead / Security Reviewer (authority 1a).
 **Companion artifact:** `docs/security/crawler-threat-model-draft.md` (signed same date).
 
 This record closes the human decision boxes required before the R3 signing pass.
@@ -47,6 +47,6 @@ It does **not** attest that controls are implemented; card S6a remains separate.
 
 ## Sign-off
 
-- **Ratified by:** Danny Tran (@dangt), Development Lead / Security Reviewer
+- **Ratified by:** Danny Tran (@BrooklynD23), Development Lead / Security Reviewer
 - **Date:** 2026-09-03
 - **Scope:** Design requirements in `crawler-threat-model-draft.md` revision 4 + this record.
