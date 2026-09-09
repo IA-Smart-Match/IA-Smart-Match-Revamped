@@ -257,6 +257,21 @@ export const router = createBrowserRouter([
       // tenant-scoped — whatever this router renders. The page shows the
       // server's refusal rather than hiding the control.
       { path: "matching-weights", element: withSuspense(<CoordinatorMatchingWeights />) },
+      // The internal CBA meeting record (migration `0034`). This route already
+      // existed, pointing at a `PortalDatasetUnavailable` placeholder for the
+      // legacy `/api/portals/event-coordinators/{id}/meetings` dataset; what
+      // changed is that the page behind it now reads and writes a real `/v1`
+      // surface, `GET`/`POST /v1/units/{unit_id}/meetings`.
+      //
+      // Mounted unconditionally for the reason its siblings above are: a route
+      // is a claim about what exists rather than a permission. Both routes are
+      // `admin`/`coordinator` server-side, authorized per request against the
+      // loaded unit, whatever this router renders.
+      //
+      // The page is a *record*, not a booking — nothing behind it sends an
+      // invitation or writes to anybody's calendar, and G5 stays deferred. The
+      // page says so on screen, because a coordinator who believed otherwise
+      // would stop arranging the meeting themselves.
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },
