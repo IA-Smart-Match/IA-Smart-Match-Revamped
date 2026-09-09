@@ -41,6 +41,7 @@ from sqlalchemy.dialects import postgresql
 __all__ = [
     "METADATA",
     "attendance_record",
+    "cba_meeting",
     "concurrency_lease",
     "contact_channel",
     "contact_channel_transition",
@@ -2687,5 +2688,80 @@ student_speaker_feedback = sa.Table(
         "tenant_id",
         "student_id",
         "event_id",
+    ),
+)
+
+
+cba_meeting = sa.Table(
+    "cba_meeting",
+    METADATA,
+    # Migration 0034. One unit's internal note that a meeting with the CBA team
+    # is happening. Not a booking: nothing in this system tells an external
+    # participant the row exists, and G5 (Calendar API) stays deferred —
+    # routers/calendar.py's docstring draws the boundary this table sits inside.
+    #
+    # What a "meeting with the CBA team" is contractually — who may book, whether
+    # an external participant is a user_account or free text, and whether a
+    # booking ever leaves the system — is OQ-CBA-066, open. That is why there is
+    # no participant column here and no table beside this one.
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # A5-shaped, as attendance_record.owning_unit_id is: the unit whose
+    # coordinator surface recorded it, and the unit a read is authorized against.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    # THE INVARIANT: NOT NULL with **no server default**. A meeting with no
+    # resolved time is refused, never defaulted (ADR-0010 rule 2, finding F-003
+    # — the legacy fabricated "thirty days from now" from an unparsed date).
+    # There is nothing for the database to supply, so an insert naming no
+    # instant fails. Do not add a default here or in the migration.
+    sa.Column("scheduled_at", _TS, nullable=False),
+    # The IANA zone the instant was agreed in — the half a timestamptz cannot
+    # recover. NOT NULL for scheduled_at's reason: a guessed zone is a guess.
+    sa.Column("time_zone", sa.Text, nullable=False),
+    # A room, a building, or a link. NULL means nobody has said yet; '' is
+    # refused so a blank string cannot become a second way of saying it.
+    sa.Column("location_or_link", sa.Text, nullable=True),
+    # 'scheduled' or 'cancelled'. A cancellation is a transition and never a
+    # DELETE, for event_registration.status's reason (OQ-CBA-018).
+    sa.Column("status", sa.Text, nullable=False),
+    # Provenance, and the only person-shaped column on the table.
+    sa.Column("created_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_meeting_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_meeting_tenant_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('scheduled', 'cancelled')",
+        name="ck_cba_meeting_status",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(title)) > 0 AND length(title) <= 200",
+        name="ck_cba_meeting_title_shape",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(time_zone)) > 0 AND length(time_zone) <= 64",
+        name="ck_cba_meeting_time_zone",
+    ),
+    sa.CheckConstraint(
+        "location_or_link IS NULL OR "
+        "(length(btrim(location_or_link)) > 0 AND length(location_or_link) <= 500)",
+        name="ck_cba_meeting_location_shape",
+    ),
+    sa.Index(
+        "ix_cba_meeting_unit_schedule",
+        "tenant_id",
+        "owning_unit_id",
+        "scheduled_at",
     ),
 )

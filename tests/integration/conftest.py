@@ -164,6 +164,15 @@ _TENANT_SCOPED_TABLES = (
     # makes the whole tenant undeletable, which is the argument
     # `event_registration` is listed on.
     "student_speaker_feedback",
+    # Migration 0034. Holds ON DELETE RESTRICT references to *both* `org_unit`
+    # and `user_account`, so it goes above the pair — the ordering failure PR #26
+    # had to fix for `match_run`/`job`.
+    #
+    # Listed for `event_registration`'s reason rather than
+    # `attendance_record`'s: a meeting can be left behind by any test or e2e walk
+    # that exercises the coordinator write route, not only by the one module that
+    # owns the table, and one such row makes the whole tenant undeletable.
+    "cba_meeting",
     # Migration 0024. Holds ON DELETE RESTRICT references to *both*
     # `user_account` and `org_unit`, so it goes above the pair — getting this
     # order wrong is the failure PR #26 had to fix for `match_run`/`job`.

@@ -59,6 +59,7 @@ from smartmatch_api.routers import (
     match_runs,
     matching_weights,
     me,
+    meetings,
     metrics,
     outreach,
     outreach_contacts,
@@ -469,6 +470,24 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # Deliberately not `CONSENTED_OUTREACH`: this route puts nothing in an inbox
     # and sends nobody anything. It reads numbers students volunteered.
     (student_speaker_feedback.connector_router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # The internal CBA meeting record (migration 0034). One flag, and the
+    # router's own docstring carries the argument for this one rather than the
+    # two it was weighed against.
+    #
+    # `SPEAKER_CONTACT_MANAGEMENT` because this is the same persona doing the
+    # same kind of by-hand record-keeping the roster routes above are: a
+    # Connector maintaining their unit's own records, with no network call and
+    # nothing sent. A deployment with that surface off has no page these routes
+    # could be opened from.
+    #
+    # Deliberately not `CONSENTED_OUTREACH`: that flag gates putting something in
+    # somebody's inbox, and these routes send nothing and read no address --
+    # mounting them there would make an outreach switch govern a table that
+    # cannot reach anybody. Deliberately not `EVENT_READS` either: a meeting is
+    # not an `event` row, is in no catalog, no match run and no student agenda,
+    # and attaching it to that flag would place it inside a funnel it stands
+    # outside of.
+    (meetings.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
