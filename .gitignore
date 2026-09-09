@@ -41,6 +41,7 @@ build/
 
 # Node
 node_modules/
+.pnpm-store/
 apps/web/dist/
 apps/web/.vite/
 *.tsbuildinfo

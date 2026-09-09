@@ -10,7 +10,7 @@
     "dev": "vite --port 5173",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
-    "build": "npm run typecheck && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -57,6 +57,7 @@
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "qrcode": "1.5.4",
     "react": "18.3.1",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
@@ -76,6 +77,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "4.7.0",

@@ -23,15 +23,11 @@
  * unknown) so a measurement nobody took renders as unknown, never as zero.
  */
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import {
-  Activity,
   AlertTriangle,
-  BellRing,
   Briefcase,
   CalendarDays,
-  ClipboardList,
-  LogOut,
   MapPinned,
   MessageSquareHeart,
   RefreshCw,
@@ -55,58 +51,36 @@ import {
   fetchCalendarAssignments,
   fetchCalendarEvents,
   fetchFeedbackStats,
+  fetchManualEvents,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
+  type ManualEvent,
   type MetricSummary,
 } from "@/lib/api";
+import { useAuthorizedUnitId } from "@/app/hooks/useAuthorizedUnit";
 import {
   accountableDemoMetric,
   accountableMetricFromSummary,
   MATCHING_UNAVAILABLE_REASON,
   OPPORTUNITIES_METRIC_NAME,
-  PENDING_REVIEW_ITEMS_METRIC_NAME,
-  unavailableMatchingMetric,
   unavailableOpportunitiesMetric,
-  unavailablePendingReviewMetric,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
-import { summarizeCalendarCoverage } from "@/lib/calendarCoverage";
-import type { SignalThresholds } from "@/lib/signals";
-import {
-  DiscoveryFeed,
-  type DiscoveryFeedItem,
-} from "@/app/components/DiscoveryFeed";
 import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
-import { isCapabilityEnabled } from "@/lib/productScope";
 import {
   AccountableValue,
-  MetricDrilldownSheet,
   MetricValueDisplay,
   unknownValue,
   type AccountableMetric,
 } from "@/app/components/provenance";
+import { MetricDrilldownSheet } from "@/app/components/provenance/MetricDrilldownSheet";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
-import { useSignOut } from "../hooks/useSession";
 
 const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
-
-/**
- * Whether this product presents `member_inquiry` as an outcome at all.
- *
- * Read from the shared capability policy (`src/lib/productScope.ts`), the same
- * decision `PipelineFunnelTiles` consults — the headline card and the funnel
- * tile are one claim wearing two layouts, and gating only the tile would leave
- * the larger version of the claim on the same screen.
- *
- * The metric itself stays registered, read, and stored; what is withheld is the
- * presentation. Customer §4 and §20 remove chapter membership, so a CBA user has
- * no outcome this number could describe.
- */
-const OFFERS_MEMBER_INQUIRY = isCapabilityEnabled("member_inquiry_narrative");
 
 /**
  * Why a per-region member-inquiry count is not shown.
@@ -118,42 +92,6 @@ const OFFERS_MEMBER_INQUIRY = isCapabilityEnabled("member_inquiry_narrative");
  */
 const REGION_MEMBER_INQUIRY_UNKNOWN_REASON =
   "No region-scoped registered metric exists: `pipeline_member_inquiry` is scoped to the organizational unit, and this page no longer attributes pipeline rows to regions in the browser.";
-
-/**
- * Why the calendar-derived rows on this page can be unknown.
- *
- * `/api/calendar/*` are legacy routes that the current API does not serve —
- * the repository's own performance baseline records both as 404
- * (`docs/plans/perf-baseline-828.md`). Until unit-scoped event endpoints
- * exist (S3–S5; `services/api/smartmatch_api/routers/events.py` declares no
- * handlers yet), coverage is genuinely unmeasured, and this dashboard says
- * so rather than reporting zero uncovered windows.
- */
-const CALENDAR_FEED_UNAVAILABLE_REASON =
-  "The calendar feed is unavailable: `/api/calendar/events` is a retired legacy route and no unit-scoped event endpoint exists yet (S3–S5), so coverage is unknown rather than zero.";
-
-/**
- * Presentation cut points for the review queue.
- *
- * These are *display* thresholds for the pilot surface, not a measured
- * standard: no stakeholder has set a service level for review latency. They
- * are stated in `rationale` and shown with the row precisely so nobody reads
- * the colour as a finding about the programme.
- */
-const REVIEW_QUEUE_THRESHOLDS: SignalThresholds = {
-  criticalAtOrAbove: 20,
-  watchAtOrAbove: 1,
-  rationale:
-    "Display rule for this pilot surface: any pending item is amber, 20 or more is red. Not a stakeholder-approved service level.",
-};
-
-/** Presentation cut points for uncovered windows. Same caveat as the review queue. */
-const UNCOVERED_WINDOW_THRESHOLDS: SignalThresholds = {
-  criticalAtOrAbove: 5,
-  watchAtOrAbove: 1,
-  rationale:
-    "Display rule for this pilot surface: any uncovered window is amber, 5 or more is red. Not a stakeholder-approved service level.",
-};
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -216,10 +154,10 @@ type RegionalPulseRow = {
   eventCount: number;
   coveredCount: number;
   openCount: number;
-  unknownCount: number;
   assignmentCount: number;
   uniqueVolunteers: number;
   coveragePercent: number | null;
+  workloadPercent: number;
   detail: string;
 };
 
@@ -247,13 +185,6 @@ function calendarReach(records: CalendarEventSummary[]) {
  * of rows that feed actually returned — no cross-source join. `coveragePercent`
  * is `null` (not 0) for a region with no scheduled windows, because a coverage
  * ratio with no denominator is unknown, not zero percent.
- *
- * There is deliberately no "workload %" here. The tile used to divide overlay
- * rows by `eventCount * 3` — an invented capacity of three volunteers per
- * window that no contract, registry, or stakeholder ever set — and render the
- * quotient as a percentage. That is a heuristic score wearing an observed
- * measurement's clothes (DESIGN.md §1.1, ADR-0011), so it is gone rather than
- * relabelled; the honest counts it was built from are shown instead.
  */
 function buildRegionalPulse(
   calendarEvents: CalendarEventSummary[],
@@ -273,32 +204,36 @@ function buildRegionalPulse(
   return regions
     .map((region) => {
       const eventsInRegion = calendarEvents.filter((event) => event.region === region);
-      const coverage = summarizeCalendarCoverage(
-        eventsInRegion.map((event) => event.coverage_status),
-      );
       const assignmentsInRegion = calendarAssignments.filter(
         (assignment) => assignment.region === region,
       );
+      const coveredCount = eventsInRegion.filter(
+        (event) => event.coverage_status === "covered",
+      ).length;
       const eventCount = eventsInRegion.length;
+      const openCount = eventsInRegion.filter(
+        (event) => event.coverage_status !== "covered",
+      ).length;
       const assignmentCount = assignmentsInRegion.length;
       const uniqueVolunteers = new Set(
         assignmentsInRegion.map((assignment) => assignment.volunteer_name),
       ).size;
-      const coveragePercent =
-        coverage.coverageRatio === null
-          ? null
-          : Math.round(coverage.coverageRatio * 100);
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.${coverage.unknown ? ` ${coverage.unknown} window${coverage.unknown === 1 ? " has" : "s have"} unresolved coverage.` : ""}`;
+      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : null;
+      const workloadPercent = Math.max(
+        0,
+        Math.min(Math.round((assignmentCount / Math.max(eventCount * 3, 1)) * 100), 100),
+      );
+      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.`;
 
       return {
         region,
         eventCount,
-        coveredCount: coverage.covered,
-        openCount: coverage.explicitlyOpen,
-        unknownCount: coverage.unknown,
+        coveredCount,
+        openCount,
         assignmentCount,
         uniqueVolunteers,
         coveragePercent,
+        workloadPercent,
         detail,
       };
     })
@@ -321,19 +256,26 @@ function formatFactorName(value: string): string {
     .join(" ");
 }
 
-export function Dashboard() {
-  const navigate = useNavigate();
-  const signOut = useSignOut();
-
-  function handleLogout() {
-    // Drops the browser-held bearer token and re-resolves identity against
-    // `GET /v1/me`. There is no client-side session object left to clear.
-    signOut();
-    navigate("/login");
+function formatEventWhen(event: ManualEvent): string {
+  if (event.time_precision === "date_only" && event.on_date) {
+    return `${event.on_date} · All day · ${event.time_zone ?? "time zone not set"}`;
   }
+  if (event.time_precision === "exact" && event.starts_at) {
+    return `${new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: event.time_zone ?? undefined,
+    }).format(new Date(event.starts_at))} · ${event.time_zone ?? "time zone not set"}`;
+  }
+  return "Schedule not set";
+}
+
+export function Dashboard() {
+  const unitId = useAuthorizedUnitId("admin");
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([]);
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>([]);
+  const [manualEvents, setManualEvents] = useState<ManualEvent[]>([]);
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
     emptyFeedbackStatsSummary(),
   );
@@ -355,6 +297,7 @@ export function Dashboard() {
     function resetToEmpty() {
       setCalendarEvents([]);
       setCalendarAssignments([]);
+      setManualEvents([]);
       setFeedbackStats(emptyFeedbackStatsSummary());
       setCalendarAvailable(false);
       setAssignmentsAvailable(false);
@@ -364,37 +307,32 @@ export function Dashboard() {
 
     async function load() {
       try {
-        const [calendarResult, assignmentResult, feedbackResult] = await Promise.allSettled([
+        const [calendarResult, assignmentResult, feedbackResult, eventResult] = await Promise.allSettled([
           fetchCalendarEvents(),
           fetchCalendarAssignments(),
           fetchFeedbackStats(),
+          unitId ? fetchManualEvents(unitId, "published") : Promise.resolve({ data: [], total: 0 }),
         ]);
 
         if (!active) {
           return;
         }
 
+        // Calendar windows are the spine of the coverage sections. If they
+        // failed, say so rather than discarding what did succeed and
+        // substituting fixtures.
+        if (calendarResult.status !== "fulfilled") {
+          resetToEmpty();
+          setLoadFailed(true);
+          setError(getErrorMessage(calendarResult.reason, "Failed to load calendar data."));
+          return;
+        }
+
         let anyMock = false;
 
-        // The calendar feed reads retired `/api/calendar/*` routes, while the
-        // registered metrics come from `/v1/units/{unit_id}/metrics` — two
-        // independent sources. A 404 on the retired one used to blank the
-        // whole page, which withheld the accountable metrics that *did*
-        // answer and left the coordinator with nothing at all.
-        //
-        // So a calendar failure now degrades only the calendar-derived
-        // sections. That is not a fixture fallback: every one of those values
-        // goes to `unknown` with its reason (ADR-0011 rule 1), and the header
-        // says the feed is unavailable. The registered metrics render as
-        // measured.
-        if (calendarResult.status === "fulfilled") {
-          setCalendarEvents(calendarResult.value.data);
-          setCalendarAvailable(true);
-          if (calendarResult.value.isMockData) anyMock = true;
-        } else {
-          setCalendarEvents([]);
-          setCalendarAvailable(false);
-        }
+        setCalendarEvents(calendarResult.value.data);
+        setCalendarAvailable(true);
+        if (calendarResult.value.isMockData) anyMock = true;
 
         if (assignmentResult.status === "fulfilled") {
           setCalendarAssignments(assignmentResult.value.data);
@@ -416,12 +354,15 @@ export function Dashboard() {
           setFeedbackAvailable(false);
         }
 
+        if (eventResult.status === "fulfilled") {
+          setManualEvents(eventResult.value.data);
+        } else {
+          setManualEvents([]);
+        }
+
         setIsMockData(anyMock);
 
         const warnings = [];
-        if (calendarResult.status === "rejected") {
-          warnings.push(CALENDAR_FEED_UNAVAILABLE_REASON);
-        }
         if (assignmentResult.status === "rejected") {
           warnings.push(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
@@ -430,6 +371,11 @@ export function Dashboard() {
         if (feedbackResult.status === "rejected") {
           warnings.push(
             `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
+          );
+        }
+        if (eventResult.status === "rejected") {
+          warnings.push(
+            `Upcoming events are unavailable: ${getErrorMessage(eventResult.reason, "Request failed.")}`,
           );
         }
         setError(warnings.length ? warnings.join(" ") : null);
@@ -451,7 +397,7 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, [reloadToken]);
+  }, [reloadToken, unitId]);
 
   const {
     metricsByName,
@@ -499,9 +445,6 @@ export function Dashboard() {
   const memberInquiry = registeredMetric(MEMBER_INQUIRY_METRIC_NAME, (reason) =>
     unavailablePipelineMetric(MEMBER_INQUIRY_METRIC_NAME, reason),
   );
-  const pendingReview = registeredMetric(PENDING_REVIEW_ITEMS_METRIC_NAME, (reason) =>
-    unavailablePendingReviewMetric(reason),
-  );
 
   /** The card caption: the register's own definition, or why there is none. */
   function caption(summary: MetricSummary | undefined, fallbackName: string): string {
@@ -519,13 +462,12 @@ export function Dashboard() {
   const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
   const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
 
-  const calendarCoverage = summarizeCalendarCoverage(
-    calendarEvents.map((event) => event.coverage_status),
-  );
-  const coveredCalendarCount = calendarCoverage.covered;
-  const unknownCalendarCoverageCount = calendarCoverage.unknown;
-  const openCalendarCount = calendarCoverage.explicitlyOpen;
-  const calendarCoverageFullyResolved = calendarCoverage.fullyResolved;
+  const coveredCalendarCount = calendarEvents.filter(
+    (event) => event.coverage_status === "covered",
+  ).length;
+  const openCalendarCount = calendarEvents.filter(
+    (event) => event.coverage_status !== "covered",
+  ).length;
 
   const upcomingEventsMetric = accountableDemoMetric(
     "Upcoming events",
@@ -547,30 +489,25 @@ export function Dashboard() {
   );
   const openEventsMetric = accountableDemoMetric(
     "Open events",
-    "Calendar windows the feed explicitly reports as partially covered or needing coverage.",
-    calendarAvailable && calendarCoverageFullyResolved ? openCalendarCount : null,
+    "Calendar windows the feed reports as not yet covered.",
+    calendarAvailable ? openCalendarCount : null,
     {
       provenance: calendarProvenance,
-      // A row with coverage_status=unknown cannot safely be counted as either
-      // open or covered. Propagating that uncertainty prevents the discovery
-      // feed from turning missing evidence into an amber/red operational alert.
-      unknownReason: !calendarAvailable
-        ? "The calendar feed is unavailable, so open windows are unknown."
-        : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the total number of open windows is unknown.`,
+      unknownReason: "The calendar feed is unavailable, so open windows are unknown.",
     },
   );
   const coverageRateMetric = accountableDemoMetric(
     "Coverage rate",
     "Covered calendar windows divided by all calendar windows.",
-    calendarAvailable ? calendarCoverage.coverageRatio : null,
+    calendarAvailable && calendarEvents.length > 0
+      ? coveredCalendarCount / calendarEvents.length
+      : null,
     {
       provenance: calendarProvenance,
       unknownReason:
-        !calendarAvailable
-          ? "The calendar feed is unavailable, so the coverage rate is unknown."
-          : calendarEvents.length === 0
-            ? "No calendar windows yet, so there is no denominator for a coverage rate."
-            : `${unknownCalendarCoverageCount} calendar window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so the coverage rate is unknown.`,
+        calendarAvailable && calendarEvents.length === 0
+          ? "No calendar windows yet, so there is no denominator for a coverage rate."
+          : "The calendar feed is unavailable, so the coverage rate is unknown.",
     },
   );
 
@@ -578,8 +515,8 @@ export function Dashboard() {
     .map((assignment) => assignment.volunteer_fatigue)
     .filter((value): value is number => value !== null);
   const averageFatigueMetric = accountableDemoMetric(
-    "Average volunteer fatigue",
-    "Mean fatigue score from calendar assignment overlays.",
+    "Average speaker break need",
+    "Average workload indicator from recent speaker assignments.",
     assignmentsAvailable && knownFatigueAssignments.length > 0
       ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) /
           knownFatigueAssignments.length
@@ -588,15 +525,15 @@ export function Dashboard() {
       provenance: assignmentProvenance,
       unknownReason:
         assignmentsAvailable && calendarAssignments.length === 0
-          ? "No assignment overlays recorded yet."
+          ? "No recent speaker assignments were recorded."
           : assignmentsAvailable
-            ? "No overlay in this batch reported a fatigue signal."
+            ? "Not enough recent assignment data."
             : "Assignment overlays are unavailable.",
     },
   );
   const restRecommendedMetric = accountableDemoMetric(
     "Rest recommended count",
-    "Volunteers flagged for recovery in assignment overlays.",
+    "Speakers who should rest before another event.",
     assignmentsAvailable
       ? calendarAssignments.filter(
           (assignment) => assignment.recovery_status === "Rest Recommended",
@@ -610,13 +547,13 @@ export function Dashboard() {
 
   const feedbackRowsMetric = accountableDemoMetric(
     "Feedback rows",
-    "Coordinator accept/decline submissions captured for matcher tuning.",
+    "Event Host accept/decline submissions captured for matching review.",
     feedbackAvailable ? feedbackStats.total_feedback : null,
     { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackAcceptanceMetric = accountableDemoMetric(
     "Feedback acceptance rate",
-    "Accepted decisions divided by all coordinator feedback rows.",
+    "Accepted decisions divided by all Event Host feedback rows.",
     feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.acceptance_rate
       : null,
@@ -624,7 +561,7 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet, so there is no rate to report."
+          ? "No Event Host feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -636,7 +573,7 @@ export function Dashboard() {
   );
   const feedbackMembershipMetric = accountableDemoMetric(
     "Membership interest rate",
-    "Follow-through signals attributed to coordinator feedback.",
+    "Follow-through information attributed to Event Host feedback.",
     feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.membership_interest_rate
       : null,
@@ -644,7 +581,7 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet, so there is no rate to report."
+          ? "No Event Host feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -654,83 +591,6 @@ export function Dashboard() {
     ? (feedbackStats.recommended_adjustments[0] ?? null)
     : null;
   const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments);
-  const regionNeedingCoverage =
-    regionalPulse
-      .filter((row) => row.openCount > 0)
-      .sort(
-        (left, right) => right.openCount - left.openCount || right.eventCount - left.eventCount,
-      )[0] ?? null;
-  const strongestCoverageRegion =
-    regionalPulse
-      .filter((row) => row.eventCount > 0 && row.coveragePercent !== null)
-      .sort(
-        (left, right) =>
-          (right.coveragePercent ?? 0) - (left.coveragePercent ?? 0) ||
-          right.uniqueVolunteers - left.uniqueVolunteers,
-      )[0] ?? null;
-
-  const memberInquirySummary = memberInquiry.summary;
-
-  /**
-   * Discovery feed rows.
-   *
-   * Every row is a registered metric or an explicit unknown, and the
-   * red/yellow/green tone is computed from that value by
-   * `toneForBacklog` — never chosen here. The threshold rules are named in
-   * `rationale` and printed with the row, so the colour is something a
-   * viewer can check rather than a score the dashboard asserted.
-   *
-   * Rows that report a *state* rather than a backlog carry
-   * `thresholds: null` and stay neutral: grading "how many opportunities is
-   * a good number" is a stakeholder decision nobody has made, and guessing
-   * it here would be exactly the invented score this feed exists to avoid.
-   */
-  const discoveryFeed: DiscoveryFeedItem[] = [
-    {
-      icon: ClipboardList,
-      title: "Review queue",
-      metric: pendingReview.metric,
-      thresholds: REVIEW_QUEUE_THRESHOLDS,
-      detail: caption(pendingReview.summary, PENDING_REVIEW_ITEMS_METRIC_NAME),
-    },
-    {
-      icon: MapPinned,
-      title: "Uncovered calendar windows",
-      metric: openEventsMetric,
-      thresholds: UNCOVERED_WINDOW_THRESHOLDS,
-      detail: calendarAvailable
-        ? calendarCoverageFullyResolved
-          ? "Scheduled windows the calendar feed explicitly reports as partially covered or needing coverage."
-          : `${unknownCalendarCoverageCount} window${unknownCalendarCoverageCount === 1 ? " has" : "s have"} unresolved coverage, so this backlog cannot be graded.`
-        : CALENDAR_FEED_UNAVAILABLE_REASON,
-    },
-    {
-      icon: Briefcase,
-      title: "Opportunities in the register",
-      metric: opportunities.metric,
-      thresholds: null,
-      detail: caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME),
-    },
-    ...(OFFERS_MEMBER_INQUIRY
-      ? [
-          {
-            icon: Activity,
-            title: "Member inquiry",
-            metric: memberInquiry.metric,
-            thresholds: null,
-            detail: caption(memberInquirySummary, MEMBER_INQUIRY_METRIC_NAME),
-          },
-        ]
-      : []),
-    {
-      icon: Sparkles,
-      title: "Matching recommendations",
-      metric: unavailableMatchingMetric(),
-      thresholds: null,
-      detail: MATCHING_UNAVAILABLE_REASON,
-    },
-  ];
-
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
@@ -760,6 +620,9 @@ export function Dashboard() {
         </p>
       </div>
       <div className="flex items-center gap-2">
+        <Button asChild size="sm">
+          <Link to="/events">Create event</Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -769,15 +632,6 @@ export function Dashboard() {
           <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
-        <button
-          type="button"
-          onClick={handleLogout}
-          aria-label="Log out and return to portal login"
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
-        >
-          <LogOut className="h-4 w-4" aria-hidden />
-          Log out
-        </button>
       </div>
     </div>
   );
@@ -832,23 +686,21 @@ export function Dashboard() {
           change={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
           changeType="neutral"
           icon={Briefcase}
-          iconColor="bg-[#e6effb] text-[#005394]"
+          iconColor="bg-[#e8f2d8] text-[#005030]"
         />
-        {OFFERS_MEMBER_INQUIRY ? (
-          <MetricCard
-            title="Member Inquiry"
-            value={
-              <AccountableValue
-                metric={memberInquiry.metric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            }
-            change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
-            changeType="neutral"
-            icon={TrendingUp}
-            iconColor="bg-[#e6effb] text-[#005394]"
-          />
-        ) : null}
+        <MetricCard
+          title="Member Inquiry"
+          value={
+            <AccountableValue
+              metric={memberInquiry.metric}
+              formatNumber={(value) => value.toLocaleString("en-US")}
+            />
+          }
+          change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
+          changeType="neutral"
+          icon={TrendingUp}
+          iconColor="bg-[#e8f2d8] text-[#005030]"
+        />
         <MetricCard
           title="Upcoming Events"
           value={
@@ -860,7 +712,7 @@ export function Dashboard() {
           change="Calendar dataset"
           changeType="neutral"
           icon={CalendarDays}
-          iconColor="bg-[#e6effb] text-[#005394]"
+          iconColor="bg-[#e8f2d8] text-[#005030]"
           href="/calendar"
         />
       </div>
@@ -874,12 +726,12 @@ export function Dashboard() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-[#005394]" />
+            <ShieldCheck className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Recovery and coverage summary</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Speaker breaks and event coverage</h3>
               <p className="text-sm text-gray-600">
                 A compact view of event coverage and volunteers needing to recover.
               </p>
@@ -887,14 +739,14 @@ export function Dashboard() {
           </div>
           <Link
             to="/calendar"
-            className="shrink-0 text-xs font-medium text-[#005394] hover:underline"
+            className="shrink-0 text-xs font-medium text-[#005030] hover:underline"
           >
             View calendar →
           </Link>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Covered Events</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -909,7 +761,7 @@ export function Dashboard() {
               />
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Open Events</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -917,10 +769,10 @@ export function Dashboard() {
                 formatNumber={(value) => value.toLocaleString("en-US")}
               />
             </p>
-            <p className="mt-1 text-sm text-gray-600">Still need volunteer coverage</p>
+            <p className="mt-1 text-sm text-gray-600">Still need speaker coverage</p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Avg fatigue</p>
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Average break need</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
                 metric={averageFatigueMetric}
@@ -929,42 +781,42 @@ export function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue metric={restRecommendedMetric} />
             </p>
-            <p className="mt-1 text-sm text-gray-600">Volunteers the matcher should avoid</p>
+            <p className="mt-1 text-sm text-gray-600">Speakers who may need a break</p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-2">
-            <MessageSquareHeart className="h-5 w-5 text-[#005394]" />
+            <MessageSquareHeart className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Matching Algorithm Feedback</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Event Host feedback on matches</h3>
               <p className="text-sm text-gray-600">
                 Coordinator feedback drives a bounded weight snapshot and pain-score trend.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="rounded-full border border-[#d5e0f7] bg-[#f7f9fc] px-3 py-1 text-xs font-medium text-[#005394]">
+            <div className="rounded-full border border-[#d9cbc4] bg-[#f8f6f1] px-3 py-1 text-xs font-medium text-[#005030]">
               <AccountableValue
                 metric={feedbackRowsMetric}
                 formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
               />
             </div>
-            <Link to="/ai-matching" className="text-xs font-medium text-[#005394] hover:underline">
+            <Link to="/ai-matching" className="text-xs font-medium text-[#005030] hover:underline">
               View matches →
             </Link>
           </div>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -977,10 +829,10 @@ export function Dashboard() {
               feedbackStats.accepted !== null &&
               feedbackStats.declined !== null
                 ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
-                : "Coordinator feedback breakdown unavailable."}
+                : "Event Host feedback breakdown unavailable."}
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -992,7 +844,7 @@ export function Dashboard() {
               A lower score indicates a healthier matching loop.
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue
@@ -1002,11 +854,11 @@ export function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-600">
               {feedbackAvailable && feedbackStats.membership_interest_count !== null
-                ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
-                : "Membership interest signals unavailable."}
+                ? `${feedbackStats.membership_interest_count} people showed interest in membership afterward.`
+                : "Membership interest information is unavailable."}
             </p>
           </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
             <p className="mt-2 text-lg font-semibold text-gray-900">
               {leadAdjustment
@@ -1019,19 +871,19 @@ export function Dashboard() {
               {leadAdjustment
                 ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
                 : feedbackAvailable
-                  ? "Collect more coordinator outcomes to unlock recommendations."
+                  ? "Collect more Event Host outcomes to support recommendations."
                   : "Feedback optimizer stats are unavailable."}
             </p>
           </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_0.95fr]">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
             {feedbackStats.trend.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                 {feedbackAvailable
-                  ? "Trend data will appear once coordinators submit feedback from the React workflow."
+                  ? "Trend data will appear once Event Hosts submit feedback."
                   : "Feedback optimizer stats are unavailable."}
               </div>
             ) : (
@@ -1043,13 +895,13 @@ export function Dashboard() {
                   }))}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-                  <XAxis dataKey="date" tick={{ fill: "#5a6472", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
+                  <XAxis dataKey="date" tick={{ fill: "#59665f", fontSize: 12 }} />
+                  <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
                   <Tooltip />
                   <Line
                     type="monotone"
                     dataKey="acceptance_percent"
-                    stroke="#005394"
+                    stroke="#005030"
                     strokeWidth={3}
                     name="Acceptance %"
                   />
@@ -1058,29 +910,29 @@ export function Dashboard() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
+          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <div className="mb-3 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-[#005394]" />
+              <SlidersHorizontal className="h-4 w-4 text-[#005030]" />
               <h4 className="font-semibold text-gray-900">Recommended weight shifts</h4>
             </div>
             <div className="space-y-3">
               {feedbackStats.recommended_adjustments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
+                <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                   {feedbackAvailable
-                    ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
+                    ? "No weight changes yet. More Event Host feedback is needed."
                     : "Feedback optimizer stats are unavailable."}
                 </div>
               ) : (
                 feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
                   <div
                     key={adjustment.factor}
-                    className="rounded-2xl border border-[#d5e0f7] bg-white p-4 shadow-sm"
+                    className="rounded-2xl border border-[#d9cbc4] bg-white p-4 shadow-sm"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-semibold text-gray-900">
                         {formatFactorName(adjustment.factor)}
                       </p>
-                      <span className="text-sm font-semibold text-[#005394]">
+                      <span className="text-sm font-semibold text-[#005030]">
                         {adjustment.delta > 0 ? "+" : ""}
                         {(adjustment.delta * 100).toFixed(1)} pts
                       </span>
@@ -1095,12 +947,12 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <MapPinned className="h-5 w-5 text-[#005394]" />
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005394]/70">
+                <MapPinned className="h-5 w-5 text-[#005030]" />
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005030]/70">
                   Regional coverage pulse
                 </p>
               </div>
@@ -1108,7 +960,7 @@ export function Dashboard() {
                 Coordinator coverage pulse
               </h3>
               <p className="mt-1 text-sm text-gray-600">
-                Rollup of calendar coverage and assignment overlays from the same feed.
+                Calendar coverage and volunteer assignments, grouped by region.
               </p>
             </div>
           </div>
@@ -1118,14 +970,14 @@ export function Dashboard() {
               regionalPulse.map((region) => (
                 <div
                   key={region.region}
-                  className="rounded-2xl border border-[#d5e0f7] bg-[linear-gradient(180deg,#fafdff_0%,#edf4ff_100%)] p-5 shadow-sm"
+                  className="rounded-2xl border border-[#d9cbc4] bg-[linear-gradient(180deg,#fffefa_0%,#edf5f0_100%)] p-5 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{region.region}</p>
                       <p className="mt-1 text-sm text-gray-600">{region.detail}</p>
                     </div>
-                    <span className="rounded-full border border-[#d5e0f7] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005394]">
+                    <span className="rounded-full border border-[#d9cbc4] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005030]">
                       {region.coveragePercent === null
                         ? "Coverage unknown"
                         : `${region.coveragePercent}% covered`}
@@ -1133,53 +985,37 @@ export function Dashboard() {
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#5a6472]">
+                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#59665f]">
                       <span>Coverage</span>
                       <span>
                         {region.coveredCount}/{region.eventCount} windows
                       </span>
                     </div>
-                    {/* An unknown ratio gets a hatched, empty track rather than a
-                        zero-width fill: a bar drawn at 0% reads as a measurement
-                        of nothing covered, which is not what "unknown" means
-                        (ADR-0011 rule 1). */}
-                    {region.coveragePercent === null ? (
+                    <div className="h-2 rounded-full bg-white/80">
                       <div
-                        className="h-2 rounded-full border border-dashed border-[#cfd8e5] bg-white/80"
-                        role="img"
-                        aria-label={
-                          region.unknownCount
-                            ? `Coverage ratio unknown — ${region.unknownCount} window${region.unknownCount === 1 ? " has" : "s have"} unresolved coverage.`
-                            : "Coverage ratio unknown — this region has no scheduled windows to measure against."
-                        }
+                        className="h-2 rounded-full bg-[#005030]"
+                        style={{ width: `${region.coveragePercent ?? 0}%` }}
                       />
-                    ) : (
-                      <div className="h-2 rounded-full bg-white/80">
-                        <div
-                          className="h-2 rounded-full bg-[#005394]"
-                          style={{ width: `${region.coveragePercent}%` }}
-                        />
-                      </div>
-                    )}
+                    </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Explicitly open
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
+                        Open windows
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Volunteers
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
+                        Workload
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.uniqueVolunteers}
+                        {region.workloadPercent}%
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Overlay rows
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
@@ -1187,7 +1023,7 @@ export function Dashboard() {
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
                         Member inquiry
                       </p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
@@ -1200,7 +1036,7 @@ export function Dashboard() {
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600 lg:col-span-2">
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600 lg:col-span-2">
                 Regional coverage summaries appear once live calendar and overlay data are
                 available.
               </div>
@@ -1208,40 +1044,54 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-2">
-            <BellRing className="h-5 w-5 text-[#005394]" />
+        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-xl font-semibold text-gray-900">Discovery feed</h3>
-              <p className="text-sm text-gray-600">
-                Registered metrics from <code>/v1/units/&#123;unit_id&#125;/metrics</code>, graded
-                red / yellow / green by the stated threshold rule. An unmeasured value is
-                &ldquo;Not measured&rdquo;, never green and never zero.
-              </p>
+              <h3 className="text-xl font-semibold text-gray-900">Upcoming events</h3>
+              <p className="text-sm text-gray-600">Published events created by your team.</p>
             </div>
+            <Link to="/events" className="text-sm font-semibold text-[#005030] hover:underline">
+              Manage events
+            </Link>
           </div>
-
-          <DiscoveryFeed items={discoveryFeed} className="mt-6" />
+          <div className="mt-6 space-y-3">
+            {manualEvents.length ? manualEvents.slice(0, 4).map((event) => (
+              <div key={event.id} className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-semibold text-gray-900">{event.title}</p>
+                  <span className="rounded-full bg-[#e8f2d8] px-2.5 py-1 text-xs font-semibold text-[#005030]">
+                    {event.volunteer_openings === null ? "Staffing not set" : `${event.volunteer_openings} openings`}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-gray-600">{formatEventWhen(event)}</p>
+                <p className="mt-1 text-sm text-gray-600">{event.location ?? "Location not set"}</p>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-6 text-sm text-gray-600">
+                No published events yet. Create an event, complete its details, and publish it when it is ready for coordinators.
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Calendar Reach Trend</h3>
         {reachTrend.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600">
+          <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600">
             No calendar windows in the current feed, so there is no reach trend to plot.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={reachTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-              <XAxis dataKey="month" tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
+              <XAxis dataKey="month" tick={{ fill: "#59665f", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
               <Tooltip />
               <Line
                 type="monotone"
                 dataKey="windows"
-                stroke="#005394"
+                stroke="#005030"
                 strokeWidth={3}
                 name="IA windows"
               />
@@ -1257,13 +1107,13 @@ export function Dashboard() {
         )}
       </div>
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[#005394]" />
+          <Sparkles className="h-5 w-5 text-[#005030]" />
           <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
         </div>
 
-        <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
+        <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-center text-gray-600">
           <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
           <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
           <p className="mt-2 text-sm leading-6">

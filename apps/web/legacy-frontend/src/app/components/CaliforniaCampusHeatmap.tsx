@@ -83,11 +83,11 @@ const KIND_STYLES: Record<
 
 export function CaliforniaCampusHeatmap() {
   return (
-    <div className="mt-8 overflow-hidden rounded-3xl border border-border/50 bg-white shadow-xl shadow-blue-500/5">
+    <div className="mt-8 overflow-hidden rounded-3xl border border-border/50 bg-white shadow-xl shadow-primary/5">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 bg-slate-50/50 px-6 py-4">
         <div>
-          <h4 className="font-[Inter_Tight] text-base font-bold text-slate-900">Regional Footprint</h4>
-          <p className="text-xs text-slate-500">Live campus engagements and CBA events</p>
+          <h4 className="text-base font-bold text-slate-900">Regional activity</h4>
+          <p className="text-xs text-slate-500">Live campus engagements and chapter events</p>
         </div>
         <div className="flex flex-wrap gap-4">
           {(Object.keys(KIND_STYLES) as CampusKind[]).map((k) => (
@@ -138,7 +138,7 @@ export function CaliforniaCampusHeatmap() {
                 cy={blob.y}
                 r={blob.r}
                 fill="url(#heat-grad)"
-                className="text-blue-400"
+                className="text-[#A4D65E]"
                 initial={{ opacity: 0, scale: 0.5 }}
                 whileInView={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 1.5, delay: i * 0.1, ease: "easeOut" }}
@@ -213,7 +213,7 @@ export function CaliforniaCampusHeatmap() {
             x={VIEW_W - 20}
             y={VIEW_H - 20}
             textAnchor="end"
-            className="select-none fill-slate-300 font-[Inter_Tight] text-[10px] font-bold uppercase tracking-[0.3em]"
+            className="select-none fill-slate-300 font-[var(--font-headline)] text-[10px] font-bold uppercase tracking-[0.3em]"
           >
             California Sector
           </text>
@@ -224,7 +224,7 @@ export function CaliforniaCampusHeatmap() {
 
       <div className="bg-slate-50/80 px-6 py-4 text-center border-t border-border/40">
         <p className="text-[11px] font-medium text-slate-400 uppercase tracking-widest">
-          CBA • Operational Signal Density
+          IA West Chapter • Operational Signal Density
         </p>
       </div>
     </div>

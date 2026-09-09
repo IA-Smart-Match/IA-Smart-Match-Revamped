@@ -29,10 +29,10 @@ was kept, what was rejected, and why.
 | Durable job state machine | `smartmatch_domain.jobs` | 14 |
 | Import validation and normalization | `smartmatch_domain.ingest` | 13 |
 | Shadow-mode feedback → weight proposals | `smartmatch_domain.feedback` | 16 |
-| Factor registry — now `2.0.0-approved-oq-cba-004`, the four weighted CBA factors (`industry_match`, `role_match`, `cba_semantic_topic`, `proximity`), all `implemented=True`; the G1 pair (`topic_relevance`, `travel_burden`) stays declared and implemented at `retired_in_version="2.0.0-approved-oq-cba-004"`, so a run pinned to `1.1.1-approved-g1-m6j` is still reproducible | `smartmatch_domain.factor_registry`, `smartmatch_domain.factors` | `tests/unit/test_factor_registry.py` (39 test functions) + `tests/golden/matching/cba` (11 golden cases) |
+| Factor registry — G1 approved 2026-09-03 (`topic_relevance` 0.70, `travel_burden` 0.30); scoring factors unimplemented (M2–M3) | `smartmatch_domain.factor_registry` | 17 |
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
-| Tenant-safe schema, enforced by composite keys — 32 Alembic revisions, head `0032_match_run_scoring_mode` | `db/migrations` | 11 integration |
+| Tenant-safe schema, enforced by composite keys | `db/migrations` | 11 integration |
 | Schema matches migration — foreign keys, nullability, types, PK/UQ/CHECK constraint names, per table (ADR-0004 amendment) | `smartmatch_persistence.schema`, `db/migrations` | 115 integration |
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |
@@ -70,20 +70,20 @@ The no-database run also did not complete in that environment because
 
 | Capability | State | Gated on |
 |---|---|---|
-| Matching / scoring | **Implemented and reachable over HTTP.** All four CBA factors are implemented in `smartmatch_domain.factors`, composed by `smartmatch_domain.scoring.rank_cba_candidates`, and `POST /v1/units/{unit_id}/match-runs` calls that composition — it no longer scores with the superseded G1 pair. The scoring mode is resolved from the filed Speaker Request's virtual/physical switch and is never taken from the request body; `cba-virtual-1` scores three factors and `cba-physical-1` four. Physical proximity resolves through the static, offline, California-only ZIP-centroid table (`smartmatch_domain.zcta_centroids`, read by `smartmatch_api.zip_proximity`); a ZIP it cannot resolve is **unknown**, and such a candidate is excluded from the pool and reported rather than entered at `0.0`. Weights come only from `factor_registry` plus this unit's persisted overrides | The city half of location resolution (OQ-CBA-063), pool assembly ownership (OQ-CBA-059), and shadow evaluation of weight changes (OQ-CBA-032) are open — see [`docs/plans/open-questions/cba-phase-deferred.md`](docs/plans/open-questions/cba-phase-deferred.md) |
+| Matching / scoring | **Registry approved (G1 closed 2026-09-03); scoring engine not implemented** — `assert_registry_approved()` passes; no `topic_relevance` or `travel_burden` scorer yet | M2–M3 (build); see `docs/plans/workshops/g1-workshop-output-worksheet.md` |
 | CP-SAT portfolio assignment | Not started | M2–M6, then M7 |
 | Route-matrix travel time | Interface only; fixture adapter | Open decision 6 |
 | Command payload persistence | **Done (J10).** `job.payload` (migration `0005`); `import.create` executes with persisted parameters | — |
 | Live worker task-identity verifier | Verification logic is real; ships with no signature backend, so it refuses every task delivery. The only thing that accepts a task today is the dev-only fixed-token verifier, which will not boot outside `SMARTMATCH_EDITION=dev` | R1 (before worker deploy) |
 | Live identity verifier for user requests (JWKS) | **Fixture verifier only; no JWKS verifier implementation is committed.** Accepts registered fixture tokens only | R1 |
-| Outreach / sending | **Implemented end to end against a fixture provider.** Consent-gated drafts, the durable `outreach.send` command, an append-only `delivery_event` stream, and the signed unsubscribe POST all ship (migration `0021`). The gate is re-checked by the worker at delivery time, not only at compose time. **No live send is possible**: `build_email_provider` still refuses a live client, every shipped template is `content_status: synthetic` and refused in live mode, and no `contact_channel` row is seeded | A live send needs OQ-001 (institutional From domain), OQ-002 (provider tenant), and OQ-003 (reviewed copy) — see [`docs/plans/open-questions/r4-outreach-deferred.md`](docs/plans/open-questions/r4-outreach-deferred.md). Not blocked on code |
+| Outreach / sending | Consent lifecycle only; **no send path exists** | Gate G4, R4 |
 | Calendar API | **Not scaffolded.** ICS is the only artifact | Gate G5 |
 | Research agents / crawler | Threat model signed 2026-09-03; **no crawl code scaffolded** | R3 build; live production crawl (S6a) deferred in synthetic pilot |
 | Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
-| `apps/web` frontend | **On hold** for the new product UI; the legacy-frontend is authorized for the synthetic pilot and now carries the CBA coordinator and volunteer surfaces — `/coordinator-portal/match-runs` (`CoordinatorMatchRuns.tsx`), `/coordinator-portal/invitations` (`CoordinatorInvitations.tsx`), and `/volunteer-portal/confirmed-speaker` (`VolunteerConfirmedSpeaker.tsx`). See [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | Part 2 design decisions (D-1..D-11); owner assigned 2026-09-03 |
+| `apps/web` frontend | **Active design standard** — current React/Vite app is in `legacy-frontend`; see [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | Follow the design and API-integration contract; retain fixture disclosures until live wiring is verified |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Student engagement — attendance, points ledger, rewards, disclosure consent | **Base schema and design only.** No catalog repository, earning service, ledger fold, or rewards routes are committed — see [`docs/architecture/engagement-model.md`](docs/architecture/engagement-model.md), ADR-0013, ADR-0014 | R2, with attendance/QR; a shipped catalog also needs D6 and D7, and S10 needs D8 |
-| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Every stage now has a writer, and each writer is a real act.** `pipeline_record` (migration `0011`) is read by the five ADR-0011 metrics through `pipeline_funnel_rows_v1`. Matched is opened by the review-accept path; Contacted is written by the outreach handler after a provider takes custody of a message, and **only when a send command names an existing journey**; Confirmed, Attended and Member Inquiry are recorded by a coordinator through `POST /v1/units/{unit_id}/pipeline-records/{record_id}/stages` with an explicit timestamp (`services/api/.../routers/pipeline.py`, plan [`docs/plans/2026-09-05-pipeline-stage-writers-plan.md`](docs/plans/2026-09-05-pipeline-stage-writers-plan.md)). That route cannot write Matched or Contacted — Contacted is the one machine-witnessed stage, and letting a human type it would erase the distinction the metric depends on. Attended cites a real `attendance_record` or is refused | A `pipeline_record` *creation* path, and a live calendar/RSVP source for Confirmed. Neither is invented here: an email to a professional is not a student's journey, and a coordinator's "confirmed" is that coordinator's claim rather than an RSVP — see OQ-101/OQ-102 in [`docs/plans/open-questions/pipeline-stage-writers-deferred.md`](docs/plans/open-questions/pipeline-stage-writers-deferred.md) |
+| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Schema and read path only.** `pipeline_record` exists (migration `0011`) and the five ADR-0011 metrics read it through `pipeline_funnel_rows_v1`; **no application code writes `pipeline_record` yet**, so every stage measures a real zero | A `pipeline_record` write path — until one exists the funnel is structurally zero |
 | Local `docker compose` appliance — db, migrate, seed, api, worker, scheduler sidecar | **Dev-only, local compose only.** The seed, the loopback task queue, the fixed bearer tokens, and `smartmatch_worker.local_scheduler` each refuse to start unless `SMARTMATCH_EDITION=dev`; they *emulate* Cloud Scheduler and Cloud Tasks and deploy nothing | Cloud Scheduler + OIDC provisioning, an IdP, and Terraform (F5) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
@@ -93,52 +93,6 @@ data has been imported.
 ---
 
 ## Quick start
-
-Two launchers sit at the repository root and are the canonical commands.
-`./smartmatch.sh` on Ubuntu and WSL — and anywhere else with bash and Docker;
-`.\smartmatch.ps1` on Windows with Docker Desktop. They take the same commands
-and return the same exit codes, and `tests/unit/test_launcher_parity.py` fails
-the build if they drift apart. `./setup.sh` installs prerequisites with `apt`,
-so it is Ubuntu and Debian-family WSL only; `./setup.sh --check` validates on
-any platform and tells you what is missing.
-
-```bash
-./setup.sh                # first time only: Git, Docker Engine, Compose v2
-./smartmatch.sh install   # validate, build, start, wait for health, print the URL
-```
-
-Then open **http://127.0.0.1:5173/**. That is the whole appliance: PostgreSQL 16,
-migrations, seed data, the API, the worker, the scheduler sidecar, and the
-frontend. Docker Compose installs every runtime dependency, so nothing above
-needs Python or Node on the host.
-
-```bash
-./smartmatch.sh status [--json]   # per-service state; --json is a stable interface
-./smartmatch.sh health [--wait]   # eleven bounded checks; non-mutating
-./smartmatch.sh verify --full     # health, then the end-to-end smoke path
-./smartmatch.sh logs api          # one service's logs
-./smartmatch.sh stop              # stop, KEEPING the database
-```
-
-Exit codes are stable: `0` ok, `1` unhealthy or verification failed, `2` usage,
-`3` missing prerequisite, `4` port collision, `5` timed out.
-
-`./smartmatch.sh stop` never removes a volume, and neither does anything else in
-either launcher. Discarding the database is `docker compose down -v`, typed out
-by hand, on purpose.
-
-To work on the code rather than just run it:
-
-```bash
-./setup.sh --developer               # ...plus Python 3.11, Node 22, Make
-./smartmatch.sh install --developer  # ...plus .venv, npm ci, and `make check`
-```
-
-The rest of this section is the underlying toolchain, which the developer
-install performs for you and which is still the right reference when a step
-fails.
-
----
 
 **Python 3.11 or 3.12** — `pyproject.toml` requires `>=3.11,<3.13`, so **3.13
 does not work**. CI runs 3.11 and both images are `python:3.11-slim-bookworm`,
@@ -284,10 +238,6 @@ Contract-Refs: v1.1 §N.N
 | Document | Contents |
 |---|---|
 | [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
-| [Local dev walkthrough](docs/operations/local-dev-walkthrough.md) | Bringing the CBA pilot appliance up by hand and clicking through it, command by command and why |
-| [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
-| [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance, its automated deployment, and the gates before production |
-| [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |
@@ -312,10 +262,10 @@ Foundation ──▶ R1 ──▶ R2 ──▶ R3 ──▶ R4 ──▶ R5
 
 | Gate | Blocks | Owner | Status |
 |---|---|---|---|
-| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @BrooklynD23) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed. Superseded for current scoring by registry `2.0.0-approved-oq-cba-004` (ADR-0016, OQ-CBA-004); the G1 pair is retained so `1.1.1-approved-g1-m6j` runs stay reproducible |
+| G1 — factor registry + golden cases approved | R1 matching build (M2–M10) | Program owner (Danny Tran @dangt) | **Closed 2026-09-03** — 2-factor set (`topic_relevance` 0.70, `travel_burden` 0.30); M1 landed |
 | G2 — privacy, records, data-owner approval for live records | R2 live student data | Privacy / legal / records | Open — deferred in synthetic pilot |
 | G3 — agent eval set, tool allowlist, cost controls | R3 live crawl | Engineering ADR + program owner | Open — R3 threat model signed; eval set not started |
-| G4 — consent-origin policy, recipient policy, deliverability | R4 outreach | Program owner + privacy/legal | **Engineering built against a closed-G4 assumption** (see the R4 plan's authorization basis). The gate owner has not signed; what shipped is fixture-only and cannot reach a real address |
+| G4 — consent-origin policy, recipient policy, deliverability | R4 outreach | Program owner + privacy/legal | Open — deferred in synthetic pilot |
 | G5 — Calendar authorization model | R4 direct Calendar | Workspace admin + security | Open — deferred in synthetic pilot |
 
 Gate owners sit outside engineering and are never inferred from technical

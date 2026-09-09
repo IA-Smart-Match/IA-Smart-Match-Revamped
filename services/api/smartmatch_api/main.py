@@ -35,7 +35,6 @@ from contextlib import asynccontextmanager
 from typing import Any, Final
 
 from fastapi import APIRouter, FastAPI, status
-from fastapi.responses import HTMLResponse
 from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import build_token_verifier
@@ -68,6 +67,7 @@ from smartmatch_api.routers import (
     review,
     rewards,
     speaker_requests,
+    speakers,
     student_events,
     student_speaker_feedback,
 )
@@ -252,6 +252,9 @@ app.include_router(jobs.router)
 app.include_router(redrive.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
+app.include_router(events.router)
+app.include_router(events.public_router)
+app.include_router(speakers.router)
 
 #: Every router that answers to a named product capability, paired with the
 #: capability it serves.
@@ -276,7 +279,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (imports.router, Capability.OPERATOR_RECORD_IMPORT),
     (me.router, Capability.AUTHENTICATED_LOGIN),
     (metrics.router, Capability.DISCOVERY_METRICS),
-    (events.router, Capability.EVENT_READS),
     # The .ics download, classified with `events` because that is what it is:
     # the same event, in a second representation, behind the same roles
     # (`routers/calendar.py` restates `routers/events.py::_EVENT_ROLES`) and
@@ -393,8 +395,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # capability is cold contact of someone who never agreed to be contacted —
     # a different trust model that shares only a word, and that these routes do
     # not implement.
-    (outreach.router, Capability.CONSENTED_OUTREACH),
-    (outreach.public_router, Capability.CONSENTED_OUTREACH),
     # The contact-channel surface lives in its own module but authorizes
     # through `outreach._authorize_outreach` — one question about a unit's
     # outreach with one answer. See `routers/outreach_contacts.py`. It is
@@ -402,7 +402,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # routes record and move *consent*, which is exactly what CONSENTED_OUTREACH
     # names. A product without consented outreach has no contact channels to
     # administer.
-    (outreach_contacts.router, Capability.CONSENTED_OUTREACH),
     # The §13 roster's channels — the one place a Speaker Connector's contact
     # *record* can acquire a contact *channel*. `CONSENTED_OUTREACH` rather than
     # `SPEAKER_CONTACT_MANAGEMENT`, and the split is the same one the
@@ -416,7 +415,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # so the capability flag and the role gate answer two different questions:
     # whether this product includes consent management at all, and whether this
     # caller may exercise it on this unit.
-    (cba_contact_channels.router, Capability.CONSENTED_OUTREACH),
     # Speaker invitations (customer §6 steps 7-8, §13, §14). `CONSENTED_OUTREACH`
     # and not `SPEAKER_CONTACT_MANAGEMENT`, for the reason the note directly
     # above gives and more plainly still: these routes put messages in inboxes.
@@ -430,8 +428,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # — the Speaker's own accept/decline. It is listed here rather than mounted
     # unconditionally because an invitation nobody can be sent has nothing to
     # answer: gating the answer with the send is what keeps the pair coherent.
-    (cba_invitations.router, Capability.CONSENTED_OUTREACH),
-    (cba_invitations.public_router, Capability.CONSENTED_OUTREACH),
     # The speaker handoff (customer §6 step 8, §23). Rides `CONSENTED_OUTREACH`
     # rather than `DISCOVERY_METRICS` even though it writes funnel stages,
     # because the fact it writes them *from* is an invitation's stored answer: a
@@ -440,7 +436,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # report 404. Gating the handoff with the invitation is what keeps the pair
     # coherent, the same argument the Speaker's own accept/decline route above
     # is mounted on.
-    (cba_handoff.router, Capability.CONSENTED_OUTREACH),
     # Student speaker feedback (customer §§15-16, OQ-CBA-003 decided 6 September
     # 2026). The card's two halves ride two different flags on purpose.
     #
@@ -479,84 +474,3 @@ def health() -> dict[str, Any]:
     """
     settings = get_settings()
     return {"status": "ok", "release": settings.release}
-
-
-@app.get(
-    "/u/{token}",
-    tags=["outreach"],
-    summary="Unsubscribe confirmation page",
-    # Media types are declared per response rather than through
-    # ``response_class=HTMLResponse``. A route-wide response class sets the
-    # media type for *every* response the route publishes, including the error
-    # responses inherited from the application-level ``responses`` above — so
-    # this route, and only this route, documented its 4xx bodies as
-    # ``text/html`` while the exception handlers return ``application/json``.
-    # A generated client would take the contract at its word and try to parse
-    # an error envelope as HTML.
-    #
-    # The handler still returns an ``HTMLResponse``; only the documented
-    # contract changes. Declaring 200 as HTML here keeps that accurate.
-    responses={
-        200: {"content": {"text/html": {}}, "description": "Confirmation page"},
-        **{
-            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
-            for code in (400, 401, 403, 404, 409, 422, 429)
-        },
-    },
-)
-def unsubscribe_page(token: str) -> HTMLResponse:
-    """Render the unsubscribe confirmation page. **Never changes state.**
-
-    Fixes the v1.0 mutating-GET unsubscribe (v1.1 §1.10). A GET here is reached
-    by link scanners, mail-client prefetchers, and security proxies; if it
-    mutated, those would silently unsubscribe recipients who never clicked.
-
-    The actual unsubscribe is the signed POST, or the RFC 8058 one-click POST
-    that mail providers issue directly. Both arrive with R4.
-    """
-    # Rendered from a template in R4. The token is deliberately not echoed into
-    # the HTML — reflecting it invites both leakage and injection.
-    return HTMLResponse(
-        "<!doctype html><title>Unsubscribe</title>"
-        "<h1>Confirm unsubscribe</h1>"
-        "<p>Confirm below to stop receiving these messages.</p>",
-        status_code=status.HTTP_200_OK,
-    )
-
-
-@app.get(
-    "/i/{token}",
-    tags=["speaker-invitations"],
-    summary="Speaker invitation response page",
-    # Declared per response for `unsubscribe_page`'s reason: a route-wide
-    # response class would document this route's inherited 4xx bodies as HTML
-    # while the exception handlers return JSON.
-    responses={
-        200: {"content": {"text/html": {}}, "description": "Response page"},
-        **{
-            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
-            for code in (400, 401, 403, 404, 409, 422, 429)
-        },
-    },
-)
-def invitation_response_page(token: str) -> HTMLResponse:
-    """Render the accept-or-decline page. **Never changes state.**
-
-    The link an invitation actually carries, and a GET for the reason
-    :func:`unsubscribe_page` is one: a link in an email is fetched by scanners,
-    prefetchers and security proxies, so a GET that recorded an answer would
-    have Speakers accepting engagements they never read about. The answer is the
-    POST to ``/v1/speaker-invitations/respond``, which this page submits.
-
-    The token is deliberately not echoed into the HTML — reflecting it invites
-    both leakage and injection — and the page says nothing about whether the
-    token is real, for the same anti-oracle reason the POST answers identically
-    to every token.
-    """
-    return HTMLResponse(
-        "<!doctype html><title>Speaker invitation</title>"
-        "<h1>Respond to this invitation</h1>"
-        "<p>Choose below to accept or decline. Neither choice changes whether "
-        "you receive other messages.</p>",
-        status_code=status.HTTP_200_OK,
-    )

@@ -170,23 +170,6 @@ export interface MatchScore {
   weighted_factor_scores: Record<string, number>;
 }
 
-export interface OutreachEmailPayload {
-  subject_line: string;
-  greeting: string;
-  body: string;
-  closing: string;
-  full_email: string;
-}
-
-export type OutreachEmailVoice = "school_coordinator" | "ia_west_chapter";
-
-export interface OutreachEmailResponse {
-  email: string;
-  email_data: OutreachEmailPayload;
-  /** Present when the API resolved sender perspective (school vs IA West chapter). */
-  voice?: OutreachEmailVoice;
-}
-
 export interface QrCodeAsset {
   referral_code: string;
   speaker_name: string;
@@ -1327,112 +1310,6 @@ export async function scoreSpeaker(
   });
 }
 
-export async function generateEmail(
-  speakerName: string,
-  eventName: string,
-  options?: { voice?: OutreachEmailVoice; request_source?: string },
-): Promise<OutreachEmailResponse> {
-  return requestJson<OutreachEmailResponse>("/api/outreach/email", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-      ...(options?.voice ? { voice: options.voice } : {}),
-      ...(options?.request_source ? { request_source: options.request_source } : {}),
-    }),
-  });
-}
-
-export async function generateIcs(
-  eventName: string,
-  eventDate?: string,
-  location?: string,
-  description?: string,
-): Promise<{ ics_content: string }> {
-  return requestJson<{ ics_content: string }>("/api/outreach/ics", {
-    method: "POST",
-    body: JSON.stringify({
-      event_name: eventName,
-      event_date: eventDate,
-      location,
-      description,
-    }),
-  });
-}
-
-export interface WorkflowStepResult {
-  status: "ok" | "error";
-  error?: string;
-}
-
-export interface WorkflowResponse {
-  email: string;
-  email_data: OutreachEmailPayload;
-  ics_content: string;
-  pipeline_updated: boolean;
-  steps: {
-    email: WorkflowStepResult;
-    ics: WorkflowStepResult;
-    pipeline: WorkflowStepResult;
-  };
-  dispatch_mode: string;
-}
-
-export async function initiateWorkflow(
-  speakerName: string,
-  eventName: string,
-): Promise<WorkflowResponse> {
-  return requestJson<WorkflowResponse>("/api/outreach/workflow", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-    }),
-  });
-}
-
-export interface AgenticOutreachWorkflowInput {
-  speaker_name: string;
-  event_name: string;
-  coordinator_id?: string;
-  event_date?: string;
-  request_source: string;
-  voice: OutreachEmailVoice;
-}
-
-/**
- * Opens the agentic outreach workflow's server-sent-events stream. Routes
- * through the same fetch + error-envelope policy as `requestJson` (rather
- * than a bare `fetch`) so a refusal (auth, validation, etc.) surfaces the
- * backend's real `code`/`message` instead of failing silently; the caller
- * still owns reading and parsing the `data: ` lines out of the stream.
- */
-export async function openAgenticOutreachWorkflowStream(
-  input: AgenticOutreachWorkflowInput,
-  signal: AbortSignal,
-): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-  const response = await fetch("/api/outreach/agentic-workflow/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-    signal,
-  });
-
-  if (!response.ok) {
-    await throwApiRequestError(response);
-  }
-
-  if (!response.body) {
-    throw new ApiRequestError(
-      "The server did not return a streaming response body.",
-      response.status,
-      "empty_stream_body",
-    );
-  }
-
-  return response.body.getReader();
-}
-
 export interface CppCourse {
   course_key: string;
   display_name: string;
@@ -2250,7 +2127,7 @@ export interface MatchRunAccepted {
  * not this unit's, `503` while the registry is not ready.
  *
  * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID`, the
- * same way {@link submitOutreachSend} does it: a retry of *this* attempt is
+ * the same way any idempotent command does: a retry of *this* attempt is
  * safe, and a deliberate resubmission is a new command rather than a silently
  * swallowed one.
  */
@@ -2522,390 +2399,6 @@ export async function requestRedemption(unitId: string, itemId: string): Promise
 }
 
 // ---------------------------------------------------------------------------
-// Outreach (R4, gate G4)
-//
-// Four calls, and one shape runs through all of them: **nothing here reports
-// that a message was sent.** `submitOutreachSend` resolves with a job id, and
-// the only thing that can say what happened to a message is a later read of
-// `GET /v1/units/{unit_id}/outreach/sends/{send_id}`.
-//
-// That is the direct correction of the defect `docs/plans/frontend-broken-buttons.md`
-// catalogues as B17: the legacy Send button called `console.log("Message sent:")`,
-// showed "Message sent!" for two seconds, and closed the dialog, having made no
-// request at all. Replacing it with a real request that resolves to an
-// optimistic success would be the same defect with a network round trip in the
-// middle, so the types below give a caller nothing optimistic to render.
-// ---------------------------------------------------------------------------
-
-/** One stored draft, as `GET`/`POST .../outreach/drafts` returns it. */
-export interface OutreachDraft {
-  draft_id: string;
-  contact_channel_id: string;
-  template_id: string;
-  /**
-   * `"synthetic"` for pilot copy that has not been through institutional
-   * review, `"reviewed"` otherwise. Rendered in the UI rather than hidden: it
-   * is the fact that decides whether this message could go to a real person.
-   */
-  content_status: string;
-  subject: string;
-  body: string;
-  status: string;
-  version: number;
-  recipient_address: string;
-}
-
-export interface OutreachDraftListResponse {
-  drafts: OutreachDraft[];
-  limit: number;
-  offset: number;
-}
-
-/**
- * What a submitted send command returns.
- *
- * Note the fields it does *not* have. There is no status, no disposition, and
- * nothing about a message, because when this resolves the command has been
- * recorded and the dispatcher has not moved it. A UI that wants to say
- * something true at this point can say "queued" and show the job id.
- */
-export interface OutreachSendAccepted {
-  job_id: string;
-  events_url: string;
-  replayed: boolean;
-}
-
-export interface OutreachDeliveryEvent {
-  event_type: string;
-  occurred_at: string;
-  provider_event_id: string | null;
-}
-
-/**
- * One send attempt and its delivery stream.
- *
- * `disposition` is `null` while the attempt is in flight. That is a third
- * state, not a missing value: render it as in-progress and never as a failure.
- * Even `"accepted"` means only that a provider took custody — delivery is a
- * later event in the stream and may never arrive.
- */
-export interface OutreachSend {
-  send_id: string;
-  draft_id: string;
-  job_id: string;
-  recipient_address: string;
-  disposition: string | null;
-  provider: string | null;
-  provider_message_id: string | null;
-  failure_reason: string | null;
-  delivery_events: OutreachDeliveryEvent[];
-}
-
-/** `GET /v1/units/{unit_id}/outreach/drafts` — a coordinator's drafts. */
-export async function fetchOutreachDrafts(unitId: string): Promise<OutreachDraftListResponse> {
-  return requestJson<OutreachDraftListResponse>(
-    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts`,
-    undefined,
-    { authenticated: true },
-  );
-}
-
-/**
- * `POST /v1/units/{unit_id}/outreach/drafts` — compose one message.
- *
- * The body carries a template id and its placeholder values. There is
- * deliberately no `body` or `subject` parameter and there must never be one:
- * the server's closed template registry decides what the words are, and
- * free-form text from a browser would reopen the hole that registry closes.
- */
-export async function createOutreachDraft(
-  unitId: string,
-  input: {
-    contactChannelId: string;
-    templateId: string;
-    values: Record<string, string>;
-    approve: boolean;
-  },
-): Promise<OutreachDraft> {
-  return requestJson<OutreachDraft>(
-    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        contact_channel_id: input.contactChannelId,
-        template_id: input.templateId,
-        values: input.values,
-        approve: input.approve,
-      }),
-    },
-    { authenticated: true },
-  );
-}
-
-/**
- * `POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send` — submit the command.
- *
- * Resolves with a job id when the server answers `202`. **Nothing has been sent
- * at that point.** The `Idempotency-Key` is generated per attempt so that a
- * retry after a network error cannot become a second message; `crypto.randomUUID`
- * is used rather than a timestamp because two clicks in the same millisecond are
- * two attempts, and a key that collided would silently merge them.
- */
-export async function submitOutreachSend(
-  unitId: string,
-  draftId: string,
-): Promise<OutreachSendAccepted> {
-  return requestJson<OutreachSendAccepted>(
-    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts/${encodeURIComponent(draftId)}/send`,
-    {
-      method: "POST",
-      headers: { "Idempotency-Key": crypto.randomUUID() },
-    },
-    { authenticated: true },
-  );
-}
-
-/** `GET /v1/units/{unit_id}/outreach/sends/{send_id}` — what actually happened. */
-export async function fetchOutreachSend(unitId: string, sendId: string): Promise<OutreachSend> {
-  return requestJson<OutreachSend>(
-    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends/${encodeURIComponent(sendId)}`,
-    undefined,
-    { authenticated: true },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Speaker invitations (CBA-INVITATIONS, customer §6 steps 7-8, §13, §14)
-//
-// Five calls, all on the consented `/v1` path. Nothing here touches
-// `/api/data/*`, `fetchSpecialists`, or the legacy cold flow — an invitation is
-// an `outreach_draft` addressed to an already-consented contact channel, sent by
-// the same `outreach.send` command every other message on this surface uses.
-//
-// **The types below keep two facts in two objects, and that is the whole point
-// of this section.** `SpeakerInvitationOutcome.delivery` is what a *mail
-// provider* did; `SpeakerInvitationOutcome.speaker_response` is what a *person*
-// said. They share no field and no value: a provider's "accepted" means custody
-// of some bytes, while a Speaker's acceptance is spelled `accepted_invitation`.
-// Flattening them into one status in the browser would reintroduce here exactly
-// the confusion the server's schema, its CHECK constraints and its tests are all
-// arranged to prevent — and it would reintroduce it at the boundary where it
-// actually reaches an Event Host's eyes.
-// ---------------------------------------------------------------------------
-
-/**
- * What a mail provider did with one invitation's message.
- *
- * `null` at the top level of an outcome when no send has been submitted at all.
- * A non-null object whose `disposition` is `null` is an attempt in flight — a
- * third state, to be rendered as in-progress and never as a failure.
- */
-export interface SpeakerInvitationDelivery {
-  send_id: string;
-  /**
-   * `"accepted"`, `"blocked"`, `"failed"`, or `null` while in flight.
-   * `"accepted"` means a provider took custody. It does **not** mean delivered,
-   * and it says nothing whatever about whether the Speaker agreed to come.
-   */
-  disposition: string | null;
-  provider: string | null;
-  failure_reason: string | null;
-  concluded_at: string | null;
-}
-
-/**
- * What the Speaker said. Never what a provider did.
- *
- * `response` is `"awaiting_response"`, `"accepted_invitation"` or
- * `"declined_invitation"` — every value names the invitation, so none of them
- * can be confused with a delivery disposition. `"awaiting_response"` is a real
- * state and the ordinary condition of every invitation until somebody reads
- * their mail; it is not a failure.
- */
-export interface SpeakerInvitationResponse {
-  response: string;
-  recorded_at: string | null;
-  /**
-   * `"speaker_link"` when the Speaker followed the link in their own
-   * invitation, `"connector_recorded"` when a coordinator entered what they
-   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
-   * screen that showed them alike would assert a directness nobody has.
-   */
-  channel: string | null;
-  recorded_by_user_id: string | null;
-}
-
-/** One named recipient's outcome, with the two facts kept apart. */
-export interface SpeakerInvitationOutcome {
-  invitation_id: string;
-  professional_id: string;
-  /** `"pending"`, `"dispatched"` or `"skipped"`. What the platform did. */
-  status: string;
-  /** Why nobody was written to, present exactly when `status` is `"skipped"`. */
-  skip_reason: string | null;
-  recipient_address: string | null;
-  delivery: SpeakerInvitationDelivery | null;
-  speaker_response: SpeakerInvitationResponse;
-}
-
-/** One batch and every outcome in it. */
-export interface SpeakerInvitationBatch {
-  batch_id: string;
-  match_run_id: string | null;
-  template_id: string;
-  event_name: string;
-  /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
-  event_date: string;
-  created_at: string;
-  /** True when this response replayed a key already used; nobody was invited twice. */
-  replayed: boolean;
-  invited_count: number;
-  skipped_count: number;
-  invitations: SpeakerInvitationOutcome[];
-}
-
-/** One batch in a listing, deliberately without its outcomes. */
-export interface SpeakerInvitationBatchSummary {
-  batch_id: string;
-  match_run_id: string | null;
-  template_id: string;
-  event_name: string;
-  event_date: string;
-  created_at: string;
-}
-
-export interface SpeakerInvitationBatchListResponse {
-  batches: SpeakerInvitationBatchSummary[];
-  limit: number;
-  offset: number;
-}
-
-/**
- * What a dispatch submitted, and what it refused to submit.
- *
- * Note the absent field: there is no count of messages sent, because when this
- * resolves nothing has been sent. Each `dispatched` entry is a command the
- * dispatcher has not moved yet.
- */
-export interface SpeakerInvitationDispatchResponse {
-  batch_id: string;
-  dispatched: Array<{
-    invitation_id: string;
-    job_id: string;
-    events_url: string;
-    replayed: boolean;
-  }>;
-  /** Refused at dispatch on a consent fact read *now*, with the reason. */
-  not_dispatched: Array<{ invitation_id: string; reason: string }>;
-}
-
-/** `GET /v1/units/{unit_id}/speaker-invitations/batches` — a Connector's list. */
-export async function fetchSpeakerInvitationBatches(
-  unitId: string,
-): Promise<SpeakerInvitationBatchListResponse> {
-  return requestJson<SpeakerInvitationBatchListResponse>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches`,
-    undefined,
-    { authenticated: true },
-  );
-}
-
-/** `GET /v1/units/{unit_id}/speaker-invitations/batches/{batch_id}` — the tracking view. */
-export async function fetchSpeakerInvitationBatch(
-  unitId: string,
-  batchId: string,
-): Promise<SpeakerInvitationBatch> {
-  return requestJson<SpeakerInvitationBatch>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches/${encodeURIComponent(batchId)}`,
-    undefined,
-    { authenticated: true },
-  );
-}
-
-/**
- * `POST /v1/units/{unit_id}/speaker-invitations/batches` — compose a batch.
- *
- * There is deliberately no `template_id`, no `body`, no recipient address and no
- * response link in this payload, and there must never be one. The template is
- * the server's closed registry; the address comes from the recipient's own
- * stored channels; and a browser-supplied link would put an arbitrary URL into
- * an institutional email to an already-consented address.
- *
- * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID` rather
- * than a timestamp, for `submitOutreachSend`'s reason: two clicks in the same
- * millisecond are two attempts, and a colliding key would silently merge them.
- * The server treats a repeat of one key as a replay and invites nobody twice.
- */
-export async function createSpeakerInvitationBatch(
-  unitId: string,
-  input: {
-    professionalIds: string[];
-    eventName: string;
-    eventDate: string;
-    coordinatorName: string;
-    matchRunId?: string | null;
-  },
-): Promise<SpeakerInvitationBatch> {
-  return requestJson<SpeakerInvitationBatch>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches`,
-    {
-      method: "POST",
-      headers: { "Idempotency-Key": crypto.randomUUID() },
-      body: JSON.stringify({
-        professional_ids: input.professionalIds,
-        event_name: input.eventName,
-        event_date: input.eventDate,
-        coordinator_name: input.coordinatorName,
-        match_run_id: input.matchRunId ?? null,
-      }),
-    },
-    { authenticated: true },
-  );
-}
-
-/**
- * `POST .../batches/{batch_id}/dispatch` — submit the send commands.
- *
- * Resolves when the server answers `202`. **Nothing has been sent at that
- * point**, and the response has no field that could be rendered otherwise. No
- * `Idempotency-Key` header: each command's key is derived server-side from the
- * invitation id, which is a stronger promise than a per-attempt key — a second
- * dispatch replays rather than queueing a second message to the same person.
- */
-export async function dispatchSpeakerInvitationBatch(
-  unitId: string,
-  batchId: string,
-): Promise<SpeakerInvitationDispatchResponse> {
-  return requestJson<SpeakerInvitationDispatchResponse>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/batches/${encodeURIComponent(batchId)}/dispatch`,
-    { method: "POST" },
-    { authenticated: true },
-  );
-}
-
-/**
- * `POST .../speaker-invitations/{invitation_id}/response` — record an answer a
- * Speaker gave the Connector out of band.
- *
- * The verb is `"accept"` or `"decline"`, deliberately not a status value: a
- * vocabulary a browser could paste a delivery disposition into is a vocabulary
- * that will eventually receive one. The server stores it as
- * `accepted_invitation` / `declined_invitation` and records that a coordinator,
- * rather than the Speaker themselves, is the one who entered it.
- */
-export async function recordSpeakerInvitationResponse(
-  unitId: string,
-  invitationId: string,
-  response: "accept" | "decline",
-): Promise<{ invitation_id: string; response: string; recorded: boolean }> {
-  return requestJson<{ invitation_id: string; response: string; recorded: boolean }>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-invitations/${encodeURIComponent(invitationId)}/response`,
-    { method: "POST", body: JSON.stringify({ response }) },
-    { authenticated: true },
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Speaker Requests (CBA-EVENT-REQUEST, customer §12)
 //
 // One call, and the shape that matters runs through it: **the response is the
@@ -2914,7 +2407,7 @@ export async function recordSpeakerInvitationResponse(
 // status, review status, timestamps and the resolved taxonomy names included —
 // so a caller has something real to render and nothing optimistic to invent.
 //
-// There is deliberately no `Idempotency-Key` here, unlike `submitOutreachSend`
+// There is deliberately no `Idempotency-Key` here, unlike an externally dispatched command
 // above. A Speaker Request has a deterministic identity server-side (ADR-0012:
 // host unit, folded title, resolved date), so a second submission of the same
 // request updates the first rather than filing a duplicate — a stronger promise
@@ -4235,4 +3728,217 @@ export async function fetchAttendanceSummary(unitId: string): Promise<Attendance
     { method: "GET" },
     { authenticated: true },
   );
+}
+
+export type ManualEventStatus = "draft" | "published" | "cancelled";
+export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
+
+export interface ManualEvent {
+  id: string;
+  unit_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
+  status: ManualEventStatus;
+  provenance: "observed";
+  created_at: string;
+  updated_at: string;
+  version: number;
+  attendance_closed_at: string | null;
+  cancelled_at: string | null;
+}
+
+export interface ManualEventInput {
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  on_date?: string | null;
+  time_zone?: string | null;
+  location?: string | null;
+  capacity?: number | null;
+  volunteer_openings?: number | null;
+  volunteer_needs?: string | null;
+  audience?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  speaker_topics?: string[];
+  region?: string | null;
+}
+
+export interface SpeakerProfile {
+  id: string; name: string; title: string | null; company: string | null; board_role: string | null;
+  expertise_topics: string[]; home_region: string | null; service_regions: string[];
+  contact_email?: string | null; contact_phone?: string | null; available?: boolean; active?: boolean;
+  version?: number; created_at?: string; updated_at?: string;
+}
+
+export interface SpeakerProfileInput {
+  name: string; title?: string | null; company?: string | null; board_role?: string | null;
+  expertise_topics: string[]; home_region?: string | null; service_regions: string[];
+  contact_email?: string | null; contact_phone?: string | null; available: boolean; active: boolean;
+}
+
+export interface MatchSuggestion extends Omit<SpeakerProfile, "contact_email" | "contact_phone" | "available" | "active"> {
+  speaker_id: string; explanations: string[];
+}
+
+export interface MatchRun { id: string; event_id: string; suggestions: MatchSuggestion[]; created_at: string; }
+
+export type SpeakerEventStatus = "not_emailed_yet" | "awaiting_response" | "declined" | "ready_for_handoff" | "handed_off" | "awaiting_final_confirmation" | "confirmed" | "withdrawn" | "attended" | "did_not_attend" | "event_cancelled";
+export interface SpeakerEventHistory { id: string; from_status: SpeakerEventStatus | null; to_status: SpeakerEventStatus; action_kind: string; actor_id: string; note: string | null; correction_reason: string | null; created_at: string; }
+export interface SpeakerEventNote { id: string; actor_id: string; body: string; created_at: string; }
+export interface SpeakerEventRecord {
+  id: string; event_id: string; speaker_id: string; assigned_host_id: string; status: SpeakerEventStatus;
+  version: number; speaker_name: string; speaker_title: string | null; speaker_company: string | null;
+  event_title: string; created_at: string; updated_at: string; history: SpeakerEventHistory[]; notes: SpeakerEventNote[];
+}
+
+export interface FeedbackQrAsset {
+  id: string;
+  event_id: string;
+  destination_url: string;
+  redirect_url: string;
+  open_count: number;
+  last_opened_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchManualEvents(
+  unitId: string,
+  status: "published" | "draft" | "all" = "published",
+): Promise<{ data: ManualEvent[]; total: number }> {
+  return requestJson<{ data: ManualEvent[]; total: number }>(
+    `/v1/units/${encodeURIComponent(unitId)}/events?status=${status}`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+export async function createManualEvent(
+  unitId: string,
+  input: ManualEventInput,
+  idempotencyKey = crypto.randomUUID(),
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}
+
+export async function updateManualEvent(
+  unitId: string,
+  eventId: string,
+  version: number,
+  input: Partial<ManualEventInput>,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "PATCH", body: JSON.stringify({ ...input, version }) },
+    { authenticated: true },
+  );
+}
+
+export async function publishManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/publish`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+export async function fetchFeedbackQr(unitId: string, eventId: string): Promise<FeedbackQrAsset | null> {
+  try {
+    return await requestJson<FeedbackQrAsset>(
+      `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+      undefined,
+      { authenticated: true },
+    );
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveFeedbackQr(
+  unitId: string,
+  eventId: string,
+  destinationUrl: string,
+): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    { method: "PUT", body: JSON.stringify({ destination_url: destinationUrl }) },
+    { authenticated: true },
+  );
+}
+
+export async function fetchSpeakers(unitId: string): Promise<{ data: SpeakerProfile[]; total: number; roster_version: number | null; published_at: string | null }> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, undefined, { authenticated: true });
+}
+
+export async function createSpeaker(unitId: string, input: SpeakerProfileInput): Promise<SpeakerProfile> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, { method: "POST", body: JSON.stringify(input) }, { authenticated: true });
+}
+
+export async function updateSpeaker(unitId: string, speakerId: string, input: SpeakerProfileInput & { version: number }): Promise<SpeakerProfile> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers/${encodeURIComponent(speakerId)}`, { method: "PATCH", body: JSON.stringify(input) }, { authenticated: true });
+}
+
+export async function publishSpeakerRoster(unitId: string): Promise<{ version: number; published_at: string }> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-roster/publish`, { method: "POST" }, { authenticated: true });
+}
+
+export async function runSpeakerMatch(unitId: string, eventId: string, idempotencyKey = crypto.randomUUID()): Promise<MatchRun> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/match-runs`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }, { authenticated: true });
+}
+
+export async function submitSpeakerShortlist(unitId: string, matchRunId: string, speakerIds: string[], idempotencyKey = crypto.randomUUID()): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/match-runs/${encodeURIComponent(matchRunId)}/shortlist`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ speaker_ids: speakerIds }) }, { authenticated: true });
+}
+
+export async function fetchSpeakerEvents(unitId: string, eventId?: string): Promise<SpeakerEventRecord[]> {
+  const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events${query}`, undefined, { authenticated: true });
+}
+
+export async function fetchSpeakerEvent(unitId: string, recordId: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}`, undefined, { authenticated: true });
+}
+
+export async function transitionSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, note?: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/transitions`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, note }) }, { authenticated: true });
+}
+
+export async function addSpeakerEventNote(unitId: string, recordId: string, body: string): Promise<SpeakerEventNote> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/notes`, { method: "POST", body: JSON.stringify({ body }) }, { authenticated: true });
+}
+
+export async function correctSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, reason: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/corrections`, { method: "POST", body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, reason }) }, { authenticated: true });
+}
+
+export async function closeEventAttendance(unitId: string, eventId: string, expectedVersion: number): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/close-attendance`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion }) }, { authenticated: true });
+}
+
+export async function cancelManualEvent(unitId: string, eventId: string, expectedVersion: number, reason: string): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/cancel`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion, reason }) }, { authenticated: true });
 }

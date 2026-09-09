@@ -1,34 +1,8 @@
-/**
- * Admin / coordinator master calendar (legacy synthetic-pilot surface).
- *
- * **Before replacing this month grid with an agenda, read
- * `apps/web/DESIGN.md` §2.1.** Two authorised documents look like they
- * disagree here, and each is convincing on its own:
- *
- * - `docs/architecture/engagement-model.md` §5 (D-11) says "Not a month
- *   grid" — but scoped to the *student* surface, and argued from a
- *   student-specific harm (Fix #10: a sparse grid reads as a dead chapter to
- *   someone deciding whether to attend).
- * - The ratified G1 worksheet records the stakeholder directive "Month
- *   calendar bottom of events page | Legacy events UI | Presentation".
- *
- * A coordinator opens this page to find *gaps*, so an empty cell is the
- * signal they came for rather than a discouraging void. That is why the shape
- * that is wrong on the student agenda is right here. D-11 has not settled
- * whether the agenda rule binds every audience; until it does, this grid
- * stays and the student surface does not get one.
- *
- * What this file must hold regardless of that outcome (ADR-0010, and §5
- * insists on it too): dates render in a named zone, `date_only` renders as a
- * date, and a record whose date does not resolve is listed *outside* the grid
- * rather than guessed onto a day — see `@/lib/eventDates`.
- */
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Building2,
   CalendarDays,
-  CalendarOff,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -38,6 +12,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
+import { breakNeedLabel } from "@/lib/breakNeed";
 
 import {
   fetchCalendarAssignments,
@@ -46,19 +21,8 @@ import {
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
 } from "@/lib/api";
+import { DemoModeBadge } from "../components/ui/DemoModeBadge";
 import { Button } from "../components/ui/button";
-import { AccountableValue, SyntheticDataBanner } from "../components/provenance";
-import { accountableDemoMetric } from "@/lib/metrics";
-import {
-  calendarDateKey,
-  parseCalendarDate,
-  partitionByResolvedDate,
-  viewerTimeZone,
-} from "@/lib/eventDates";
-import {
-  calendarSourceProvenance,
-  calendarSyntheticReason,
-} from "@/lib/calendarProvenance";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -76,54 +40,6 @@ function getErrorMessage(err: unknown, fallback: string): string {
     return err;
   }
   return fallback;
-}
-
-/**
- * Why this page can have no events at all.
- *
- * `GET /api/calendar/events` and `/api/calendar/assignments` are legacy
- * routes the current API does not serve — the repository's own performance
- * baseline records both as 404 (`docs/plans/perf-baseline-828.md`), and
- * `services/api/smartmatch_api/routers/events.py` declares no handlers for
- * the unit-scoped replacement yet (S3-S5). The OpenAPI contract
- * (`contracts/openapi/smartmatch.json`) exposes no event operation either.
- *
- * So the honest state for this screen is *unavailable*, not *empty* and not
- * *failed*: there is nothing to retry into. Rendering a month grid of
- * fixtures or an ICS stub here is the "silent ICS fallback shown as success"
- * that DESIGN.md §1.2 names outright.
- */
-const CALENDAR_FEED_RETIRED_REASON =
-  "This calendar reads the retired legacy routes GET /api/calendar/events and /api/calendar/assignments, which the current API does not serve. Unit-scoped event endpoints are S3-S5 work and the OpenAPI contract exposes no event operation yet, so there are no event records to draw.";
-
-/** True when a rejection is the API telling us the route no longer exists. */
-function isRetiredRoute(reason: unknown): boolean {
-  return (
-    typeof reason === "object" &&
-    reason !== null &&
-    (reason as { status?: unknown }).status === 404
-  );
-}
-
-/**
- * The designed "this data source does not exist" state.
- *
- * Distinct from {@link FailureState} on purpose, and deliberately without a
- * Retry button: offering one would imply the data is coming back on this
- * build, which it is not.
- */
-function UnavailableState({ title, message }: { title: string; message: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-300 bg-slate-50 p-8">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
-        <CalendarOff className="h-5 w-5 text-slate-600" aria-hidden="true" />
-      </div>
-      <p className="mt-3 text-center text-sm font-semibold text-slate-800">{title}</p>
-      <p className="mx-auto mt-2 max-w-2xl text-center text-sm leading-6 text-slate-600">
-        {message}
-      </p>
-    </div>
-  );
 }
 
 function FailureState({
@@ -160,8 +76,22 @@ interface DayCell {
   date: Date | null;
 }
 
-const parseLocalDate = parseCalendarDate;
-const dateKey = calendarDateKey;
+function parseLocalDate(iso: string): Date {
+  if (!iso) {
+    return new Date();
+  }
+  const [year, month, day] = iso.split("-").map(Number);
+  if ([year, month, day].some((part) => Number.isNaN(part))) {
+    return new Date(iso);
+  }
+  return new Date(year, month - 1, day);
+}
+
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
 
 function sameDay(left: Date, right: Date) {
   return dateKey(left) === dateKey(right);
@@ -206,7 +136,7 @@ function buildMonthCells(date: Date): DayCell[] {
 function coverageTone(status: CalendarEventSummary["coverage_status"]) {
   switch (status) {
     case "covered":
-      return "border-blue-200 bg-blue-50 text-blue-800";
+      return "border-primary/20 bg-primary/5 text-primary";
     case "partial":
       return "border-amber-200 bg-amber-50 text-amber-800";
     case "needs_coverage":
@@ -252,28 +182,7 @@ function formatCount(value: number | null) {
   return value === null ? "Unknown" : `${value}`;
 }
 
-/** Renders a 0..1 ratio as a whole-number percentage for `AccountableValue`. */
-function formatRatioPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
-/**
- * Rolls the loaded rows up into the four header tiles.
- *
- * Each field is `number | null`, and `null` means the tile has no evidence
- * behind it — either the feed that would supply it did not answer, or (for
- * coverage rate) there is no denominator to divide by. ADR-0011 rule 1: a
- * count of zero rows returned by a *failed* request is not a measurement of
- * zero, and the previous version of this page rendered exactly that — an
- * unreachable assignments feed produced "0 on cooldown", which reads as
- * "nobody needs rest".
- */
-function summaryCounts(
-  events: CalendarEventSummary[],
-  assignments: CalendarAssignmentSummary[],
-  eventsAvailable: boolean,
-  assignmentsAvailable: boolean,
-) {
+function summaryCounts(events: CalendarEventSummary[], assignments: CalendarAssignmentSummary[]) {
   const covered = events.filter((event) => event.coverage_status === "covered").length;
   const needsCoverage = events.filter((event) => event.coverage_status === "needs_coverage").length;
   const knownFatigue = assignments
@@ -285,13 +194,10 @@ function summaryCounts(
   const cooldownCount = assignments.filter((assignment) => assignment.recovery_status === "Rest Recommended").length;
 
   return {
-    covered: eventsAvailable ? covered : null,
-    needsCoverage: eventsAvailable ? needsCoverage : null,
-    // A coverage *rate* with no scheduled windows has no denominator. It is
-    // unknown, not 0% — "no data yet versus zero" (DESIGN.md §1.2).
-    coverageRate: eventsAvailable && events.length > 0 ? covered / events.length : null,
-    averageFatigue: assignmentsAvailable ? averageFatigue : null,
-    cooldownCount: assignmentsAvailable ? cooldownCount : null,
+    covered,
+    needsCoverage,
+    averageFatigue,
+    cooldownCount,
   };
 }
 
@@ -304,25 +210,13 @@ export function Calendar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  // Keep provenance per endpoint. The two legacy routes can legitimately
-  // return different source kinds during migration, so one combined flag
-  // would mislabel live event metrics when only assignment overlays are demo
-  // data (and vice versa).
-  const [eventsAreMockData, setEventsAreMockData] = useState(false);
-  const [assignmentsAreMockData, setAssignmentsAreMockData] = useState(false);
-  const [eventsAvailable, setEventsAvailable] = useState(false);
-  const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
-  // `/api/calendar/*` are retired legacy routes. A 404 here is not a transient
-  // failure a Retry can clear, so it gets its own designed state rather than
-  // an error banner that invites the viewer to try again forever.
-  const [feedRetired, setFeedRetired] = useState(false);
+  const [isMockData, setIsMockData] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setLoadFailed(false);
-    setFeedRetired(false);
     setError(null);
 
     Promise.allSettled([fetchCalendarEvents(), fetchCalendarAssignments()])
@@ -331,44 +225,39 @@ export function Calendar() {
           return;
         }
 
+        let anyMock = false;
+
         if (eventResult.status === "fulfilled") {
           const { data, isMockData } = eventResult.value;
           setEvents(data);
-          setEventsAvailable(true);
-          setEventsAreMockData(isMockData);
+          if (isMockData) anyMock = true;
         } else {
           // Events are the calendar's core data — without them there is
           // nothing honest to render, so surface a failure state instead of
           // substituting fixture events.
           setEvents([]);
           setAssignments([]);
-          setEventsAvailable(false);
-          setAssignmentsAvailable(false);
-          setEventsAreMockData(false);
-          setAssignmentsAreMockData(false);
-          setFeedRetired(isRetiredRoute(eventResult.reason));
           setLoadFailed(true);
           setError(getErrorMessage(eventResult.reason, "Failed to load the calendar."));
+          setIsMockData(false);
           return;
         }
 
         if (assignmentResult.status === "fulfilled") {
           const { data, isMockData } = assignmentResult.value;
           setAssignments(data);
-          setAssignmentsAvailable(true);
-          setAssignmentsAreMockData(isMockData);
+          if (isMockData) anyMock = true;
         } else {
           // Assignment overlays are supplementary — keep showing the real
           // events and surface a non-blocking warning instead of fabricating
-          // overlay rows. Every tile they back goes to unknown, not to zero.
+          // overlay rows.
           setAssignments([]);
-          setAssignmentsAvailable(false);
-          setAssignmentsAreMockData(false);
           setError(
             `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
           );
         }
 
+        setIsMockData(anyMock);
       })
       .catch((err: unknown) => {
         if (!active) {
@@ -376,12 +265,8 @@ export function Calendar() {
         }
         setEvents([]);
         setAssignments([]);
-        setEventsAvailable(false);
-        setAssignmentsAvailable(false);
-        setEventsAreMockData(false);
-        setAssignmentsAreMockData(false);
-        setFeedRetired(isRetiredRoute(err));
         setLoadFailed(true);
+        setIsMockData(false);
         setError(getErrorMessage(err, "Failed to load calendar."));
       })
       .finally(() => {
@@ -410,15 +295,21 @@ export function Calendar() {
     return true;
   });
 
-  // Rows whose date does not resolve are kept *out* of the grid and listed
-  // separately below it (ADR-0010): a cell is a claim that something happens
-  // on that day, and we cannot make that claim for a record with no date.
-  const { byDateKey: assignmentByDate, unresolved: unresolvedAssignments } =
-    partitionByResolvedDate(assignments, (assignment) => assignment.event_date);
-  const { byDateKey: eventByDate, unresolved: unresolvedEvents } = partitionByResolvedDate(
-    filteredEvents,
-    (event) => event.event_date,
-  );
+  const assignmentByDate = new Map<string, CalendarAssignmentSummary[]>();
+  for (const assignment of assignments) {
+    const key = assignment.event_date ? dateKey(parseLocalDate(assignment.event_date)) : assignment.event_id;
+    const bucket = assignmentByDate.get(key) ?? [];
+    bucket.push(assignment);
+    assignmentByDate.set(key, bucket);
+  }
+
+  const eventByDate = new Map<string, CalendarEventSummary[]>();
+  for (const event of filteredEvents) {
+    const key = event.event_date ? dateKey(parseLocalDate(event.event_date)) : event.event_id;
+    const bucket = eventByDate.get(key) ?? [];
+    bucket.push(event);
+    eventByDate.set(key, bucket);
+  }
 
   const selectedDayEvents = eventByDate.get(activeDayKey) ?? [];
   const selectedDayAssignments = (assignmentByDate.get(activeDayKey) ?? []).filter((assignment) =>
@@ -426,55 +317,7 @@ export function Calendar() {
       (event) => event.event_id === assignment.event_id || event.event_name === assignment.event_name,
     ),
   );
-  const metrics = summaryCounts(events, assignments, eventsAvailable, assignmentsAvailable);
-
-  // Provenance for calendar-derived tiles: a feed that answered with rows it
-  // labelled demo/csv is synthetic; one that did not answer at all is
-  // synthetic too, because whatever the tile shows is not an observation.
-  const eventProvenance = calendarSourceProvenance(eventsAvailable, eventsAreMockData);
-  const assignmentProvenance = calendarSourceProvenance(
-    assignmentsAvailable,
-    assignmentsAreMockData,
-  );
-  const syntheticDataReason = calendarSyntheticReason(
-    eventsAreMockData,
-    assignmentsAreMockData,
-  );
-
-  const coverageRateMetric = accountableDemoMetric(
-    "Coverage rate",
-    "Share of the loaded calendar windows the feed reports as covered.",
-    metrics.coverageRate,
-    {
-      provenance: eventProvenance,
-      unknownReason: eventsAvailable
-        ? "No calendar windows are loaded, so a coverage rate has no denominator. An empty set is unknown, not 0%."
-        : CALENDAR_FEED_RETIRED_REASON,
-    },
-  );
-  const needsCoverageMetric = accountableDemoMetric(
-    "Needs coverage",
-    "Loaded calendar windows the feed reports as needing coverage.",
-    metrics.needsCoverage,
-    { provenance: eventProvenance, unknownReason: CALENDAR_FEED_RETIRED_REASON },
-  );
-  const averageFatigueMetric = accountableDemoMetric(
-    "Average fatigue",
-    "Mean of the fatigue values the assignment overlays actually carried; overlays without one are excluded rather than counted as zero.",
-    metrics.averageFatigue,
-    {
-      provenance: assignmentProvenance,
-      unknownReason: assignmentsAvailable
-        ? "No loaded assignment overlay carries a fatigue value, so there is nothing to average."
-        : CALENDAR_FEED_RETIRED_REASON,
-    },
-  );
-  const cooldownMetric = accountableDemoMetric(
-    "On cooldown",
-    "Assignment overlays whose recovery status is Rest Recommended.",
-    metrics.cooldownCount,
-    { provenance: assignmentProvenance, unknownReason: CALENDAR_FEED_RETIRED_REASON },
-  );
+  const metrics = summaryCounts(events, assignments);
 
   const periodLabel =
     view === "month"
@@ -521,23 +364,13 @@ export function Calendar() {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="space-y-2">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-            Master calendar
-          </p>
-          <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
+          <h1 className="text-3xl font-semibold text-slate-900">Event Host scheduling view</h1>
         </div>
-        {feedRetired ? (
-          <UnavailableState
-            title="The month calendar has no event source yet"
-            message={CALENDAR_FEED_RETIRED_REASON}
-          />
-        ) : (
-          <FailureState
-            title="The calendar could not be loaded"
-            message={error ?? "Failed to load calendar."}
-            onRetry={() => setReloadToken((token) => token + 1)}
-          />
-        )}
+        <FailureState
+          title="The calendar could not be loaded"
+          message={error ?? "Failed to load calendar."}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       </div>
     );
   }
@@ -545,70 +378,50 @@ export function Calendar() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-          Master calendar
-        </p>
-        <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
+        <h1 className="inline-flex items-center gap-2 text-3xl font-semibold text-slate-900">
+          Coordinator scheduling view{isMockData && <DemoModeBadge />}
+        </h1>
         <p className="text-slate-600">
-          Track coverage, assignment overlays, and volunteer recovery without leaving the calendar.
-          Dates are shown in {viewerTimeZone()}; the retired feed carries no per-event zone, so no
-          event time on this page is rendered in the event&apos;s own zone yet (ADR-0010).
+          Track open event needs, volunteer assignments, and break recommendations in one calendar.
         </p>
-        {/* DESIGN.md §1.1 singles the synthetic label out as needing to be
-            unmistakable. A chip beside the heading is not that, so a
-            fixture-backed calendar gets the full banner. */}
-        {syntheticDataReason ? (
-          <SyntheticDataBanner reason={syntheticDataReason} />
-        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {/* Every tile below routes its value through `AccountableValue`, so a
-            number the page could not measure renders as "Unknown" with the
-            reason attached rather than as a confident 0 (ADR-0011 rule 1). */}
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Coverage rate</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
-            <AccountableValue metric={coverageRateMetric} formatNumber={formatRatioPercent} />
+            {events.length ? formatPercent(metrics.covered / events.length) : "0%"}
           </p>
-          <p className="mt-1 text-sm text-slate-600">
-            {metrics.covered === null
-              ? "Coverage is unknown while the calendar feed is unavailable."
-              : `${metrics.covered} event${metrics.covered === 1 ? "" : "s"} already covered`}
-          </p>
+          <p className="mt-1 text-sm text-slate-600">{metrics.covered} events already covered</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Needs coverage</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
-            <AccountableValue metric={needsCoverageMetric} />
-          </p>
-          <p className="mt-1 text-sm text-slate-600">Open windows that still need a volunteer</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.needsCoverage}</p>
+          <p className="mt-1 text-sm text-slate-600">Open windows that still need a speaker</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average fatigue</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average break need</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
-            <AccountableValue metric={averageFatigueMetric} formatNumber={formatRatioPercent} />
+            {formatPercent(metrics.averageFatigue)}
           </p>
-          <p className="mt-1 text-sm text-slate-600">Recovery posture from assignment overlays</p>
+          <p className="mt-1 text-sm text-slate-600">Higher values mean speakers may need more rest</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">On cooldown</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
-            <AccountableValue metric={cooldownMetric} />
-          </p>
-          <p className="mt-1 text-sm text-slate-600">Volunteers that should be left untouched</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Break recommended</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.cooldownCount}</p>
+          <p className="mt-1 text-sm text-slate-600">Speakers who should rest before another event</p>
         </div>
       </div>
 
-      <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-primary/10 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white">
               <CalendarRange className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-                {periodLabel} · {viewerTimeZone()}
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
+                {periodLabel}
               </p>
               <h2 className="text-2xl font-semibold text-slate-900">
                 {view === "month" ? "Month grid" : view === "week" ? "Week agenda" : "Day detail"}
@@ -628,7 +441,7 @@ export function Calendar() {
                   onClick={() => setView(candidate)}
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     view === candidate
-                      ? "bg-blue-600 text-white shadow-sm"
+                      ? "bg-primary text-white shadow-sm"
                       : "text-slate-600 hover:bg-white"
                   }`}
                 >
@@ -683,7 +496,7 @@ export function Calendar() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-medium text-blue-700">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 font-medium text-primary">
               <ShieldCheck className="h-4 w-4" />
               IA covered
             </span>
@@ -727,22 +540,21 @@ export function Calendar() {
                   }}
                   className={`group min-h-[145px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
                     sameDay(cell.date, new Date())
-                      ? "border-blue-200 bg-blue-50/70"
+                      ? "border-primary/20 bg-primary/5"
                       : "border-slate-200 bg-slate-50/60"
                   }`}
                 >
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <span
                       className={`text-base font-semibold ${
-                        sameDay(cell.date, new Date()) ? "text-blue-700" : "text-slate-900"
+                        sameDay(cell.date, new Date()) ? "text-primary" : "text-slate-900"
                       }`}
                     >
                       {cell.date.getDate()}
                     </span>
                     {eventByDate.get(dateKey(cell.date))?.length ? (
                       <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 shadow-sm">
-                        {eventByDate.get(dateKey(cell.date))?.length}
-                        {eventByDate.get(dateKey(cell.date))?.length === 1 ? " event" : " events"}
+                        {eventByDate.get(dateKey(cell.date))?.length} events
                       </span>
                     ) : null}
                   </div>
@@ -776,50 +588,6 @@ export function Calendar() {
               ),
             )}
           </div>
-
-          {/*
-            ADR-0010 / DESIGN.md §1.8: an event whose date does not resolve
-            "renders as unresolved, not as a guess". These rows used to be
-            dropped into today's cell by a `new Date()` fallback, which made a
-            record with no date indistinguishable from one happening today.
-            They are named here instead, outside the grid.
-          */}
-          {unresolvedEvents.length || unresolvedAssignments.length ? (
-            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <div className="flex items-start gap-3">
-                <AlertTriangle
-                  className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-amber-900">
-                    Not placed on the calendar: {unresolvedEvents.length} event
-                    {unresolvedEvents.length === 1 ? "" : "s"}
-                    {unresolvedAssignments.length
-                      ? ` and ${unresolvedAssignments.length} assignment overlay${unresolvedAssignments.length === 1 ? "" : "s"}`
-                      : ""}{" "}
-                    with an unresolved date
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-amber-800">
-                    These records carry no date that resolves, so no day cell can honestly claim
-                    them. They are listed here rather than guessed onto a date.
-                  </p>
-                  <ul className="mt-3 space-y-1 text-sm text-amber-900">
-                    {unresolvedEvents.slice(0, 8).map((event) => (
-                      <li key={`unresolved-${event.event_id}`} className="truncate">
-                        {event.event_name || "Untitled event"} · {event.region} · date unresolved
-                      </li>
-                    ))}
-                    {unresolvedEvents.length > 8 ? (
-                      <li className="font-medium">
-                        +{unresolvedEvents.length - 8} more with unresolved dates
-                      </li>
-                    ) : null}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -827,10 +595,9 @@ export function Calendar() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-7">
             {weekDays.map((day) => {
-              const dayEvents = filteredEvents.filter((event) => {
-                const parsed = parseLocalDate(event.event_date);
-                return parsed ? sameDay(parsed, day) : false;
-              });
+              const dayEvents = filteredEvents.filter((event) =>
+                event.event_date ? sameDay(parseLocalDate(event.event_date), day) : false,
+              );
 
               return (
                 <button
@@ -841,7 +608,7 @@ export function Calendar() {
                     setView("day");
                   }}
                   className={`min-h-[320px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                    sameDay(day, new Date()) ? "border-blue-200 bg-blue-50/70" : "border-slate-200 bg-slate-50/60"
+                    sameDay(day, new Date()) ? "border-primary/20 bg-primary/5" : "border-slate-200 bg-slate-50/60"
                   }`}
                 >
                   <div className="mb-3 flex items-center justify-between gap-2">
@@ -849,7 +616,7 @@ export function Calendar() {
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
                         {day.toLocaleDateString("en-US", { weekday: "short" })}
                       </p>
-                      <p className={`text-lg font-semibold ${sameDay(day, new Date()) ? "text-blue-700" : "text-slate-900"}`}>
+                      <p className={`text-lg font-semibold ${sameDay(day, new Date()) ? "text-primary" : "text-slate-900"}`}>
                         {day.getDate()}
                       </p>
                     </div>
@@ -888,7 +655,7 @@ export function Calendar() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+                <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
                   Day detail
                 </p>
                 <h3 className="text-2xl font-semibold text-slate-900">
@@ -900,7 +667,7 @@ export function Calendar() {
                   })}
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  The coordinator can see coverage, volunteers, and recovery posture in one place.
+                  See event coverage, volunteer assignments, and who may need a break in one place.
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
@@ -934,19 +701,15 @@ export function Calendar() {
 
                           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-700">
                             <span className="inline-flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-blue-700" />
+                              <MapPin className="h-4 w-4 text-primary" />
                               {event.region}
                             </span>
                             <span className="inline-flex items-center gap-2">
-                              <CalendarDays className="h-4 w-4 text-blue-700" />
-                              {/* A date with no resolvable value says so; it is
-                                  never printed as a raw or guessed string. */}
-                              {parseLocalDate(event.event_date)
-                                ? `${event.event_date} (${viewerTimeZone()})`
-                                : "Date unresolved"}
+                              <CalendarDays className="h-4 w-4 text-primary" />
+                              {event.event_date}
                             </span>
                             <span className="inline-flex items-center gap-2">
-                              <ShieldCheck className="h-4 w-4 text-blue-700" />
+                              <ShieldCheck className="h-4 w-4 text-primary" />
                               {event.assignment_count} assigned
                             </span>
                           </div>
@@ -975,7 +738,7 @@ export function Calendar() {
 
                       <div className="mt-4">
                         <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                          Assignment overlays
+                          Volunteer assignments
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {eventAssignments.length ? (
@@ -1020,9 +783,9 @@ export function Calendar() {
           <div className="space-y-4">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-700" />
+                <Users className="h-5 w-5 text-primary" />
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Assignment overlays</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">Speaker assignments</h3>
                   <p className="text-sm text-slate-600">
                     Coverage-aware assignments and recovery status for the selected day.
                   </p>
@@ -1040,7 +803,7 @@ export function Calendar() {
                         <div>
                           <p className="font-semibold text-slate-900">{assignment.volunteer_name}</p>
                           <p className="text-sm text-slate-600">
-                            {assignment.volunteer_title || "Board volunteer"}
+                            {assignment.volunteer_title || "Speaker"}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
                             {assignment.event_name} · {assignment.stage}
@@ -1052,14 +815,14 @@ export function Calendar() {
                           )}`}
                         >
                           <span className={`mr-2 h-2.5 w-2.5 rounded-full ${recoveryFill(assignment.recovery_status)}`} />
-                          {assignment.recovery_label}
+                          {breakNeedLabel(assignment.recovery_status)}
                         </span>
                       </div>
 
                       <div className="mt-4 grid grid-cols-3 gap-3">
                         <div className="rounded-xl bg-white px-3 py-2">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                            Fatigue
+                            Break need
                           </p>
                           <p className="mt-1 text-sm font-semibold text-slate-900">
                             {formatPercent(assignment.volunteer_fatigue)}
@@ -1094,7 +857,7 @@ export function Calendar() {
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-blue-700" />
+                <Building2 className="h-5 w-5 text-primary" />
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Coverage notes</h3>
                   <p className="text-sm text-slate-600">

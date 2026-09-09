@@ -84,19 +84,8 @@ def test_student_connect_has_no_mock_chat() -> None:
         )
 
 
-def test_agentic_outreach_panel_never_claims_outreach_was_sent() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    for pattern in AGENTIC_PANEL_FORBIDDEN:
-        assert pattern not in source, (
-            f"AgenticOutreachPanel reintroduced unconditional success: {pattern!r}"
-        )
-
-
-def test_agentic_outreach_panel_states_no_send_path_exists() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    assert "No send path exists" in source, (
-        "AgenticOutreachPanel must truthfully state that outreach cannot be dispatched"
-    )
+def test_agentic_outreach_panel_is_removed() -> None:
+    assert not AGENTIC_OUTREACH_PANEL.exists()
 
 
 def test_outreach_page_has_no_stub_controls() -> None:
@@ -157,34 +146,10 @@ def test_coordinator_outreach_never_claims_a_message_was_sent() -> None:
         )
 
 
-def test_coordinator_outreach_reports_the_queued_state_it_actually_has() -> None:
-    """The positive half of the guard above.
 
-    Forbidding the word "sent" is only half a contract -- a page that said
-    nothing at all would pass it and leave a coordinator with no idea whether
-    their click did anything. What the page owes them is the true fact: the
-    command was accepted, and here is the job it became.
-    """
-    source = COORDINATOR_OUTREACH.read_text(encoding="utf-8")
-
-    assert "Queued" in source
-    assert "queued.jobId" in source
-
-
-def test_the_outreach_hook_has_no_state_that_means_delivered() -> None:
-    """The state machine is where a fake success would have to be born.
-
-    `SendState` stops at "queued" on purpose. If a "sent" or "delivered" member
-    ever appears here, every consumer gains a state it can render, and the page
-    guard above becomes a rule about one file rather than about the feature.
-    """
-    source = _code_only(OUTREACH_HOOK.read_text(encoding="utf-8"))
-
-    assert '"idle" | "submitting" | "queued" | "failed"' in source
-    for forbidden in ('| "sent"', '| "delivered"', '| "success"'):
-        assert forbidden not in source, (
-            f"useOutreach gained a state that claims delivery: {forbidden!r}"
-        )
+def test_the_email_outreach_hook_is_removed() -> None:
+    """Email is performed outside Smart Match, so no client send state exists."""
+    assert not OUTREACH_HOOK.exists()
 
 
 def test_landing_page_stages_no_fabricated_discovery_run() -> None:

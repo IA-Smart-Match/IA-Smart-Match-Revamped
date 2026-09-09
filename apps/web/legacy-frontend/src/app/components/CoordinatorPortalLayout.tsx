@@ -2,14 +2,8 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   CalendarDays,
-  Target,
-  Send,
-  Mail,
-  Users,
-  Star,
-  SlidersHorizontal,
+  ClipboardList,
   Video,
-  Building,
   Menu,
   X,
 } from "lucide-react";
@@ -20,36 +14,12 @@ import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
+import { BrandLogo } from "./BrandLogo";
 
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
-  // §5's four-factor weighting, immediately before the pipeline it feeds: this
-  // is what the unit's *next* match run scores with. `GET`/`PATCH
-  // /v1/units/{unit_id}/matching-weights` are `admin`/`coordinator` and
-  // deny-by-default; the page shows the server's refusal rather than hiding
-  // the control, so the link is visible to everyone this portal is granted to.
-  {
-    name: "Matching weights",
-    href: "/coordinator-portal/matching-weights",
-    icon: SlidersHorizontal,
-  },
-  // The §13 pipeline, in the order it is walked: a match run against a filed
-  // Speaker Request produces a shortlist, and the shortlist links onward to
-  // the compose step with `?run={id}`. Both `/v1` routes are deny-by-default
-  // and `admin`/`coordinator` only — the link being visible is not a grant.
-  { name: "Run a match", href: "/coordinator-portal/match-runs", icon: Target },
-  { name: "Compose invitations", href: "/coordinator-portal/invitations", icon: Send },
-  { name: "CBA Contact", href: "/coordinator-portal/outreach", icon: Mail },
-  // Customer §13's roster of professionals this unit knows. Distinct from "CBA
-  // Contact" above, which is outreach over `contact_channel`: this one records
-  // *who a speaker is* and sends nothing to anybody.
-  { name: "Speaker contacts", href: "/coordinator-portal/speaker-contacts", icon: Users },
-  // §16's read of how students rated those same speakers — aggregate only, per
-  // OQ-CBA-003 part 1, which is why it sits beside the roster rather than
-  // inside it. `GET .../speakers/{speaker_id}/feedback-summary` is
-  // `admin`/`coordinator` server-side whatever this sidebar renders.
-  { name: "Speaker feedback", href: "/coordinator-portal/speaker-feedback", icon: Star },
+  { name: "Speaker handoffs", href: "/coordinator-portal/outreach", icon: ClipboardList },
   { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 
@@ -111,18 +81,8 @@ export function CoordinatorPortalLayout() {
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Building className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  {grant.display_name}
-                </p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label="Event Host portal" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -167,6 +127,7 @@ export function CoordinatorPortalLayout() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">{school}</p>
+                <p className="truncate text-xs text-muted-foreground">{grant.display_name}</p>
               </div>
             </div>
             <button
@@ -191,12 +152,7 @@ export function CoordinatorPortalLayout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Building className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" />
           </div>
         </header>

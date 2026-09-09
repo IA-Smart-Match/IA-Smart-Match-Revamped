@@ -88,7 +88,6 @@ class Settings(BaseSettings):
     #: It must never be present outside development.
     dev_principals: dict[str, str] = Field(default_factory=dict)
 
-    email_api_key: str | None = None
     routes_api_key: str | None = None
 
     #: Origin the *speaker-response* links in an invitation are built against,
@@ -130,7 +129,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "edition=classroom requires use_fixture_providers=true (architecture v1.1 §3.3)"
                 )
-            if self.email_api_key or self.routes_api_key:
+            if self.routes_api_key:
                 raise ValueError(
                     "edition=classroom must have no provider credentials in its "
                     "environment; found one. Check the secret bindings for this "

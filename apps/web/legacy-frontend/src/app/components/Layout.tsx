@@ -1,22 +1,19 @@
-import { Outlet, Link, useLocation } from "react-router";
-import type { LucideIcon } from "lucide-react";
+import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
-  Briefcase,
   Users,
-  Sparkles,
-  TrendingUp,
   CalendarDays,
-  Mail,
+  ClipboardList,
   Menu,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
-import { useSession } from "../hooks/useSession";
+import { useSession, useSignOut } from "../hooks/useSession";
 import { SyntheticDataBanner } from "./provenance";
-import { isCapabilityEnabled, type Capability } from "@/lib/productScope";
+import { principalDisplayName, principalInitials } from "../../lib/principal";
+import { BrandLogo } from "./BrandLogo";
 import {
   Tooltip,
   TooltipTrigger,
@@ -37,53 +34,15 @@ import {
  * is that the product stops advertising a page the customer put out of scope
  * (customer §20).
  */
-interface NavItem {
-  readonly name: string;
-  readonly href: string;
-  readonly icon: LucideIcon;
-  readonly tooltip: string;
-  /** Every capability must be enabled. Omitted means "always offered". */
-  readonly requires?: readonly Capability[];
-}
-
-/**
- * The legacy admin Outreach page needs both: it reaches unknown university
- * contacts through the legacy `/api/data/*` reads, and it embeds the retired
- * external-discovery `CrawlerFeed`. Kept in step with `routes.tsx`, which
- * gates the route itself on the same pair — a nav entry pointing at a route
- * the router does not have would be a dead link rather than a gate.
- */
-const LEGACY_COLD_OUTREACH_CAPABILITIES: readonly Capability[] = [
-  "cold_unknown_contact_outreach",
-  "external_speaker_acquisition",
-];
-
-const navigationSections: readonly { label: string; items: readonly NavItem[] }[] = [
+const navigationSections = [
   {
     label: "MANAGE",
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of metrics and pipeline health" },
-      { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Specialist roster and engagement metrics" },
-      { name: "Pipeline", href: "/pipeline", icon: TrendingUp, tooltip: "Track matches through each stage" },
+      { name: "Events", href: "/events", icon: CalendarDays, tooltip: "Create and publish events" },
+      { name: "Speakers", href: "/volunteers", icon: Users, tooltip: "Manage the available speaker roster" },
+      { name: "Invitations", href: "/outreach", icon: ClipboardList, tooltip: "Track speaker invitations" },
       { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
-    ],
-  },
-  {
-    label: "DISCOVER",
-    items: [
-      { name: "Speaker Requests", href: "/opportunities", icon: Briefcase, tooltip: "Browse and filter discovered events" },
-      { name: "AI Matching", href: "/ai-matching", icon: Sparkles, tooltip: "Rank speakers against open speaker requests" },
-      // CBA-TERMINOLOGY owns the wording here; this card owns the `requires`.
-      // The two are orthogonal on purpose: renaming a label must never change
-      // what the product offers, and gating a capability must never depend on
-      // how its entry happens to be spelled.
-      {
-        name: "Outreach",
-        href: "/outreach",
-        icon: Mail,
-        tooltip: "Generate outreach emails and QR assets",
-        requires: LEGACY_COLD_OUTREACH_CAPABILITIES,
-      },
     ],
   },
 ];
@@ -100,31 +59,28 @@ const navigationSections: readonly { label: string; items: readonly NavItem[] }[
  * as an empty heading — a lone "DISCOVER" label above nothing still advertises
  * a capability, just less legibly.
  */
-const offeredSections = navigationSections
-  .map((section) => ({
-    ...section,
-    items: section.items.filter((item) => (item.requires ?? []).every(isCapabilityEnabled)),
-  }))
-  .filter((section) => section.items.length > 0);
-
-const allNavItems = offeredSections.flatMap((s) => s.items);
+const offeredSections = navigationSections;
 
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const session = useSession();
+  const signOut = useSignOut();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const currentPage = allNavItems.find(
-    (item) =>
-      location.pathname === item.href ||
-      (item.href !== "/dashboard" && location.pathname.startsWith(item.href)),
-  );
 
   // The admin shell is a signed-in surface (it carries a sign-out control),
   // so it is gated exactly like the three portals: no verified principal,
   // no chrome. `/v1` authorization stays authoritative for the data itself.
   if (session.status !== "signed-in") {
     return <SessionGate state={session} />;
+  }
+
+  const displayName = principalDisplayName(session.me);
+  const initials = principalInitials(session.me);
+
+  function handleSignOut() {
+    signOut();
+    navigate("/");
   }
 
   return (
@@ -146,16 +102,8 @@ export function Layout() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs text-[#5a6472]">CBA</p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label="Speaker Connector" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-[#5a6472] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -214,15 +162,21 @@ export function Layout() {
           <div className="border-t border-sidebar-border p-4">
             <div className="flex items-center gap-3 px-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-                IA
+                {initials}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">
-                  IA Admin
+                  {displayName}
                 </p>
-                <p className="truncate text-xs text-[#5a6472]">admin@ia.org</p>
+                <p className="truncate text-xs text-[#5a6472]">Speaker Connector</p>
               </div>
             </div>
+            <button
+              onClick={handleSignOut}
+              className="mt-2 w-full rounded-xl px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </aside>
@@ -239,23 +193,10 @@ export function Layout() {
             >
               <Menu className="w-6 h-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">Smart Match</span>
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" /> {/* Spacer for centering */}
           </div>
         </header>
-
-        {/* Page title strip (desktop only) */}
-        {currentPage && (
-          <div className="hidden lg:flex items-center gap-2.5 border-b border-sidebar-border bg-white px-8 py-3">
-            <currentPage.icon className="h-4 w-4 text-[#005394]" />
-            <span className="text-sm font-medium text-[#394454]">{currentPage.name}</span>
-          </div>
-        )}
 
         {/* Page content */}
         <main className="p-6 lg:p-8">

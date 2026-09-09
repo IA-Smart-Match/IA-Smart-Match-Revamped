@@ -308,8 +308,24 @@ def test_every_portal_page_uses_the_server_mapping_seam() -> None:
     ``usePortalAccess()`` / ``grantedPortal()`` for what the server granted
     them. Both are server answers; neither is computed here.
     """
+    authorized_unit_hook = (
+        WEB_SRC / "app" / "hooks" / "useAuthorizedUnit.ts"
+    ).read_text(encoding="utf-8")
+    shared_board = (
+        WEB_SRC / "app" / "components" / "SpeakerEventsBoard.tsx"
+    ).read_text(encoding="utf-8")
     for relative in PORTAL_PAGES:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
+        if "useAuthorizedUnitId(" in source:
+            assert "useAuthenticatedPrincipal()" in authorized_unit_hook
+            assert "usePortalAccess()" in authorized_unit_hook
+            assert "grantedPortal(access, portal)" in authorized_unit_hook
+            assert "getConfiguredUnitId" not in authorized_unit_hook
+            continue
+        if "SpeakerEventsBoard" in source:
+            assert "useAuthorizedUnitId(" in shared_board
+            assert "getConfiguredUnitId" not in shared_board
+            continue
         assert "useAuthenticatedPrincipal()" in source, (
             f"{relative} does not resolve its principal from GET /v1/me"
         )
@@ -572,7 +588,7 @@ def test_the_login_screen_names_no_role_at_all() -> None:
         assert label not in source, f"LoginPage names the persona {label!r} before sign-in"
 
 
-def test_the_signed_out_surfaces_carry_the_cba_name() -> None:
+def test_the_signed_out_surfaces_carry_the_cpp_name() -> None:
     """CBA-TERMINOLOGY: the two pages a visitor sees before authenticating say
     CBA, not IA West (customer §4, §25 P0).
 
@@ -589,6 +605,6 @@ def test_the_signed_out_surfaces_carry_the_cba_name() -> None:
     """
     for page in (LOGIN_PAGE, LANDING_PAGE):
         source = page.read_text(encoding="utf-8")
-        assert "CBA Smart Match" in source, f"{page.name} lost the CBA product name"
+        assert "Cal Poly Pomona" in source, f"{page.name} lost the CPP product name"
         assert "IA West" not in source, f"{page.name} still shows the retired IA West name"
         assert "Insights Association" not in source

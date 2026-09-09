@@ -388,11 +388,11 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "could use (v1.1 §1.11). Requiring a token would make the probe depend "
         "on the identity provider being up."
     ),
-    ("GET", "/u/{token}"): (
-        "Public unsubscribe confirmation page. Reached from a link in an email "
-        "by someone who by definition has no account, so the bearer token is "
-        "the signed token in the path. It never changes state — the actual "
-        "unsubscribe is the signed POST (v1.1 §1.10)."
+    ("GET", "/q/{public_token}"): (
+        "Public feedback-form redirect encoded in an event QR code. The opaque "
+        "token is the capability; recipients are not Smart Match account holders. "
+        "The route discloses no event data and redirects only active, published "
+        "events to the administrator-configured HTTPS destination."
     ),
     ("POST", "/v1/unsubscribe"): (
         "The mutating half of the pair whose read half is ``GET /u/{token}``, "
@@ -406,16 +406,6 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "anybody. Note that the response is identical for a real and an "
         "invented token, which is what stops the route being an oracle for "
         "whether an address is on our list."
-    ),
-    ("GET", "/i/{token}"): (
-        "The accept-or-decline page an invitation links to, and the exact "
-        "counterpart of ``GET /u/{token}``: reached from an email by somebody "
-        "who by definition has no account, so the token in the path is the "
-        "whole of it. It never changes state — a GET that recorded an answer "
-        "would have link scanners and mail-client prefetchers accepting "
-        "engagements on Speakers' behalf — and it echoes nothing back, so it is "
-        "not an oracle for whether the token is real either. The answer is the "
-        "POST below."
     ),
     ("POST", "/v1/speaker-invitations/respond"): (
         "The Speaker's own accept or decline, reached from the link in their "
@@ -771,24 +761,280 @@ OPERATIONS: tuple[Operation, ...] = (
         method="GET",
         path="/v1/units/{unit_id}/events",
         module="smartmatch_api.routers.events",
-        authorizer="_authorize_event_read",
-        roles_constant="_EVENT_ROLES",
+        authorizer="_authorize",
+        roles_constant="_READ_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
+        require_membership=True,
     ),
     Operation(
-        key="events.tag_quarantine.read",
-        method="GET",
-        path="/v1/units/{unit_id}/tag-quarantine",
+        key="events.create",
+        method="POST",
+        path="/v1/units/{unit_id}/events",
         module="smartmatch_api.routers.events",
-        authorizer="_authorize_event_read",
-        roles_constant="_EVENT_ROLES",
+        authorizer="_authorize",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="events.detail.read",
+        method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize",
+        roles_constant="_READ_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="events.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="events.publish",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/publish",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="events.feedback_qr.read",
+        method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="events.feedback_qr.update",
+        method="PUT",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.events",
+        authorizer="_authorize",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    # Manual speaker roster, matching, and handoff workflow. Every operation is
+    # scoped to the route unit and uses one of the three declared role sets in
+    # ``routers/speakers.py``. Contact-bearing detail and roster writes belong
+    # to Speaker Connectors; matching and attendance closure belong to the
+    # assigned Event Host role; shared handoff reads/actions are available to
+    # both collaborating roles and apply record-level ownership checks where
+    # the operation requires them.
+    Operation(
+        key="speakers.create",
+        method="POST",
+        path="/v1/units/{unit_id}/speakers",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speakers.list",
+        method="GET",
+        path="/v1/units/{unit_id}/speakers",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SHARED",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speakers.detail.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speakers/{speaker_id}",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speakers.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/speakers/{speaker_id}",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_roster.publish",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-roster/publish",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_match.run",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/match-runs",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_HOST",
+        authorizer_module=None,
+        required_roles=frozenset({"coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_match.shortlist",
+        method="POST",
+        path="/v1/units/{unit_id}/match-runs/{match_run_id}/shortlist",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_HOST",
+        authorizer_module=None,
+        required_roles=frozenset({"coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.list",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-events",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SHARED",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.detail.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-events/{record_id}",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SHARED",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.transition",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-events/{record_id}/transitions",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SHARED",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.note.create",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-events/{record_id}/notes",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SHARED",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.correct",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-events/{record_id}/corrections",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.attendance.close",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/close-attendance",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_HOST",
+        authorizer_module=None,
+        required_roles=frozenset({"coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_events.event.cancel",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/cancel",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_ADMIN",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
     ),
     # The .ics download is the one operation in this file whose role set is
     # deliberately *wider* than the read it hangs off. ``events.read`` refuses a
@@ -6741,6 +6987,59 @@ MATRIX: dict[str, dict[str, Cell]] = {
     },
 }
 
+
+def _role_variant(reference: str, *, admin: bool, coordinator: bool) -> dict[str, Cell]:
+    """Build a complete unit-scoped row for another declared role set."""
+    row = dict(MATRIX[reference])
+    if not admin:
+        row["admin_at_org_root"] = deny(
+            "no_grant", why="this operation is reserved for the Event Host role"
+        )
+    if not coordinator:
+        row["coordinator_at_owning_unit"] = deny(
+            "no_grant", why="this operation is reserved for the Speaker Connector role"
+        )
+    return row
+
+
+# The manual-event merge replaced the crawler-backed quarantine operation and
+# added unit-scoped event, roster, matching, and handoff operations. Operations
+# sharing one declared role set intentionally share the same policy rectangle;
+# endpoint-specific ownership and workflow-state checks are contract concerns
+# layered after this org-unit authorization gate.
+MATRIX.pop("events.tag_quarantine.read")
+for _operation_key in (
+    "events.detail.read",
+    "speakers.list",
+    "speaker_events.list",
+    "speaker_events.detail.read",
+    "speaker_events.transition",
+    "speaker_events.note.create",
+):
+    MATRIX[_operation_key] = _role_variant("events.read", admin=True, coordinator=True)
+
+for _operation_key in (
+    "events.create",
+    "events.update",
+    "events.publish",
+    "events.feedback_qr.read",
+    "events.feedback_qr.update",
+    "speakers.create",
+    "speakers.detail.read",
+    "speakers.update",
+    "speaker_roster.publish",
+    "speaker_events.correct",
+    "speaker_events.event.cancel",
+):
+    MATRIX[_operation_key] = _role_variant("events.read", admin=True, coordinator=False)
+
+for _operation_key in (
+    "speaker_match.run",
+    "speaker_match.shortlist",
+    "speaker_events.attendance.close",
+):
+    MATRIX[_operation_key] = _role_variant("events.read", admin=False, coordinator=True)
+
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
 
@@ -6861,6 +7160,10 @@ def _authorize(operation: Operation, shape: Shape) -> None:
     # `attendance_record` can actually be stated.
     if operation.authorizer in (
         "assert_allowed",
+        # The manual-event and speaker-workflow routers share a small
+        # ``_authorize`` helper that receives one of their declared role-set
+        # constants, loads the route unit, and performs this same policy call.
+        "_authorize",
         "_authorize_aggregate_read",
         "_authorize_drill_down_read",
         "_authorize_event_read",

@@ -16,6 +16,7 @@ from smartmatch_persistence.idempotency import (
     IdempotencyRepository,
     IdempotencyResult,
 )
+from smartmatch_persistence.events import EventRepository
 from smartmatch_persistence.jobs import JobRecord, JobRepository
 from smartmatch_persistence.outbox import (
     ClaimedOutboxRecord,
@@ -34,6 +35,7 @@ __all__ = [
     "IdempotencyConflictError",
     "IdempotencyRepository",
     "IdempotencyResult",
+    "EventRepository",
     "JobRecord",
     "JobRepository",
     "OutboxRepository",

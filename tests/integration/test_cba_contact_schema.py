@@ -126,7 +126,7 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``event.filed_by_user_id``, nullable and never backfilled, and its two
 #: constraints and one composite foreign key all reach ``event`` rather than
 #: ``speaker_profile`` — this file's surface is untouched.
-_HEAD_REVISION = "0033_event_filed_by"
+_HEAD_REVISION = "0035_speaker_workflow"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a

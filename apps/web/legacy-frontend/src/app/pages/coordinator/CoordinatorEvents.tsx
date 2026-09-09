@@ -1,56 +1,31 @@
-/**
- * My events — coordinator portal.
- *
- * This page used to load hosted events and staffing from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
- *
- * What *is* real on this page comes from two `/v1` routes and nothing else:
- * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
- * the server granted them and the role and unit behind it. Neither is derived
- * in the browser, and no identifier on this page is chosen by it.
- */
+import { useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CalendarDays, MapPin, Sparkles, Users } from "lucide-react";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
+import { closeEventAttendance, fetchManualEvents, runSpeakerMatch, submitSpeakerShortlist, type ManualEvent, type MatchRun } from "../../../lib/api";
+import { useAuthorizedUnitId } from "../../hooks/useAuthorizedUnit";
 
-import { PortalDatasetUnavailable } from "../../components/PortalContent";
-import { grantedPortal } from "../../components/PortalGate";
-import { usePortalAccess } from "../../hooks/usePortalAccess";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+function schedule(event: ManualEvent) { if (event.time_precision === "date_only") return `${event.on_date} · All day · ${event.time_zone}`; if (event.time_precision === "exact" && event.starts_at) return `${new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: event.time_zone ?? undefined }).format(new Date(event.starts_at))} · ${event.time_zone}`; return "Schedule unavailable"; }
+
+function MatchPanel({ event, unitId }: { event: ManualEvent; unitId: string }) {
+  const principalKey = usePrincipalKey(); const client = useQueryClient(); const runKey = useRef(crypto.randomUUID()); const shortlistKey = useRef(crypto.randomUUID());
+  const [run, setRun] = useState<MatchRun | null>(null); const [selected, setSelected] = useState<string[]>([]); const [submitted, setSubmitted] = useState(false);
+  const match = useMutation({ mutationFn: () => runSpeakerMatch(unitId, event.id, runKey.current), onSuccess: (result) => { setRun(result); setSelected([]); } });
+  const shortlist = useMutation({ mutationFn: () => submitSpeakerShortlist(unitId, run!.id, selected, shortlistKey.current), onSuccess: async () => { setSubmitted(true); await client.invalidateQueries({ queryKey: [principalKey, "speaker-events", unitId] }); } });
+  const closeAttendance = useMutation({ mutationFn: () => closeEventAttendance(unitId, event.id, event.version), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: [principalKey, "speaker-events", unitId] }), client.invalidateQueries({ queryKey: [principalKey, "manual-events", unitId] })]); } });
+  return <div className="mt-5 border-t pt-5"><button disabled={match.isPending} onClick={() => match.mutate()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Sparkles className="h-4 w-4" />{match.isPending ? "Finding speakers…" : run ? "Run Smart Match again" : "Run Smart Match"}</button>
+    {match.error ? <p role="alert" className="mt-3 text-sm text-destructive">{match.error instanceof Error ? match.error.message : "Smart Match could not run."}</p> : null}
+    {run ? <div className="mt-4"><h3 className="font-semibold">Suggested speakers</h3><p className="mt-1 text-xs text-muted-foreground">Choose one to three. Smart Match uses relevant topics and service region; it does not contact anyone.</p>{run.suggestions.length ? <div className="mt-3 space-y-2">{run.suggestions.map((speaker) => <label key={speaker.speaker_id} className="flex cursor-pointer gap-3 rounded-xl border p-3"><input type="checkbox" checked={selected.includes(speaker.speaker_id)} disabled={!selected.includes(speaker.speaker_id) && selected.length >= 3} onChange={(e) => setSelected((current) => e.target.checked ? [...current, speaker.speaker_id] : current.filter((id) => id !== speaker.speaker_id))} /><span><strong>{speaker.name}</strong><span className="block text-sm text-muted-foreground">{[speaker.title, speaker.company].filter(Boolean).join(" · ")}</span><span className="mt-1 block text-xs text-primary">{speaker.explanations.join(" · ")}</span></span></label>)}</div> : <p className="mt-3 rounded-xl bg-muted p-3 text-sm">No speaker has enough topic or region evidence for this event.</p>}{run.suggestions.length ? <button disabled={!selected.length || shortlist.isPending || submitted} onClick={() => shortlist.mutate()} className="mt-3 min-h-11 rounded-xl border border-primary px-4 text-sm font-semibold text-primary disabled:opacity-60">{submitted ? "Selected speakers submitted" : shortlist.isPending ? "Submitting…" : "Submit selected speakers"}</button> : null}{shortlist.error ? <p role="alert" className="mt-2 text-sm text-destructive">{shortlist.error instanceof Error ? shortlist.error.message : "The shortlist could not be submitted."}</p> : null}</div> : null}
+    <div className="mt-5 border-t pt-4"><button disabled={closeAttendance.isPending || Boolean(event.attendance_closed_at)} onClick={() => { if (window.confirm("Close attendance? Confirmed speakers without a check-in will be marked Did Not Attend.")) closeAttendance.mutate(); }} className="min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-60">{event.attendance_closed_at ? "Attendance closed" : closeAttendance.isPending ? "Closing…" : "Close attendance"}</button>{closeAttendance.error ? <p role="alert" className="mt-2 text-sm text-destructive">{closeAttendance.error instanceof Error ? closeAttendance.error.message : "Attendance could not be closed."}</p> : null}</div>
+  </div>;
+}
 
 export function CoordinatorEvents() {
-  // `GET /v1/me` — the only source of who this is. It throws rather than
-  // substituting a fixture principal, which is the Fix #7 guard.
-  const principal = useAuthenticatedPrincipal();
-  // `GET /v1/me/portals` — the only source of what the server granted them.
-  const portalAccess = usePortalAccess();
-  const grant = grantedPortal(portalAccess, "coordinator");
-
-  // `CoordinatorPortalLayout` already renders `PortalGate` when the server granted
-  // no such portal, so reaching here without a grant means the mapping is
-  // still resolving. Render nothing rather than a header about a portal that
-  // may turn out not to be assigned.
-  if (grant === null) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">My events</h1>
-        <p className="text-sm text-muted-foreground">Events you host, and which of them still need staffing.</p>
-        <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
-        </p>
-      </header>
-
-      <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Hosted events and staffing"
-          endpoints={["/api/portals/event-coordinators/{id}/events"]}
-        />
-      </div>
-    </div>
-  );
+  const unitId = useAuthorizedUnitId("coordinator"); const principalKey = usePrincipalKey();
+  const query = useQuery({ queryKey: [principalKey, "manual-events", unitId, "published"], queryFn: () => fetchManualEvents(unitId!, "published"), enabled: Boolean(principalKey && unitId) });
+  if (!unitId) return <div className="rounded-2xl border bg-card p-8"><h1 className="text-2xl">Events</h1><p className="mt-2 text-muted-foreground">Sign in with an authorized unit to view its published events.</p></div>;
+  if (query.isLoading) return <div className="space-y-4"><h1 className="text-2xl">Events</h1><div className="h-32 animate-pulse rounded-2xl bg-muted" /></div>;
+  if (query.error) return <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center"><AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" /><h1 className="text-2xl">Events</h1><p role="alert" className="mt-2 text-destructive">{query.error instanceof Error ? query.error.message : "Events could not be loaded."}</p></div>;
+  const events = query.data?.data ?? [];
+  return <div className="space-y-6"><header><h1 className="text-3xl font-semibold">Events</h1><p className="mt-2 text-muted-foreground">Review published events, run Smart Match, and submit speakers for Connector outreach.</p></header>{events.length === 0 ? <div className="rounded-2xl border bg-card p-10 text-center"><CalendarDays className="mx-auto mb-3 h-9 w-9 text-muted-foreground" /><p className="font-medium">No published events yet</p></div> : <div className="grid gap-4 lg:grid-cols-2">{events.map((event) => <article key={event.id} className="rounded-2xl border bg-card p-6 shadow-sm"><h2 className="text-xl font-semibold">{event.title}</h2><p className="mt-3 text-sm leading-6 text-muted-foreground">{event.description}</p><dl className="mt-4 space-y-2 text-sm"><div className="flex gap-2"><CalendarDays className="h-4 w-4 text-primary" /><dd>{schedule(event)}</dd></div><div className="flex gap-2"><MapPin className="h-4 w-4 text-primary" /><dd>{event.location}{event.region ? ` · ${event.region}` : ""}</dd></div><div className="flex gap-2"><Users className="h-4 w-4 text-primary" /><dd>{event.volunteer_openings} speaker openings</dd></div></dl><p className="mt-3 text-xs text-muted-foreground">Topics: {event.speaker_topics.length ? event.speaker_topics.join(", ") : "Not specified"}</p><MatchPanel event={event} unitId={unitId} /></article>)}</div>}</div>;
 }
