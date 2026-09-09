@@ -68,6 +68,7 @@ import {
   type SpeakerHandoffPayload,
   type SpeakerHandoffResult,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -318,11 +319,22 @@ export function VolunteerConfirmedSpeaker() {
       ) : null}
 
       {speakers.length > 0 ? (
-        <ul className="space-y-4">
-          {speakers.map((speaker) => (
-            <SpeakerCard key={speaker.record_id} speaker={speaker} />
-          ))}
-        </ul>
+        /* The confirmed speakers, a page at a time. The pager only windows the
+           rows this read already returned — it calls nothing, and its count is
+           of what arrived rather than of what the server holds. */
+        <PagedList
+          items={speakers}
+          label="confirmed speakers"
+          idPrefix="volunteer-confirmed-speakers"
+        >
+          {(visibleSpeakers) => (
+            <ul className="space-y-4">
+              {visibleSpeakers.map((speaker) => (
+                <SpeakerCard key={speaker.record_id} speaker={speaker} />
+              ))}
+            </ul>
+          )}
+        </PagedList>
       ) : null}
 
       <section className="space-y-4 rounded-2xl border border-border/70 bg-card p-6">

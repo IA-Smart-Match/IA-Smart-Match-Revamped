@@ -44,6 +44,20 @@
  * fabricated result wearing a URL — the B17 defect with a router in front of it.
  * A job that fails says so, and stays on this page.
  *
+ * ## Paging is a window, and it is not the server's truncation
+ *
+ * Both lists render through `PagedList`, which slices the array this page has
+ * already fetched and draws its controls above *and* below the rows, so the
+ * submit button under a full roster is reachable without scrolling past every
+ * contact. Two things follow and both are load-bearing. Selection is unaffected
+ * — `selectedRequestId` and `selectedSubjectIds` are ids in this component's
+ * state, so a page turn cannot clear a checked candidate and the submission
+ * still carries all of them. And the pager's range line is a statement about
+ * what is *drawn*, which is not the statement `requestsTruncated` and
+ * `contactsTruncated` make: those say the server stopped sending before it ran
+ * out of rows. Letting one notice stand in for the other would hide a real
+ * truncation behind a paging control, so both are worded to say which is which.
+ *
  * ## No identifier here is chosen by the browser
  *
  * `GET /v1/me` says who the caller is; `GET /v1/me/portals` says which unit the
@@ -71,6 +85,7 @@ import {
   type SpeakerContact,
   type SpeakerRequest,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -526,21 +541,31 @@ export function CoordinatorMatchRuns() {
                   No Speaker Requests are filed under this unit yet.
                 </p>
               ) : (
-                <ul className="space-y-3">
-                  {requests.map((request) => (
-                    <RequestRow
-                      key={request.request_id}
-                      request={request}
-                      selected={selectedRequestId === request.request_id}
-                      onSelect={setSelectedRequestId}
-                    />
-                  ))}
-                </ul>
+                // A window over the requests already in hand, not a server
+                // page: the read above fetched this array once and the pager
+                // only chooses which of its rows are drawn. The chosen request
+                // is an id held in this component's state, so it survives a
+                // page turn — there is nothing on a row for paging to lose.
+                <PagedList items={requests} label="Speaker Requests" idPrefix="match-run-requests">
+                  {(visibleRequests) => (
+                    <ul className="space-y-3">
+                      {visibleRequests.map((request) => (
+                        <RequestRow
+                          key={request.request_id}
+                          request={request}
+                          selected={selectedRequestId === request.request_id}
+                          onSelect={setSelectedRequestId}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
               )}
               {requestsTruncated ? (
                 <p className="text-sm text-amber-700">
-                  More requests are filed than this page lists. This is part of the queue, not all
-                  of it.
+                  The server stopped sending at its own limit, so more requests are filed under this
+                  unit than ever reached this browser. That is a different shortfall from the pager
+                  above, which speaks only about how much of what did arrive is currently drawn.
                 </p>
               ) : null}
             </section>
@@ -557,21 +582,33 @@ export function CoordinatorMatchRuns() {
                   This unit has no recorded contacts yet.
                 </p>
               ) : (
-                <ul className="space-y-3">
-                  {contacts.map((contact) => (
-                    <ContactRow
-                      key={contact.professional_id}
-                      contact={contact}
-                      selected={selectedSubjectIds.includes(contact.professional_id)}
-                      onToggle={toggleSubject}
-                    />
-                  ))}
-                </ul>
+                // The roster is paged the same way, and this is the list where
+                // it matters most: `selectedSubjectIds` is a list of ids, not a
+                // property of a drawn row, so candidates checked on one page
+                // stay checked and stay submitted after a Connector moves to
+                // another page and back. The count below the submit button
+                // keeps counting all of them for the same reason.
+                <PagedList items={contacts} label="Roster contacts" idPrefix="match-run-roster">
+                  {(visibleContacts) => (
+                    <ul className="space-y-3">
+                      {visibleContacts.map((contact) => (
+                        <ContactRow
+                          key={contact.professional_id}
+                          contact={contact}
+                          selected={selectedSubjectIds.includes(contact.professional_id)}
+                          onToggle={toggleSubject}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
               )}
               {contactsTruncated ? (
                 <p className="text-sm text-amber-700">
-                  More contacts exist than this page lists. This is part of the roster, not all of
-                  it.
+                  The server stopped sending at its own limit, so this unit&rsquo;s roster holds
+                  more contacts than ever reached this browser. That is a different shortfall from
+                  the pager above, which speaks only about how much of what did arrive is currently
+                  drawn.
                 </p>
               ) : null}
             </section>
