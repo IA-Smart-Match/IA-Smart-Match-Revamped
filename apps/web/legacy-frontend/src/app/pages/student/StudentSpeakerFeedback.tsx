@@ -73,6 +73,7 @@ import {
   type StudentEvent,
   type StudentSpeakerFeedback as StoredFeedback,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -501,18 +502,26 @@ export function StudentSpeakerFeedback() {
           </span>
         </p>
       ) : (
-        <div className="space-y-4">
-          {ordered.map((event) => (
-            <EventFeedback
-              key={event.id}
-              event={event}
-              unitId={unitId}
-              rows={byEvent[event.id] ?? []}
-              readError={readErrors[event.id] ?? null}
-              onChanged={load}
-            />
-          ))}
-        </div>
+        /* The agenda events this student can give feedback on, a page at a
+           time. The pager only windows the rows this browser already holds —
+           it issues no read, and its count is of what arrived, not of how
+           many events the department has recorded. */
+        <PagedList items={ordered} label="agenda events" idPrefix="student-speaker-feedback-events">
+          {(visibleEvents) => (
+            <div className="space-y-4">
+              {visibleEvents.map((event) => (
+                <EventFeedback
+                  key={event.id}
+                  event={event}
+                  unitId={unitId}
+                  rows={byEvent[event.id] ?? []}
+                  readError={readErrors[event.id] ?? null}
+                  onChanged={load}
+                />
+              ))}
+            </div>
+          )}
+        </PagedList>
       )}
     </div>
   );
