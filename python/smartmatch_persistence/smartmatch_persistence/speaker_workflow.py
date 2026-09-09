@@ -222,6 +222,18 @@ class SpeakerWorkflowRepository:
             .one()
         )
         for position, result in enumerate(results, 1):
+            profile = (
+                session.execute(
+                    sa.select(schema.speaker_roster_entry).where(
+                        schema.speaker_roster_entry.c.tenant_id == tenant_id,
+                        schema.speaker_roster_entry.c.owning_unit_id == unit_id,
+                        schema.speaker_roster_entry.c.speaker_id == result.speaker_id,
+                        schema.speaker_roster_entry.c.roster_version == version,
+                    )
+                )
+                .mappings()
+                .one()
+            )
             session.execute(
                 sa.insert(schema.speaker_match_result).values(
                     tenant_id=tenant_id,
@@ -229,6 +241,13 @@ class SpeakerWorkflowRepository:
                     match_run_id=row["id"],
                     speaker_id=result.speaker_id,
                     position=position,
+                    speaker_name=profile["name"],
+                    speaker_title=profile["title"],
+                    speaker_company=profile["company"],
+                    speaker_board_role=profile["board_role"],
+                    expertise_topics=profile["expertise_topics"],
+                    home_region=profile["home_region"],
+                    service_regions=profile["service_regions"],
                     topic_score=result.topic_score,
                     proximity_score=result.proximity_score,
                     total_score=result.total_score,
@@ -240,27 +259,19 @@ class SpeakerWorkflowRepository:
     def match_results(
         self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID, run_id: uuid.UUID
     ) -> list[RowMapping]:
-        result, entry = schema.speaker_match_result, schema.speaker_roster_entry
+        result = schema.speaker_match_result
         return list(
             session.execute(
                 sa.select(
                     result.c.speaker_id,
-                    entry.c.name,
-                    entry.c.title,
-                    entry.c.company,
-                    entry.c.board_role,
-                    entry.c.expertise_topics,
-                    entry.c.home_region,
-                    entry.c.service_regions,
+                    result.c.speaker_name.label("name"),
+                    result.c.speaker_title.label("title"),
+                    result.c.speaker_company.label("company"),
+                    result.c.speaker_board_role.label("board_role"),
+                    result.c.expertise_topics,
+                    result.c.home_region,
+                    result.c.service_regions,
                     result.c.explanations,
-                )
-                .join(
-                    entry,
-                    sa.and_(
-                        entry.c.tenant_id == result.c.tenant_id,
-                        entry.c.owning_unit_id == result.c.owning_unit_id,
-                        entry.c.speaker_id == result.c.speaker_id,
-                    ),
                 )
                 .where(
                     result.c.tenant_id == tenant_id,
@@ -380,7 +391,7 @@ class SpeakerWorkflowRepository:
         unit_id: uuid.UUID,
         event_id: uuid.UUID | None = None,
     ) -> list[RowMapping]:
-        se, sp, ev = schema.speaker_event, schema.speaker, schema.event
+        se, sp, ev = schema.speaker_event, schema.speaker, schema.managed_event
         query = (
             sa.select(
                 *se.c,
@@ -405,7 +416,7 @@ class SpeakerWorkflowRepository:
     def _record_query(
         self, session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, record_id: uuid.UUID
     ):
-        se, sp, ev = schema.speaker_event, schema.speaker, schema.event
+        se, sp, ev = schema.speaker_event, schema.speaker, schema.managed_event
         return session.execute(
             sa.select(
                 *se.c,

@@ -52,13 +52,13 @@ import {
   fetchCalendarEvents,
   fetchFeedbackStats,
   fetchManualEvents,
-  getConfiguredUnitId,
   type CalendarAssignmentSummary,
   type CalendarEventSummary,
   type FeedbackStatsSummary,
   type ManualEvent,
   type MetricSummary,
 } from "@/lib/api";
+import { useAuthorizedUnitId } from "@/app/hooks/useAuthorizedUnit";
 import {
   accountableDemoMetric,
   accountableMetricFromSummary,
@@ -271,7 +271,7 @@ function formatEventWhen(event: ManualEvent): string {
 }
 
 export function Dashboard() {
-  const unitId = getConfiguredUnitId();
+  const unitId = useAuthorizedUnitId("admin");
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([]);
   const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>([]);

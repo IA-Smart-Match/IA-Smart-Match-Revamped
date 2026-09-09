@@ -2,16 +2,37 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   ClipboardList,
+  ListChecks,
+  UserCheck,
   UserCircle,
+  Briefcase,
   Menu,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { SessionGate } from "./SessionGate";
+import { PortalGate, grantedPortal } from "./PortalGate";
+import { useSession, useSignOut } from "../hooks/useSession";
+import { usePortalAccess } from "../hooks/usePortalAccess";
+import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
+  // Customer §12: the Event Host's own capability, backed by a `/v1` route
+  // rather than by the absent legacy portal API — as is the page below it.
+  { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
+  // Customer §6 step 9: the other end of the intake above, so it sits beside
+  // it. `GET .../cba/confirmed-speakers` and the hand-off `POST` are
+  // `admin`/`coordinator` server-side whatever this shell renders — the page
+  // shows the refusal as an answer rather than hiding the control.
+  { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
+  // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
+  // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
+  // server-side, and a different query from the Connector's queue, not a
+  // wider permit on it.
+  { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
   { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
   { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
@@ -21,31 +42,40 @@ export function VolunteerPortalLayout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const session = (() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-        user?: Record<string, unknown>;
-        role?: string;
-      };
-    } catch {
-      return {};
-    }
-  })();
-
-  const user = session.user ?? {};
-  const displayName = String(user.name ?? "Speaker");
-  const company = String(user.company ?? "IA West");
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const session = useSession();
+  // The account-to-portal mapping, from `GET /v1/me/portals`. The shell used
+  // to have no way to ask whether this account was actually assigned this
+  // portal, which is what the pages inside it rendered a banner about.
+  const portalAccess = usePortalAccess();
+  const signOut = useSignOut();
 
   function handleSignOut() {
-    sessionStorage.removeItem("iaw_session");
+    signOut();
     navigate("/");
   }
+
+  if (session.status !== "signed-in") {
+    return <SessionGate state={session} />;
+  }
+
+  // Second gate, and a different question from the first: the caller is
+  // verified, but did the server grant them *this* portal? Answered by
+  // `GET /v1/me/portals` and never by reading a role here — see
+  // `lib/principal.ts`'s `portalGrant()`. Route guarding is UX only; `/v1`
+  // authorization remains the authority.
+  const grant = grantedPortal(portalAccess, "volunteer");
+  if (grant === null) {
+    return <PortalGate state={portalAccess} me={session.me} />;
+  }
+
+  // Every value below comes from `GET /v1/me`. There is no fallback name,
+  // company, or id: an unverified visitor never reaches this line.
+  const displayName = principalDisplayName(session.me);
+  // The unit the granting membership covers, as the server reported it —
+  // not whichever active membership `principalOrgUnitLabel` happened to list
+  // first, which for an account holding two roles could name the wrong one.
+  const company = grant.org_unit_path;
+  const initials = principalInitials(session.me);
 
   return (
     <div className="min-h-screen bg-background">
@@ -111,6 +141,7 @@ export function VolunteerPortalLayout() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">{company}</p>
+                <p className="truncate text-xs text-muted-foreground">{grant.display_name}</p>
               </div>
             </div>
             <button
@@ -135,9 +166,7 @@ export function VolunteerPortalLayout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <BrandLogo compact className="w-[145px]" />
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" />
           </div>
         </header>

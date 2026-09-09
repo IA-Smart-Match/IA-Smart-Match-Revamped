@@ -27,6 +27,7 @@ router = APIRouter(prefix="/v1/units", tags=["speakers"])
 _repo = SpeakerWorkflowRepository()
 _ADMIN = frozenset({"admin"})
 _SHARED = frozenset({"admin", "coordinator"})
+_HOST = frozenset({"coordinator"})
 SPEAKER_WRITE_RATE_LIMIT = RateLimit(
     operation="speaker-workflow.write", max_requests=90, window=timedelta(minutes=1)
 )
@@ -47,6 +48,8 @@ SpeakerEventStatus = Literal[
 
 
 def _authorize(session: Any, principal: Any, unit_id: uuid.UUID, roles: frozenset[str]) -> None:
+    if roles not in (_ADMIN, _SHARED, _HOST):
+        raise RuntimeError("speaker routes must use a declared speaker role set")
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
         principal.principal,
@@ -305,7 +308,7 @@ def run_match(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)],
 ) -> MatchRunResponse:
     charge_quota(session, principal, SPEAKER_WRITE_RATE_LIMIT)
-    _authorize(session, principal, unit_id, frozenset({"coordinator"}))
+    _authorize(session, principal, unit_id, _HOST)
     event = _repo_event(session, principal.tenant_id, unit_id, event_id)
     if not event or event["status"] != "published":
         raise ApiError(
@@ -375,7 +378,7 @@ def submit_shortlist(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)],
 ) -> list[SpeakerEventSummary]:
     charge_quota(session, principal, SPEAKER_WRITE_RATE_LIMIT)
-    _authorize(session, principal, unit_id, frozenset({"coordinator"}))
+    _authorize(session, principal, unit_id, _HOST)
     run = _repo.get_run(
         session, tenant_id=principal.tenant_id, unit_id=unit_id, run_id=match_run_id
     )
@@ -660,10 +663,10 @@ class EventActionInput(BaseModel):
 def _repo_event(session: Any, tenant_id: uuid.UUID, unit_id: uuid.UUID, event_id: uuid.UUID):
     return (
         session.execute(
-            sa.select(schema.event).where(
-                schema.event.c.tenant_id == tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
-                schema.event.c.id == event_id,
+            sa.select(schema.managed_event).where(
+                schema.managed_event.c.tenant_id == tenant_id,
+                schema.managed_event.c.owning_unit_id == unit_id,
+                schema.managed_event.c.id == event_id,
             )
         )
         .mappings()
@@ -683,7 +686,7 @@ def close_attendance(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)],
 ) -> list[SpeakerEventResponse]:
     charge_quota(session, principal, SPEAKER_WRITE_RATE_LIMIT)
-    _authorize(session, principal, unit_id, frozenset({"coordinator"}))
+    _authorize(session, principal, unit_id, _HOST)
     event = _repo_event(session, principal.tenant_id, unit_id, event_id)
     if not event or event["status"] == "cancelled":
         raise ApiError(
@@ -691,12 +694,12 @@ def close_attendance(
         )
     if event["attendance_closed_at"] is None:
         changed = session.execute(
-            sa.update(schema.event)
+            sa.update(schema.managed_event)
             .where(
-                schema.event.c.id == event_id,
-                schema.event.c.tenant_id == principal.tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
-                schema.event.c.version == body.expected_version,
+                schema.managed_event.c.id == event_id,
+                schema.managed_event.c.tenant_id == principal.tenant_id,
+                schema.managed_event.c.owning_unit_id == unit_id,
+                schema.managed_event.c.version == body.expected_version,
             )
             .values(
                 attendance_closed_at=sa.func.now(),
@@ -757,12 +760,12 @@ def cancel_event(
         )
     if event["status"] != "cancelled":
         changed = session.execute(
-            sa.update(schema.event)
+            sa.update(schema.managed_event)
             .where(
-                schema.event.c.id == event_id,
-                schema.event.c.tenant_id == principal.tenant_id,
-                schema.event.c.owning_unit_id == unit_id,
-                schema.event.c.version == body.expected_version,
+                schema.managed_event.c.id == event_id,
+                schema.managed_event.c.tenant_id == principal.tenant_id,
+                schema.managed_event.c.owning_unit_id == unit_id,
+                schema.managed_event.c.version == body.expected_version,
             )
             .values(
                 status="cancelled",

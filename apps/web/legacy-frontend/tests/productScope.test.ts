@@ -30,15 +30,16 @@ const PRESERVED: readonly Capability[] = [
   // Connector reads the queue). Its own capability rather than a share of
   // `event_reads` because it is a write — see `product_scope.py`.
   "speaker_request_intake",
+  "speaker_contact_management",
   "match_runs",
   "discovery_metrics",
-  "consented_outreach",
   "rewards_ledger",
   "operator_record_import",
 ];
 
 /** Customer §20 ("Explicit Scope Boundaries") and the member_inquiry disposition. */
 const GATED: readonly Capability[] = [
+  "consented_outreach",
   "external_speaker_acquisition",
   "cold_unknown_contact_outreach",
   "chapter_membership_dues",
@@ -64,13 +65,9 @@ test("out-of-scope capabilities are disabled", () => {
   }
 });
 
-test("gating cold outreach does not gate the consented path", () => {
-  // The two share a word and nothing else: one contacts people who never
-  // agreed to be contacted, the other sends an approved draft to a consented
-  // contact. A gate keyed on the word "outreach" would remove a working,
-  // in-scope capability.
+test("all email outreach stays outside Smart Match", () => {
   assert.equal(isCapabilityEnabled("cold_unknown_contact_outreach"), false);
-  assert.equal(isCapabilityEnabled("consented_outreach"), true);
+  assert.equal(isCapabilityEnabled("consented_outreach"), false);
 });
 
 test("rewards are not disabled as collateral of removing chapter membership", () => {

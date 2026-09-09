@@ -1,4 +1,5 @@
 from smartmatch_domain.speaker_matching import suggest_speakers
+from smartmatch_persistence import schema
 
 
 def test_matching_is_deterministic_and_does_not_pad_results():
@@ -42,3 +43,15 @@ def test_matching_caps_results_at_three():
         for i in range(5)
     ]
     assert len(suggest_speakers(["Data"], None, profiles)) == 3
+
+
+def test_match_results_snapshot_the_displayed_profile() -> None:
+    assert {
+        "speaker_name",
+        "speaker_title",
+        "speaker_company",
+        "speaker_board_role",
+        "expertise_topics",
+        "home_region",
+        "service_regions",
+    } <= set(schema.speaker_match_result.c.keys())

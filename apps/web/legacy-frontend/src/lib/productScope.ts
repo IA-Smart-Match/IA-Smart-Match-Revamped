@@ -71,8 +71,8 @@ export const CBA_CAPABILITY_POLICY = {
   match_runs: true,
   /** The red/yellow/green discovery feed and its funnel metrics (customer §17). */
   discovery_metrics: true,
-  /** Sending an approved draft to a contact whose consent is on record. */
-  consented_outreach: true,
+  /** Email is handled outside Smart Match; the application tracks responses only. */
+  consented_outreach: false,
   /** Server-backed rewards/points. Customer §4: "Rewards / points — Keep". */
   rewards_ledger: true,
   /** An operator importing records the institution already holds (customer §20). */

@@ -1,7 +1,7 @@
 """Add manually managed events and external-feedback QR redirects.
 
-Revision ID: 0016_manual_events
-Revises: 0015_remove_ledger_reversal
+Revision ID: 0034_manual_events
+Revises: 0033_event_filed_by
 Create Date: 2026-09-07
 
 This is the manual-entry path authorized independently of crawler work. It
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0016_manual_events"
-down_revision = "0015_remove_ledger_reversal"
+revision = "0034_manual_events"
+down_revision = "0033_event_filed_by"
 branch_labels = None
 depends_on = None
 
@@ -24,7 +24,7 @@ _CATEGORIES = "'hackathon', 'datathon', 'competition', 'guest lecturer event', '
 
 def upgrade() -> None:
     op.create_table(
-        "event",
+        "managed_event",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("owning_unit_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -49,13 +49,25 @@ def upgrade() -> None:
         sa.Column("contact_email", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), nullable=False, server_default="draft"),
         sa.Column("source_kind", sa.Text(), nullable=False, server_default="manual"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.PrimaryKeyConstraint("id", name="event_pkey"),
-        sa.UniqueConstraint("tenant_id", "id", name="uq_event_tenant_id"),
-        sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_event_tenant_unit_id"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.PrimaryKeyConstraint("id", name="managed_event_pkey"),
+        sa.UniqueConstraint("tenant_id", "id", name="uq_managed_event_tenant_id"),
         sa.UniqueConstraint(
-            "tenant_id", "owning_unit_id", "idempotency_key", name="uq_event_idempotency"
+            "tenant_id", "owning_unit_id", "id", name="uq_managed_event_tenant_unit_id"
+        ),
+        sa.UniqueConstraint(
+            "tenant_id", "owning_unit_id", "idempotency_key", name="uq_managed_event_idempotency"
         ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(
@@ -68,37 +80,57 @@ def upgrade() -> None:
             ["user_account.tenant_id", "user_account.id"],
             ondelete="RESTRICT",
         ),
-        sa.CheckConstraint(f"category IS NULL OR category IN ({_CATEGORIES})", name="ck_event_category"),
-        sa.CheckConstraint("time_precision IN ('exact', 'date_only', 'unresolved')", name="ck_event_time_precision"),
-        sa.CheckConstraint("status IN ('draft', 'published')", name="ck_event_status"),
-        sa.CheckConstraint("source_kind = 'manual'", name="ck_event_source_kind"),
-        sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_event_capacity"),
-        sa.CheckConstraint("volunteer_openings IS NULL OR volunteer_openings >= 0", name="ck_event_openings_nonnegative"),
+        sa.CheckConstraint(
+            f"category IS NULL OR category IN ({_CATEGORIES})", name="ck_managed_event_category"
+        ),
+        sa.CheckConstraint(
+            "time_precision IN ('exact', 'date_only', 'unresolved')",
+            name="ck_managed_event_time_precision",
+        ),
+        sa.CheckConstraint("status IN ('draft', 'published')", name="ck_managed_event_status"),
+        sa.CheckConstraint("source_kind = 'manual'", name="ck_managed_event_source_kind"),
+        sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_managed_event_capacity"),
+        sa.CheckConstraint(
+            "volunteer_openings IS NULL OR volunteer_openings >= 0",
+            name="ck_managed_event_openings_nonnegative",
+        ),
         sa.CheckConstraint(
             "capacity IS NULL OR volunteer_openings IS NULL OR volunteer_openings <= capacity",
-            name="ck_event_openings_within_capacity",
+            name="ck_managed_event_openings_within_capacity",
         ),
         sa.CheckConstraint(
-            "(time_precision = 'unresolved' AND starts_at IS NULL AND ends_at IS NULL AND on_date IS NULL) OR "
-            "(time_precision = 'exact' AND starts_at IS NOT NULL AND on_date IS NULL AND time_zone IS NOT NULL) OR "
-            "(time_precision = 'date_only' AND starts_at IS NULL AND ends_at IS NULL AND on_date IS NOT NULL AND time_zone IS NOT NULL)",
-            name="ck_event_temporal_shape",
+            "(time_precision = 'unresolved' AND starts_at IS NULL "
+            "AND ends_at IS NULL AND on_date IS NULL) OR "
+            "(time_precision = 'exact' AND starts_at IS NOT NULL "
+            "AND on_date IS NULL AND time_zone IS NOT NULL) OR "
+            "(time_precision = 'date_only' AND starts_at IS NULL "
+            "AND ends_at IS NULL AND on_date IS NOT NULL "
+            "AND time_zone IS NOT NULL)",
+            name="ck_managed_event_temporal_shape",
         ),
-        sa.CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="ck_event_end_after_start"),
+        sa.CheckConstraint(
+            "ends_at IS NULL OR ends_at > starts_at", name="ck_managed_event_end_after_start"
+        ),
         sa.CheckConstraint(
             "status = 'draft' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
             "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
             "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
-            "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' AND audience IS NOT NULL "
+            "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' "
+            "AND audience IS NOT NULL "
             "AND btrim(audience) <> '' AND contact_name IS NOT NULL AND btrim(contact_name) <> '' "
             "AND contact_email IS NOT NULL AND btrim(contact_email) <> '')",
-            name="ck_event_publishable",
+            name="ck_managed_event_publishable",
         ),
     )
     op.create_index(
-        "uq_event_resolved_identity",
-        "event",
-        ["tenant_id", "owning_unit_id", "normalized_title", sa.text("COALESCE(on_date, (starts_at AT TIME ZONE time_zone)::date)")],
+        "uq_managed_event_resolved_identity",
+        "managed_event",
+        [
+            "tenant_id",
+            "owning_unit_id",
+            "normalized_title",
+            sa.text("COALESCE(on_date, (starts_at AT TIME ZONE time_zone)::date)"),
+        ],
         unique=True,
         postgresql_where=sa.text("time_precision <> 'unresolved'"),
     )
@@ -112,15 +144,25 @@ def upgrade() -> None:
         sa.Column("public_token", sa.Text(), nullable=False),
         sa.Column("destination_url", sa.Text(), nullable=False),
         sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.PrimaryKeyConstraint("id", name="event_feedback_qr_pkey"),
         sa.UniqueConstraint("tenant_id", "id", name="uq_event_feedback_qr_tenant_id"),
         sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
         sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
         sa.ForeignKeyConstraint(
             ["tenant_id", "owning_unit_id", "event_id"],
-            ["event.tenant_id", "event.owning_unit_id", "event.id"],
+            ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
@@ -135,7 +177,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("qr_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("opened_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "opened_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+        ),
         sa.PrimaryKeyConstraint("id", name="event_feedback_qr_open_pkey"),
         sa.ForeignKeyConstraint(
             ["tenant_id", "qr_id"],
@@ -143,27 +187,14 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
     )
-    op.create_index("ix_event_feedback_qr_open_qr_time", "event_feedback_qr_open", ["qr_id", "opened_at"])
-
-    # Existing pilot rows may name pre-persistence event UUIDs. NOT VALID
-    # enforces the relationship for new writes without inventing parent rows.
-    op.execute(
-        "ALTER TABLE attendance_record ADD CONSTRAINT fk_attendance_record_event "
-        "FOREIGN KEY (tenant_id, owning_unit_id, event_id) "
-        "REFERENCES event (tenant_id, owning_unit_id, id) ON DELETE RESTRICT NOT VALID"
-    )
-    op.execute(
-        "ALTER TABLE pipeline_record ADD CONSTRAINT fk_pipeline_record_event "
-        "FOREIGN KEY (tenant_id, owning_unit_id, opportunity_event_id) "
-        "REFERENCES event (tenant_id, owning_unit_id, id) ON DELETE RESTRICT NOT VALID"
+    op.create_index(
+        "ix_event_feedback_qr_open_qr_time", "event_feedback_qr_open", ["qr_id", "opened_at"]
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_pipeline_record_event", "pipeline_record", type_="foreignkey")
-    op.drop_constraint("fk_attendance_record_event", "attendance_record", type_="foreignkey")
     op.drop_index("ix_event_feedback_qr_open_qr_time", table_name="event_feedback_qr_open")
     op.drop_table("event_feedback_qr_open")
     op.drop_table("event_feedback_qr")
-    op.drop_index("uq_event_resolved_identity", table_name="event")
-    op.drop_table("event")
+    op.drop_index("uq_managed_event_resolved_identity", table_name="managed_event")
+    op.drop_table("managed_event")

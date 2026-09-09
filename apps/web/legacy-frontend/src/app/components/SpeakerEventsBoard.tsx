@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, MessageSquareText } from "lucide-react";
-import { addSpeakerEventNote, correctSpeakerEvent, fetchSpeakerEvent, fetchSpeakerEvents, getConfiguredUnitId, transitionSpeakerEvent, type SpeakerEventRecord, type SpeakerEventStatus } from "../../lib/api";
+import { addSpeakerEventNote, correctSpeakerEvent, fetchSpeakerEvent, fetchSpeakerEvents, transitionSpeakerEvent, type SpeakerEventRecord, type SpeakerEventStatus } from "../../lib/api";
 import { usePrincipalKey } from "./PrincipalQueryProvider";
+import { useAuthorizedUnitId } from "../hooks/useAuthorizedUnit";
 
 const labels: Record<SpeakerEventStatus, string> = { not_emailed_yet: "Not Emailed Yet", awaiting_response: "Awaiting Response", declined: "Declined", ready_for_handoff: "Ready for Handoff", handed_off: "Handed Off", awaiting_final_confirmation: "Awaiting Final Confirmation", confirmed: "Confirmed", withdrawn: "Withdrawn", attended: "Attended", did_not_attend: "Did Not Attend", event_cancelled: "Event Cancelled" };
 const connectorActions: Partial<Record<SpeakerEventStatus, Array<[SpeakerEventStatus,string]>>> = { not_emailed_yet: [["awaiting_response","Mark outside email sent"]], awaiting_response: [["ready_for_handoff","Record interest"],["declined","Record decline"]], ready_for_handoff: [["handed_off","Hand off to Event Host"]] };
 const hostActions: Partial<Record<SpeakerEventStatus, Array<[SpeakerEventStatus,string]>>> = { handed_off: [["awaiting_final_confirmation","Request final confirmation"]], awaiting_final_confirmation: [["confirmed","Record confirmation"],["withdrawn","Record withdrawal"]], confirmed: [["attended","Check in"],["withdrawn","Record withdrawal"]] };
 
 export function SpeakerEventsBoard({ role }: { role: "connector" | "host" }) {
-  const unitId = getConfiguredUnitId(); const principalKey = usePrincipalKey(); const client = useQueryClient();
+  const unitId = useAuthorizedUnitId(role === "connector" ? "admin" : "coordinator"); const principalKey = usePrincipalKey(); const client = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null); const [note, setNote] = useState(""); const [correctionReason, setCorrectionReason] = useState(""); const [correctionStatus, setCorrectionStatus] = useState<SpeakerEventStatus>("not_emailed_yet");
   const [statusFilter, setStatusFilter] = useState<SpeakerEventStatus | "all">("all");
   const listKey = [principalKey, "speaker-events", unitId] as const;

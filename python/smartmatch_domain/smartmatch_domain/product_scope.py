@@ -228,7 +228,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.SPEAKER_CONTACT_MANAGEMENT: True,
                 Capability.MATCH_RUNS: True,
                 Capability.DISCOVERY_METRICS: True,
-                Capability.CONSENTED_OUTREACH: True,
+                Capability.CONSENTED_OUTREACH: False,
                 Capability.REWARDS_LEDGER: True,
                 Capability.OPERATOR_RECORD_IMPORT: True,
                 Capability.EXTERNAL_SPEAKER_ACQUISITION: False,

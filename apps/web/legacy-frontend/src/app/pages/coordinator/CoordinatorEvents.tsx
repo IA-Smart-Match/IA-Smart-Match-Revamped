@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, MapPin, Sparkles, Users } from "lucide-react";
 import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
-import { closeEventAttendance, fetchManualEvents, getConfiguredUnitId, runSpeakerMatch, submitSpeakerShortlist, type ManualEvent, type MatchRun } from "../../../lib/api";
+import { closeEventAttendance, fetchManualEvents, runSpeakerMatch, submitSpeakerShortlist, type ManualEvent, type MatchRun } from "../../../lib/api";
+import { useAuthorizedUnitId } from "../../hooks/useAuthorizedUnit";
 
 function schedule(event: ManualEvent) { if (event.time_precision === "date_only") return `${event.on_date} · All day · ${event.time_zone}`; if (event.time_precision === "exact" && event.starts_at) return `${new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: event.time_zone ?? undefined }).format(new Date(event.starts_at))} · ${event.time_zone}`; return "Schedule unavailable"; }
 
@@ -20,7 +21,7 @@ function MatchPanel({ event, unitId }: { event: ManualEvent; unitId: string }) {
 }
 
 export function CoordinatorEvents() {
-  const unitId = getConfiguredUnitId(); const principalKey = usePrincipalKey();
+  const unitId = useAuthorizedUnitId("coordinator"); const principalKey = usePrincipalKey();
   const query = useQuery({ queryKey: [principalKey, "manual-events", unitId, "published"], queryFn: () => fetchManualEvents(unitId!, "published"), enabled: Boolean(principalKey && unitId) });
   if (!unitId) return <div className="rounded-2xl border bg-card p-8"><h1 className="text-2xl">Events</h1><p className="mt-2 text-muted-foreground">Sign in with an authorized unit to view its published events.</p></div>;
   if (query.isLoading) return <div className="space-y-4"><h1 className="text-2xl">Events</h1><div className="h-32 animate-pulse rounded-2xl bg-muted" /></div>;

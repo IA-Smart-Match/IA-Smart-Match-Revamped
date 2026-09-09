@@ -49,7 +49,7 @@ Use the user-facing terms in headings, navigation, help text, profile fallbacks,
 
 ### Writing rules
 
-- Prefer a direct verb: “Find events,” “Choose volunteers,” “Send invitation,” “Review assignment.”
+- Prefer a direct verb: “Create an event,” “Choose speakers,” “Record outreach,” “Review a handoff.”
 - Name the object and outcome. Avoid vague claims such as “optimize engagement” or “unlock insights.”
 - Explain unfamiliar measurements next to where they are used.
 - Use sentence case for page titles, headings, buttons, tabs, and table columns.

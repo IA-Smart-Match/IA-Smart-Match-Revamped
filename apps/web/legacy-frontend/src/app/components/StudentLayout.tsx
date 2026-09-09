@@ -3,6 +3,7 @@ import {
   House,
   CalendarDays,
   ClipboardCheck,
+  MessageSquare,
   Users,
   Menu,
   X,
@@ -10,12 +11,25 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
+import { SessionGate } from "./SessionGate";
+import { PortalGate, grantedPortal } from "./PortalGate";
+import { useSession, useSignOut } from "../hooks/useSession";
+import { usePortalAccess } from "../hooks/usePortalAccess";
+import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 
 const navigation = [
   { name: "Home", href: "/student-portal", icon: House, exact: true },
   { name: "My Events", href: "/student-portal/events", icon: CalendarDays },
   { name: "Past Events", href: "/student-portal/history", icon: ClipboardCheck },
+  // §§15-16's rating surface, after the events it looks back on. The label
+  // says "My" deliberately: the page today can only amend or withdraw a
+  // rating this student already left, not find a new speaker to rate for the
+  // first time (OQ-CBA-064), so the nav must not promise a way in. Ungated
+  // here like every other entry — this shell gates wholesale on
+  // `GET /v1/me/portals`, and the routes behind it are `student`-scoped
+  // server-side per request.
+  { name: "My speaker feedback", href: "/student-portal/speaker-feedback", icon: MessageSquare },
   { name: "Connect", href: "/student-portal/connect", icon: Users },
   { name: "Rewards", href: "/student-portal/rewards", icon: Gift },
 ];
@@ -25,31 +39,40 @@ export function StudentLayout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const session = (() => {
-    try {
-      return JSON.parse(sessionStorage.getItem("iaw_session") ?? "{}") as {
-        user?: Record<string, unknown>;
-        role?: string;
-      };
-    } catch {
-      return {};
-    }
-  })();
-
-  const user = session.user ?? {};
-  const displayName = String(user.name ?? "Student");
-  const school = String(user.school ?? "IA West");
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const session = useSession();
+  // The account-to-portal mapping, from `GET /v1/me/portals`. The shell used
+  // to have no way to ask whether this account was actually assigned this
+  // portal, which is what the pages inside it rendered a banner about.
+  const portalAccess = usePortalAccess();
+  const signOut = useSignOut();
 
   function handleSignOut() {
-    sessionStorage.removeItem("iaw_session");
+    signOut();
     navigate("/");
   }
+
+  if (session.status !== "signed-in") {
+    return <SessionGate state={session} />;
+  }
+
+  // Second gate, and a different question from the first: the caller is
+  // verified, but did the server grant them *this* portal? Answered by
+  // `GET /v1/me/portals` and never by reading a role here — see
+  // `lib/principal.ts`'s `portalGrant()`. Route guarding is UX only; `/v1`
+  // authorization remains the authority.
+  const grant = grantedPortal(portalAccess, "student");
+  if (grant === null) {
+    return <PortalGate state={portalAccess} me={session.me} />;
+  }
+
+  // Every value below comes from `GET /v1/me`. There is no fallback name,
+  // school, or id: an unverified visitor never reaches this line.
+  const displayName = principalDisplayName(session.me);
+  // The unit the granting membership covers, as the server reported it —
+  // not whichever active membership `principalOrgUnitLabel` happened to list
+  // first, which for an account holding two roles could name the wrong one.
+  const school = grant.org_unit_path;
+  const initials = principalInitials(session.me);
 
   return (
     <div className="min-h-screen bg-background">
@@ -115,6 +138,7 @@ export function StudentLayout() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">{school}</p>
+                <p className="truncate text-xs text-muted-foreground">{grant.display_name}</p>
               </div>
             </div>
             <button
@@ -139,9 +163,7 @@ export function StudentLayout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <BrandLogo compact className="w-[145px]" />
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" />
           </div>
         </header>

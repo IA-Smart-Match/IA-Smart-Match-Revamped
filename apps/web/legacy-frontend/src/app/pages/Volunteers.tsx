@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Plus, Upload } from "lucide-react";
 import { usePrincipalKey } from "../components/PrincipalQueryProvider";
-import { createSpeaker, fetchSpeakers, getConfiguredUnitId, publishSpeakerRoster, updateSpeaker, type SpeakerProfile, type SpeakerProfileInput } from "../../lib/api";
+import { createSpeaker, fetchSpeakers, publishSpeakerRoster, updateSpeaker, type SpeakerProfile, type SpeakerProfileInput } from "../../lib/api";
+import { useAuthorizedUnitId } from "../hooks/useAuthorizedUnit";
 
 const blank: SpeakerProfileInput = { name: "", title: "", company: "", board_role: "", expertise_topics: [], home_region: "", service_regions: [], contact_email: "", contact_phone: "", available: true, active: true };
 const split = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
 
 export function Volunteers() {
-  const unitId = getConfiguredUnitId(); const principalKey = usePrincipalKey(); const client = useQueryClient();
+  const unitId = useAuthorizedUnitId("admin"); const principalKey = usePrincipalKey(); const client = useQueryClient();
   const [selected, setSelected] = useState<SpeakerProfile | null>(null); const [form, setForm] = useState(blank); const [topics, setTopics] = useState(""); const [regions, setRegions] = useState("");
   const key = [principalKey, "speakers", unitId] as const;
   const query = useQuery({ queryKey: key, queryFn: () => fetchSpeakers(unitId!), enabled: Boolean(principalKey && unitId) });

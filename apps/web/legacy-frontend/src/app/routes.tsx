@@ -44,6 +44,9 @@ const StudentConnect = lazy(() =>
 const StudentRewards = lazy(() =>
   import("./pages/student/StudentRewards").then((m) => ({ default: m.StudentRewards })),
 );
+const StudentSpeakerFeedback = lazy(() =>
+  import("./pages/student/StudentSpeakerFeedback").then((m) => ({ default: m.StudentSpeakerFeedback })),
+);
 
 const CoordinatorHome = lazy(() =>
   import("./pages/coordinator/CoordinatorHome").then((m) => ({ default: m.CoordinatorHome })),
@@ -60,6 +63,9 @@ const CoordinatorMeetings = lazy(() =>
   import("./pages/coordinator/CoordinatorMeetings").then((m) => ({
     default: m.CoordinatorMeetings,
   })),
+);
+const CoordinatorSpeakerFeedback = lazy(() =>
+  import("./pages/coordinator/CoordinatorSpeakerFeedback").then((m) => ({ default: m.CoordinatorSpeakerFeedback })),
 );
 
 const VolunteerHome = lazy(() =>
@@ -101,6 +107,7 @@ export const router = createBrowserRouter([
       { path: "history", element: withSuspense(<StudentHistory />) },
       { path: "connect", element: withSuspense(<StudentConnect />) },
       { path: "rewards", element: withSuspense(<StudentRewards />) },
+      { path: "speaker-feedback", element: withSuspense(<StudentSpeakerFeedback />) },
     ],
   },
 
@@ -112,6 +119,7 @@ export const router = createBrowserRouter([
       { index: true, element: withSuspense(<CoordinatorHome />) },
       { path: "events", element: withSuspense(<CoordinatorEvents />) },
       { path: "outreach", element: withSuspense(<CoordinatorOutreach />) },
+      { path: "speaker-feedback", element: withSuspense(<CoordinatorSpeakerFeedback />) },
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
     ],
   },

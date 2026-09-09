@@ -10,7 +10,6 @@ import {
   createManualEvent,
   fetchFeedbackQr,
   fetchManualEvents,
-  getConfiguredUnitId,
   publishManualEvent,
   saveFeedbackQr,
   updateManualEvent,
@@ -18,6 +17,7 @@ import {
   type ManualEventInput,
   type ManualEventTimePrecision,
 } from "@/lib/api";
+import { useAuthorizedUnitId } from "@/app/hooks/useAuthorizedUnit";
 
 const categories = ["hackathon", "datathon", "competition", "guest lecturer event", "school event"];
 const defaultZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
@@ -129,7 +129,7 @@ function eventErrorMessage(error: unknown): string {
 }
 
 export function Events() {
-  const unitId = getConfiguredUnitId();
+  const unitId = useAuthorizedUnitId("admin");
   const principalKey = usePrincipalKey();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<ManualEvent | null>(null);
@@ -145,7 +145,7 @@ export function Events() {
   const invalidate = async () => { await queryClient.invalidateQueries({ queryKey: [principalKey, "manual-events", unitId] }); };
   const saveMutation = useMutation({
     mutationFn: async () => selected
-      ? updateManualEvent(unitId!, selected.id, inputFromForm(form))
+      ? updateManualEvent(unitId!, selected.id, selected.version, inputFromForm(form))
       : createManualEvent(unitId!, inputFromForm(form), createKey.current),
     onSuccess: async (event) => { setSelected(event); setNotice("Draft saved."); await invalidate(); },
   });

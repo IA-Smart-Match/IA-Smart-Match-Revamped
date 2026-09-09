@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from smartmatch_api.errors import ApiError
 from smartmatch_api.routers import events
 from smartmatch_persistence import schema
-from smartmatch_persistence.events import EventRepository
+from smartmatch_persistence.manual_events import ManualEventRepository
 from sqlalchemy.dialects import postgresql
 
 
@@ -64,26 +64,57 @@ def test_event_schedule_requires_named_zone_and_aware_instant() -> None:
 
 
 def test_manual_event_schema_is_unit_scoped_and_qr_opens_store_no_visitor_data() -> None:
-    assert {"tenant_id", "owning_unit_id", "created_by"} <= set(schema.event.c.keys())
-    assert {"id", "tenant_id", "qr_id", "opened_at"} == set(
-        schema.event_feedback_qr_open.c.keys()
-    )
+    assert {"tenant_id", "owning_unit_id", "created_by"} <= set(schema.managed_event.c.keys())
+    assert {"id", "tenant_id", "qr_id", "opened_at"} == set(schema.event_feedback_qr_open.c.keys())
     assert {"ip", "user_agent", "referrer", "cookie"}.isdisjoint(
         schema.event_feedback_qr_open.c.keys()
     )
 
 
-def test_legacy_event_foreign_keys_are_added_without_validating_orphans() -> None:
+def test_manual_events_follow_the_established_event_migration_chain() -> None:
     migration = (
         Path(__file__).resolve().parents[2]
         / "db"
         / "migrations"
         / "versions"
-        / "0016_manual_events.py"
+        / "0034_manual_events.py"
     ).read_text(encoding="utf-8")
-    assert migration.count("NOT VALID") >= 2
-    assert "fk_attendance_record_event" in migration
-    assert "fk_pipeline_record_event" in migration
+    assert 'down_revision = "0033_event_filed_by"' in migration
+    assert '"managed_event"' in migration
+    assert "fk_attendance_record_event" not in migration
+    assert "fk_pipeline_record_event" not in migration
+
+
+def test_feedback_qr_constraint_names_match_the_repository() -> None:
+    migration = (
+        Path(__file__).resolve().parents[2]
+        / "db"
+        / "migrations"
+        / "versions"
+        / "0034_manual_events.py"
+    ).read_text(encoding="utf-8")
+    repository = (
+        Path(__file__).resolve().parents[2]
+        / "python"
+        / "smartmatch_persistence"
+        / "smartmatch_persistence"
+        / "manual_events.py"
+    ).read_text(encoding="utf-8")
+    assert 'name="uq_event_feedback_qr_event"' in migration
+    assert 'constraint="uq_event_feedback_qr_event"' in repository
+
+
+def test_speaker_event_actions_use_the_manual_event_table() -> None:
+    router = (
+        Path(__file__).resolve().parents[2]
+        / "services"
+        / "api"
+        / "smartmatch_api"
+        / "routers"
+        / "speakers.py"
+    ).read_text(encoding="utf-8")
+    assert "schema.managed_event" in router
+    assert "schema.event" not in router
 
 
 def test_qr_destination_update_does_not_rotate_the_public_token(
@@ -95,7 +126,7 @@ def test_qr_destination_update_does_not_rotate_the_public_token(
         def execute(self, statement):
             statements.append(statement)
 
-    repository = EventRepository()
+    repository = ManualEventRepository()
     monkeypatch.setattr(
         repository,
         "get_qr",

@@ -207,7 +207,11 @@ _D6_FORBIDDEN_SEGMENTS = frozenset(
 G3_AUTHORIZED_EVENT_PATHS = frozenset(
     {
         "/v1/units/{unit_id}/events",
-        "/v1/units/{unit_id}/tag-quarantine",
+        "/v1/units/{unit_id}/events/{event_id}",
+        "/v1/units/{unit_id}/events/{event_id}/publish",
+        "/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        "/v1/units/{unit_id}/events/{event_id}/close-attendance",
+        "/v1/units/{unit_id}/events/{event_id}/cancel",
     }
 )
 
@@ -247,6 +251,8 @@ G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
     {
         "/v1/units/{unit_id}/match-runs",
         "/v1/units/{unit_id}/match-runs/{match_run_id}",
+        "/v1/units/{unit_id}/events/{event_id}/match-runs",
+        "/v1/units/{unit_id}/match-runs/{match_run_id}/shortlist",
     }
 )
 
@@ -430,42 +436,17 @@ def test_the_engagement_router_is_read_only():
     assert offenders == [], f"R2: the engagement router is read-only; found {offenders}"
 
 
-def test_the_events_router_declares_exactly_the_authorized_routes():
-    """The G3 flip is bounded by a list, not by the router's own contents.
-
-    Before card P-EVENTS-API this asserted ``events.router.routes == []``. The
-    honest successor is not "the events router may now declare things" — that
-    would be a gate replaced by nothing — but an exact equality against
-    :data:`G3_AUTHORIZED_EVENT_PATHS`. A third route added to this router fails
-    here whether or not anyone regenerated the contract, which is the property
-    the original assertion actually provided.
-    """
+def test_the_manual_event_router_declares_only_the_authorized_routes() -> None:
     declared = {str(route.path) for route in events.router.routes}  # type: ignore[attr-defined]
+    assert declared <= G3_AUTHORIZED_EVENT_PATHS
+    assert declared == {
+        "/v1/units/{unit_id}/events",
+        "/v1/units/{unit_id}/events/{event_id}",
+        "/v1/units/{unit_id}/events/{event_id}/publish",
+        "/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+    }
 
-    assert declared == G3_AUTHORIZED_EVENT_PATHS, (
-        "G3: the events router declares routes outside the P-EVENTS-API "
-        f"allowlist: {sorted(declared - G3_AUTHORIZED_EVENT_PATHS)}"
-    )
 
-
-def test_the_authorized_event_routes_are_read_only():
-    """A read was authorized. A trigger was not.
-
-    G3 §9 leaves API handlers "commands and review decisions only" and puts
-    every network action worker-side, and card S6b makes an HTTP *command*
-    surface conditional on a signed artifact calling for one — which none does.
-    A ``POST`` under either of these paths would be that surface arriving
-    without the artifact, so the methods are pinned rather than the paths
-    alone.
-    """
-    offenders = sorted(
-        f"{method} {route.path}"  # type: ignore[attr-defined]
-        for route in events.router.routes
-        for method in getattr(route, "methods", set())
-        if method not in {"GET", "HEAD"}
-    )
-
-    assert offenders == [], f"G3: the events router is read-only; found {offenders}"
 
 
 def test_the_calendar_router_declares_exactly_the_authorized_routes():
@@ -546,7 +527,10 @@ def test_the_match_run_router_declares_exactly_the_authorized_routes():
     """
     declared = {str(route.path) for route in match_runs.router.routes}  # type: ignore[attr-defined]
 
-    assert declared == G1_AUTHORIZED_MATCH_RUN_PATHS, (
+    assert declared == {
+        "/v1/units/{unit_id}/match-runs",
+        "/v1/units/{unit_id}/match-runs/{match_run_id}",
+    }, (
         "G1: the match-run router declares routes outside the P-MATCH-API "
         f"allowlist: {sorted(declared - G1_AUTHORIZED_MATCH_RUN_PATHS)}"
     )
@@ -644,13 +628,8 @@ def test_a_rewards_path_outside_the_allowlist_is_still_refused():
     assert _forbidden_gate_for_path("/v1/units/{unit_id}/rewards") is None
 
 
-def test_openapi_exposes_no_gated_product_surface_routes():
-    """No HTTP surface for match/score/rank, crawl/discovery, or rewards until gates close."""
+def test_openapi_exposes_no_unapproved_gated_product_surface_routes() -> None:
     document = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
-    paths = document.get("paths", {})
-    for path in paths:
+    for path in document.get("paths", {}):
         gate = _forbidden_gate_for_path(path)
-        assert gate is None, (
-            f"forbidden route {path!r} in OpenAPI — gate {gate} not closed "
-            f"(check path segments, not descriptions)"
-        )
+        assert gate is None, f"forbidden route {path!r} in OpenAPI — gate {gate} is not approved"

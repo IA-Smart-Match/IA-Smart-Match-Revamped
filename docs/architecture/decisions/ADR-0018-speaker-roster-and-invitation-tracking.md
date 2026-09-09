@@ -1,4 +1,4 @@
-# ADR-0016 — Speaker roster and invitation tracking
+# ADR-0018 — Speaker roster and invitation tracking
 
 **Status:** Accepted
 **Date:** 8 September 2026
@@ -19,3 +19,5 @@ The invitation states are Not Emailed Yet, Awaiting Response, Declined, Ready fo
 - Legacy `pipeline_record` rows remain intact for compatibility but receive no new invitation writes.
 - Event cancellation deactivates its feedback QR because public redirects require a published event.
 - The prior workshop direction to match before availability and batch-invite is superseded. Availability is an eligibility filter before matching.
+
+

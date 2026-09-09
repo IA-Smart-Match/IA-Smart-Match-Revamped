@@ -69,7 +69,6 @@ PRESERVED_UNDER_CBA = frozenset(
         Capability.SPEAKER_CONTACT_MANAGEMENT,
         Capability.MATCH_RUNS,
         Capability.DISCOVERY_METRICS,
-        Capability.CONSENTED_OUTREACH,
         Capability.REWARDS_LEDGER,
         Capability.OPERATOR_RECORD_IMPORT,
     }
@@ -79,6 +78,7 @@ PRESERVED_UNDER_CBA = frozenset(
 #: disposition in ``docs/plans/open-questions/cba-phase-deferred.md``.
 DISABLED_UNDER_CBA = frozenset(
     {
+        Capability.CONSENTED_OUTREACH,
         Capability.EXTERNAL_SPEAKER_ACQUISITION,
         Capability.COLD_UNKNOWN_CONTACT_OUTREACH,
         Capability.CHAPTER_MEMBERSHIP_DUES,

@@ -140,6 +140,7 @@ class EventWrite(BaseModel):
 
 
 class EventPatch(BaseModel):
+    version: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
     category: str | None = None
@@ -306,7 +307,7 @@ def _qr_response(row: Any, request: Request) -> FeedbackQrResponse:
 
 
 def _write_values(body: EventWrite | EventPatch) -> dict[str, Any]:
-    values = body.model_dump(exclude_unset=True)
+    values = body.model_dump(exclude={"version"}, exclude_unset=True)
     if values.get("title") is not None:
         values["normalized_title"] = normalize_title(values["title"])
     return values
@@ -431,9 +432,15 @@ def update_event(
             tenant_id=principal.tenant_id,
             unit_id=unit_id,
             event_id=event_id,
+            expected_version=body.version,
             values=_write_values(validated),
         )
-        assert row is not None
+        if row is None:
+            raise ApiError(
+                status_code=409,
+                code="stale_event",
+                message="This event changed. Refresh and try again.",
+            )
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -495,6 +502,7 @@ def publish_event(
         tenant_id=principal.tenant_id,
         unit_id=unit_id,
         event_id=event_id,
+        expected_version=current["version"],
         values={"status": "published"},
     )
     assert row is not None

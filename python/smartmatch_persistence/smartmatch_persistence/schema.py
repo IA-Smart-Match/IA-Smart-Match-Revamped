@@ -2689,7 +2689,9 @@ student_speaker_feedback = sa.Table(
         "event_id",
     ),
 )
-_MANAGED_EVENT_CATEGORIES = "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
+_MANAGED_EVENT_CATEGORIES = (
+    "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
+)
 
 managed_event = sa.Table(
     "managed_event",
@@ -2730,7 +2732,9 @@ managed_event = sa.Table(
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="managed_event_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_managed_event_tenant_id"),
-    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_managed_event_tenant_unit_id"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "id", name="uq_managed_event_tenant_unit_id"
+    ),
     sa.UniqueConstraint(
         "tenant_id", "owning_unit_id", "idempotency_key", name="uq_managed_event_idempotency"
     ),
@@ -2761,7 +2765,9 @@ managed_event = sa.Table(
         "time_precision IN ('exact', 'date_only', 'unresolved')",
         name="ck_managed_event_time_precision",
     ),
-    sa.CheckConstraint("status IN ('draft', 'published', 'cancelled')", name="ck_managed_event_status"),
+    sa.CheckConstraint(
+        "status IN ('draft', 'published', 'cancelled')", name="ck_managed_event_status"
+    ),
     sa.CheckConstraint("source_kind = 'manual'", name="ck_managed_event_source_kind"),
     sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_managed_event_capacity"),
     sa.CheckConstraint(
@@ -2780,7 +2786,9 @@ managed_event = sa.Table(
         "AND time_zone IS NOT NULL)",
         name="ck_managed_event_temporal_shape",
     ),
-    sa.CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="ck_managed_event_end_after_start"),
+    sa.CheckConstraint(
+        "ends_at IS NULL OR ends_at > starts_at", name="ck_managed_event_end_after_start"
+    ),
     sa.CheckConstraint(
         "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
         "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
@@ -2927,6 +2935,13 @@ speaker_match_result = sa.Table(
     sa.Column("match_run_id", _UUID, nullable=False),
     sa.Column("speaker_id", _UUID, nullable=False),
     sa.Column("position", sa.Integer, nullable=False),
+    sa.Column("speaker_name", sa.Text, nullable=False),
+    sa.Column("speaker_title", sa.Text, nullable=True),
+    sa.Column("speaker_company", sa.Text, nullable=True),
+    sa.Column("speaker_board_role", sa.Text, nullable=True),
+    sa.Column("expertise_topics", postgresql.JSONB, nullable=False),
+    sa.Column("home_region", sa.Text, nullable=True),
+    sa.Column("service_regions", postgresql.JSONB, nullable=False),
     sa.Column("topic_score", sa.Numeric(6, 5), nullable=False),
     sa.Column("proximity_score", sa.Numeric(6, 5), nullable=False),
     sa.Column("total_score", sa.Numeric(6, 5), nullable=False),

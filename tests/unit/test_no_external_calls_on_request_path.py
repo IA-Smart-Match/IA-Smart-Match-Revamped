@@ -273,18 +273,11 @@ def test_cba_scope_disables_external_acquisition_capabilities() -> None:
         )
 
 
-def test_consented_outreach_is_not_gated_by_the_external_acquisition_gate() -> None:
-    """Gating cold outreach must not take the consented path down with it.
-
-    The two share the word "outreach" and nothing else: one contacts people who
-    never agreed to be contacted, the other sends an approved draft to a
-    consented contact and is explicitly preserved. A blanket gate on the word
-    would remove a working, in-scope capability.
-    """
+def test_all_email_outreach_is_outside_smart_match() -> None:
     from smartmatch_domain.product_scope import (
         DEFAULT_PRODUCT_SCOPE,
         Capability,
         is_capability_enabled,
     )
 
-    assert is_capability_enabled(DEFAULT_PRODUCT_SCOPE, Capability.CONSENTED_OUTREACH)
+    assert not is_capability_enabled(DEFAULT_PRODUCT_SCOPE, Capability.CONSENTED_OUTREACH)

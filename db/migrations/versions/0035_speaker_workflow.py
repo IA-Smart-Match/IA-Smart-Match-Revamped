@@ -1,7 +1,7 @@
 """Add published speaker rosters, matching, and invitation tracking.
 
-Revision ID: 0017_speaker_workflow
-Revises: 0016_manual_events
+Revision ID: 0035_speaker_workflow
+Revises: 0034_manual_events
 Create Date: 2026-09-08
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0017_speaker_workflow"
-down_revision = "0016_manual_events"
+revision = "0035_speaker_workflow"
+down_revision = "0034_manual_events"
 branch_labels = None
 depends_on = None
 
@@ -27,24 +27,26 @@ _STATUSES = (
 
 def upgrade() -> None:
     op.add_column(
-        "event",
+        "managed_event",
         sa.Column("speaker_topics", postgresql.JSONB(), nullable=False, server_default="[]"),
     )
-    op.add_column("event", sa.Column("region", sa.Text(), nullable=True))
-    op.add_column("event", sa.Column("version", sa.Integer(), nullable=False, server_default="1"))
-    op.add_column("event", sa.Column("attendance_closed_at", _TS, nullable=True))
-    op.add_column("event", sa.Column("attendance_closed_by", _UUID, nullable=True))
-    op.add_column("event", sa.Column("cancelled_at", _TS, nullable=True))
-    op.add_column("event", sa.Column("cancelled_by", _UUID, nullable=True))
-    op.add_column("event", sa.Column("cancellation_reason", sa.Text(), nullable=True))
-    op.drop_constraint("ck_event_status", "event", type_="check")
-    op.create_check_constraint(
-        "ck_event_status", "event", "status IN ('draft', 'published', 'cancelled')"
+    op.add_column("managed_event", sa.Column("region", sa.Text(), nullable=True))
+    op.add_column(
+        "managed_event", sa.Column("version", sa.Integer(), nullable=False, server_default="1")
     )
-    op.drop_constraint("ck_event_publishable", "event", type_="check")
+    op.add_column("managed_event", sa.Column("attendance_closed_at", _TS, nullable=True))
+    op.add_column("managed_event", sa.Column("attendance_closed_by", _UUID, nullable=True))
+    op.add_column("managed_event", sa.Column("cancelled_at", _TS, nullable=True))
+    op.add_column("managed_event", sa.Column("cancelled_by", _UUID, nullable=True))
+    op.add_column("managed_event", sa.Column("cancellation_reason", sa.Text(), nullable=True))
+    op.drop_constraint("ck_managed_event_status", "managed_event", type_="check")
     op.create_check_constraint(
-        "ck_event_publishable",
-        "event",
+        "ck_managed_event_status", "managed_event", "status IN ('draft', 'published', 'cancelled')"
+    )
+    op.drop_constraint("ck_managed_event_publishable", "managed_event", type_="check")
+    op.create_check_constraint(
+        "ck_managed_event_publishable",
+        "managed_event",
         "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
         "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
         "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
@@ -53,16 +55,16 @@ def upgrade() -> None:
         "AND contact_email IS NOT NULL AND btrim(contact_email) <> '')",
     )
     op.create_foreign_key(
-        "fk_event_attendance_closed_by",
-        "event",
+        "fk_managed_event_attendance_closed_by",
+        "managed_event",
         "user_account",
         ["tenant_id", "attendance_closed_by"],
         ["tenant_id", "id"],
         ondelete="RESTRICT",
     )
     op.create_foreign_key(
-        "fk_event_cancelled_by",
-        "event",
+        "fk_managed_event_cancelled_by",
+        "managed_event",
         "user_account",
         ["tenant_id", "cancelled_by"],
         ["tenant_id", "id"],
@@ -173,7 +175,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["tenant_id", "owning_unit_id", "event_id"],
-            ["event.tenant_id", "event.owning_unit_id", "event.id"],
+            ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
@@ -189,6 +191,13 @@ def upgrade() -> None:
         sa.Column("match_run_id", _UUID, nullable=False),
         sa.Column("speaker_id", _UUID, nullable=False),
         sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("speaker_name", sa.Text(), nullable=False),
+        sa.Column("speaker_title", sa.Text(), nullable=True),
+        sa.Column("speaker_company", sa.Text(), nullable=True),
+        sa.Column("speaker_board_role", sa.Text(), nullable=True),
+        sa.Column("expertise_topics", postgresql.JSONB(), nullable=False),
+        sa.Column("home_region", sa.Text(), nullable=True),
+        sa.Column("service_regions", postgresql.JSONB(), nullable=False),
         sa.Column("topic_score", sa.Numeric(6, 5), nullable=False),
         sa.Column("proximity_score", sa.Numeric(6, 5), nullable=False),
         sa.Column("total_score", sa.Numeric(6, 5), nullable=False),
@@ -235,7 +244,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["tenant_id", "owning_unit_id", "event_id"],
-            ["event.tenant_id", "event.owning_unit_id", "event.id"],
+            ["managed_event.tenant_id", "managed_event.owning_unit_id", "managed_event.id"],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
@@ -345,14 +354,16 @@ def downgrade() -> None:
         "speaker",
     ):
         op.drop_table(table)
-    op.drop_constraint("ck_event_status", "event", type_="check")
-    op.drop_constraint("fk_event_cancelled_by", "event", type_="foreignkey")
-    op.drop_constraint("fk_event_attendance_closed_by", "event", type_="foreignkey")
-    op.drop_constraint("ck_event_publishable", "event", type_="check")
-    op.create_check_constraint("ck_event_status", "event", "status IN ('draft', 'published')")
+    op.drop_constraint("ck_managed_event_status", "managed_event", type_="check")
+    op.drop_constraint("fk_managed_event_cancelled_by", "managed_event", type_="foreignkey")
+    op.drop_constraint("fk_managed_event_attendance_closed_by", "managed_event", type_="foreignkey")
+    op.drop_constraint("ck_managed_event_publishable", "managed_event", type_="check")
     op.create_check_constraint(
-        "ck_event_publishable",
-        "event",
+        "ck_managed_event_status", "managed_event", "status IN ('draft', 'published')"
+    )
+    op.create_check_constraint(
+        "ck_managed_event_publishable",
+        "managed_event",
         "status = 'draft' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
         "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
         "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
@@ -370,4 +381,4 @@ def downgrade() -> None:
         "region",
         "speaker_topics",
     ):
-        op.drop_column("event", column)
+        op.drop_column("managed_event", column)

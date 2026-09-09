@@ -165,7 +165,7 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: on ``event`` — a table this file's tests never read or write. Nothing here
 #: about a unit's weights, its revision log, or who last changed them is
 #: affected.
-_HEAD_REVISION = "0033_event_filed_by"
+_HEAD_REVISION = "0035_speaker_workflow"
 
 NEED = "need-weight-settings-1"
 
