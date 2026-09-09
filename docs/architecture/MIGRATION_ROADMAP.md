@@ -7,8 +7,11 @@ This is a roadmap for a codebase that is **structurally sound and unevenly
 enforced**. Nothing here is a rewrite, a service split, an event bus, or a
 speculative GCP build. Every increment below is a change to what CI asserts, to
 what is wired, or to what is written down — not to how the system works. Two
-increments (M1's sweeper wiring, M6's rate limit) change runtime behaviour; both
-are additions to mechanisms that already run.
+increments (M1's sweeper wiring, M6's rate limit) change runtime behaviour, and
+both are additions to mechanisms that already run; M8 deletes frontend surface
+that no backend serves. M1's registry extraction and M2's constant move are
+behaviour-preserving by construction — the same handlers in the same order, the
+same integer bounding the same field.
 
 Three rules govern every increment, and each is checkable by a reviewer before
 merge:
@@ -21,6 +24,23 @@ merge:
 3. **Never weakens a gate.** No increment adds `|| true`, `continue-on-error`,
    an `xfail`, a scanner allowlist entry, or a coverage threshold that could
    later be lowered to pass. Non-negotiable 13.
+
+**ADR status is flipped by the implementing PR.** Every ADR below is written
+`Proposed`, because Stage 2 is planning and acceptance is the owner's act. The
+PR that implements an ADR flips it to `Accepted` and updates its row in
+`docs/architecture/decisions/README.md` in the same commit;
+`tests/unit/test_adr_index.py` gates the two staying equal, so a half-flip is
+red. Each increment carrying an ADR names the flip in its completion criteria.
+
+**Two owner answers, 8 September 2026.** **OQ-S2-001 is NO** — the pilot VM holds
+synthetic data only, no real users — and **OQ-S2-002 is "delete the seven pages
+and redirect their routes"**. Both are settled throughout what follows rather
+than hedged; `IMPLEMENTATION_ROADMAP.md` §"The two owner answers, and what they
+settled" records what each one loosened. The consequences here: **M8 is
+unblocked**, M1–M4 may batch into fewer PRs, rollback is "revert the PR"
+throughout, and M6's rate limit is a chosen value whose reasoning is stated.
+**Rule 1 above is untouched** — batching changes how many PRs an increment takes,
+never whether each one is independently shippable and independently reversible.
 
 ---
 
@@ -60,8 +80,10 @@ map a future agent cannot derive by reading:
 
 - the registry-completeness test (R-04, AP-05),
 - `SpendReservationSweeper` called from the scheduled dispatch pass (R-08),
-- `utils.py` → `clock.py` (R-19),
-- `GLOSSARY.md` published (`domain-model.md` §4).
+- `utils.py` → `clock.py` (R-19).
+
+(`GLOSSARY.md`, once listed here, landed in the Stage 2 docs PR #124 and is no
+longer M1 work.)
 
 Each is a one-file change with no dependency on anything else in this roadmap.
 Two of them are **preconditions for any asynchronous work at all**: until the
@@ -130,11 +152,13 @@ ambiguous.
   Naming an owning context for `job_event`, `delivery_event`,
   `contact_channel_transition`, `pilot_login_attempt` and `match_run` is what
   makes "who decides the retention period" answerable.
-- **M8 last** — it is the only increment blocked on an owner decision
-  (OQ-S2-002), and deletion of dead frontend components is safest once the
-  frontend suite runs (M0) and one page has already been migrated (M3), so the
-  reference scan is being read against a codebase whose conventions have
-  settled.
+- **M8 last** — it was the only increment blocked on an owner decision, and
+  OQ-S2-002 has since been answered (8 September 2026), so it is unblocked. It
+  stays last on its own merits: M8 restates `test_16`, and a gate is best
+  restated after the frontend lane M0 switched on has been running long enough
+  for someone to have watched it catch something; and M5 corrects the
+  `Calendar.tsx` notice, which keeps the interim honest and would be churn if M8
+  had already deleted the file.
 
 ---
 
@@ -197,15 +221,15 @@ at `handlers.py` ~L1349. That invisibility is the M1 test's real target.
 
 | Increment | Risks closed | APs enforced | ADRs | Size (files · agent-hours) | Reversible how |
 |---|---|---|---|---|---|
-| **M0** Run what already exists | R-09, R-10 | AP-08 | — | 1 file (`verify.yml`) · 1–3 h | Revert one commit; the two edits are additive workflow steps |
-| **M1** Attach and assert | R-04, R-08, R-19; part of R-11(b) | AP-05, AP-08 | ADR-0023 (Proposed) | 6–9 files · 6–10 h | Revert one commit; the sweeper is one constructor argument, removable alone |
-| **M2** Declare then contract the service layer | R-05, R-06 | AP-01, AP-02 | ADR-0018 | 8–12 files · 8–14 h | Delete the two new `[[tool.importlinter.contracts]]` blocks and the two `root_packages` entries; the promoted module can stay |
-| **M3** Close the contract loop | R-02 (+ D2, D5) | AP-07 | ADR-0020 | generated tree + 3–5 files · 10–16 h | Delete the drift-check step from `verify.yml`; revert the one migrated page |
+| **M0** Run what already exists | R-09, R-10 | AP-08 | — | 2 files (`verify.yml`, `Makefile`) · 1–3 h | Revert one commit; the two edits are additive workflow steps |
+| **M1** Attach and assert | R-04, R-08, R-19; part of R-11(b) | AP-05, AP-08 | ADR-0023 → Accepted | 5–8 files · 5–8 h | Revert the PR; the sweeper is one constructor argument and the registry extraction is behaviour-preserving, so either reverts alone |
+| **M2** Declare then contract the service layer | R-05, R-06, DR-7 | AP-01, AP-02 | ADR-0018 → Accepted | 11–16 files · 10–17 h | Delete the five new `[[tool.importlinter.contracts]]` blocks (5–9) and the two `root_packages` entries; the promoted modules can stay |
+| **M3** Close the contract loop | R-02 (+ D2, D5) | AP-07 | ADR-0020 → Accepted | generated tree + 4–6 files · 10–16 h | Delete the drift-check step from `verify.yml`; revert the migrated session surface separately |
 | **M4** Make failure visible | R-03 | AP-09 | — | 3–4 files · 6–10 h | Unset `SMARTMATCH_REQUEST_LOG_ENABLED`; or revert one `add_middleware` line |
 | **M5** Make prose assertable | R-15, R-16 | AP-06, AP-13 | — | 3 code files + ~40 docs · 5–9 h | Revert one commit; docs-only plus one new test file |
-| **M6** Declare ownership, bring indexes under parity | R-20, R-12, R-07 | AP-03, AP-10, AP-12 | ADR-0019 | 5–7 files · 12–20 h | Revert one commit; no migration, no data change |
-| **M7** Record adapter and topology contracts | R-01, R-18, R-13, R-14 | AP-04 (restated) | ADR-0021, ADR-0022 | 4–6 files · 8–12 h | Revert one commit; ADRs are `Proposed`, nothing behavioural changes |
-| **M8** Owner-gated cleanups | R-17, R-06b | AP-08 | — | 4–11 files · 3–12 h | Revert one commit; `git` retains the deleted components |
+| **M6** Declare ownership, bring indexes under parity | R-20, R-12, R-07 | AP-03, AP-10, AP-12 | ADR-0019 → Accepted | 6–8 files · 14–22 h | Revert the PR; no migration, no data change |
+| **M7** Record adapter and topology contracts | R-01, R-18, R-13, R-14 | AP-04 (restated) | ADR-0021, ADR-0022 (existing; → Accepted) | 4–6 files · 5–9 h | Revert the PR; nothing behavioural changes, so a revert removes documents, rows, one test and two status flips |
+| **M8** Cleanups, now unblocked | R-17, R-06b | AP-08 | — | 11–13 files · 5–9 h | Revert the PR; `git` retains every deleted file, and the three commits revert independently |
 
 Agent-hours are an estimate for a competent agent working with this repository's
 conventions already in context, including writing the tests and getting `make
@@ -234,7 +258,7 @@ closed by an increment. Nothing at P0/P1 is deferred.
 | R-12 | P2 | **M6** | Indexes declared in `schema.py`, parity both ways |
 | R-15 | P2 | **M5** | D1, D3 corrected; D2 falsified by M3 first |
 | R-16 | P2 | **M5** | Status header on every `docs/plans` document |
-| R-17 | P2 | **M8** | Blocked on **OQ-S2-002** |
+| R-17 | P2 | **M8** | **OQ-S2-002 answered** 8 September 2026: the seven pages are deleted and their routes redirect |
 | R-06b | P2 | **M8** | The one part of M8 that is *not* blocked |
 | R-18 | P2 | **M7** | ADR-0022 |
 | R-13 | P3 | **M7** | Recorded as a decision; **OQ-S2-003** supplies the periods |
@@ -254,15 +278,16 @@ the downstream application is never invoked, and a 413 `request_body_too_large`.
 covers the accept half, asserting the replay is verbatim. No open question is
 required and none is filed; R-11(a) needs no increment.
 
-**Deferrals, with their open question.** Only two items in the register are
-not fully closed by M0–M8, and each is deferred to a question engineering cannot
-answer alone:
+**Deferrals, with their open question.** After the 8 September 2026 answers,
+**one** item in the register is not fully closed by M0–M8:
 
-- **R-17** — **deferred: OQ-S2-002** for six of the seven pages. M8 proceeds on
-  the deletion of the three dead components regardless.
 - **R-13 / R-14** — **deferred: OQ-S2-003** and **OQ-S2-004** respectively. M7
   records whatever answer comes back; it does not implement retention or
   downgrade testing on a guess.
+
+**R-17 is no longer deferred.** OQ-S2-002 was answered — delete the seven pages
+and redirect their routes — so M8 closes it outright rather than closing the
+three-component deletion and waiting on the rest.
 
 ---
 
@@ -388,18 +413,22 @@ from something a reader must reconstruct into something CI asserts.
 - The scheduled dispatch pass sweeps abandoned spend reservations, and
   `DispatchPassResponse` reports what it swept.
 - `smartmatch_api.clock` replaces `smartmatch_api.utils`.
-- `docs/architecture/GLOSSARY.md` exists (`domain-model.md` §4).
+- `docs/architecture/GLOSSARY.md` is in the tree (`domain-model.md` §4) —
+  landed in the Stage 2 docs PR (#124), not written here.
 
 ### Files & modules affected
 - `tests/unit/test_command_registry_map.py` — new.
-- `services/worker/smartmatch_worker/main.py` — `DispatchPassResponse`
-  (L262–299), `_pass_response` (L818), the `ScheduledPass` construction near
-  L810.
+- `services/worker/smartmatch_worker/main.py` — two disjoint changes that may
+  land in either order: `DispatchPassResponse` (L262–299), `_pass_response`
+  (L818) and the `ScheduledPass` construction near L810 for the sweeper; and the
+  extraction of `build_production_registry` from the composition at `:468`–`:492`
+  with `create_app` (`:321`) calling it, for the registry test.
 - `services/worker/smartmatch_worker/execution.py` — the pass body around L573.
 - `python/smartmatch_persistence/smartmatch_persistence/spend_sweeper.py` — no
   change expected; it is called, not modified.
 - `services/api/smartmatch_api/clock.py` (from `utils.py`) + 25 importers.
-- `docs/architecture/GLOSSARY.md` — new.
+- `docs/architecture/GLOSSARY.md` — **already landed (PR #124)**; kept current,
+  not created.
 
 ### Prerequisites
 M0 (so `services/worker` coverage moves visibly when the sweeper is wired, and
@@ -413,13 +442,20 @@ so the registry test's own coverage is measured).
    hand-written list that would drift the same way the ADR index would without
    `tests/unit/test_adr_index.py`. Model the file on that test: compare both
    directions, and state in the module docstring what cannot be checked.
-2. **Cover the root composition.** The registry under test must be the one the
-   worker runs, not `default_registry()`. Build it the way `main.py` does — apply
-   `with_outreach_send`, and apply `with_paid_extraction` under a configuration
-   with spend ceilings — then assert coverage against that. **This is the U1
-   resolution made executable**: a test that only reads `default_registry()`
-   would report `outreach.send` as unregistered and would have "confirmed"
-   Stage 1's wrong count.
+2. **Cover the root composition, by extracting it rather than re-deriving it.**
+   The registry under test must be the one the worker runs, not
+   `default_registry()`. Factor `main.py`'s composition — the `registry_is_ours`
+   branch at `:468`, `with_outreach_send` at `:470`, and the ceiling-conditional
+   `with_paid_extraction` at `:492` — into
+   **`build_production_registry(settings, session_factory)`**, and have
+   `create_app` (`main.py:321`) call it. **Behaviour is unchanged**: the same
+   handlers, the same order, the same conditions; the function is extracted, not
+   rewritten. This is ADR-0023's stated preference, and the reason is the same
+   one `job_authz.py` gives — a test that re-derived the composition would be a
+   second copy of the rule, with two places to drift, which is the exact failure
+   the test exists to prevent. **This is the U1 resolution made executable**: a
+   test that only reads `default_registry()` would report `outreach.send` as
+   unregistered and would have "confirmed" Stage 1's wrong count.
 3. **Refusal list.** Add an explicit mapping of intentionally-unhandled types
    with a one-line reason each, and assert every entry names a type some router
    can actually submit — the same shape as
@@ -444,9 +480,11 @@ so the registry test's own coverage is measured).
    `utc_now`'s docstring and its F-003 rationale verbatim. No shim module — a
    compatibility re-export would recreate the dumping ground the rename exists
    to prevent.
-8. **Glossary.** Publish `docs/architecture/GLOSSARY.md` from `domain-model.md`
-   §4. It records the terms the tables already use; **no table is renamed** —
-   the glossary is the alternative to renaming, per the standing anti-pattern.
+8. **Glossary — already landed.** `docs/architecture/GLOSSARY.md` was published
+   in the Stage 2 docs PR (**#124**) and is in the tree. It records the terms the
+   tables already use and **renames no table** — the glossary is the alternative
+   to renaming, per the standing anti-pattern. No M1 work remains beyond keeping
+   it current as the increment's prose changes.
 
 ### Tests required
 - `tests/unit/test_command_registry_map.py` — new, the substance of the
@@ -492,6 +530,11 @@ test and the rename are untouched.
   `tests/unit/test_command_registry_map.py` red.
 - Removing `with_outreach_send` from `main.py` also turns it red. (This is the
   criterion that proves the U1 resolution was implemented rather than restated.)
+- `build_production_registry(settings, session_factory)` exists, `create_app`
+  calls it, and the test calls the same function rather than re-composing the
+  registry itself.
+- **ADR-0023 is flipped from `Proposed` to `Accepted`** and its
+  `decisions/README.md` row updated in the same commit.
 - Adding a `submit_command("thing.new", …)` call to any router turns it red.
 - `grep -rn SpendReservationSweeper services/` returns a non-test production
   call site.
@@ -499,7 +542,7 @@ test and the rename are untouched.
   dispatch pass.
 - `grep -rn 'smartmatch_api.utils\|from smartmatch_api import utils'` returns
   nothing.
-- `docs/architecture/GLOSSARY.md` exists and renames no table.
+- `docs/architecture/GLOSSARY.md` (landed in PR #124) still renames no table.
 
 ### Follow-up unlocked
 ADR-0023 has an executable referent. M7's ADR-0021 can describe a delivery
@@ -537,24 +580,66 @@ helpers an owner.
   (`dependency-analysis.md` §3b).
 - **R-06/3c.** Nothing prevents `smartmatch_api` importing `smartmatch_worker`
   or the reverse. Neither does today; the boundary is convention only.
+- **DR-7.** The reach across a boundary is not confined to the router layer.
+  `tools/generate_pilot_dataset.py:209` reads
+  `from smartmatch_api.routers.match_runs import MAX_CANDIDATES` — a module
+  outside the service importing a constant *out of a router*, which
+  `DEPENDENCY_RULES.md` DR-7 forbids. It is the same failure as R-06's two
+  lateral imports, one layer further out, and it is visible in the tree as prose
+  workarounds: `routers/cba_contacts.py:267` and `routers/speaker_requests.py:182`
+  both *cite* `MAX_CANDIDATES` in a comment rather than importing it, which is
+  what a constant looks like when it lives somewhere nobody can import from
+  cleanly. `tests/unit/test_pilot_generator_match_run.py:54` imports it the same
+  way.
 
 ### Target state
-Six `root_packages`. Two new contracts: router→router forbidden, api↔worker
-forbidden. The two shared helpers live in an owned module following
-`services/api/smartmatch_api/job_authz.py`, whose docstring already argues the
-case: *"a second copy of a rule is a rule with two places to drift"*.
-**AP-01, AP-02**, ADR-0018.
+Six `root_packages`, and the **five new contracts** `DEPENDENCY_RULES.md` §3
+defines and ADR-0018 records — numbered 5 through 9 there:
+
+| # | Name | Type |
+|---|---|---|
+| 5 | `The API sits above the inner packages, never beneath them` | `layers` |
+| 6 | `The worker sits above the inner packages, never beneath them` | `layers` |
+| 7 | `The API and the worker are independent services` | `independence` |
+| 8 | `Routers are independent of one another` | `independence` |
+| 9 | `Shared API modules must not import routers` | `forbidden` |
+
+Contract 8 is where the two transitional `ignore_imports` live, and this
+increment's second commit deletes them. The two shared helpers live in an owned
+module following `services/api/smartmatch_api/job_authz.py`, whose docstring
+already argues the case: *"a second copy of a rule is a rule with two places to
+drift"*. **AP-01, AP-02**, ADR-0018.
+
+**OBSERVED, 2026-09-08.** The full draft block was executed against the tree
+with both services on `PYTHONPATH`: **`Contracts: 9 kept, 0 broken`** with the
+two `ignore_imports` in place; with them removed, **`Routers are independent of
+one another BROKEN`**, naming exactly `outreach_contacts → outreach` and
+`cba_contact_channels → cba_contacts`, every other contract KEPT
+(`DEPENDENCY_RULES.md` §5). The TOML is paste-ready in fact, not in intent.
 
 ### Files & modules affected
 - `services/api/pyproject.toml`, `services/worker/pyproject.toml` — add
   `smartmatch-persistence`.
-- `pyproject.toml` — `[tool.importlinter]` `root_packages` plus two contracts.
+- `tests/unit/test_service_manifests_declare_imports.py` — new. Parses each
+  `services/*/pyproject.toml` and asserts every `smartmatch_*` package imported
+  under that service is declared in its `dependencies`. **AP-01's assertable
+  half**: without it this increment fixes today's two omissions and nothing stops
+  the third.
+- `pyproject.toml` — `[tool.importlinter]` `root_packages` plus the five new
+  contracts (5–9).
 - `services/api/smartmatch_api/unit_authz.py` — new; sibling of `job_authz.py`.
 - `services/api/smartmatch_api/routers/outreach.py`,
   `routers/outreach_contacts.py`, `routers/cba_contacts.py`,
   `routers/cba_contact_channels.py` — import from the new module.
 - `services/api/smartmatch_api/main.py` — the router table comments that argue
   the current lateral imports.
+- `services/api/smartmatch_api/match_run_limits.py` — new (or `units.py`, beside
+  `MAX_SUBTREE_UNITS`, if the reviewer prefers the existing home for a shared
+  bound); `routers/match_runs.py` loses the definition at `:248`;
+  `tools/generate_pilot_dataset.py` and
+  `tests/unit/test_pilot_generator_match_run.py` re-point their imports.
+- `tests/unit/test_tools_do_not_import_routers.py` — new; the manifest/tools
+  review test.
 
 ### Prerequisites
 M0 (coverage of `services/` is measured before authorization code moves) and M1
@@ -567,20 +652,32 @@ boundary work).
 before it is enforced, so the enforcement commit is a pure deletion.
 
 **Commit 1 — declare.**
-1. Add `smartmatch-persistence` to `dependencies` in both service manifests.
+1. Add `smartmatch-persistence` to `dependencies` in both service manifests, and
+   write `tests/unit/test_service_manifests_declare_imports.py` in the same
+   commit: parse each `services/*/pyproject.toml`, walk that service's imports,
+   and assert every `smartmatch_*` package imported is declared. Both directions,
+   in `test_adr_index.py`'s shape. A name imported only under `TYPE_CHECKING` is
+   still an import; any exclusion carries a reason and the test asserts that it
+   does, as `test_forbidden_scanner.py` does for the scanner's allowlist.
 2. Add `"smartmatch_api"` and `"smartmatch_worker"` to
    `[tool.importlinter].root_packages`.
-3. Add the two new contracts:
-   - *forbidden*: `smartmatch_api.routers.*` must not import
-     `smartmatch_api.routers.*` (router→router);
-   - *forbidden*: `smartmatch_api` ↮ `smartmatch_worker`.
-4. Add `ignore_imports` entries for exactly the two known violations —
-   `cba_contact_channels.py` ← `cba_contacts`, `outreach_contacts.py` ←
-   `outreach` — each with an inline comment naming the promotion that will
-   remove it. **The contract is now live and cannot regress**: a *third* lateral
-   import fails the *Architecture import boundaries* step immediately, on the
-   day it is written rather than after the promotion lands.
-5. `PYTHONPATH="$DOMAIN_PATH" lint-imports --config pyproject.toml` green. Merge.
+3. Add the five new contracts, exactly as `DEPENDENCY_RULES.md` §3 numbers and
+   names them: **5** `The API sits above the inner packages, never beneath them`
+   (`layers`), **6** `The worker sits above the inner packages, never beneath
+   them` (`layers`), **7** `The API and the worker are independent services`
+   (`independence`), **8** `Routers are independent of one another`
+   (`independence`), **9** `Shared API modules must not import routers`
+   (`forbidden`).
+4. Add `ignore_imports` entries **on contract 8** for exactly the two known
+   violations — `cba_contact_channels.py` ← `cba_contacts`,
+   `outreach_contacts.py` ← `outreach` — each with an inline comment naming the
+   promotion that will remove it. **The contract is now live and cannot
+   regress**: a *third* lateral import fails the *Architecture import
+   boundaries* step immediately, on the day it is written rather than after the
+   promotion lands.
+5. `PYTHONPATH="…:services/api:services/worker" lint-imports --config
+   pyproject.toml` green — **OBSERVED 2026-09-08: `Contracts: 9 kept, 0
+   broken`**. Merge.
 
 **Commit 2 — promote and remove the exemptions.**
 6. Create `services/api/smartmatch_api/unit_authz.py`. Move
@@ -593,7 +690,22 @@ before it is enforced, so the enforcement commit is a pure deletion.
 9. Update the arguing comments in `main.py`'s router table: the reason given
    there — *"one question about a unit's outreach with one answer"* — is still
    correct and now points at the module that holds the answer.
-10. `lint-imports` green with no exemptions. Merge.
+10. **Move `MAX_CANDIDATES` out of the router** (DR-7). Define it in an owned
+    non-router module — `smartmatch_api.match_run_limits`, or beside
+    `units.MAX_SUBTREE_UNITS` — carrying its docstring and the reason it is 200
+    **verbatim**; a moved constant that loses its argument is worse than one in
+    the wrong module. Re-point `routers/match_runs.py`,
+    `tools/generate_pilot_dataset.py:209` and
+    `tests/unit/test_pilot_generator_match_run.py:54`, and turn the two prose
+    citations (`routers/cba_contacts.py:267`, `routers/speaker_requests.py:182`)
+    into references to the new home. No behaviour changes: the same integer
+    bounds the same request field (`match_runs.py:850`) and the same generator
+    check (`generate_pilot_dataset.py:1183`).
+11. Add `tests/unit/test_tools_do_not_import_routers.py`: no module under
+    `tools/` imports `smartmatch_api.routers.*`. The rule is one-way, so both
+    directions is not available here — say so in the module docstring, and
+    exempt by path with a reason if a tool ever genuinely needs a router.
+12. `lint-imports` green with no exemptions. Merge.
 
 ### Tests required
 - Existing authorization tests for the outreach and speaker-contact routes must
@@ -601,6 +713,15 @@ before it is enforced, so the enforcement commit is a pure deletion.
   and it should not.
 - `tests/unit/test_unit_authz.py` — new. Direct tests of the promoted functions,
   which were previously only reachable through two routers.
+- `tests/unit/test_service_manifests_declare_imports.py` — new, and the
+  deliverable that outlives the two manifest edits. Deleting either
+  `smartmatch-persistence` declaration turns it red.
+- `tests/unit/test_tools_do_not_import_routers.py` — new. Re-adding
+  `from smartmatch_api.routers.match_runs import MAX_CANDIDATES` to
+  `tools/generate_pilot_dataset.py` on a scratch branch turns it red.
+- `tests/unit/test_pilot_generator_match_run.py` — existing; passes with only its
+  import line changed. If any assertion has to change, the constant moved
+  something other than itself.
 - The *Architecture import boundaries* step is itself the regression test for
   the contracts; verify it by adding a lateral import on a scratch branch and
   observing red.
@@ -613,28 +734,43 @@ before it is enforced, so the enforcement commit is a pure deletion.
   installs (`--no-deps -e` over all four), so the step cannot break; it makes a
   future `uv sync --frozen` or slim-container build correct instead of
   accidentally working.
-- `include_external_packages = true` is already set, which is what lets the two
-  new forbidden contracts name modules across package roots.
+- `include_external_packages = true` is already set, which is what lets
+  contracts 5–9 name modules across package roots.
 - Two new `root_packages` will surface *existing* violations beyond the two
-  known ones. If any appear, they are findings: fix or `ignore_imports` them
+  known ones. The draft block was executed against the tree on 2026-09-08 and
+  found none — `Contracts: 9 kept, 0 broken` — but if any appear on a later
+  tree, they are findings: fix or `ignore_imports` them
   **with a comment naming the increment that will remove the exemption**, in
   commit 1, never silently.
 
 ### Rollback strategy
-Delete the two new `[[tool.importlinter.contracts]]` blocks and the two
+Delete the five new `[[tool.importlinter.contracts]]` blocks (5–9) and the two
 `root_packages` entries from `pyproject.toml` — one TOML edit, no code change.
-`unit_authz.py` can stay: it is an improvement independent of the contract, and
-the routers importing it is a normal intra-package import under any
-configuration.
+`unit_authz.py` and the new home for `MAX_CANDIDATES` can stay: both are
+improvements independent of the contract, and importing them is a normal
+intra-package import under any configuration. The two new tests
+(`test_service_manifests_declare_imports.py`,
+`test_tools_do_not_import_routers.py`) also stay — they assert facts that remain
+true whether or not import-linter governs the services.
 
 ### Completion criteria
-- `[tool.importlinter].root_packages` has six entries.
+- `[tool.importlinter].root_packages` has six entries and `[tool.importlinter]`
+  carries the five new contracts (5–9) under the names `DEPENDENCY_RULES.md` §3
+  gives them.
 - `grep -rn 'from smartmatch_api.routers' services/api/smartmatch_api/routers/`
   returns nothing.
 - No `ignore_imports` entry remains that names a router.
 - A scratch-branch import from `smartmatch_worker` into `smartmatch_api` fails
   the *Architecture import boundaries* step.
-- Both service manifests list `smartmatch-persistence`.
+- Both service manifests list `smartmatch-persistence`, and deleting either
+  declaration turns `tests/unit/test_service_manifests_declare_imports.py` red.
+- `grep -rn 'from smartmatch_api.routers' tools/` returns nothing;
+  `MAX_CANDIDATES` is defined in a non-router module with its rationale intact,
+  and re-adding the router import turns
+  `tests/unit/test_tools_do_not_import_routers.py` red.
+- **ADR-0018 is flipped from `Proposed` to `Accepted`** and its
+  `decisions/README.md` row updated in the same commit — the contract it decides
+  now exists in `pyproject.toml`.
 
 ### Follow-up unlocked
 Every module added later — M4's middleware, M6's `ownership.py` — is born under
@@ -654,7 +790,8 @@ transcribes, and prove the pattern on exactly one page.
 source of truth; the TypeScript client is generated from it and never
 hand-maintained"* (`services/api/smartmatch_api/main.py:214`). `clients/` does
 not exist. `apps/web/legacy-frontend/src/lib/api.ts` is 4,238 hand-written
-lines, and 49 files call `/v1` paths with inline `fetch` and per-page
+lines, and 48 files (Stage 1 reported 49; recounted 2026-09-08) call `/v1`
+paths with inline `fetch` and per-page
 transcribed response types. `pyproject.toml`'s ruff `extend-exclude` lists
 `clients/typescript` — a fossil of the intent (D5). The contract's freshness
 *is* gated (*OpenAPI contract is current*, `tools/export_openapi.py --check`),
@@ -678,9 +815,10 @@ functions from the generated client. **AP-07**, ADR-0020.
 - `.github/workflows/verify.yml` — a step in the `web` job; the deferred list at
   the bottom loses that line and gains it under *"Implemented since this list was
   written"*.
-- `apps/web/legacy-frontend/src/pages/<one page>.tsx` — the pattern page.
+- `apps/web/legacy-frontend/src/lib/session.ts` and
+  `apps/web/legacy-frontend/src/app/hooks/useSession.tsx` — the pattern surface.
 - `apps/web/legacy-frontend/src/lib/api.ts` — untouched except where the
-  migrated page's helpers become unused.
+  migrated surface's helpers become unused.
 
 ### Prerequisites
 M0 (the frontend suite runs, so the migrated page's regressions are visible),
@@ -688,10 +826,19 @@ M2 (`smartmatch_api`'s dependencies are declared, so the generation step's
 import of the app is not pythonpath-dependent).
 
 ### Implementation steps
-1. Choose the generator and pin it in the lock the same way every other tool
-   here is pinned. Record the choice and the pin in ADR-0020 — this is the one
-   new external tool the roadmap adds, and it is a build-time tool, not a
-   runtime dependency.
+1. **The generator is `openapi-typescript`, and ADR-0020 already names it** — the
+   ADR landed as `Proposed` in the Stage 2 docs PR (#124) with the reasoning
+   written. What remains here is to **pin the exact version in the web lockfile**
+   the way every other tool is pinned, and to **record that version string in
+   ADR-0020**. Three properties decided it: it emits
+   **types only**, so it adds **zero runtime dependency** to a bundle users
+   download — the alternatives ship a fetch client and a runtime, which is a
+   production dependency acquired for a build-time problem; its output is
+   **deterministic** for a given input and version, which is what makes a
+   byte-comparison drift gate possible at all; and its input is the committed
+   JSON document, so it chains onto the existing *OpenAPI contract is current*
+   step rather than needing a live app. It is the one new external tool the
+   roadmap adds, and it is build-time, not runtime.
 2. Generate into `clients/typescript` from the **committed**
    `contracts/openapi/smartmatch.json`, not from a live app. The committed
    document is already proven current by the existing *OpenAPI contract is
@@ -699,31 +846,51 @@ import of the app is not pythonpath-dependent).
 3. Add `make client` and `make client-check`, mirroring `openapi` /
    `openapi-check` (`Makefile:193,198`).
 4. Add the drift step to the `web` job, after *Install locked dependencies*:
-   regenerate, diff, fail with the same "run `make client`" message shape the
-   *Dependency locks are current* step uses — that step's comment records that
-   `diff -q` cost a wrong guess once, so print the diff.
+   run `make client` to regenerate, then **`git diff --exit-code
+   clients/typescript`** — the gate is a byte comparison of the committed tree
+   against a fresh generation, which is exactly what `openapi-typescript`'s
+   determinism buys. Fail with the same "run `make client`" message shape the
+   *Dependency locks are current* step uses, and print the diff: that step's
+   comment records that `diff -q` cost a wrong guess once, and `--exit-code`
+   without the printed diff would repeat it.
 5. Remove `"generated TypeScript client drift check (needs clients/)"` from the
    deferred list and add it to the implemented block, with the same style the
    other entries use. The list is documentation that is read; leaving it stale
    would re-create R-15 in the file that promises honesty about gates.
-6. **Migrate one page.** Choose the smallest page with a real `/v1` call and a
-   non-trivial response type. Replace its inline `fetch` and its transcribed
-   interface with the generated ones. **Do not touch the other 48 files.** The
-   deliverable is a pattern with a diff a reviewer can read, plus a short
-   `clients/typescript/README.md` section stating how the next page is migrated.
+6. **Migrate the session surface.** The pattern surface is chosen:
+   **`apps/web/legacy-frontend/src/lib/session.ts`** and its consumer
+   **`apps/web/legacy-frontend/src/app/hooks/useSession.tsx`**, which between
+   them own the single `GET /v1/me` call. Two properties earn it the slot. It is
+   **one endpoint consumed by every page** — `session.ts` is the browser's only
+   source of authenticated identity (`session.ts:2`), so a transcription error in
+   the principal shape is a defect on every screen, which makes it the
+   highest-value place in the app for the type to be generated. And it has **no
+   form state**: it reads, memoizes and exposes, with no submission, optimistic
+   update or validation to re-express, so the diff is the type change and nothing
+   else — which is what makes it readable as a pattern. Preserve the suspended
+   and `unreachable` outcomes: `/v1/me` admits a suspended caller on purpose
+   (`session.ts:44`), and that is behaviour, not transcription. **Do not touch
+   the other 47 files.** Add a short `clients/typescript/README.md` section
+   stating how the next surface is migrated, and name the follow-up candidate for
+   the nested-array response shape —
+   `apps/web/legacy-frontend/src/app/pages/student/StudentEvents.tsx` — so the
+   next migrator does not re-derive the choice. **StudentEvents is not in this
+   increment.**
 7. Leave `extend-exclude = ["clients/typescript", …]` in `pyproject.toml` — it
    now excludes a path that exists, which is what it was always for.
 
 ### Tests required
-- `apps/web/legacy-frontend/tests/` — a test for the migrated page's data path,
-  running under the lane M0 created.
+- `apps/web/legacy-frontend/tests/` — a test for the migrated surface's data
+  path, running under the lane M0 created, covering the suspended and
+  `unreachable` outcomes as well as the ordinary one.
 - The drift step is the regression test for the client: on a scratch branch,
   add a field to a response model, regenerate the OpenAPI document, and confirm
   the client step goes red.
 - `tests/unit/` — no new Python test; the producing side is already gated.
 
 ### Migration & data concerns
-**None.** No schema, no data. "Migration" here is source migration of one page.
+**None.** No schema, no data. "Migration" here is source migration of one
+surface.
 
 ### Compatibility concerns
 - The generated client must not become a second hand-maintained artifact.
@@ -733,28 +900,35 @@ import of the app is not pythonpath-dependent).
 - Committing generated output makes it reviewable and makes the drift check a
   diff. The alternative — generating at build time — would hide contract changes
   from PR review, which is the failure this increment exists to fix.
-- 48 pages continue to use `lib/api.ts`. That is the intended end state of M3,
+- 47 files continue to use `lib/api.ts`. That is the intended end state of M3,
   not a debt introduced by it.
 
 ### Rollback strategy
-Delete the drift-check step from `verify.yml` (one step) and revert the one
-migrated page. The `clients/typescript` tree can remain — unreferenced generated
+Revert the PR. If only the gate needs backing out, delete the drift-check step
+from `verify.yml` — one step — and revert the migrated surface separately. The `clients/typescript` tree can remain — unreferenced generated
 output that no gate consumes is inert, and keeping it preserves the work while
 the gate is off.
 
 ### Completion criteria
 - `clients/typescript` exists and is committed.
 - Changing a response model without regenerating turns the `web` job red.
-- Exactly one page imports from the generated client; `grep -rl '/v1/'` over
-  `src` returns 48 files, one fewer than today.
+- `session.ts` imports its principal type from the generated client and
+  transcribes nothing; `grep -rl '/v1/'` over `src` returns 47 files, one fewer
+  than today's 48.
 - The deferred list at the bottom of `verify.yml` no longer names this gate.
-- ADR-0020 records the generator and its pin.
+- ADR-0020 (already written, PR #124) now carries the **exact pinned version
+  string** alongside `openapi-typescript` and the
+  regenerate-then-`git diff --exit-code clients/typescript` gate.
+- **ADR-0020 is flipped from `Proposed` to `Accepted`** and its
+  `decisions/README.md` row updated in the same commit — the gate it decides is
+  now running.
 
 ### Follow-up unlocked
 D2 in `capability-inventory.md` §4 stops being false, which is why M5 can
 correct the remaining stale claims without one of them being un-corrected later.
-Each subsequent page migration becomes a mechanical change against a documented
-pattern.
+Each subsequent migration becomes a mechanical change against a documented
+pattern; `StudentEvents.tsx` is the named next candidate, for the nested-array
+response shape this increment deliberately left alone.
 
 ---
 
@@ -884,7 +1058,7 @@ CI-checkable; and give every planning document a status.
   and `factor_registry.py:149` reads `"approved"`.
 - **D2** — the FastAPI `description` at `main.py:214` claims a generated
   TypeScript client. **M3 makes this true rather than M5 editing it.**
-- **D3** — `apps/web/legacy-frontend/src/pages/Calendar.tsx:80-95` says
+- **D3** — `apps/web/legacy-frontend/src/app/pages/Calendar.tsx:80-95` says
   `routers/events.py` declares no handlers and the contract exposes no event
   operation; the router is 571 lines and the contract publishes
   `GET /v1/units/{u}/events` and `…/invite.ics`.
@@ -906,10 +1080,13 @@ exists to be asserted against** (AP-06). Every `docs/plans` document declares
 
 ### Files & modules affected
 - `services/api/smartmatch_api/main.py` — module docstring, fourth bullet.
-- `apps/web/legacy-frontend/src/pages/Calendar.tsx` — the retirement reason
-  text (`CALENDAR_FEED_RETIRED_REASON`). Note this is *correcting the notice*,
-  which is one of the three per-page options in M8; correcting the text does not
-  pre-empt M8's port-or-delete decision.
+- `apps/web/legacy-frontend/src/app/pages/Calendar.tsx` — the retirement reason
+  text (`CALENDAR_FEED_RETIRED_REASON`). The page itself is **deleted at M8** —
+  OQ-S2-002 is answered, so nothing here pre-empts a decision that is already
+  made. The correction is kept as a **one-hour interim** for one reason: M5's
+  gate-claim test (`test_gate_claims.py`) scans frontend source, and the
+  correction is what makes that lane green from the day it lands rather than
+  requiring an exemption for a file scheduled for deletion.
 - `tests/unit/test_gate_claims.py` — new.
 - `tests/unit/test_plan_status_headers.py` — new.
 - `docs/plans/**` — one header line each; `docs/plans/archive/` for the settled
@@ -984,7 +1161,7 @@ production behaviour is touched, so revert is total and instant.
 
 ### Follow-up unlocked
 Documentation becomes a gated artifact, which is the precondition for M6's
-ownership map being trustworthy documentation rather than another 43-row table
+ownership map being trustworthy documentation rather than another 44-row table
 that drifts. OQ-S2-005's answer, when it arrives, can be applied to a corpus
 whose statuses are already declared.
 
@@ -1028,9 +1205,11 @@ parity guard, and bound the one expensive unbounded read.
 
 ### Target state
 - `python/smartmatch_persistence/smartmatch_persistence/ownership.py` — a Python
-  mapping from table name to `(context, writer)`, with a test asserting every
-  table in `schema.METADATA.tables` appears exactly once and every entry names a
-  real table. **AP-03**, ADR-0019.
+  mapping from table name to one **owning bounded context**, one **owning
+  repository module** in `smartmatch_persistence`, and a **declared
+  writing-service set** — one service unless the entry names more and gives the
+  reason — with a test asserting every table in `schema.METADATA.tables` appears
+  exactly once and every entry names a real table. **AP-03**, ADR-0019.
 - Indexes declared in `schema.py` beside their tables; the parity test compares
   index names in both directions. **AP-10.**
 - Metrics drill-down rate-limited and row-bounded. **AP-12.**
@@ -1050,13 +1229,38 @@ parity guard, and bound the one expensive unbounded read.
    mechanically. A YAML file in `docs/` cannot be the thing a module split reads.
 
 Shape: `OWNERSHIP: Final[Mapping[str, TableOwner]]` where `TableOwner` is a
-frozen dataclass of `context: str` and `writers: tuple[str, ...]`. `context`
-comes from the bounded contexts in `domain-model.md`; `writers` names services.
+frozen dataclass of `context: str`, `repository: str`, `writers: tuple[str, ...]`
+and `reason: str | None` — the reason being **required whenever
+`len(writers) > 1`**. `context` comes from the bounded contexts in
+`domain-model.md`; `repository` names the single module in
+`smartmatch_persistence` that issues SQL against the table; `writers` names the
+services that call that module's mutating methods.
 
-**`match_run`'s ownership is the pattern the map records, and it is a
-single-writer entry.** The confusion Stage 1 recorded was never two writers of
-one table — it was two tables written at two lifecycle points, read as one
-feature:
+**Multi-service entries are allowed only by explicit declaration with a reason,
+and five tables have one today.** No file under `services/` issues
+`insert()`/`update()`/`delete()` against a `schema.<table>` object at all — an
+AST scan of `services/` for `insert(schema.x)` finds nothing (OBSERVED
+2026-09-08) — so the owning *repository module* is unambiguous for every table:
+`job` and `job_event` → `jobs.py`, `outbox_record` → `outbox.py`,
+`idempotency_record` → `idempotency.py`, `spend_reservation` → `spend.py`,
+`match_run` → `match_runs.py`. The *service* set sits one level up, and measured
+there — which service package calls those repositories' mutating methods — the
+command-path tables have two writing services **by ADR-0005's design**:
+`JobRepository.create/transition/append_event/claim` is called from the API
+(`commands.py`, `pipeline_provisioning.py`, `routers/cba_contacts.py`) and from
+the worker (`execution.py`, `dispatcher.py`); `OutboxRepository.enqueue/
+claim_batch/mark_dispatched` from the API (`commands.py`,
+`routers/cba_invitations.py`) and the worker (`dispatcher.py`); the idempotency
+and spend repositories likewise (`routers/redrive.py`,
+`worker/paid_extraction.py` among them). So `job`, `job_event`,
+`outbox_record`, `idempotency_record` and `spend_reservation` each declare both
+services with the reason **"API records intent / worker transitions state
+(ADR-0005; ADR-0015 A1)"**. Every other table declares exactly one service.
+
+**`match_run`'s ownership is the pattern the map records, and it is the
+single-service entry beside them.** The confusion Stage 1 recorded was never two
+writers of one table — it was two tables written at two lifecycle points, read
+as one feature:
 
 - **the API writes the request** — `routers/match_runs.py:947` submits
   `MATCH_RUN_COMMAND_TYPE`, which in one transaction writes the `job` row, the
@@ -1068,19 +1272,42 @@ feature:
   snapshot, which is the only row carrying provenance under ADR-0011 and the only
   thing `scoring_mode` (migration `0032`) describes. Nothing else writes it.
 
-So `match_run`'s entry reads `writers=("smartmatch_worker",)`, with a comment
-naming the `job`/`outbox_record`/`idempotency_record` rows the API writes on the
-other side of the command path — the reason a per-feature reading of this
-capability produces the wrong per-table answer. **Every table gets exactly one
-writer, and the test asserts that; there is no two-writer table in the tree
-today.** The mechanism for one is kept and unused: a future table with two
-writers must add an explicit declaration naming both writers and the reason, in a
-diff a reviewer will see, rather than appearing as an ordinary insert. That is
-what turns `attendance_record` having one writer today into `attendance_record`
-having one writer tomorrow — which is what ADR-0013's invariant depends on.
+So `match_run`'s entry reads `repository="match_runs"`,
+`writers=("smartmatch_worker",)`, with a comment naming the
+`job`/`outbox_record`/`idempotency_record` rows the API writes on the other side
+of the command path — the rows that are themselves declared two-service, and the
+reason a per-feature reading of this capability produces the wrong per-table
+answer. **The test does not assert "one writer".** It asserts that the declared
+owning repository equals the derived one, that the declared writing-service set
+equals the derived one, and that **any entry naming more than one service
+carries a reason string**. A second writing service appearing on a
+single-service table therefore fails the lane at the point it is introduced,
+until someone declares it and says why. The writer half is declared at
+**module** granularity — `smartmatch_api.routers.attendance`, not merely
+`api` — with the service set as its projection, because the invariant ADR-0013
+depends on (registration never writes `attendance_record`) separates two routes
+inside one service and cannot be seen at service granularity. Declared that way
+it is asserted rather than assumed: `attendance_record`'s writer modules exclude
+`smartmatch_api.routers.student_events`.
 
 ### Files & modules affected
 - `python/smartmatch_persistence/smartmatch_persistence/ownership.py` — new.
+- `tools/derive_table_writers.py` — new, and checked in. It makes **two**
+  syntactic passes, because the two halves of an entry live at two layers.
+  **Pass 1** walks the AST of `python/smartmatch_persistence`: for each
+  `schema.<table>` it records the module issuing `insert()`/`update()`/`delete()`
+  against it — the owning repository module — and collects that module's
+  *mutating* method names (any method whose body contains such a statement).
+  **Pass 2** walks `services/api` and `services/worker` for call sites of those
+  method names, by attribute name, attributing each to its service package.
+  Pass 2 exists because an AST scan of `services/` for `insert(schema.x)` finds
+  **nothing** — every write goes through a repository — so the writing *service*
+  is not visible at the statement level at all. Matching by attribute name
+  over-approximates, which is the safe direction: a false positive becomes a
+  discrepancy somebody has to explain, never a silent pass. The tool prints
+  `table → repository module → {services}`. Its output **seeds** `ownership.py`,
+  and `tests/unit/test_table_ownership.py` **re-runs it** and diffs both halves
+  against the declaration, so the map cannot rot.
 - `tests/unit/test_table_ownership.py` — new.
 - `python/smartmatch_persistence/smartmatch_persistence/schema.py` — `sa.Index`
   declarations only; **no table definition changes**.
@@ -1090,20 +1317,33 @@ having one writer tomorrow — which is what ADR-0013's invariant depends on.
 
 ### Prerequisites
 M5 (documentation-as-gate is an established pattern) and M2 (the ownership module
-is a new module in a contracted package).
+is a new module in a contracted package). **M4 is no longer a prerequisite** —
+it was one only so the drill-down limit could be measured, and with OQ-S2-001
+answered NO there is nothing to measure.
 
 ### Implementation steps
-1. Write `ownership.py` with all 44 entries. Derive each writer by grepping the
-   repository modules that write the table, **not by assumption** — the Stage 1
-   `match_run` error is what assumption costs. Where the grep finds two, that is
-   a finding to investigate and then either refute (as `match_run` was) or
-   declare explicitly with its reason.
+1. **Write `tools/derive_table_writers.py` first**, then `ownership.py` from its
+   output. The helper's two passes are described above: pass 1 over
+   `python/smartmatch_persistence` for the owning repository module and its
+   mutating method names, pass 2 over `services/api` and `services/worker` for
+   the call sites of those methods. It prints
+   `table → repository module → {services}`; the 44 entries are then reviewed and
+   argued by a human rather than pasted. Deriving by hand is exactly what
+   produced the Stage 1 `match_run` error: a hand reading infers *per feature*,
+   and the walker reports *per table*, which is the granularity the map is
+   stated at. Where pass 2 finds two services, that is a finding to investigate
+   and then either refute (as `match_run` was) or declare explicitly with its
+   reason (as the five command-path tables are).
 2. Write `tests/unit/test_table_ownership.py`: every table in
    `schema.METADATA.tables` appears exactly once; every mapped name is a real
-   table; every `context` is from the fixed vocabulary; **every table has exactly
-   one declared writer**. No table is exempt today; an exemption list exists in
-   the test only as the mechanism a future two-writer table would have to be
-   added to, alongside its stated reason.
+   table; every `context` is from the fixed vocabulary; **the declared owning
+   repository equals the derived one**; **the declared writing-service set
+   equals the derived one**; and **a `reason` is present if and only if the
+   entry names more than one service**. The test **re-runs
+   `tools/derive_table_writers.py`** and diffs both halves against the
+   declaration, which is what turns the map from a snapshot someone took into a
+   statement about the tree. Adding an undeclared second service to a
+   single-service table turns it red.
 3. Declare the 33 indexes in `schema.py` as `sa.Index(...)` beside their tables,
    copying names verbatim from migrations `0001`–`0033`. Names must match
    exactly — the parity comparison is by name.
@@ -1116,10 +1356,30 @@ is a new module in a contracted package).
    already asserts two indexes absolutely. Keep it. The file's own comment
    argues why some things are asserted absolutely as well as symmetrically, and
    that argument still holds for the two `ltree` GiST indexes.
-6. Apply `enforce_rate_limit` to `routers/metrics.py`, drill-down at minimum,
-   and bound the returned row count with a module-level `Final[int]` following
-   `units.MAX_SUBTREE_UNITS`.
-7. **Do not split `schema.py`.** The split is an optional follow-up after M6 and
+6. Apply `enforce_rate_limit` to `routers/metrics.py`, drill-down at minimum, at
+   **30 requests/min per caller**, and bound the returned row count at
+   **`MAX_DRILL_DOWN_ROWS: Final[int] = 500`**, following
+   `units.MAX_SUBTREE_UNITS`. Both values are **chosen, not measured**, and the
+   comment must say so: OQ-S2-001 is NO, the pilot is synthetic, and M4's request
+   logs therefore carry no real call rate to derive a limit from — a number taken
+   from synthetic traffic would have a measurement's authority and a guess's
+   basis. 30/min is the repository's existing write-tier value, used verbatim by
+   nine routers (`matching_weights.py:157`, `pipeline.py:135`,
+   `cba_contacts.py:259`, `cba_contact_channels.py:157`, `cba_handoff.py:114`,
+   `outreach_contacts.py:127`, `speaker_requests.py:174`,
+   `student_events.py:182`, `student_speaker_feedback.py:199`); the drill-down is
+   a read whose cost is a write's, and reusing a value the codebase already
+   reasons about beats inventing a tenth number.
+7. **The bound truncates; it does not refuse.** Return at most 500 rows together
+   with a `truncated: true` field and the **total** count, rather than a 4xx.
+   ADR-0011 decides this: a drill-down exists to show the rows behind an
+   aggregate, so silently returning a subset would leave the page displaying rows
+   that no longer explain the number above them — never silently drop the rows
+   the aggregate was computed from. **The drill-down must indicate truncation**,
+   and the total says how much is unseen. A 4xx would be defensible for a write;
+   for a read whose whole purpose is explanation, refusing to explain at all is
+   worse than explaining partially and saying so.
+8. **Do not split `schema.py`.** The split is an optional follow-up after M6 and
    is not part of it. ADR-0019's whole point is that ownership is the
    prerequisite and the split is the consequence.
 
@@ -1127,8 +1387,14 @@ is a new module in a contracted package).
 - `tests/unit/test_table_ownership.py` — new.
 - `tests/integration/test_schema_matches_migration.py` — extended, both
   directions.
-- `tests/unit/` or `tests/contract/` — the metrics drill-down refuses past the
-  rate limit and returns no more than the bound.
+- `tests/unit/` or `tests/contract/` — the metrics drill-down refuses past 30
+  requests/min; a drill-down over more than 500 rows returns exactly 500 **with
+  `truncated: true` and the total count**, and one under the bound reports
+  `truncated: false`.
+- `tools/derive_table_writers.py` is exercised by
+  `tests/unit/test_table_ownership.py` re-running it; adding a call to a
+  repository's mutating method from a second service turns that test red until
+  the entry declares that service with a reason.
 
 ### Migration & data concerns
 **No migration.** The indexes already exist in the database — they were created
@@ -1146,9 +1412,12 @@ touches no data at all.
   will now build indexes too. That is correct and should be verified rather than
   assumed.
 - Rate-limiting the metrics drill-down changes behaviour for an existing
-  authenticated caller. If the pilot is live (**OQ-S2-001**, safe default YES),
-  set the limit from the observed call rate in M4's request logs rather than by
-  guess. This is a concrete reason M4 precedes M6.
+  authenticated caller — but **OQ-S2-001 is NO** (8 September 2026) and every
+  such caller is synthetic. That also removes M4's claim on M6: the request logs
+  have no real call rate to offer, so the limit is the chosen 30/min above and
+  **M6 no longer depends on M4**. M4 first remains the better order — a request
+  log makes the first days of a new limit legible if it proves wrong — but it is
+  now a preference, not a prerequisite.
 
 ### Rollback strategy
 Revert the one commit. There is no migration to unwind and no data to restore,
@@ -1159,17 +1428,30 @@ guard stays and the bound relaxes.
 ### Completion criteria
 - `ownership.py` covers all 44 tables; adding a table to `schema.py` without
   adding it to the map turns `tests/unit/test_table_ownership.py` red.
-- Every entry declares exactly one writer — there is no two-writer table today.
-  `match_run`'s writer is `smartmatch_worker`, and its comment names the `job`,
-  `outbox_record` and `idempotency_record` rows the API writes on the other side
-  of the command path.
-- Adding a second writer to any table without also adding its explicit
-  declaration and reason turns `tests/unit/test_table_ownership.py` red.
+- Every entry declares one owning context, one owning repository module, and a
+  writing-service set — one service unless the entry names more and carries a
+  reason. `job`, `job_event`, `outbox_record`, `idempotency_record` and
+  `spend_reservation` name both services with the reason "API records intent /
+  worker transitions state (ADR-0005; ADR-0015 A1)"; `match_run`'s writer is
+  `smartmatch_worker` alone, and its comment names those API-side rows.
+- Adding a second writing service to a single-service table without also adding
+  its explicit declaration and reason turns
+  `tests/unit/test_table_ownership.py` red.
 - Dropping `ix_outbox_claimable` from a migration on a scratch branch turns
   `test_schema_matches_migration.py` red.
 - `test_schema_matches_migration.py`'s docstring no longer says index sets are
   not compared.
-- `routers/metrics.py` calls `enforce_rate_limit` and bounds its returned rows.
+- `routers/metrics.py` calls `enforce_rate_limit` at 30/min and bounds its rows
+  at `MAX_DRILL_DOWN_ROWS: Final[int] = 500`; a truncated response carries
+  `truncated: true` and the total count; the constant's comment cites
+  `MAX_SUBTREE_UNITS` and records that the value is chosen rather than measured,
+  the pilot being synthetic.
+- `tools/derive_table_writers.py` is checked in, makes both passes
+  (`python/smartmatch_persistence`, then `services/api` and `services/worker`),
+  and its derivation agrees with the declared map — repository module and
+  service set — for all 44 tables.
+- **ADR-0019 is flipped from `Proposed` to `Accepted`** and its
+  `decisions/README.md` row updated in the same commit.
 - **`schema.py` has not been split.**
 
 ### Follow-up unlocked
@@ -1205,7 +1487,12 @@ topology is real — before either question is answered by improvisation.
   only).
 
 ### Target state
-Four decisions on paper, `Proposed`, none of them implemented speculatively:
+Four decisions on paper, none of them implemented speculatively. **Both ADRs
+already exist as `Proposed`, with their index rows, from the Stage 2 docs PR
+(#124)**; this increment does not write them. It **flips both to `Accepted`** —
+ADR-0021 by the commit that lands its contract test, ADR-0022 by the commit that
+writes the topology statement, each updating the `decisions/README.md` row
+alongside:
 - **ADR-0021** — the worker's task-delivery contract: `200` on duplicate, `503`
   on race, `401`/`403`/`501`/`500` semantics, OIDC verified before the body is
   read. Source: `services/worker/smartmatch_worker/main.py`'s module docstring
@@ -1217,9 +1504,10 @@ Four decisions on paper, `Proposed`, none of them implemented speculatively:
 
 ### Files & modules affected
 - `docs/architecture/decisions/ADR-0021-worker-task-delivery-contract.md`,
-  `ADR-0022-appliance-is-production-topology.md` — new (writer E).
-- `docs/architecture/decisions/README.md` — two index rows, in the exact format
-  `tests/unit/test_adr_index.py` parses.
+  `ADR-0022-appliance-is-production-topology.md` — **existing (PR #124), status
+  flip only**.
+- `docs/architecture/decisions/README.md` — the two existing index rows, status
+  flipped in the same commit as each ADR.
 - `tests/contract/test_task_delivery_contract.py` — new; ADR-0021 asserted
   against `FixtureTaskQueue`.
 - `docs/architecture/current-system-topology.md` — the ADR-0022 statement.
@@ -1229,22 +1517,23 @@ M1 (the registry map is asserted, so a delivery contract is a statement about a
 complete map), M4 (contract violations are observable in logs).
 
 ### Implementation steps
-1. Write ADR-0021 from the worker's existing docstring rather than inventing
-   semantics. The docstring is the contract; the ADR promotes it from prose in
-   one module to a decision with a number, so the eventual live Cloud Tasks
-   adapter is **measured against it rather than improvised**.
+1. **Re-read ADR-0021 against the worker's docstring at implementation time.**
+   The ADR is written and in the tree (PR #124); it was drawn from the docstring
+   rather than invented, and the only act here is confirming the docstring still
+   says what the ADR records before the flip. No writing.
 2. Add `tests/contract/test_task_delivery_contract.py` exercising the contract
    against the fixture queue: a duplicate task name yields `200`, a lease race
    yields `503`, an unverified caller yields `403` and an absent credential
    `401`, and OIDC verification happens before the body is read. The last is the
    security-relevant ordering and the one an adapter author is most likely to
    invert.
-3. Write ADR-0022. State that the Compose appliance is production and Terraform
-   is a forward design record; state where logs go, how a rollback is performed,
-   and when a migration runs relative to a deploy — the three questions
-   `deploy.yml` answers for the appliance and nothing answers for GCP. **Build
-   nothing for GCP.** Per the standing anti-pattern, write what an adapter must
-   satisfy, not the adapter.
+3. **ADR-0022 already exists** (PR #124) and states that the Compose appliance is
+   production and Terraform a forward design record. The remaining work is the
+   **statement in `docs/architecture/current-system-topology.md` §1** — where
+   logs go, how a rollback is performed, and when a migration runs relative to a
+   deploy, the three questions `deploy.yml` answers for the appliance and
+   nothing answers for GCP — **plus the status flip**. **Build nothing for
+   GCP.**
 4. Record retention per table for `job_event`, `delivery_event`,
    `contact_channel_transition`, `pilot_login_attempt`, and `match_run`
    snapshots. **Implement nothing.** Each table now has a declared owner from
@@ -1255,12 +1544,16 @@ complete map), M4 (contract violations are observable in logs).
    writing `downgrade()` bodies that will never work; if it is, the follow-up is
    an upgrade→downgrade→upgrade case in the integration harness — which is
    follow-up work, not M7.
-6. Add both index rows to `docs/architecture/decisions/README.md` in the format
-   `test_adr_index.py` enforces:
-   `| [ADR-NNNN](ADR-NNNN-slug.md) | Title | Status | D Month YYYY | Decides | Amended | Supersedes | Superseded by |`,
-   with Title matching the `# ADR-NNNN — Title` heading and Status and Date
-   matching the `**Status:**` / `**Date:**` lines. Numbers must stay contiguous
-   (`test_adr_numbers_are_contiguous_from_one`).
+6. **Flip both ADRs to `Accepted`**, each in the commit that implements it —
+   ADR-0021 with `tests/contract/test_task_delivery_contract.py` (an ADR nothing
+   exercises is prose, and prose is not `Accepted`), ADR-0022 with the topology
+   statement, whose implementation *is* the statement. Update the matching
+   `decisions/README.md` row in the same commit; `test_adr_index.py` fails on a
+   half-flip.
+7. **Both index rows already exist** in `docs/architecture/decisions/README.md`,
+   in the format `test_adr_index.py` enforces, and their numbers are contiguous
+   — added by PR #124. This increment edits only the `Status` cell of each, in
+   the same commit as the ADR's own `**Status:**` line.
 
 ### Tests required
 - `tests/contract/test_task_delivery_contract.py` — new; the substance.
@@ -1277,22 +1570,23 @@ data touched. R-14's downgrade question is answered on paper; no `downgrade()`
 is run against any database in this increment.
 
 ### Compatibility concerns
-- ADR-0016 is already recorded in `decisions/README.md`'s "Reserved numbers"
-  section as reserved-with-no-file while the file exists (CBA scoring policy) —
-  a Stage 1 disagreement, and stale. Correct it in the same PR that adds these
-  rows, since the reserved-numbers list and the index are read together.
+- The `decisions/README.md` "Reserved numbers" entry that recorded ADR-0016 as
+  reserved-with-no-file while the file exists (CBA scoring policy) — a Stage 1
+  disagreement — **was corrected in PR #124**. Nothing remains here.
 - The contract test asserts against `FixtureTaskQueue`. That proves the *shape*
   of the contract, not the real queue's semantics. Say so in the ADR: this test
   is what the live adapter will be held to, not evidence that it passes.
 
 ### Rollback strategy
-Revert the one commit. Both ADRs are `Proposed` and no behaviour changes, so a
-revert removes two documents, two index rows, and one test — with no runtime
-effect whatsoever.
+Revert the PR. No behaviour changes anywhere, so a revert removes one test, the
+topology statement and two status flips — the two ADRs and their index rows
+predate this increment and stay — with no runtime effect whatsoever.
 
 ### Completion criteria
-- ADR-0021 and ADR-0022 exist, are `Proposed`, and `tests/unit/test_adr_index.py`
-  passes with their rows.
+- ADR-0021 and ADR-0022 (landed in PR #124) still pass
+  `tests/unit/test_adr_index.py` after the flip.
+- **Both are flipped from `Proposed` to `Accepted`**, each in the commit that
+  implements it, with its `decisions/README.md` row updated alongside.
 - `tests/contract/test_task_delivery_contract.py` covers duplicate, race, and the
   four status codes, and fails when the fixture queue's duplicate behaviour is
   changed.
@@ -1301,7 +1595,6 @@ effect whatsoever.
 - Retention and downgrade decisions are recorded, or their OQ is cited with a
   safe default.
 - No GCP code was written.
-- The "Reserved numbers" ADR-0016 entry is corrected.
 
 ### Follow-up unlocked
 Any adapter — Resend, Routes, Cloud Tasks, JWKS — is now implemented against a
@@ -1310,11 +1603,15 @@ written contract with a test that already encodes it. R-01's remediation is
 
 ---
 
-## M8 — Owner-gated cleanups
+## M8 — Cleanups, now unblocked
 
 ### Goal
 Stop showing users pages that cannot work, and delete code that invites a
 prohibited capability.
+
+**No longer owner-gated.** OQ-S2-002 was answered on 8 September 2026: **delete
+the seven legacy pages and redirect their routes to the `/v1` pages.** The
+increment keeps its number and its name changes; nothing in it waits on anyone.
 
 ### Current problem
 - **R-17, P2.** Seven routed pages — `Dashboard`, `Opportunities`, `Volunteers`,
@@ -1331,75 +1628,102 @@ prohibited capability.
   for a future agent to wire it up against a standing decision.
 
 ### Target state
-Three dead components deleted. Each of the seven pages carries a recorded
-disposition: port to `/v1`, delete, or keep a corrected notice.
+Three dead components deleted. The seven legacy pages deleted, their 24 `/api/*`
+call sites removed from `lib/api.ts`, and each of their routes redirecting to the
+corresponding `/v1` page. No page in the tree renders a notice explaining why it
+cannot work, because no such page remains.
 
 ### Files & modules affected
 - `apps/web/legacy-frontend/src/components/OutreachWorkflowModal.tsx`,
   `AgenticOutreachPanel.tsx`, `FeedbackForm.tsx` — deleted.
-- `apps/web/legacy-frontend/src/pages/{Dashboard,Opportunities,Volunteers,Pipeline,Calendar,Outreach,AIMatching}.tsx`
-  — per the decision.
-- `apps/web/legacy-frontend/src/lib/api.ts` — the 24 `/api/*` helpers, per the
-  decision.
-- `tests/e2e/` — `test_16` restated to match whatever is decided.
+- `apps/web/legacy-frontend/src/app/pages/{Dashboard,Opportunities,Volunteers,Pipeline,Calendar,Outreach,AIMatching}.tsx`
+  — deleted.
+- `apps/web/legacy-frontend/src/lib/api.ts` — the 24 `/api/*` helpers, deleted
+  with the pages that called them.
+- The route table — seven redirects to the corresponding `/v1` pages.
+- `tests/e2e/` — `test_16` restated.
 
 ### Prerequisites
-M0 (the frontend suite runs, so a deletion's fallout is caught), M3 (a page has
-been migrated, so *"port to /v1"* is a known quantity rather than an estimate),
-M5 (the `Calendar.tsx` text has already been corrected, so *"keep the notice"*
-is already a defensible state).
+M0 (the frontend suite runs, so a deletion's fallout is caught) and M5 (the
+`Calendar.tsx` text was corrected there, so the tree never carried a page whose
+*stated reason* was false while waiting to be deleted — an interim state that
+mattered, and cost an hour).
 
-**Blocked on OQ-S2-002** for the seven pages. **Not blocked** for the three
-deletions.
+**M3 is no longer a prerequisite.** It was one so that *"port to /v1"* could be
+estimated against a migrated surface; nothing is being ported.
+
+**Nothing here is blocked.** OQ-S2-002 is answered.
+
+**Why M8 stays last, now that it could move.** Two reasons, and neither is
+inertia. `test_16` is a gate over these pages and M8 must restate it in the same
+increment; restating a gate is the most delicate act in this roadmap
+(non-negotiable 13) and it belongs after the frontend lane has been running for
+several increments, not on the day M0 switched it on and before anyone has seen
+it catch anything. And M5's correction of the `Calendar.tsx` notice is what makes
+the interim honest — run the deletion first and M5 is correcting text in a file
+that no longer exists, which is churn rather than sequencing.
 
 ### Implementation steps
 1. **Delete the three components** (unblocked). Confirm zero references with a
    reference scan over `src`, then delete. `git` retains them; ADR-0003 is why
    `AgenticOutreachPanel` in particular should not sit there compiling.
-2. **Await OQ-S2-002.** Present the owner with the per-page cost using M3's
-   migration as the unit of measure: this is the concrete reason M3 precedes M8.
-3. Per page, once decided:
-   - *port* — migrate against the generated client using M3's pattern;
-   - *delete* — remove the route, the page, and its `lib/api.ts` helpers
-     together, so no orphan helper survives;
-   - *correct the notice* — the M5 text stands and the page stays routed.
-4. Update `test_16` to assert whatever is now true. It currently asserts the
-   portal pages have no backend **in this repository**; after a port, that is no
-   longer true for the ported page, and the test must say so rather than being
-   loosened.
+2. **Delete the seven pages.** Remove each page module and its `lib/api.ts`
+   helpers **together**, so no orphan helper survives — an orphaned helper is how
+   a deleted page comes back. All 24 `/api/*` call sites go.
+3. **Redirect each of the seven routes** to the corresponding `/v1` page. With
+   OQ-S2-001 answered NO, no one holds a bookmark and no notice period is owed,
+   so the redirect is there for coherence rather than continuity: a route that
+   silently 404s after having rendered something is a worse answer than one that
+   lands on the working page. A plain route redirect is sufficient; no
+   interstitial, no explanatory state.
+4. **Restate `test_16`.** Its current subject — the seven pages — is gone, and a
+   test whose subject vanished is precisely where a gate gets deleted "because it
+   does not apply any more". It does apply. Restate it as **no module under `src`
+   calls an `/api/*` path**: the same claim with the pages removed from it, and
+   strictly *stronger* than the enumeration it replaces, because it also catches
+   a reintroduction under a new name. Never `pytest.skip`, never `xfail`, never a
+   removed case.
 
 ### Tests required
-- Existing frontend suite (M0) green after deletion.
-- `tests/e2e/…::test_16` — restated, never weakened. If pages are ported, the
-  test names which pages remain backend-less; it does not stop asserting.
-- Per ported page, a test in `apps/web/legacy-frontend/tests/` following M3's
-  pattern page.
+- Existing frontend suite (M0) green after the deletions.
+- `tests/e2e/…::test_16` — restated to *no module under `src` calls an `/api/*`
+  path*, never weakened. It must fail if any module acquires such a call and fail
+  if one of the seven deleted pages returns.
+- A test that each of the seven redirected routes lands on its `/v1` page.
+- A reference scan over `src` returning nothing for the seven page modules and
+  the three components.
 
 ### Migration & data concerns
 **None.** Frontend only. No schema, no data, no `/v1` endpoint added or removed.
 
 ### Compatibility concerns
-- Deleting a routed page changes URLs users may have bookmarked. If the pilot is
-  live (**OQ-S2-001**, default YES), a deleted route needs a redirect or an
-  explicit not-found page rather than a blank screen — deleting the route
-  without deciding what replaces it recreates R-17's failure mode in a new form.
+- Deleting a routed page changes URLs users may have bookmarked — but
+  **OQ-S2-001 is NO** (8 September 2026): the pilot VM holds synthetic data only,
+  nobody holds a bookmark, and no notice period or deprecation window is owed.
+  The redirects are still added, because deleting a route without deciding what
+  replaces it recreates R-17's failure mode in a new form regardless of who is
+  watching.
 - The three component deletions carry no such concern: they are referenced by
   nothing and reachable by no route.
 
 ### Rollback strategy
-Revert the one commit; `git` retains everything. Because deletion and per-page
-work are separate commits, the unblocked deletion can stand while any page
-decision is reverted independently.
+Revert the PR; `git` retains every deleted file, which is what makes this
+reversible by a revert rather than by a rewrite. The component deletion, the page
+deletion plus redirects, and the `test_16` restatement are separate commits, so
+any one can be reverted while the others stand.
 
 ### Completion criteria
 - `grep -rn 'OutreachWorkflowModal\|AgenticOutreachPanel\|FeedbackForm'` over
   `apps/web/legacy-frontend/src` returns nothing.
-- Each of the seven pages has a recorded disposition, and no page shows a notice
-  whose stated reason is false.
-- `test_16` asserts the true current state.
+- The seven page modules are gone; the 24 `/api/*` call sites are gone from
+  `lib/api.ts`; no `/api/*` path is called anywhere under `src`.
+- Every deleted route redirects to a `/v1` page.
+- `test_16` asserts the true current state and no assertion was deleted; the
+  `pilot e2e` job is green.
 - The frontend suite is green.
 
 ### Follow-up unlocked
-The frontend surface is what it claims to be. Every remaining `/v1` page
-migration is mechanical against M3's pattern, and the `lib/api.ts` line count
-becomes a number that only goes down.
+The frontend surface is what it claims to be, and `test_16` now asserts a
+property of the whole tree rather than a list of seven names. Every remaining
+`/v1` migration is mechanical against M3's pattern, and the `lib/api.ts` line
+count becomes a number that only goes down.

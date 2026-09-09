@@ -16,8 +16,11 @@ usual defaults instead.
    /v1/auth/login` is a real, owner-authorized login against `pilot_credential`
    (`services/api/smartmatch_api/main.py` module docstring;
    `docs/decisions/pilot-login-decision-2026-09-04.md`). Whether real users are
-   on it *today* is OQ-S2-001 and Stage 2 assumes yes. Plan every change as
-   reversible on a live system.
+   on it *today* was OQ-S2-001, **answered 2026-09-08: NO — synthetic data only,
+   no real users.** So there is no notice period and no deprecation window on a
+   removal, and Phases 1–3 may batch. Reversibility is unchanged: every increment
+   is still independently reversible, because that is a Stage 2 rule about
+   reviewability, not a consequence of who is logged in.
 
 2. **Work in progress is marked by ABSENCE, not by comments.** A repository-wide
    search of `python/`, `services/`, `apps/`, `tools/`, `db/`, `infra/` finds
@@ -29,8 +32,10 @@ usual defaults instead.
    unregistered command types, and constructors that raise.
 
 3. **The inner layers are contracted; the outer ones are not yet.** Four
-   `python/` packages sit in import-linter `root_packages` with four contracts
-   (`pyproject.toml [tool.importlinter]`). `smartmatch_api` and
+   `python/` packages sit in import-linter `root_packages` with four contracts,
+   numbered 1–4 (`pyproject.toml [tool.importlinter]`; `DEPENDENCY_RULES.md` §3
+   carries the number → name → type → DR → AP table, including contracts 5–9
+   that M2 adds). `smartmatch_api` and
    `smartmatch_worker` are **not** in `root_packages` — nothing today stops a
    router importing another router, and two already do
    (`routers/cba_contact_channels.py:131`, `routers/outreach_contacts.py:109`).
@@ -79,7 +84,7 @@ usual defaults instead.
      Quota is deliberately *outside* it (ADR-0015).
    - **Command execution** — `smartmatch_worker.handlers.default_registry()`
      (`handlers.py` ~L1349) **plus the root composition in
-     `services/worker/smartmatch_worker/main.py` ~L451-489**, which is where
+     `services/worker/smartmatch_worker/main.py:468-489`**, which is where
      `outreach.send` and `extraction.paid_pages` are actually attached. A reader
      of `default_registry()` alone will conclude those handlers do not exist.
      They do. This is R-04's sharp form.
@@ -107,7 +112,7 @@ usual defaults instead.
    framework in Foundation) is the recorded form of this rule.
 
 6. **Confirm the dependency rules.** Run `make imports` before you write and
-   after. It runs `lint-imports` against the four contracts in `pyproject.toml`.
+   after. It runs `lint-imports` against the contracts in `pyproject.toml` — four today, nine after M2 (ADR-0018).
    If your change requires a new contract or a new `root_package`, that is an
    M2-shaped change and needs to be argued, not slipped in.
 
@@ -490,14 +495,41 @@ memory record whose cited git blob changed fails `make check`.
 
 **Why here.** `tests/unit/test_adr_index.py` (row format, title match, status and
 date match, contiguous numbering) and `tools/agent_memory_check.py` (required
-front-matter fields; blob hashes re-verified against approval). Note the index
-already carries one known staleness — `decisions/README.md`'s "Reserved numbers"
-says ADR-0016 is reserved with no file, and ADR-0016 exists.
+front-matter fields; blob hashes re-verified against approval). The index carried one known staleness
+until this Stage 2 change corrected it — `decisions/README.md`'s "Reserved
+numbers" said ADR-0016 was reserved with no file while `ADR-0016-cba-scoring-policy.md`
+had existed since 5 September 2026. Keep it in mind as the failure mode, not as
+an open defect: the tested half stayed green while the untested prose beside it
+went stale.
 
 **How you would violate it by accident.** Adding the ADR file and forgetting the
 row; editing a file that an approved memory record cites, in an unrelated change.
 
 **How to check.** `make test` and `make memory`.
+
+---
+
+### 3.17 Cite a Proposed ADR as Proposed, and flip it in the PR that implements it
+
+**Rule.** ADRs 0018–0023 are `Proposed`. If your change implements one, say so as
+**"implementing Proposed ADR-00xx"** in the PR body, and in that same PR:
+
+1. change the ADR's `**Status:**` line from `Proposed` to `Accepted`, and
+2. change the Status column of that ADR's row in `decisions/README.md`.
+
+Both edits or neither — `tests/unit/test_adr_index.py` asserts the two agree, so
+half the flip fails `make test`. A **partially** implemented ADR stays `Proposed`:
+status is binary and the increment is the unit. Do not flip an ADR you did not
+implement, and do not describe an ADR as Accepted in a PR body while it reads
+`Proposed` in tree — that is a claim about a repository that does not exist. The
+process is recorded in `decisions/adr-backlog.md` § *Process*.
+
+**How you would violate it by accident.** Writing "per ADR-0020" in a PR body
+when ADR-0020 is still Proposed; flipping the `**Status:**` line and forgetting
+the README row; flipping an ADR because your change touched the same area.
+
+**How to check.** `make test` (the index test), and `grep -n '\*\*Status:\*\*'`
+against the ADR you cited.
 
 ---
 
@@ -538,7 +570,7 @@ row; editing a file that an approved memory record cites, in an unrelated change
 2. Submit it through `commands.submit_command` — nothing else writes a job row.
 3. Attach an executor: either in `default_registry()`
    (`handlers.py` ~L1349) or, if it needs configuration the registry must not
-   own, at the **root composition** in `worker/main.py` ~L451-489 — which is how
+   own, at the **root composition** in `worker/main.py:468-489` — which is how
    `outreach.send` (`with_outreach_send`, unconditional when `registry_is_ours`)
    and `extraction.paid_pages` (only when spend ceilings are configured) are
    attached. If you compose at the root, say so in `default_registry()`'s
@@ -564,9 +596,23 @@ row; editing a file that an approved memory record cites, in an unrelated change
 2. Write the migration as `db/migrations/versions/0034_<slug>.py` — **current head
    is `0033_event_filed_by.py`**, so the next number is `0034`. One transaction per
    revision (ADR-0009).
-3. Add the **ownership entry**: one owning bounded context, one writing service
-   (AP-03 / ADR-0019, from M6). Ownership is declared as data and checked by a
-   test — do not leave it inferable.
+3. Add the **ownership entry**: one owning bounded context, one owning
+   repository module in `smartmatch_persistence`, and the declared
+   writing-service set — one service, unless you declare more *and* give the
+   reason (AP-03 / ADR-0019, from M6). Ownership is declared as data and checked
+   by a test — do not leave it inferable. Do not type the writers in from memory:
+   run `tools/derive_table_writers.py`. It makes two passes — over
+   `python/smartmatch_persistence`, to find the one module issuing `insert()` /
+   `update()` / `delete()` against your `schema.<table>` and to collect that
+   module's mutating method names; then over `services/api` and `services/worker`,
+   to find which service packages call them — and prints
+   table → repository module → {services}. Its output seeds the entry and the
+   ownership test re-runs it, so a half the tool cannot confirm, or a caller the
+   tool finds and the map does not declare, fails the lane. Two services is a
+   legitimate answer for a table on the command path — `job`, `job_event`,
+   `outbox_record`, `idempotency_record` and `spend_reservation` all declare both,
+   with the reason "API records intent / worker transitions state (ADR-0005,
+   ADR-0015 A1)" — but it is never a silent answer.
 4. The **parity test** compares `schema.py` and the migrations both ways.
    Post-M6 that includes indexes (AP-10/R-12), so declare indexes in `schema.py`.
 5. Write a **check-constraint test**: the constraint is the contract (§3.10).
@@ -609,6 +655,11 @@ row; editing a file that an approved memory record cites, in an unrelated change
       change contradicted is corrected in the same change.
 - [ ] ADR written if a decision was made, **and** its index row added in the
       tested format.
+- [ ] If the change implements a `Proposed` ADR (0018–0023): the PR body says
+      "implementing Proposed ADR-00xx", the ADR's `**Status:**` line reads
+      `Accepted`, and its `decisions/README.md` row's Status column matches
+      (§3.17). A partial implementation leaves the ADR `Proposed` and the PR body
+      still cites it as Proposed.
 - [ ] Agent-memory ledger re-approved if your change touched a file an approved
       record cites.
 - [ ] `docs/plans` documents you touched carry a status header.

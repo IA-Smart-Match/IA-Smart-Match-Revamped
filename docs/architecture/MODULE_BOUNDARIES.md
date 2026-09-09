@@ -138,7 +138,7 @@ govern them, and `include_external_packages = true` is what makes
 
 | Field | Value |
 |---|---|
-| **Purpose** | 43 PostgreSQL tables and 26 repositories. The only module that speaks SQL. |
+| **Purpose** | 44 PostgreSQL tables and 26 repositories. The only module that speaks SQL. |
 | **Owns** | `schema.py`, the repositories, `engine.create_session_factory`, `rate_limit` (fan-in 21), `outbox`, `jobs`, `idempotency`, `redrive`, `spend`, `spend_sweeper`. |
 | **Does not own** | Business rules — it calls into `smartmatch_domain` for them (14 edges). Transaction *boundaries* on the request path belong to `api/dependencies.get_session`; on the command path to `worker/execution`. |
 | **Public API** | Repository classes; `schema.py`'s `Table` objects. |
@@ -164,7 +164,7 @@ govern them, and `include_external_packages = true` is what makes
 | **Domain concepts** | Every entity's identity. |
 | **Tests** | The parity guard compares tables and columns both ways and explicitly *"does not compare index sets"*. |
 | **Operational concerns** | The one file every persistence change touches — a permanent merge-conflict surface in an agent-parallel workflow (R-20). |
-| **Disposition** | **remain now; split OPTIONAL after M6.** The argument against splitting today is not conservatism, it is ordering: `schema.py` currently owns all 44 tables, *so nothing else can be said to own any of them* (`domain-model.md` §6). A split before ownership is declared invents boundaries by file size and then freezes them. M6 declares table → context → writing service as data with a test (AP-03, ADR-0019); only after that does a split follow a line that already means something. R-20's own remediation reads *"Do not split for aesthetics."* The index gap (R-12, AP-10) is fixed **in place at M6** and is independent of any split. |
+| **Disposition** | **remain now; split OPTIONAL after M6.** The argument against splitting today is not conservatism, it is ordering: `schema.py` currently owns all 44 tables, *so nothing else can be said to own any of them* (`domain-model.md` §6). A split before ownership is declared invents boundaries by file size and then freezes them. M6 declares, as data with a test, table → owning context → owning repository module → declared writing-service set — one service unless the entry names more and gives the reason, as the five command-path tables do (AP-03, ADR-0019); only after that does a split follow a line that already means something. R-20's own remediation reads *"Do not split for aesthetics."* The index gap (R-12, AP-10) is fixed **in place at M6** and is independent of any split. |
 
 #### 1.4b `persistence/spend_sweeper.py`
 
@@ -197,8 +197,8 @@ The service-wide rules, stated once:
 | Rule | Enforced by, after M2 |
 |---|---|
 | `smartmatch_api` may import all four `python/` packages | manifest declares them; layering contract extended |
-| `smartmatch_api` may **not** import `smartmatch_worker`, and vice versa | new `forbidden` contract (AP-01) — today held by convention only (`dependency-analysis.md` §3c) |
-| A router may **not** import another router | new `forbidden` contract (AP-02) — today violated twice |
+| `smartmatch_api` may **not** import `smartmatch_worker`, and vice versa | contract 7, `The API and the worker are independent services` (`independence`) — today held by convention only (`dependency-analysis.md` §3c) |
+| A router may **not** import another router | contract 8, `Routers are independent of one another` (`independence`), landed with two transitional `ignore_imports` |
 | No router performs provider IO inline | `scan_forbidden.py:136`, already CI-gated (AP-04) |
 | No router reads identity from a request body | `scan_forbidden.py:61,166`, already CI-gated |
 | A gated-off capability owns no router | `main.py:CAPABILITY_SCOPED_ROUTERS` (AP-11) — never `if enabled:` |
@@ -228,7 +228,7 @@ The service-wide rules, stated once:
 | **Does not own** | The policy itself (`smartmatch_authz`), or per-resource authorization (`job_authz.py`, and after M2 `unit_authz.py`). |
 | **Public API** | `CurrentPrincipal`, `DbSession`, `QuotaCharge`, `charge_quota`, `enforce_rate_limit`, `get_current_principal`, `get_session`, `get_token_verifier`. |
 | **Allowed deps** | `smartmatch_domain`, `smartmatch_persistence`, `smartmatch_providers`, `smartmatch_api.errors`, FastAPI. |
-| **Forbidden deps** | Any router; `smartmatch_worker`. |
+| **Forbidden deps** | Any router (contract 9, `Shared API modules must not import routers`, M2); `smartmatch_worker`. |
 | **Persistence** | `PilotSessionRepository`, `PrincipalRepository`, `RateLimiter`. |
 | **Domain concepts** | Principal, Membership, rate limit, spend quota. |
 | **Tests** | Exercised by every contract test; ADR-0015's charge-before-refusal is e2e-visible. |
@@ -244,7 +244,7 @@ The service-wide rules, stated once:
 | **Does not own** | Which status a given rule produces; that is the raising module's decision. |
 | **Public API** | `ApiError`, `error_response`, the handler functions registered in `main.py`. |
 | **Allowed deps** | `smartmatch_domain` exception types, `smartmatch_authz.AuthorizationError`, pydantic, FastAPI. |
-| **Forbidden deps** | Any router; `smartmatch_persistence`; `smartmatch_worker`. |
+| **Forbidden deps** | Any router (contract 9, M2); `smartmatch_persistence`; `smartmatch_worker`. |
 | **Persistence** | None. |
 | **Domain concepts** | Consent violation, invalid transition, idempotency conflict — the domain's refusals, surfaced. |
 | **Tests** | Contract tests assert the envelope shape per route family. |
@@ -260,7 +260,7 @@ The service-wide rules, stated once:
 | **Does not own** | Authorization. It loads and scopes; `smartmatch_authz` decides. |
 | **Public API** | `MAX_SUBTREE_UNITS`, `OrgUnitRow`, `load_unit_or_404`, `units_in_subtree`. |
 | **Allowed deps** | `smartmatch_persistence`, `smartmatch_authz`, `smartmatch_api.errors`. |
-| **Forbidden deps** | Any router; `smartmatch_worker`. |
+| **Forbidden deps** | Any router (contract 9, M2); `smartmatch_worker`. |
 | **Persistence** | `org_unit`, via `ltree`. |
 | **Domain concepts** | Org unit — the universal scope (`domain-model.md` §3.1). |
 | **Tests** | Exercised by every unit-scoped contract test. |
@@ -292,7 +292,7 @@ The service-wide rules, stated once:
 | **Does not own** | Worker configuration — `smartmatch_worker/config.py` is separate and must stay so; the two services have different secrets and different failure modes. |
 | **Public API** | `Settings`, `get_settings`. |
 | **Allowed deps** | `smartmatch_domain.product_scope`, pydantic-settings. |
-| **Forbidden deps** | Any router; `smartmatch_worker`. |
+| **Forbidden deps** | Any router (contract 9, M2); `smartmatch_worker`. |
 | **Persistence** | None (holds the DSN; does not connect). |
 | **Domain concepts** | `Capability`, `ProductScope`. |
 | **Tests** | Settings validation tests. |
@@ -307,7 +307,7 @@ The service-wide rules, stated once:
 | **Does not own** | Execution. Nothing in the API request path talks to a queue; the dispatcher is *deliberately the only component that creates tasks* (`worker/dispatcher.py` docstring). |
 | **Public API** | `CommandAccepted`, `submit_command`. |
 | **Allowed deps** | `smartmatch_persistence` (jobs, outbox, idempotency), `smartmatch_domain.jobs`. |
-| **Forbidden deps** | `smartmatch_providers` task clients; `smartmatch_worker`; any router. |
+| **Forbidden deps** | `smartmatch_providers` task clients; `smartmatch_worker`; any router (contract 9, M2). |
 | **Persistence** | `job`, `outbox_record`, `idempotency_record`, `job_event`. |
 | **Domain concepts** | Job (`domain-model.md` §3.3). |
 | **Tests** | 44 tests across the command path, including crash-window cases. |
@@ -323,7 +323,7 @@ The service-wide rules, stated once:
 | **Does not own** | Unit-scoped authorization for non-job resources — which is precisely the gap `unit_authz.py` fills at M2. |
 | **Public API** | The two authorize functions, consumed by `routers/jobs.py` and `routers/redrive.py`. |
 | **Allowed deps** | `smartmatch_authz`, `smartmatch_persistence.jobs`, `smartmatch_api.errors`. |
-| **Forbidden deps** | Any router. |
+| **Forbidden deps** | Any router (contract 9, M2). |
 | **Persistence** | `job` (with `owning_unit_id`, migration `0006`), `resource_grant`. |
 | **Domain concepts** | Job, Principal, Resource grant. |
 | **Tests** | Job authorization tests across all four job routes. |
@@ -339,7 +339,7 @@ The service-wide rules, stated once:
 | **Does not own** | Any scoring rule (`domain/scoring.py`, `domain/explanation.py`), any distance model (`domain/factors/proximity.py`, `domain/zcta_centroids.py`), any pipeline stage legality (`domain/pipeline.py`). |
 | **Public API** | Called by `routers/match_runs.py`, `routers/pipeline.py`, `routers/events.py` and their neighbours. |
 | **Allowed deps** | `smartmatch_domain`, `smartmatch_persistence`, `smartmatch_api.{errors,units,clock}`. |
-| **Forbidden deps** | Any router (the dependency runs router → these, never back); `smartmatch_worker`. |
+| **Forbidden deps** | Any router (contract 9, M2; the dependency runs router → these, never back); `smartmatch_worker`. |
 | **Persistence** | Read-mostly across `match_run`, `pipeline_record`, `event`. |
 | **Domain concepts** | Match run, Pipeline record, proximity factor. |
 | **Tests** | Contract tests over the routes that consume them; e2e 08c, 11, 12. |
@@ -355,12 +355,12 @@ The service-wide rules, stated once:
 | **Does not own** | Provider IO (AP-04, `scan_forbidden.py:136`); identity from a body (`scan_forbidden.py:61,166`); another router's helpers (AP-02, violated twice today); mounting themselves (`main.py` owns the capability gate). |
 | **Public API** | `router` (and, for three modules, a second `public_router` / `connector_router` — the unauthenticated or differently-scoped half, split deliberately so that "this route takes no principal" is visible at the mount site rather than inside the handler). |
 | **Allowed deps** | `smartmatch_api.{dependencies,errors,units,clock,commands,config,job_authz,unit_authz,match_run_evidence,pipeline_provisioning,zip_proximity}`; all four `python/` packages. |
-| **Forbidden deps** | **Any other `smartmatch_api.routers.*` module** (new contract, M2); `smartmatch_worker`; any provider client constructed inline. |
+| **Forbidden deps** | **Any other `smartmatch_api.routers.*` module** (contract 8, `Routers are independent of one another`, M2); `smartmatch_worker`; any provider client constructed inline. |
 | **Persistence** | Via repositories only. |
 | **Domain concepts** | All eleven, distributed by capability. |
 | **Tests** | `tests/contract/` per router family; 26-step e2e walk against a live appliance. |
 | **Operational concerns** | Rate limiting is applied in 20 of 25 modules; `metrics` is the one indefensible omission — `GET /v1/units/{u}/metrics/{name}/drill-down` is unbounded, authenticated, database-heavy work (R-07). 22 of 25 log nothing (R-03). |
-| **Disposition** | **split.** Exactly two symbols move, and only these two: `cba_contacts.SPEAKER_CONTACT_READ_RATE_LIMIT` + `cba_contacts._authorize_speaker_contacts` (imported at `routers/cba_contact_channels.py:131`) and `outreach.READ_RATE_LIMIT` + `outreach._authorize_outreach` (imported at `routers/outreach_contacts.py:109`) become the public surface of a new **`services/api/smartmatch_api/unit_authz.py`**, following `job_authz.py` exactly — including a docstring that records what it is preventing. The *behaviour* those imports encode is right and `main.py`'s router table argues it correctly: *"one question about a unit's outreach with one answer"*. What is wrong is the mechanism. Reaching across a sibling module for an underscore-prefixed name makes the router layer's public surface undefinable, and a rename in `outreach.py` silently breaks `outreach_contacts.py` with no contract to catch it. With the two helpers relocated, the router→router `forbidden` contract has zero exceptions and can be added the same day. Cited: R-06, AP-02, `dependency-analysis.md` §3b, `job_authz.py` precedent. Everything else in `routers/` **remains**; the M6 additions to `metrics` (rate limit + bounded rows) are behaviour inside an unchanged module. |
+| **Disposition** | **split.** Exactly two symbols move, and only these two: `cba_contacts.SPEAKER_CONTACT_READ_RATE_LIMIT` + `cba_contacts._authorize_speaker_contacts` (imported at `routers/cba_contact_channels.py:131`) and `outreach.READ_RATE_LIMIT` + `outreach._authorize_outreach` (imported at `routers/outreach_contacts.py:109`) become the public surface of a new **`services/api/smartmatch_api/unit_authz.py`**, following `job_authz.py` exactly — including a docstring that records what it is preventing. The *behaviour* those imports encode is right and `main.py`'s router table argues it correctly: *"one question about a unit's outreach with one answer"*. What is wrong is the mechanism. Reaching across a sibling module for an underscore-prefixed name makes the router layer's public surface undefinable, and a rename in `outreach.py` silently breaks `outreach_contacts.py` with no contract to catch it. The ordering is ADR-0018's, and it is the reverse of the obvious one: contract 8 lands **first**, carrying these two imports as named `ignore_imports` entries, and the promotion then deletes them — two commits, each independently reversible, with the rule true for the other 23 router modules from the first one. Cited: R-06, AP-02, `dependency-analysis.md` §3b, `job_authz.py` precedent. Everything else in `routers/` **remains**; the M6 additions to `metrics` (rate limit + bounded rows) are behaviour inside an unchanged module. |
 
 ---
 
@@ -371,7 +371,7 @@ Service-wide rules, stated once and enforced from M2 (AP-01):
 | Rule | Enforced by |
 |---|---|
 | `smartmatch_worker` may import all four `python/` packages | manifest declares `smartmatch-persistence` (10 files import it today, undeclared) |
-| `smartmatch_worker` may **not** import `smartmatch_api` | new `forbidden` contract |
+| `smartmatch_worker` may **not** import `smartmatch_api` | contract 7, `The API and the worker are independent services` |
 | Only the worker executes a command's work | v1.1 §1.6; enforced on the API side by `scan_forbidden.py:136` |
 | A gated-off capability has no registered handler | `handlers.default_registry` docstring (AP-11) |
 
@@ -380,7 +380,7 @@ Service-wide rules, stated once and enforced from M2 (AP-01):
 | Field | Value |
 |---|---|
 | **Purpose** | The worker HTTP boundary **and** the composition root. Four endpoints: health, `/tasks/execute`, `/operations/dispatch`, and the pass heartbeat. |
-| **Owns** | The order of operations that *is* the security property — verify OIDC **before the body is read**, then parse identifiers only, then execute against the job re-read from PostgreSQL. The status-code contract with the queue. The separation of the two callers (separate audiences, separate allowlists, separate verifiers: Cloud Tasks may deliver and may not dispatch; Cloud Scheduler the reverse). Root composition of `with_outreach_send` (:451-489, unconditional when `registry_is_ours`) and `with_paid_extraction` (:491, only when all three spend ceilings are named). |
+| **Owns** | The order of operations that *is* the security property — verify OIDC **before the body is read**, then parse identifiers only, then execute against the job re-read from PostgreSQL. The status-code contract with the queue. The separation of the two callers (separate audiences, separate allowlists, separate verifiers: Cloud Tasks may deliver and may not dispatch; Cloud Scheduler the reverse). Root composition of `with_outreach_send` (`:468-489`, unconditional when `registry_is_ours` — guard at `:468`, call at `:470`) and `with_paid_extraction` (`:491-492`, only when all three spend ceilings are named). |
 | **Does not own** | Handler bodies; claim semantics (`execution.py`); task creation (`dispatcher.py`). |
 | **Public API** | `app`; the four routes. |
 | **Allowed deps** | Every `smartmatch_worker` module, all four `python/` packages, FastAPI. |
@@ -547,15 +547,15 @@ Service-wide rules, stated once and enforced from M2 (AP-01):
 | **Owns** | `scan_forbidden.py` (provider IO in handlers :136; caller-supplied identity :61,166; fabricated scores :69; module-level mutable state :99; mutating GET :121), `scan_cba_terminology.py`, `env_isolation_check.py`, `export_openapi.py --check`, `agent_memory_check.py`, `supply_chain.py`, the `seed_pilot_*` and `generate_*` scripts. |
 | **Does not own** | Anything at runtime. Nothing in `services/` imports `tools/`. |
 | **Public API** | `make check` = format-check, lint, typecheck, imports, test, scan, memory, licenses, infra-check. |
-| **Allowed deps** | `smartmatch_domain` (5 files), `smartmatch_persistence` (7 files), standard library. |
-| **Forbidden deps** | `smartmatch_api`, `smartmatch_worker` (a gate that imports the thing it gates can be disabled by the thing it gates). |
+| **Allowed deps** | `smartmatch_domain` (5 files), `smartmatch_persistence` (7 files), `smartmatch_api.config` (8 files — DR-7 permits configuration, never a router), standard library. |
+| **Forbidden deps** | `smartmatch_api.routers.*` — one current violation, `generate_pilot_dataset.py:209` importing `MAX_CANDIDATES` from `routers/match_runs`, scheduled T-1.5 (DR-7) — and `smartmatch_worker`. For the scanners specifically the rule is stronger and unconditional: a gate that imports the thing it gates can be disabled by the thing it gates. |
 | **Persistence** | The seed scripts write; the scanners do not. |
 | **Domain concepts** | Terminology (`scan_cba_terminology.py` scoped so it does not demand renaming the authz `membership` row). |
 | **Tests** | **The gates are themselves tested** — `tests/unit/test_forbidden_scanner.py`, `tests/unit/test_adr_index.py`. |
 | **Operational concerns** | Non-negotiable 13: never weaken an existing gate. Every Stage 2 increment adds gates and relaxes none. |
 | **Disposition** | **remain, deepen.** This directory is why the audit's leakage search came back empty. It gains, across the plan: the AP-05 registry-map test, the AP-06 gate-claim test, the AP-03 table-ownership test, the AP-10 both-ways index parity, the AP-13 plan-status check, and the deferred TypeScript drift gate already named at the bottom of `verify.yml`. New gates, same mechanism. |
 
-### 4.2 `db/migrations` (34 revisions)
+### 4.2 `db/migrations` (33 revisions, 0001→0033)
 
 | Field | Value |
 |---|---|
@@ -600,7 +600,7 @@ is genuinely mixed.
 |---|---|
 | **Purpose** | The hand-written legacy client. |
 | **Owns** | 24 `/api/*` calls that **no service serves** — crawler, matching, QR, feedback, agentic-workflow streaming, `/api/data/*` — plus transcribed types including `Specialist`, `CppEvent`, `CrawlerEvent`. |
-| **Does not own** | The `/v1` surface, which is reached by inline `fetch` across 49 files (42 distinct endpoints). |
+| **Does not own** | The `/v1` surface, which is reached by inline `fetch` across 48 files (Stage 1 reported 49; recounted 2026-09-08) (42 distinct endpoints). |
 | **Public API** | Whatever each of the seven legacy pages imports. |
 | **Allowed deps** | (target) `clients/typescript` only. |
 | **Forbidden deps** | (target) a hand-written type for any `/v1` response. |
@@ -608,7 +608,7 @@ is genuinely mixed.
 | **Domain concepts** | It is the largest surviving carrier of retired IA-West vocabulary — `Specialist` is a *type*, not copy, so `scan_cba_terminology.py` cannot see it, and the next agent will read it as current (`domain-model.md` §3.5). |
 | **Tests** | `tests/e2e/…::test_16_the_portal_pages_have_no_backend_in_this_repository` asserts the `/api/*` situation from the backend side. |
 | **Operational concerns** | Deleting it wholesale breaks seven routed pages that users can reach. |
-| **Disposition** | **become an adapter, then shrink.** Its `/v1` surface is re-expressed as thin forwarders over the generated client so that no `/v1` response type is transcribed anywhere in this file; each migrated page then imports the generated client directly and its forwarder goes. The `/api/*` half does not become an adapter over anything, because nothing serves it — it shrinks to zero as OQ-S2-002 resolves each page. M3 migrates **one** page as the pattern; migrating 49 files in one change is the failure mode R-02's remediation explicitly warns against. Cited: R-02, AP-07, ADR-0020. |
+| **Disposition** | **become an adapter, then shrink.** Its `/v1` surface is re-expressed as thin forwarders over the generated client so that no `/v1` response type is transcribed anywhere in this file; each migrated page then imports the generated client directly and its forwarder goes. The `/api/*` half does not become an adapter over anything, because nothing serves it — it shrinks to zero when M8 deletes the seven pages (OQ-S2-002, answered 2026-09-08: delete with redirects). M3 migrates **one** page as the pattern; migrating 48 files (Stage 1 reported 49; recounted 2026-09-08) in one change is the failure mode R-02's remediation explicitly warns against. Cited: R-02, AP-07, ADR-0020. |
 
 ### 5.2 `OutreachWorkflowModal.tsx`, `AgenticOutreachPanel.tsx`, `FeedbackForm.tsx`
 
@@ -623,7 +623,7 @@ is genuinely mixed.
 | **Domain concepts** | `AgenticOutreachPanel` names an "agentic" capability that **ADR-0003 excludes from Foundation**. |
 | **Tests** | None. |
 | **Operational concerns** | They compile, so every build carries them, and a future agent may read `AgenticOutreachPanel` as an invitation to "just wire this up" against a standing decision. |
-| **Disposition** | **disappear.** Delete all three at M8. Git retains them. This is the one M8 item not blocked on OQ-S2-002, because deletion of an unreferenced component requires no product decision. Cited: R-06b, AP-08. |
+| **Disposition** | **disappear.** Delete all three at M8. Git retains them. This was the one M8 item never blocked on OQ-S2-002; that question is now answered (delete the pages, redirect the routes), so the whole of M8 is one deletion pass. Cited: R-06b, AP-08. |
 
 ### 5.3 The seven legacy pages — `Dashboard`, `Opportunities`, `Volunteers`, `Pipeline`, `Calendar`, `Outreach`, `AIMatching`
 
@@ -639,7 +639,7 @@ is genuinely mixed.
 | **Domain concepts** | `Calendar.tsx` renders an explicit "feed retired" state with `CALENDAR_FEED_RETIRED_REASON` and an `isRetiredRoute` predicate — correct behaviour under ADR-0011 and DESIGN.md §1.2 (no silent fallback shown as success). |
 | **Tests** | e2e 16. |
 | **Operational concerns** | **The notice is now factually wrong** (D3): it claims `routers/events.py` declares no handlers and the contract exposes no event operation. `routers/events.py` is 571 lines with handlers and the contract publishes two event paths. The page shows a retirement notice for a feed whose replacement exists. |
-| **Disposition** | **remain — with the notice corrected at M5 — pending OQ-S2-002.** Port / delete / correct-the-notice is an owner's decision, not engineering's, so the engineering default is the option that is honest today and forecloses nothing tomorrow. Doing nothing is the one actively misleading option, because the notice currently lies; correcting the text is cheap, reversible, and independent of the eventual per-page verdict. Cited: R-17, D3, OQ-S2-002. |
+| **Disposition** | **delete at M8, redirecting each route to the corresponding `/v1` page** — OQ-S2-002, answered 2026-09-08 by the program owner. Port / delete / correct-the-notice was an owner's decision, not engineering's, and the owner chose delete: the workflows exist on the `/v1` surface, so these are duplicated coverage, not lost coverage. The M5 notice correction is nevertheless **kept as a one-hour interim**, matching both roadmaps: M5's gate-claim test scans frontend source, so correcting the text is what makes that lane green from the day it lands rather than exempting a file scheduled for deletion. No deprecation window: OQ-S2-001 is answered NO (synthetic data only). Cited: R-17, D3, OQ-S2-002. |
 
 ### 5.4 `src/lib/*` (other modules), `src/app/`, `src/components/`
 
@@ -653,7 +653,7 @@ is genuinely mixed.
 | **Persistence** | Browser cache only. |
 | **Domain concepts** | Product scope, Principal, score presentation. |
 | **Tests** | See §5.5. |
-| **Operational concerns** | The `/v1` inline `fetch` calls live here, spread across 49 files. |
+| **Operational concerns** | The `/v1` inline `fetch` calls live here, spread across 48 files (Stage 1 reported 49; recounted 2026-09-08). |
 | **Disposition** | **remain.** The SPA's structure is not a finding anywhere in the audit; what is missing is a generated client beneath it and an executed test suite beside it. Both are additions. |
 
 ### 5.5 `apps/web/legacy-frontend/tests/` (8 files)
@@ -712,7 +712,7 @@ is genuinely mixed.
 | 33 | `contracts/openapi` | remain, deepen | Contract-first is right; the consumer half is missing (R-02, ADR-0020) |
 | 34 | `apps/web` `lib/api.ts` | **become an adapter**, then shrink | Forward over the generated client, one page at a time (R-02, AP-07) |
 | 35 | 3 dead components | **disappear** | Unreferenced; one invites a capability ADR-0003 excludes (R-06b) |
-| 36 | 7 legacy pages | remain (notice corrected) | Port/delete is the owner's call (OQ-S2-002); a false notice is not (R-17, D3) |
+| 36 | 7 legacy pages | **disappear** — deleted at M8, routes redirected to `/v1` | Owner answered OQ-S2-002 on 2026-09-08: delete; `/v1` already serves the workflows (R-17, D3) |
 | 37 | `apps/web` `src/lib/*`, `app/`, `components/` | remain | No structural finding; needs a client beneath and tests beside |
 | 38 | `apps/web/tests/` | remain, attach | One line in the `web` job (R-09) — the register's only P0 |
 
@@ -720,18 +720,19 @@ is genuinely mixed.
 
 | Disposition | Count | Entries |
 |---|---:|---|
-| **remain** | 33 | 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38 |
+| **remain** | 32 | 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 37, 38 |
 | — of which also **deepen** (7) or **attach** (2) | 9 | deepen: 9, 10, 11, 21, 22, 31, 33 · attach: 8, 38 |
 | **move** | 1 | 13 |
 | **split** | 1 | 20 |
 | **become an adapter** | 2 | 4, 34 |
-| **disappear** | 1 | 35 |
+| **disappear** | 2 | 35, 36 |
 | **merge** | 0 | — |
 | **Total modules** | **38** | |
 
-**Read the shape of that table before reading anything else in it.** Thirty-three
-of thirty-eight modules stay exactly where they are, and five change: one rename,
-one two-symbol extraction, two adapter conversions and three file deletions.
+**Read the shape of that table before reading anything else in it.** Thirty-two
+of thirty-eight modules stay exactly where they are, and six change: one rename,
+one two-symbol extraction, two adapter conversions and two deletion entries
+covering ten files — three dead components and the seven legacy pages.
 That is the correct output for a system with 21 implemented capabilities, 3,807
 test functions, four working import contracts and a live pilot. A boundary
 specification that proposed more movement than this would be proposing a rewrite

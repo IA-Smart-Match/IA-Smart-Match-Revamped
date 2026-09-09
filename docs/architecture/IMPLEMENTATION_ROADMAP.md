@@ -5,8 +5,16 @@
 breaks them into tasks an agent can pick up, with dependencies, sizes, and
 completion criteria.
 
-Task identifiers are `T-<phase>.<n>` and are fixed. **36 tasks across seven
+Task identifiers are `T-<phase>.<n>` and are fixed. **37 tasks across seven
 phases.**
+
+**ADR status is flipped by the implementing PR, not in advance.** Every ADR this
+roadmap names is written `Proposed`, because Stage 2 is planning and acceptance
+is the owner's act. The PR that implements an ADR flips that ADR from `Proposed`
+to `Accepted` and updates its row in `docs/architecture/decisions/README.md` in
+the same commit — `tests/unit/test_adr_index.py` gates the two staying equal, so
+a flip that touches only one of them is red. The tasks that implement an ADR say
+so in their completion criteria.
 
 Phases map onto increments:
 
@@ -36,8 +44,12 @@ The argument, stated once and cited by both roadmaps:
    respectively) placed them after a P3 rename and a glossary. §18's own
    numbered list already ranks them second and third; the increment sketch and
    the priority list disagreed, and the priority list is right.
-2. **Size.** Each is a one-file change with no prerequisite. The registry test is
-   a new file under `tests/unit/`; the sweeper is one constructor argument at
+2. **Size.** Each is a small change with no prerequisite, and **they do not
+   depend on each other** — T-0.3 touches the registry composition, T-0.4 the
+   pass construction, and either may go first. The registry test is a new file
+   under `tests/unit/` plus one extraction in
+   `services/worker/smartmatch_worker/main.py` that changes no behaviour; the
+   sweeper is one constructor argument at
    `services/worker/smartmatch_worker/main.py` ~L810 plus two additive fields on
    `DispatchPassResponse` (L262). Cheap, unblocked and P1 has no argument for
    waiting.
@@ -56,38 +68,54 @@ opened once.
 
 ---
 
-## What changes if OQ-S2-001 is answered NO
+## The two owner answers, and what they settled
 
-**OQ-S2-001 — is the pilot VM live with real users?** Safe default: **YES**, and
-every task below is written under that assumption. If the answer is **NO**, four
-things change, all of them loosening:
+Both questions the roadmap was written around were answered by the program owner
+on **8 September 2026**. The conditional phrasing is gone; what follows is the
+settled state, and every task below is written under it.
 
-1. **Phase 2 and Phase 3 can be more aggressive, and can be reordered.** T-2.4
-   migrates exactly one page because a regression on a live page reaches users.
-   With no users, the pattern page can be two or three pages in one PR, chosen
-   to exercise different response shapes, and T-3.1's middleware ordering can be
-   changed and re-changed against the appliance rather than being got right
-   once. The rule *"migrate one page, not 49"* is about reviewability as well as
-   risk, so it does not vanish — but the batch size becomes a review-effort
-   decision instead of a blast-radius decision.
-2. **Rollback windows shorten.** Every "revert the one commit" below assumes a
-   window in which a user could have hit the bad state. With no users, a bad
-   Phase 0–3 change is reverted on the next push and the window is the CI
-   duration. `SMARTMATCH_REQUEST_LOG_ENABLED` (T-3.3) stays — a runtime kill
-   switch is cheap — but it stops being the reason T-3.1 is shippable.
-3. **T-5.5's rate limit is chosen, not measured.** Under YES, the metrics
-   drill-down limit should be set from the call rates M4's request logs reveal,
-   which is a concrete reason Phase 3 precedes Phase 5. Under NO there is no
-   traffic to measure, the limit is set conservatively from
-   `units.MAX_SUBTREE_UNITS`'s reasoning, and **Phase 5 could precede Phase 3**.
-4. **T-6.6's page deletions stop needing redirects.** Under YES, deleting a
-   routed page needs a redirect or an explicit not-found state, because someone
-   has the URL. Under NO, deletion is deletion. OQ-S2-002 still gates the
-   decision; only its cost changes.
+### OQ-S2-001 — is the pilot VM live with real users? **NO.**
 
-Nothing tightens under NO, and nothing in Phase 0 or Phase 1 changes at all —
-which is itself a reason those phases go first: they are correct under either
-answer, so they need not wait for it.
+The pilot VM holds **synthetic data only**. No real user reaches it. Four
+consequences, all of them loosening, and none of them a licence to skip a gate:
+
+1. **Phases 1–3 may batch into fewer PRs.** Concretely: **T-1.1 and T-1.2 land
+   as one PR** (declare the manifests and the contract together — M2's commit 1
+   was already two edits to two files); **T-2.2 and T-2.3 land as one PR** (a
+   generated tree nothing consumes and the gate that consumes it have no
+   independent value); and **T-3.1, T-3.2 and T-3.3 land as one PR** (middleware,
+   the `ApiError` log call and its kill switch are one observable behaviour).
+   T-2.4 may migrate two or three surfaces in one PR rather than one, chosen to
+   exercise different response shapes. Everything else stays as written. The
+   rule *"migrate the pattern, not 48 files"* (Stage 1 reported 49; recounted
+   2026-09-08) survives: it was always about
+   reviewability as much as blast radius, and batching is now a review-effort
+   decision rather than a risk one. **Each PR is still independently
+   reversible** — that is non-negotiable and batching does not touch it.
+2. **Rollback windows shorten to "revert the PR".** Every rollback act named
+   below assumed a window in which a user could have hit the bad state. There is
+   no such window: a bad change is reverted on the next push and the exposure is
+   the CI duration. `SMARTMATCH_REQUEST_LOG_ENABLED` (T-3.3) stays — a runtime
+   kill switch costs one config field — but it is no longer the reason T-3.1 is
+   shippable.
+3. **T-5.5's bound is chosen, not measured**, and T-5.5 names the chosen values
+   (30 requests/min, 500 rows). There is no traffic to measure because the pilot
+   is synthetic, so Phase 3's request logs cannot inform the number. **Phase 5 is
+   therefore no longer hard-dependent on Phase 3**; T-5.5's dependency on T-3.1
+   is advisory and Phase 5 could precede Phase 3 if scheduling favours it.
+4. **T-6.6's page deletions need no notice period and no redirect scheme.** No
+   one holds a bookmark to a synthetic pilot. A plain route redirect to the
+   corresponding `/v1` page is enough, and it is there for coherence rather than
+   for continuity.
+
+Nothing tightens under this answer, and **nothing in Phase 0 changes at all** —
+a reason it goes first: it was correct under either answer.
+
+### OQ-S2-002 — disposition of the seven legacy pages? **Delete them now.**
+
+Delete the seven pages and redirect their routes to the `/v1` pages. **T-6.6 is
+unblocked**, and so is M8. The scope is stated in T-6.6 and no longer contains a
+per-page deliberation.
 
 ---
 
@@ -95,13 +123,13 @@ answer, so they need not wait for it.
 
 | Phase | Tasks | Increments | Risks closed | Aggregate size | Gate on exit |
 |---|---|---|---|---|---|
-| **0** | T-0.1 … T-0.7 (7) | M0, M1 | R-09, R-10, R-04, R-08, R-19, R-11(b) | 7–13 files · 7–13 h | `npm test` in `web`; six `--cov` flags; registry-map test red on a removed handler |
-| **1** | T-1.1 … T-1.4 (4) | M2 | R-05, R-06 | 8–12 files · 8–14 h | Six `root_packages`; no router→router import; no `ignore_imports` naming a router |
+| **0** | T-0.1 … T-0.7 (7) | M0, M1 | R-09, R-10, R-04, R-08, R-19, R-11(b) | 7–13 files · 6–11 h | `npm test` in `web`; six `--cov` flags; registry-map test red on a removed handler |
+| **1** | T-1.1 … T-1.5 (5) | M2 | R-05, R-06, DR-7 | 11–16 files · 10–17 h | Six `root_packages`; five new contracts (5–9); no router→router import; no `ignore_imports` naming a router; no `tools/` module importing a router |
 | **2** | T-2.1 … T-2.4 (4) | M3 | R-02 | generated tree + 4–6 files · 10–16 h | Drift check red on an un-regenerated contract change |
 | **3** | T-3.1 … T-3.4 (4) | M4 | R-03 | 4–5 files · 6–10 h | One structured line per request; every `EXCEPTION_HANDLERS` entry logs once |
 | **4** | T-4.1 … T-4.5 (5) | M5 | R-15, R-16 | 3 code + ~40 docs · 5–9 h | Gate-claim test red on a reopened gate; every plan has a status |
-| **5** | T-5.1 … T-5.5 (5) | M6 | R-20, R-12, R-07 | 5–7 files · 12–20 h | Parity red on a dropped index; ownership red on an unmapped table |
-| **6** | T-6.1 … T-6.7 (7) | M7, M8 | R-01, R-18, R-13, R-14, R-17, R-06b | 8–17 files · 11–24 h | ADR index green with two new rows; delivery contract test red on changed duplicate behaviour |
+| **5** | T-5.1 … T-5.5 (5) | M6 | R-20, R-12, R-07 | 6–8 files · 14–22 h | Parity red on a dropped index; ownership red on an unmapped table |
+| **6** | T-6.1 … T-6.7 (7) | M7, M8 | R-01, R-18, R-13, R-14, R-17, R-06b | 12–17 files · 9–16 h | ADR index green; two status flips; delivery contract test red on changed duplicate behaviour; no `/api/*` call anywhere in `src` |
 
 Hour ranges assume an agent already holding this repository's conventions in
 context, and include writing the tests and getting `make check`
@@ -121,19 +149,20 @@ flowchart LR
     T04["T-0.4 sweeper wiring"]
     T05["T-0.5 audit isolation test"]
     T06["T-0.6 clock rename"]
-    T07["T-0.7 glossary"]
+    T07["T-0.7 glossary (landed #124)"]
   end
   subgraph P1["Phase 1 — boundaries"]
     T11["T-1.1 manifests"]
-    T12["T-1.2 contracts + ignores"]
+    T12["T-1.2 contracts 5-9 + ignores"]
     T13["T-1.3 unit_authz"]
     T14["T-1.4 drop exemptions"]
+    T15["T-1.5 MAX_CANDIDATES out of the router"]
   end
   subgraph P2["Phase 2 — contract"]
-    T21["T-2.1 generator + ADR-0020"]
+    T21["T-2.1 pin generator version in ADR-0020"]
     T22["T-2.2 generate client"]
     T23["T-2.3 drift gate"]
-    T24["T-2.4 migrate one page"]
+    T24["T-2.4 migrate the session surface"]
   end
   subgraph P3["Phase 3 — observability"]
     T31["T-3.1 request middleware"]
@@ -156,12 +185,12 @@ flowchart LR
     T55["T-5.5 metrics bound"]
   end
   subgraph P6["Phase 6 — contracts + cleanup"]
-    T61["T-6.1 ADR-0021"]
+    T61["T-6.1 verify ADR-0021"]
     T62["T-6.2 delivery contract test"]
-    T63["T-6.3 ADR-0022"]
+    T63["T-6.3 topology statement + ADR-0022 flip"]
     T64["T-6.4 retention + downgrade"]
     T65["T-6.5 delete dead components"]
-    T66["T-6.6 page dispositions"]
+    T66["T-6.6 delete 7 pages + redirects"]
     T67["T-6.7 restate test_16"]
   end
 
@@ -170,19 +199,18 @@ flowchart LR
   T01 --> T65
   T02 --> T13
   T03 --> T61
-  T04 --> T03
   T06 --> T11
   T07 --> T41
   T11 --> T12
   T12 --> T13
   T13 --> T14
+  T13 --> T15
   T14 --> T22
   T14 --> T31
   T14 --> T51
   T21 --> T22
   T22 --> T23
   T23 --> T24
-  T24 --> T66
   T31 --> T32
   T31 --> T33
   T31 --> T34
@@ -261,6 +289,18 @@ written and never connected. It contains no refactor and no new capability.
   `smartmatch_api.commands.submit_command`, and assert each is handled by **the
   registry the worker actually runs** or is on an explicit intentionally-refused
   list with a reason.
+
+  **Sub-step, and it is production code rather than test code.** Factor
+  `services/worker/smartmatch_worker/main.py`'s registry composition — the
+  `registry_is_ours` branch at `:468`, `with_outreach_send` at `:470` and the
+  ceiling-conditional `with_paid_extraction` at `:492` — into
+  `build_production_registry(settings, session_factory)`, and have `create_app`
+  (`main.py:321`) call it. **Behaviour is unchanged**: the same handlers are
+  composed in the same order under the same conditions, and the function is
+  extracted, not rewritten. This is ADR-0023's stated preference, and it is what
+  lets the test build the registry *exactly* as `create_app` does rather than
+  re-deriving the composition in test code — a re-derivation would be a second
+  copy of the rule, which is the failure the test exists to prevent.
 - **Motivation.** **R-04 (P1), AP-05, ADR-0023.** `default_registry()`
   (`services/worker/smartmatch_worker/handlers.py` ~L1349) returns three
   handlers. Two further executors are composed at the root —
@@ -270,15 +310,21 @@ written and never connected. It contains no refactor and no new capability.
   today and nothing asserts it, and the root-composed half is invisible from
   `default_registry()`. This is the hardest question in the codebase for a future
   agent to answer, and the test *is* the answer.
-- **Dependency.** T-0.4 (build the registry the way `main.py` does, once the
-  sweeper work has settled the shape of the pass construction) — and T-0.2, so
-  the new worker code paths the test exercises are measured.
-- **Affected modules.** `tests/unit/test_command_registry_map.py` (new). Read-only
-  against `services/api/smartmatch_api/routers/*`,
-  `services/worker/smartmatch_worker/handlers.py`, `.../main.py`,
-  `.../outreach.py`, `.../paid_extraction.py`.
-- **Risk of the change itself.** **Low** to the runtime — it adds no production
-  code — but **medium in design**. Two ways to get it wrong: testing
+- **Dependency.** T-0.2, so the new worker code paths the test exercises are
+  measured. **Not T-0.4.** An earlier draft had this task wait on the sweeper
+  wiring on the theory that the pass construction's shape had to settle first;
+  it does not. T-0.4 changes `ScheduledPass` and `DispatchPassResponse`, and this
+  task changes the *registry* composition — disjoint code, disjoint tests. The
+  two are independent and may be worked in either order or in parallel.
+- **Affected modules.** `tests/unit/test_command_registry_map.py` (new);
+  `services/worker/smartmatch_worker/main.py` (the extraction of
+  `build_production_registry`, and `create_app` calling it). Read-only against
+  `services/api/smartmatch_api/routers/*`,
+  `services/worker/smartmatch_worker/handlers.py`, `.../outreach.py`,
+  `.../paid_extraction.py`.
+- **Risk of the change itself.** **Low** to the runtime — the one production
+  change is an extraction that composes the same handlers in the same order —
+  but **medium in design**. Two ways to get it wrong: testing
   `default_registry()` alone (which would report `outreach.send` unregistered and
   "confirm" Stage 1's wrong count), and excusing idempotency-scope-only names on
   the refusal list instead of excluding them from the derivation.
@@ -286,7 +332,8 @@ written and never connected. It contains no refactor and no new capability.
   and `job.abandon` (`routers/redrive.py:388,527,589`) are `_reserve`-only: they
   never create a job or an outbox row, so they are not submissions and must not
   appear anywhere in the test's data.
-- **Complexity.** **M** — 4–6 h.
+- **Complexity.** **M** — 5–7 h, the extra hour being the extraction and
+  re-verifying that `create_app` composes what it composed before.
 - **Required tests.** The task *is* the test. Model it on
   `tests/unit/test_adr_index.py`: compare both directions, and state in the
   module docstring what cannot be checked. Model the refusal list's own
@@ -298,6 +345,10 @@ written and never connected. It contains no refactor and no new capability.
   `main.py` also turns it red** — this is the criterion that proves the
   root-composition case was implemented rather than restated. Adding a
   `submit_command("thing.new", …)` to any router turns it red.
+  `build_production_registry(settings, session_factory)` exists and `create_app`
+  calls it; the test calls the same function rather than re-composing.
+  **Completion includes flipping ADR-0023 to Accepted** and updating its
+  `decisions/README.md` row.
 
 ### T-0.4 — Wire `SpendReservationSweeper` into the dispatch pass
 
@@ -410,21 +461,24 @@ written and never connected. It contains no refactor and no new capability.
   nothing; `utc_now`'s docstring and its F-003 rationale are unchanged;
   `make check` green.
 
-### T-0.7 — Publish `GLOSSARY.md`
+### T-0.7 — `GLOSSARY.md` — landed in the Stage 2 docs PR
 
-- **Scope.** Publish `docs/architecture/GLOSSARY.md` from `domain-model.md` §4.
+- **Scope.** **Nothing to write.** `docs/architecture/GLOSSARY.md` was published
+  from `domain-model.md` §4 in the **Stage 2 docs PR (#124)** and is in the tree.
+  No Phase 0 work remains except keeping it current as later phases change the
+  prose around it.
 - **Motivation.** Terminology drift between the domain language and the table
   names is real, and the standing anti-pattern forbids renaming tables. The
   glossary is the alternative: it records what the existing names mean.
 - **Dependency.** None.
-- **Affected modules.** `docs/architecture/GLOSSARY.md` (new).
-- **Risk of the change itself.** **Low.** Documentation only. The one way it goes
-  wrong is proposing a rename; it must not.
-- **Complexity.** **S** — 2–3 h.
+- **Affected modules.** `docs/architecture/GLOSSARY.md` (existing).
+- **Risk of the change itself.** **None** — the task carries no change. The one
+  way the file goes wrong later is proposing a rename; it must not.
+- **Complexity.** **0 h.** The task ID is kept so citing documents stay valid.
 - **Required tests.** None. (It comes under Phase 4's status and prose gates
   only insofar as it lives in `docs/architecture/`, not `docs/plans/`.)
-- **Completion criteria.** The file exists, covers the terms `domain-model.md` §4
-  names, and renames no table.
+- **Completion criteria.** Already met: the file exists, covers the terms
+  `domain-model.md` §4 names, and renames no table.
 
 ---
 
@@ -438,7 +492,13 @@ promoting the shared helpers.
 ### T-1.1 — Declare `smartmatch-persistence` in both service manifests
 
 - **Scope.** Add `smartmatch-persistence` to `dependencies` in
-  `services/api/pyproject.toml` and `services/worker/pyproject.toml`.
+  `services/api/pyproject.toml` and `services/worker/pyproject.toml`, **and add
+  the test that keeps the manifests honest**:
+  `tests/unit/test_service_manifests_declare_imports.py` parses each
+  `services/*/pyproject.toml` and asserts that every `smartmatch_*` package
+  imported anywhere under that service is declared in its `dependencies`. This
+  is AP-01's assertable half — without it, this task fixes today's two omissions
+  and nothing stops the third.
 - **Motivation.** **R-05 (P1).** 33 files under `services/api` and 10 under
   `services/worker` import it; neither manifest lists it. It works only because
   the *Install pinned dependencies* step runs `pip install --no-deps -e` over all
@@ -449,26 +509,49 @@ promoting the shared helpers.
   prerequisite for R-06: import-linter resolves what the manifests declare.
 - **Dependency.** T-0.6 (rename already done, so this phase's diff is boundary
   work only).
-- **Affected modules.** Two `pyproject.toml` files.
+- **Affected modules.** Two `pyproject.toml` files;
+  `tests/unit/test_service_manifests_declare_imports.py` (new).
 - **Risk of the change itself.** **Low.** CI installs all four packages
   regardless, so the install step cannot break. It makes a future
   `uv sync --frozen` or slim container correct instead of accidentally working.
-- **Complexity.** **S** — 30 min.
-- **Required tests.** None new; the *Install pinned dependencies* step is the
-  proof.
-- **Completion criteria.** Both manifests list `smartmatch-persistence`; the
-  `python` job green.
+  The test's one design trap is the same one `tools/scan_forbidden.py` solved:
+  a name imported only inside a `TYPE_CHECKING` block or a test fixture under
+  the service is still an import, and an exclusion needs a reason — assert every
+  exclusion has one, as `test_forbidden_scanner.py` does.
+- **Complexity.** **S** — 2 h, the manifests being 30 min of it and the test the
+  rest.
+- **Required tests.** `tests/unit/test_service_manifests_declare_imports.py` —
+  new, and the deliverable that outlives the fix. Both directions, in the
+  `test_adr_index.py` shape: every imported `smartmatch_*` package is declared,
+  and every declared `smartmatch_*` dependency is actually imported.
+- **Completion criteria.** Both manifests list `smartmatch-persistence`; deleting
+  either declaration turns
+  `tests/unit/test_service_manifests_declare_imports.py` red; the `python` job
+  green.
 
-### T-1.2 — Add both services to `root_packages` with the two new contracts
+### T-1.2 — Add both services to `root_packages` with the five new contracts
 
 - **Scope.** Add `"smartmatch_api"` and `"smartmatch_worker"` to
-  `[tool.importlinter].root_packages`, plus two *forbidden* contracts —
-  router→router, and api↮worker — with `ignore_imports` entries for exactly the
-  two known violations, each carrying an inline comment naming T-1.4 as what
-  removes it. **This is commit 1 of M2, and it must be green on its own.**
+  `[tool.importlinter].root_packages`, plus the **five new contracts**
+  `DEPENDENCY_RULES.md` §3 defines and ADR-0018 records: **5** `The API sits
+  above the inner packages, never beneath them` (`layers`), **6** `The worker
+  sits above the inner packages, never beneath them` (`layers`), **7** `The API
+  and the worker are independent services` (`independence`), **8** `Routers are
+  independent of one another` (`independence`), **9** `Shared API modules must
+  not import routers` (`forbidden`). The two `ignore_imports` entries for the
+  known violations live **on contract 8**, each carrying an inline comment
+  naming T-1.4 as what removes it. **This is commit 1 of M2, and it must be
+  green on its own.**
+
+  **OBSERVED 2026-09-08.** The full draft block was executed against the tree
+  with `PYTHONPATH` carrying the four inner packages plus `services/api` and
+  `services/worker`: **`Contracts: 9 kept, 0 broken`** with the two ignores; with
+  them removed, **contract 8 BROKEN**, naming exactly `outreach_contacts →
+  outreach` and `cba_contact_channels → cba_contacts`, all others KEPT
+  (`DEPENDENCY_RULES.md` §5).
 - **Motivation.** **R-06 (P1), AP-01.** `root_packages` lists four packages; the
-  two services are ungoverned, and convention is already broken twice. Declaring
-  the contract before enforcing it means a **third** lateral import fails the
+  two services are ungoverned, and convention is already broken twice — both on
+  contract 8. Declaring the contract before enforcing it means a **third** lateral import fails the
   *Architecture import boundaries* step on the day it is written, months before
   anyone gets to the promotion.
 - **Dependency.** T-1.1.
@@ -477,15 +560,20 @@ promoting the shared helpers.
   violations beyond the two known ones. Each is a finding: fix it, or
   `ignore_imports` it **with a comment naming the increment that removes the
   exemption** — never silently, and never by weakening the contract's scope.
-  `include_external_packages = true` is already set, which is what lets the
-  forbidden contracts name modules across package roots.
+  `include_external_packages = true` is already set, which is what lets
+  contracts 5–9 name modules across package roots. The 2026-09-08 execution
+  above found no violation beyond the two known ones.
 - **Complexity.** **M** — 3–5 h, dominated by triaging whatever the first run
   finds.
 - **Required tests.** The *Architecture import boundaries* step is the regression
   test. Verify it on a scratch branch by adding a lateral import and observing
   red.
-- **Completion criteria.** Six `root_packages` entries; two new contracts;
-  exactly the documented exemptions, each commented; `lint-imports` green.
+- **Completion criteria.** Six `root_packages` entries; **five new contracts
+  (5–9)** under the names `DEPENDENCY_RULES.md` §3 gives them; exactly the
+  documented exemptions on contract 8, each commented; `lint-imports` green.
+  **Completion includes flipping ADR-0018 to Accepted** and updating its
+  `decisions/README.md` row — the contract it decides now exists in
+  `pyproject.toml`.
 
 ### T-1.3 — Promote the shared authorization helpers into `unit_authz.py`
 
@@ -539,14 +627,68 @@ promoting the shared helpers.
   returns nothing; no `ignore_imports` entry names a router; a scratch-branch
   import from `smartmatch_worker` into `smartmatch_api` fails the boundaries step.
 
+### T-1.5 — Move `MAX_CANDIDATES` out of the router and re-point `tools/`
+
+- **Scope.** Move `MAX_CANDIDATES` from
+  `services/api/smartmatch_api/routers/match_runs.py:248` to an **owned
+  non-router module** — `smartmatch_api.match_run_limits`, or beside
+  `units.MAX_SUBTREE_UNITS`, which is already the repository's home for a bound
+  that several callers share — re-point `tools/generate_pilot_dataset.py:209`,
+  and add the test that keeps `tools/` off the router layer.
+- **Motivation.** **DEPENDENCY_RULES.md DR-7, AP-02.**
+  `tools/generate_pilot_dataset.py:209` reads
+  `from smartmatch_api.routers.match_runs import MAX_CANDIDATES` — a reach into
+  the router layer from outside the service, and the same failure T-1.3 fixes
+  between routers, one layer further out. It is not hypothetical: the constant
+  has five other referents that already avoid the import and cite it in prose
+  instead (`routers/cba_contacts.py:267`,
+  `routers/speaker_requests.py:182`), which is the shape a constant takes when
+  it lives somewhere nobody can import from cleanly.
+  `tests/unit/test_pilot_generator_match_run.py:54` imports it the same way and
+  moves with it.
+- **Dependency.** T-1.3 — `unit_authz.py` establishes the promotion pattern and
+  the argument for it, and this is the same move with a smaller subject.
+- **Affected modules.** `services/api/smartmatch_api/match_run_limits.py` (new,
+  or `units.py` if the reviewer prefers the existing home);
+  `routers/match_runs.py`; `tools/generate_pilot_dataset.py`;
+  `tests/unit/test_pilot_generator_match_run.py`; the two prose citations in
+  `routers/cba_contacts.py` and `routers/speaker_requests.py`.
+- **Risk of the change itself.** **Low.** One integer, no behaviour: the same
+  value bounds the same request field and the same generator check
+  (`generate_pilot_dataset.py:1183`). The one thing to preserve is the constant's
+  docstring and the reason it is 200 — a moved constant that loses its argument
+  is worse than one in the wrong module.
+- **Complexity.** **S** — 2–3 h.
+- **Required tests.** A manifest/tools review test —
+  `tests/unit/test_tools_do_not_import_routers.py` — asserting no module under
+  `tools/` imports `smartmatch_api.routers.*`. Both directions is not available
+  here (the rule is one-way), so state that in the module docstring, and exempt
+  by path with a reason if a tool ever genuinely needs a router, exactly as
+  `test_forbidden_scanner.py` does. `tests/unit/test_pilot_generator_match_run.py`
+  passes with only its import line changed.
+- **Completion criteria.**
+  `grep -rn 'from smartmatch_api.routers' tools/` returns nothing;
+  `MAX_CANDIDATES` is defined in a non-router module with its rationale intact;
+  re-adding the router import on a scratch branch turns the new test red.
+
 ---
 
 ## Phase 2 — The contract loop (M3)
 
-### T-2.1 — Choose and pin the client generator; write ADR-0020
+### T-2.1 — Pin `openapi-typescript`; write ADR-0020
 
-- **Scope.** Select the OpenAPI→TypeScript generator, pin it the way every other
-  tool here is pinned, and record the choice in ADR-0020.
+- **Scope.** **ADR-0020 already exists** as `Proposed`, landed in the Stage 2
+  docs PR (#124), and it already names **`openapi-typescript`** with the argument
+  below. What remains is narrow: **pin the exact version in the web lockfile**
+  the way every other tool here is pinned, and **record that version string in
+  ADR-0020**. Three reasons it is the choice, and they are the reasons ADR-0020
+  argues: it emits **types only**, so it adds
+  **zero runtime dependency** to a bundle users download — the alternative
+  generators ship a fetch client and a runtime, which is a production dependency
+  acquired for a build-time problem; its output is **deterministic** for a given
+  input and version, which is what makes a byte-comparison drift gate possible at
+  all; and its input is the committed JSON document, so it chains onto the
+  existing *OpenAPI contract is current* step instead of needing a live app.
 - **Motivation.** **R-02 (P1), AP-07.** This is the roadmap's one new external
   tool, and it is build-time, not runtime. The repository pins actions to
   immutable SHAs and dependencies to hashes; a generator chosen without a pin
@@ -554,17 +696,21 @@ promoting the shared helpers.
 - **Dependency.** None inside Phase 2; the phase depends on T-1.4 through T-2.2.
 - **Affected modules.**
   `docs/architecture/decisions/ADR-0020-generated-typescript-client-and-drift-gate.md`
-  (writer E); `docs/architecture/decisions/README.md`; the relevant lock.
-- **Risk of the change itself.** **Low.** A decision plus a pin.
-- **Complexity.** **S** — 2 h.
+  (existing — the pinned version string is added to it); the relevant lock.
+- **Risk of the change itself.** **Low.** A pin plus one recorded string.
+- **Complexity.** **S** — 1 h.
 - **Required tests.** `tests/unit/test_adr_index.py` gates the index row's
   format, title, status and date.
-- **Completion criteria.** ADR-0020 exists as `Proposed` with the generator and
-  its pinned version named; the index row passes the ADR index test.
+- **Completion criteria.** ADR-0020 — already `Proposed` in the tree — names
+  `openapi-typescript` **and its exact pinned version**, matching the web
+  lockfile, and states the drift gate it enables — regenerate in CI, then `git diff --exit-code clients/typescript`;
+  the index row passes the ADR index test. ADR-0020 is flipped to `Accepted` by
+  **T-2.3**, the task that makes the gate real, not by this one.
 
 ### T-2.2 — Generate `clients/typescript` and add the make targets
 
-- **Scope.** Generate into `clients/typescript` from the **committed**
+- **Scope.** Generate into `clients/typescript` with `openapi-typescript` from
+  the **committed**
   `contracts/openapi/smartmatch.json`; commit the output; add `make client` and
   `make client-check` beside `openapi` and `openapi-check`
   (`Makefile:193,198`).
@@ -588,8 +734,10 @@ promoting the shared helpers.
 
 ### T-2.3 — Add the drift gate and update the deferred list
 
-- **Scope.** Add a drift-check step to the `web` job that regenerates and prints
-  the diff on failure. Remove *"generated TypeScript client drift check (needs
+- **Scope.** Add a drift-check step to the `web` job: run `make client` to
+  regenerate with the pinned `openapi-typescript`, then
+  `git diff --exit-code clients/typescript`, printing the diff on failure.
+  Remove *"generated TypeScript client drift check (needs
   clients/)"* from the deferred list at the bottom of `verify.yml` and add it to
   the *"Implemented since this list was written"* block.
 - **Motivation.** **R-02, AP-07.** Today a backend field rename passes every gate
@@ -605,36 +753,61 @@ promoting the shared helpers.
 - **Required tests.** The gate is the test. Verify on a scratch branch: add a
   field to a response model, regenerate the OpenAPI document, leave the client
   stale, observe red.
-- **Completion criteria.** The step exists and goes red on drift; the deferred
+- **Completion criteria.** The step exists, runs `git diff --exit-code
+  clients/typescript` after regeneration, and goes red on drift; the deferred
   list no longer names this gate; leaving the list stale would itself be a fresh
-  R-15, so the move is part of the task.
+  R-15, so the move is part of the task. **Completion includes flipping ADR-0020
+  to Accepted** and updating its `decisions/README.md` row — the drift gate the
+  ADR decides is now running.
 
-### T-2.4 — Migrate one page as the pattern
+### T-2.4 — Migrate the session surface as the pattern
 
-- **Scope.** Migrate exactly one page from inline `fetch` plus a transcribed
-  interface to the generated client's types and calls. Write a short
-  `clients/typescript/README.md` section describing how the next page is
-  migrated.
-- **Motivation.** **R-02.** 42 `/v1` endpoints are consumed by hand across 49
+- **Scope.** The surface is chosen: **`apps/web/legacy-frontend/src/lib/session.ts`
+  and its consumer `apps/web/legacy-frontend/src/app/hooks/useSession.tsx`**,
+  which between them own the single `GET /v1/me` call. Replace the transcribed
+  principal shape and the inline `fetch` with the generated types and call.
+  Write a short `clients/typescript/README.md` section describing how the next
+  surface is migrated.
+- **Motivation.** **R-02.** 42 `/v1` endpoints are consumed by hand across 48
   files, with response types transcribed per page, and
   `apps/web/legacy-frontend/src/lib/api.ts` is 4,238 hand-written lines. **Do not
-  migrate 49 files at once.** The deliverable is a reviewable pattern.
+  migrate 48 files at once.** The deliverable is a reviewable pattern.
+
+  **Why this surface.** Two properties make it the best first migration, and
+  both are about what the pattern demonstrates rather than what is easiest.
+  First, **one endpoint consumed by every page**: `session.ts` is the browser's
+  only source of authenticated identity (`session.ts:2`), so a transcription
+  error in the principal shape is a defect on every screen — the highest-value
+  place in the app for the type to be generated rather than retyped, and the
+  clearest demonstration to the next migrator of what the client buys. Second,
+  **no form state**: the surface reads, memoizes and exposes; there is no
+  submission, no optimistic update and no validation to re-express, so the diff
+  is the type change and nothing else, which is what makes it reviewable as a
+  pattern. The nested-array response shape stays out of scope on purpose — the
+  follow-up candidate for it is
+  `apps/web/legacy-frontend/src/app/pages/student/StudentEvents.tsx`, named here
+  so the next migrator does not have to re-derive the choice. **It is not part of
+  this task.**
 - **Dependency.** T-2.3; T-0.1 (the frontend suite runs, so the migrated page's
   regressions are visible).
-- **Affected modules.** One file under
-  `apps/web/legacy-frontend/src/pages/`; `apps/web/legacy-frontend/src/lib/api.ts`
-  only where that page's helpers become unused;
-  `apps/web/legacy-frontend/tests/`.
-- **Risk of the change itself.** **Medium** under OQ-S2-001 = YES: a live page is
-  being rewritten. Choose the smallest page with a real `/v1` call and a
-  non-trivial response type. Under NO, this drops to low and the batch may grow —
-  see the OQ section above.
+- **Affected modules.** `apps/web/legacy-frontend/src/lib/session.ts`;
+  `apps/web/legacy-frontend/src/app/hooks/useSession.tsx`;
+  `apps/web/legacy-frontend/src/lib/api.ts` only where that surface's helpers
+  become unused; `apps/web/legacy-frontend/tests/`.
+- **Risk of the change itself.** **Low.** OQ-S2-001 is **NO** (8 September 2026),
+  so no user reaches the pilot and a regression's exposure is the CI duration.
+  The one real hazard is specific to this surface and survives the answer:
+  `session.ts` is the identity path, and `/v1/me` admits a suspended caller on
+  purpose (`session.ts:44`). The generated type must not be allowed to collapse
+  that distinction — the existing `unreachable` and suspended states are
+  behaviour, not transcription, and they stay.
 - **Complexity.** **M** — 4–6 h.
-- **Required tests.** A test for the migrated page's data path in
-  `apps/web/legacy-frontend/tests/`, running under the lane T-0.1 created.
-- **Completion criteria.** Exactly one page imports from the generated client;
-  `grep -rl '/v1/'` over `src` returns 48 files, one fewer than today; the
-  frontend suite green.
+- **Required tests.** A test for the migrated surface's data path in
+  `apps/web/legacy-frontend/tests/`, running under the lane T-0.1 created,
+  covering the suspended and `unreachable` outcomes as well as the ordinary one.
+- **Completion criteria.** `session.ts` imports its principal type from the
+  generated client and transcribes nothing; `grep -rl '/v1/'` over `src` returns
+  47 files, one fewer than today's 48; the frontend suite green.
 
 ---
 
@@ -693,8 +866,11 @@ promoting the shared helpers.
 
 - **Scope.** Add `SMARTMATCH_REQUEST_LOG_ENABLED` to
   `services/api/smartmatch_api/config.py`, defaulting to on.
-- **Motivation.** This is what makes Phase 3 shippable to a live pilot
-  (OQ-S2-001 = YES): the rollback is unsetting one variable, with no redeploy.
+- **Motivation.** A runtime kill switch costs one config field and turns the
+  rollback of a noisy or expensive log into unsetting one variable with no
+  redeploy. With OQ-S2-001 answered **NO** it is no longer what makes Phase 3
+  shippable — reverting the PR is — but the field is cheap and the day the pilot
+  stops being synthetic it is the mechanism that was already there.
 - **Dependency.** T-3.1.
 - **Affected modules.** `services/api/smartmatch_api/config.py`.
 - **Risk of the change itself.** **Low.**
@@ -756,16 +932,19 @@ promoting the shared helpers.
 ### T-4.2 — Correct D3
 
 - **Scope.** Rewrite `CALENDAR_FEED_RETIRED_REASON` and the surrounding text in
-  `apps/web/legacy-frontend/src/pages/Calendar.tsx:80-95`.
+  `apps/web/legacy-frontend/src/app/pages/Calendar.tsx:80-95`.
 - **Motivation.** **R-15, and R-17's sharpest edge.** The text claims
   `routers/events.py` declares no handlers and the contract exposes no event
   operation; the router is 571 lines and the contract publishes
   `GET /v1/units/{u}/events` and `…/invite.ics`. The page renders an honest
   retirement state — correct under ADR-0011 and DESIGN.md §1.2 — for a reason
-  that is false. **Correcting the notice does not pre-empt T-6.6's
-  port-or-delete decision**; it removes the lie in the meantime.
+  that is false. **The page is deleted at T-6.6** (OQ-S2-002 answered), so this
+  pre-empts nothing: the correction is kept as a **one-hour interim** because
+  T-4.3's gate-claim test scans frontend source, and correcting the text is what
+  makes that gate green from the day it lands rather than exempting a file that
+  is scheduled for deletion.
 - **Dependency.** None inside Phase 4.
-- **Affected modules.** `apps/web/legacy-frontend/src/pages/Calendar.tsx`.
+- **Affected modules.** `apps/web/legacy-frontend/src/app/pages/Calendar.tsx`.
 - **Risk of the change itself.** **Low.** Text only; the retired state's
   behaviour is unchanged.
 - **Complexity.** **S** — 1 h.
@@ -847,9 +1026,45 @@ promoting the shared helpers.
 
 - **Scope.** `python/smartmatch_persistence/smartmatch_persistence/ownership.py`
   — `OWNERSHIP: Final[Mapping[str, TableOwner]]`, where `TableOwner` is a frozen
-  dataclass of `context: str` and `writers: tuple[str, ...]`, covering all 44
-  tables (Stage 1 reported 43; recounted 2026-09-08) from `tenant`
-  (`schema.py:106`) to `student_speaker_feedback` (`schema.py:2593`).
+  dataclass of `context: str`, `repository: str`, `writers: tuple[str, ...]` and
+  `reason: str | None` — the `reason` **required whenever `len(writers) > 1`** —
+  covering all 44 tables (Stage 1 reported 43; recounted 2026-09-08) from
+  `tenant` (`schema.py:106`) to `student_speaker_feedback` (`schema.py:2593`).
+  Each entry declares **one owning bounded context**, **one owning repository
+  module** in `smartmatch_persistence` (the single module that issues SQL against
+  that table), and a **writing-service set** derived from which service package
+  calls that repository's mutating methods.
+
+  **Five tables declare two services, by design.** `job`, `job_event`,
+  `outbox_record`, `idempotency_record` and `spend_reservation` each name both
+  `smartmatch_api` and `smartmatch_worker` with the reason **"API records intent
+  / worker transitions state (ADR-0005; ADR-0015 A1)"** — `JobRepository`'s
+  mutating methods are called from `commands.py`, `pipeline_provisioning.py` and
+  `routers/cba_contacts.py` as well as `execution.py` and `dispatcher.py`;
+  `OutboxRepository`'s from `commands.py` and `routers/cba_invitations.py` as
+  well as `dispatcher.py`; the idempotency and spend repositories likewise
+  (`routers/redrive.py`, `worker/paid_extraction.py` among them). `match_run`
+  stays worker-only. Every other table declares exactly one service.
+
+  **Plus the checked-in helper that derives it: `tools/derive_table_writers.py`.**
+  It makes **two** syntactic passes. **Pass 1** walks the AST of
+  `python/smartmatch_persistence`: for each `schema.<table>` it records the module
+  issuing `insert()`/`update()`/`delete()` against it — the owning repository
+  module — and collects that module's mutating method names. **Pass 2** walks
+  `services/api` and `services/worker` for call sites of those method names, by
+  attribute name, attributing each to its service package. Pass 2 exists because
+  **an AST scan of `services/` for `insert(schema.x)` finds nothing** — every
+  write goes through a repository — so the writing *service* is invisible at the
+  statement level. Matching by attribute name over-approximates, which is the
+  safe direction: a false positive becomes a discrepancy someone has to explain,
+  never a silent pass. The tool prints
+  `table → repository module → {services}`. Its output **seeds** `ownership.py` —
+  the 44 entries are reviewed and argued by a human, not pasted — and **T-5.2
+  re-runs it**, diffing both halves against the declared map, so the map cannot
+  rot: a new writing service appears as a red test rather than as a stale line in
+  a mapping nobody re-reads. This is the direct answer to why the Stage 1
+  `match_run` reading was wrong. A hand reading inferred per feature; a walker
+  reports per table, which is the granularity the map is stated at.
 - **Motivation.** **R-20 (P3, structural), AP-03, ADR-0019.** `schema.py` is
   2,691 lines and nothing states which context or service owns which table.
   **The evidence is the Stage 1 audit's own error.** `data-architecture.md` §8,
@@ -870,18 +1085,21 @@ promoting the shared helpers.
 - **Dependency.** T-1.4 (new module born under contract), T-4.3 (documentation-
   as-gate is an established pattern by then).
 - **Affected modules.**
-  `python/smartmatch_persistence/smartmatch_persistence/ownership.py` (new).
+  `python/smartmatch_persistence/smartmatch_persistence/ownership.py` (new);
+  `tools/derive_table_writers.py` (new).
 - **Risk of the change itself.** **Low** to runtime — it is a mapping of strings
-  — but **medium in accuracy.** Derive each writer by grepping the repository
-  modules that write the table, never by reading a feature's write footprint;
-  where the grep finds two, that is a finding to investigate and then either
-  refute (as `match_run` was) or declare explicitly with its reason. It is a Python module rather than a YAML file
+  — but **medium in accuracy.** Derive each entry from the repository module that
+  writes the table and from the services that call its mutating methods, never
+  from a feature's write footprint; where pass 2 finds two services, that is a
+  finding to investigate and then either refute (as `match_run` was) or declare
+  explicitly with its reason (as the five command-path tables are). It is a Python module rather than a YAML file
   under `docs/` for three reasons: the test compares it against
   `schema.METADATA.tables` by import; it lives beside what it describes, among
   the repository modules that already import `schema.py`; and it is the artifact a future
   `schema.py` split would be performed along, which a document in `docs/` cannot
   be.
-  **`match_run` is a single-writer entry — `writers=("smartmatch_worker",)`** —
+  **`match_run` is a single-service entry — `repository="match_runs"`,
+  `writers=("smartmatch_worker",)`** —
   and it is the pattern the map records. What Stage 1 read as two writers of one
   table is two *tables* written at two lifecycle points: **the API writes the
   request** (`routers/match_runs.py:947` submits `MATCH_RUN_COMMAND_TYPE`, which
@@ -889,15 +1107,26 @@ promoting the shared helpers.
   rows) and **the worker writes the result** (`handle_match_run_create` solves
   the portfolio and inserts the `match_run` snapshot — the only row carrying
   provenance under ADR-0011 and the only thing `scoring_mode` from migration
-  `0032` describes). Two tables, two owners, one command path. `match_run`'s
-  comment names the API-side rows so the next reader does not repeat the
-  inference.
-- **Complexity.** **L** — 6–8 h for 44 researched entries.
+  `0032` describes). One command path, two lifecycle points: the substrate rows
+  are the declared two-service tables and the snapshot is worker-only.
+  `match_run`'s comment names the API-side rows so the next reader does not
+  repeat the inference.
+- **Complexity.** **L** — 8–10 h: 6–8 h for the 44 researched entries, plus ~2 h
+  for `tools/derive_table_writers.py`. The helper pays for itself inside this
+  task by removing 44 hand greps, and again in every later one by making T-5.2's
+  assertion possible at all.
 - **Required tests.** T-5.2.
-- **Completion criteria.** All 44 tables mapped, each with exactly one declared
-  writer — there is no two-writer table in the tree today. `match_run`'s writer
-  is `smartmatch_worker` and its comment names the API-side `job`,
-  `outbox_record` and `idempotency_record` rows.
+- **Completion criteria.** All 44 tables mapped, each declaring one context, one
+  owning repository module and a writing-service set — one service unless the
+  entry names more and carries a reason. `job`, `job_event`, `outbox_record`,
+  `idempotency_record` and `spend_reservation` name both services with the
+  ADR-0005 reason; `match_run`'s writer is `smartmatch_worker` alone and its
+  comment names the API-side `job`, `outbox_record` and `idempotency_record`
+  rows. `tools/derive_table_writers.py` is checked in, makes both passes, and its
+  derivation — repository module and service set — agrees with the declared map
+  for all 44 tables.
+  **Completion includes flipping ADR-0019 to Accepted** and updating its
+  `decisions/README.md` row.
 
 ### T-5.2 — The ownership test
 
@@ -911,14 +1140,23 @@ promoting the shared helpers.
 - **Complexity.** **S** — 2 h.
 - **Required tests.** Every table in `schema.METADATA.tables` appears exactly
   once; every mapped name is a real table; every `context` is from the fixed
-  vocabulary; **every table has exactly one declared writer.** No table is
-  exempt today — the exemption list exists in the test only as the mechanism a
-  future two-writer table must be added to, together with the reason each writer
-  writes. That assertion is what keeps `attendance_record` single-writer, which
-  is what ADR-0013's invariant depends on.
+  vocabulary; **the declared owning repository equals the derived one**; **the
+  declared writing-service set equals the derived one**; and **a `reason` is
+  present if and only if the entry names more than one service**. The test
+  **re-runs `tools/derive_table_writers.py`** and diffs both halves against the
+  declaration, which is what stops the map rotting the first time someone routes
+  a write through a repository from a new service. The test therefore never
+  asserts "one writer" — it asserts declaration. The writer half is derived and
+  declared at **module** granularity (`smartmatch_api.routers.attendance`), with
+  the service set as its projection, because ADR-0013's invariant — registration
+  never writes `attendance_record` — separates two routes inside one service and
+  is invisible at service granularity. Declared that way, the invariant is
+  asserted, not assumed: `attendance_record`'s writer modules exclude
+  `smartmatch_api.routers.student_events`.
 - **Completion criteria.** Adding a table to `schema.py` without mapping it turns
-  it red; adding a second writer to any table, without also adding its explicit
-  declaration and reason, turns it red.
+  it red; adding an **undeclared second service** to a single-service table turns
+  it red — and it turns red because pass 2 saw the call site, not because someone
+  remembered.
 
 ### T-5.3 — Declare the 33 indexes in `schema.py`
 
@@ -974,39 +1212,78 @@ promoting the shared helpers.
 - **Scope.** Apply `enforce_rate_limit` to
   `services/api/smartmatch_api/routers/metrics.py`, drill-down at minimum, and
   bound the returned row count with a module-level `Final[int]`.
+
+  **The values are chosen, not measured, and here they are.** OQ-S2-001 is
+  answered **NO** (8 September 2026): the pilot VM holds synthetic data only, so
+  M4's request logs carry no real call rate to derive a limit from. Deriving one
+  from synthetic traffic would be a number with a measurement's authority and a
+  guess's basis, so the roadmap states the guess as a guess:
+
+  - **Rate: 30 requests/min per caller.** This is the repository's existing
+    write-tier value, used verbatim by nine routers —
+    `matching_weights.py:157`, `pipeline.py:135`, `cba_contacts.py:259`,
+    `cba_contact_channels.py:157`, `cba_handoff.py:114`,
+    `outreach_contacts.py:127`, `speaker_requests.py:174`,
+    `student_events.py:182`, `student_speaker_feedback.py:199`. The drill-down is
+    a read, but it is a read whose cost is a write's, and reusing a value the
+    codebase already reasons about beats inventing a tenth number. The read-tier
+    120/min (`matching_weights.py:154`) is the wrong reference: it is sized for a
+    form-backing read, not a database-heavy scan.
+  - **Bound: 500 rows**, as a `MAX_DRILL_DOWN_ROWS: Final[int] = 500` with a
+    comment citing `units.MAX_SUBTREE_UNITS`.
+
+  **The bound truncates; it does not refuse.** Return at most 500 rows together
+  with a `truncated: true` field and the **total** count, rather than a 4xx.
+  ADR-0011's discipline decides this: a drill-down exists to show the rows behind
+  an aggregate, so silently returning a subset would make the page display rows
+  that no longer explain the number above them — a provenance failure of exactly
+  the kind ADR-0011 forbids. **The drill-down must say it was truncated**, and
+  the total tells the reader how much they are not seeing. A 4xx would be
+  defensible for a write; for a read whose purpose is explanation, refusing to
+  explain at all is worse than explaining partially and saying so.
 - **Motivation.** **R-07 (P2), AP-12.**
   `GET /v1/units/{u}/metrics/{name}/drill-down` returns *"the rows behind the
   number"* — authenticated, database-heavy, unbounded work, in one of the seven
   routers without rate limiting, against a shared database.
   `services/api/smartmatch_api/units.py:31` already establishes the pattern with
   `MAX_SUBTREE_UNITS: Final[int] = 50`.
-- **Dependency.** T-3.1 — under OQ-S2-001 = YES, set the limit from the call
-  rates the request log reveals rather than by guess. This is the concrete reason
-  Phase 3 precedes Phase 5; under NO the dependency is advisory and Phase 5 could
-  run first.
+- **Dependency.** T-3.1, **advisory only**. It was a hard dependency while
+  OQ-S2-001 was assumed YES, because the limit was to be set from observed call
+  rates. With the answer **NO** there is no real traffic to observe, the values
+  above are chosen, and Phase 5 could run before Phase 3. The dependency is kept
+  as advisory because a request log still makes the first days of the new limit
+  legible if it turns out to be wrong.
 - **Affected modules.** `services/api/smartmatch_api/routers/metrics.py`.
 - **Risk of the change itself.** **Medium.** It changes behaviour for an existing
   authenticated caller. Mitigation: if the limit proves too tight, raise the
   constant — one integer — rather than removing the decorator, so the guard stays
   and the bound relaxes.
 - **Complexity.** **M** — 3–4 h.
-- **Required tests.** The drill-down refuses past the rate limit and returns no
-  more than the bound; the e2e case
-  `test_08c_a_metric_drill_down_shows_the_rows_behind_the_number` stays green.
-- **Completion criteria.** `routers/metrics.py` calls `enforce_rate_limit` and
-  bounds its rows; the bound is a named `Final[int]` with a comment citing
-  `MAX_SUBTREE_UNITS`.
+- **Required tests.** The drill-down refuses past 30 requests/min; a drill-down
+  over more than 500 rows returns exactly 500 **with `truncated: true` and the
+  total count**, and a drill-down under the bound reports `truncated: false`; the
+  e2e case `test_08c_a_metric_drill_down_shows_the_rows_behind_the_number` stays
+  green.
+- **Completion criteria.** `routers/metrics.py` calls `enforce_rate_limit` at
+  30/min and bounds its rows at `MAX_DRILL_DOWN_ROWS: Final[int] = 500`, with a
+  comment citing `MAX_SUBTREE_UNITS` and recording that the value is chosen —
+  the pilot being synthetic (OQ-S2-001, 8 September 2026) — rather than measured;
+  a truncated response carries `truncated: true` and the total.
 
 ---
 
 ## Phase 6 — Extensibility contracts and owner-gated cleanups (M7, M8)
 
-### T-6.1 — ADR-0021, the worker task-delivery contract
+### T-6.1 — Verify ADR-0021 against the worker docstring
 
-- **Scope.** Promote `services/worker/smartmatch_worker/main.py`'s module
-  docstring — `200` on duplicate, `503` on race, `401`/`403`/`501`/`500`
-  semantics, OIDC verified before the body is read — into
-  `ADR-0021-worker-task-delivery-contract.md`, plus its index row.
+- **Scope.** **No writing.** `ADR-0021-worker-task-delivery-contract.md` exists
+  as `Proposed`, with its index row, from the Stage 2 docs PR (#124); it was
+  promoted from `services/worker/smartmatch_worker/main.py`'s module docstring —
+  `200` on duplicate, `503` on race, `401`/`403`/`501`/`500` semantics, OIDC
+  verified before the body is read. This task **re-reads the ADR against that
+  docstring at implementation time** and records that they still agree, so T-6.2
+  exercises a contract that matches the code. The task ID is kept rather than
+  merged into T-6.2 so every citing document stays valid.
 - **Motivation.** **R-01 (P1).** Live Cloud Tasks, Routes, Resend and the
   JWKS-to-real-issuer wiring have never executed;
   `providers/registry.py:196,243,258,303` are four *"not implemented in the
@@ -1016,20 +1293,22 @@ promoting the shared helpers.
   so the adapter is measured rather than improvised.
 - **Dependency.** T-0.3 — a delivery contract is a statement about a registry
   whose completeness is now asserted.
-- **Affected modules.**
-  `docs/architecture/decisions/ADR-0021-worker-task-delivery-contract.md` (writer
-  E); `docs/architecture/decisions/README.md`.
-- **Risk of the change itself.** **Low.** `Proposed`, no behaviour change. Write
-  it *from* the docstring rather than inventing semantics.
-- **Complexity.** **M** — 3–4 h.
-- **Required tests.** `tests/unit/test_adr_index.py` gates the row: format,
-  title equal to the `# ADR-NNNN — Title` heading, status and date equal to the
-  `**Status:**` / `**Date:**` lines, numbers contiguous, status from {Accepted,
-  Proposed, Rejected, Superseded, Deprecated}. Correct the stale "Reserved
-  numbers" entry claiming ADR-0016 is reserved with no file — ADR-0016 exists —
-  in the same PR, since the two lists are read together.
-- **Completion criteria.** ADR-0021 exists as `Proposed`; the ADR index test
-  passes; the reserved-numbers list is accurate.
+- **Affected modules.** none changed;
+  `docs/architecture/decisions/ADR-0021-worker-task-delivery-contract.md` is read.
+- **Risk of the change itself.** **None.** A verification pass, no edit. If the
+  docstring and the ADR have diverged, that divergence is a finding and gets its
+  own commit with an argument.
+- **Complexity.** **S** — 0.5 h.
+- **Required tests.** `tests/unit/test_adr_index.py` already gates the row:
+  format, title equal to the `# ADR-NNNN — Title` heading, status and date equal
+  to the `**Status:**` / `**Date:**` lines, numbers contiguous, status from
+  {Accepted, Proposed, Rejected, Superseded, Deprecated}. The stale "Reserved
+  numbers" entry claiming ADR-0016 is reserved with no file **was corrected in
+  PR #124**; nothing remains here.
+- **Completion criteria.** ADR-0021 and the worker docstring agree, and that is
+  stated in the PR body; the ADR index test passes. ADR-0021 is flipped to
+  `Accepted` by **T-6.2**, the task that exercises the contract, not by this one:
+  an ADR nothing exercises is prose, and prose is not `Accepted`.
 
 ### T-6.2 — The delivery-contract test against the fixture queue
 
@@ -1049,12 +1328,16 @@ promoting the shared helpers.
   **OIDC verification happens before the body is read** — the security-relevant
   ordering, and the one an adapter author is most likely to invert.
 - **Completion criteria.** All five assert; changing the fixture queue's
-  duplicate behaviour turns the test red.
+  duplicate behaviour turns the test red. **Completion includes flipping
+  ADR-0021 to Accepted** and updating its `decisions/README.md` row.
 
 ### T-6.3 — ADR-0022 and the topology statement
 
-- **Scope.** Write `ADR-0022-appliance-is-production-topology.md` and add the
-  statement to `docs/architecture/current-system-topology.md`.
+- **Scope.** **ADR-0022 already exists** as `Proposed`, with its index row, from
+  the Stage 2 docs PR (#124). The remaining work is the **statement in
+  `docs/architecture/current-system-topology.md` §1** — the appliance is the
+  current production topology, Terraform a forward design record — **plus the
+  status flip**.
 - **Motivation.** **R-18 (P2).** Two topologies, one executable: GCP Cloud Run is
   documented across 7 Terraform modules and 4 environments, all deliberately
   non-applyable and asserted so by the *Terraform environments share no
@@ -1062,21 +1345,23 @@ promoting the shared helpers.
   deploys. The repository does not say which is current, so the appliance reads
   as interim scaffolding beneath an architecture that does not exist.
 - **Dependency.** None inside Phase 6.
-- **Affected modules.** `docs/architecture/decisions/ADR-0022-…` (writer E);
-  `docs/architecture/current-system-topology.md`;
-  `docs/architecture/decisions/README.md`.
+- **Affected modules.** `docs/architecture/current-system-topology.md` §1;
+  `docs/architecture/decisions/ADR-0022-…` and
+  `docs/architecture/decisions/README.md` — **existing, status cell only**.
 - **Risk of the change itself.** **Low.** The constraint is the standing
   anti-pattern: **build nothing for GCP.** Answer the three questions
   `deploy.yml` already answers for the appliance and nothing answers for GCP —
   where logs go, how a rollback is performed, when a migration runs relative to a
   deploy.
-- **Complexity.** **M** — 3–4 h.
+- **Complexity.** **S** — 1–2 h.
 - **Required tests.** None; its check is that `deploy.yml` and
   `docker-compose.vm.yml` still describe what it claims. `test_adr_index.py`
   gates the row.
-- **Completion criteria.** ADR-0022 exists as `Proposed`; the topology document
-  states the appliance is production and Terraform a forward design record; no
-  GCP code was written.
+- **Completion criteria.** The topology document states the appliance is
+  production and Terraform a forward design record; no GCP code was written.
+  **Completion includes flipping ADR-0022 to Accepted** and updating its
+  `decisions/README.md` row — this ADR's implementation *is* the statement, so
+  the task that writes it is the task that accepts it.
 
 ### T-6.4 — Record retention and the downgrade decision
 
@@ -1112,8 +1397,8 @@ promoting the shared helpers.
   from Foundation** — a live invitation for a future agent to wire it up against
   a standing decision.
 - **Dependency.** T-0.1 (the frontend suite runs, so any fallout is caught).
-  **This is the one part of Phase 6's cleanup that is NOT blocked on
-  OQ-S2-002.**
+  It was never blocked on OQ-S2-002, and with that question answered nothing in
+  Phase 6's cleanup is.
 - **Affected modules.** three files under
   `apps/web/legacy-frontend/src/components/`.
 - **Risk of the change itself.** **Low.** Zero references, no route reaches them,
@@ -1125,34 +1410,64 @@ promoting the shared helpers.
   `grep -rn 'OutreachWorkflowModal\|AgenticOutreachPanel\|FeedbackForm'` over
   `apps/web/legacy-frontend/src` returns nothing.
 
-### T-6.6 — Per-page disposition for the seven legacy pages
+### T-6.6 — Delete the seven legacy pages and redirect their routes
 
-- **Scope.** For `Dashboard`, `Opportunities`, `Volunteers`, `Pipeline`,
-  `Calendar`, `Outreach` and `AIMatching`: port to `/v1`, delete, or keep a
-  corrected notice — one recorded decision each, then execute.
+- **Scope.** **OQ-S2-002 is answered (8 September 2026): delete them.** For
+  `Dashboard`, `Opportunities`, `Volunteers`, `Pipeline`, `Calendar`, `Outreach`
+  and `AIMatching` — delete the seven pages; delete the **24 `/api/*` call sites
+  in `apps/web/legacy-frontend/src/lib/api.ts`** that only they used; add a
+  **route redirect from each deleted route to the corresponding `/v1` page**;
+  and update the `test_16` expectation (that update is T-6.7). There is no
+  per-page deliberation left and no "keep the notice" branch: a corrected notice
+  was only ever the least-bad way to keep a page that cannot work, and the owner
+  chose not to keep them. `git` retains every deleted file, which is what makes
+  this reversible by a revert rather than by a rewrite.
 - **Motivation.** **R-17 (P2).** Between them `lib/api.ts` calls 24 `/api/*`
   paths that no service serves, asserted by the repository itself in
   `tests/e2e/…::test_16_the_portal_pages_have_no_backend_in_this_repository`.
   Users reach pages that cannot work. Doing nothing is the one actively
   misleading option.
-- **Dependency.** T-6.5; T-2.4 (a page has been migrated, so *"port"* is a known
-  quantity rather than an estimate — the concrete reason Phase 2 precedes Phase
-  6); T-4.2 (the `Calendar.tsx` text is already correct, so *"keep the notice"*
-  is already a defensible state). **Blocked on OQ-S2-002.**
+- **Dependency.** **No longer blocked** — OQ-S2-002 is answered. T-6.5 (the dead
+  components go first, so the reference scan for the pages is read against a
+  settled `src`) and T-4.2 (the `Calendar.tsx` text was corrected in Phase 4, so
+  the tree never carried a page whose *stated reason* was false while waiting to
+  be deleted — an interim state that mattered and cost one hour). T-2.4 is
+  **no longer a dependency**: it existed so *"port"* could be estimated against a
+  migrated page, and nothing is being ported.
+
+  **Kept in Phase 6, not moved to Phase 0.** It is now unblocked and its
+  remaining prerequisites are short, so moving it early was considered and
+  rejected on two grounds. First, `test_16` is a gate over the seven pages, and
+  T-6.7 must restate it in the same increment — restating a gate is the most
+  delicate act in the roadmap (non-negotiable 13) and it belongs after the
+  frontend lane has been running for five phases, not on day two when T-0.1 has
+  just turned it on and nobody has yet seen it catch anything. Second, T-4.2's
+  correction of the `Calendar.tsx` notice is what makes the interim honest; run
+  the deletion first and Phase 4 is correcting text in a file that no longer
+  exists, which is churn, not sequencing. The task ID also stays `T-6.6`: task
+  IDs are fixed, `T-0.7` is the glossary, and renumbering a published identifier
+  to express a schedule change would cost every citing document more than the
+  move is worth.
 - **Affected modules.** seven files under
-  `apps/web/legacy-frontend/src/pages/`; `apps/web/legacy-frontend/src/lib/api.ts`.
-- **Risk of the change itself.** **Medium** under OQ-S2-001 = YES: deleting a
-  routed page changes URLs someone may have bookmarked, so a deletion needs a
-  redirect or an explicit not-found state — removing the route without deciding
-  what replaces it recreates R-17's failure mode in a new form. Under NO,
-  deletion is deletion. Delete a page and its `lib/api.ts` helpers **together**,
-  so no orphan helper survives.
-- **Complexity.** **L** — 6–12 h depending on how many pages are ported; **S** if
-  every answer is "correct the notice".
-- **Required tests.** Per ported page, a test in
-  `apps/web/legacy-frontend/tests/` following T-2.4's pattern.
-- **Completion criteria.** Each of the seven has a recorded disposition, executed;
-  no page shows a notice whose stated reason is false.
+  `apps/web/legacy-frontend/src/app/pages/`;
+  `apps/web/legacy-frontend/src/lib/api.ts` (the 24 `/api/*` call sites); the
+  route table that gains the redirects.
+- **Risk of the change itself.** **Low.** OQ-S2-001 is **NO** — the pilot is
+  synthetic, nobody holds a bookmark, and no notice period is owed. The redirects
+  are added for coherence rather than continuity: a route that silently 404s
+  after having rendered something is a worse answer than one that lands on the
+  working `/v1` page. Delete each page and its `lib/api.ts` helpers **together**,
+  so no orphan helper survives; an orphaned helper is how a deleted page comes
+  back.
+- **Complexity.** **M** — 4–6 h. It was **L** while ports were on the table;
+  deletion plus redirects is bounded work.
+- **Required tests.** The frontend suite (T-0.1) green after the deletions; a
+  reference scan over `src` returning nothing for the seven page modules; a test
+  that each redirected route lands on its `/v1` page. `test_16` is restated by
+  T-6.7.
+- **Completion criteria.** The seven page modules are gone; the 24 `/api/*` call
+  sites are gone from `lib/api.ts`; every deleted route redirects to a `/v1`
+  page; no page in the tree shows a notice whose stated reason is false.
 
 ### T-6.7 — Restate `test_16`
 
@@ -1160,9 +1475,13 @@ promoting the shared helpers.
   `tests/e2e/…::test_16_the_portal_pages_have_no_backend_in_this_repository` to
   assert whatever is now true.
 - **Motivation.** **Non-negotiable 13 — never weaken a gate.** The test currently
-  asserts the portal pages have no backend *in this repository*. After a port
-  that is false for the ported page, and the test must **say which pages remain
-  backend-less**, not stop asserting.
+  asserts the portal pages have no backend *in this repository*. Once T-6.6 has
+  deleted all seven, its subject is gone — and a test whose subject vanished is
+  precisely where a gate gets deleted "because it does not apply any more". It
+  does apply: restate it as **no module under `src` calls an `/api/*` path**,
+  which is the same claim with the pages removed from it, and is strictly
+  stronger than the enumeration it replaces because it also catches a
+  reintroduction under a new name.
 - **Dependency.** T-6.6.
 - **Affected modules.** `tests/e2e/`.
 - **Risk of the change itself.** **Medium** — this is the task where a gate could
@@ -1170,8 +1489,8 @@ promoting the shared helpers.
   scope and equally strict*, never `pytest.skip`, never an `xfail`, never a
   removed case.
 - **Complexity.** **S** — 1–2 h.
-- **Required tests.** The restated `test_16` itself; it must fail if a page that
-  is supposed to be backend-less acquires a live `/api/*` call, and fail if a
-  ported page regresses.
+- **Required tests.** The restated `test_16` itself; it must fail if any module
+  under `src` acquires an `/api/*` call, and fail if one of the seven deleted
+  pages returns.
 - **Completion criteria.** `test_16` names the true current state; no assertion
   was deleted; the `pilot e2e` job green.

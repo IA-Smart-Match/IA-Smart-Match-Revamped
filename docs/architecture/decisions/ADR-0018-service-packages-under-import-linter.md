@@ -66,16 +66,26 @@ the four inner packages.**
    about its inputs governs a graph nobody can reproduce outside CI.
 2. `smartmatch_api` and `smartmatch_worker` are added to
    `[tool.importlinter].root_packages`.
-3. Two new contracts:
-   - **Routers are independent.** No module under
+3. Five new contracts, numbered 5–9 by their order in the TOML
+   (`DEPENDENCY_RULES.md` §3 carries the number → name → type → DR → AP table):
+   - **Contract 5, `The API sits above the inner packages, never beneath them`.**
+     A `layers` contract placing `smartmatch_api` above persistence, providers,
+     authz and domain.
+   - **Contract 6, `The worker sits above the inner packages, never beneath
+     them`.** The same shape for `smartmatch_worker`.
+   - **Contract 7, `The API and the worker are independent services`.**
+     `smartmatch_api` must not import `smartmatch_worker` and vice versa.
+     Expressed as an `independence` contract rather than two `forbidden` ones,
+     because the two run as separate deployables with separate callers and
+     neither sits above the other — a shared import would make that a fiction.
+   - **Contract 8, `Routers are independent of one another`.** No module under
      `smartmatch_api.routers` may import another module under
      `smartmatch_api.routers`. Expressed as an `independence` contract over the
      router modules.
-   - **The services do not import each other.** `smartmatch_api` must not import
-     `smartmatch_worker`, and `smartmatch_worker` must not import
-     `smartmatch_api`. A `forbidden` contract in both directions, because the
-     two run as separate deployables with separate callers and a shared import
-     would make that a fiction.
+   - **Contract 9, `Shared API modules must not import routers`.** The shared
+     modules are the router layer's dependencies, never its consumers.
+     `smartmatch_api.main` is outside `source_modules`: it is the composition
+     root and imports every router by definition.
 4. The two existing violations are landed as explicit `ignore_imports` entries,
    each carrying the line it excuses, **and both are removed within migration
    increment M2** by promoting `_authorize_speaker_contacts` and
@@ -86,7 +96,7 @@ the four inner packages.**
    (`dependency-analysis.md` §4, "Exemplary").
 
 The ordering is the point. Landing the contract with two ignores makes the rule
-true for the other 24 routers immediately, and turns the two known exceptions
+true for the other 23 router modules immediately, and turns the two known exceptions
 from invisible convention into two named lines with a scheduled end. Landing the
 promotion first would be a refactor of authorization code with no contract
 holding the result.
@@ -108,7 +118,7 @@ change — the generated client (ADR-0020), the ownership map (ADR-0019), the
 observability middleware — lands inside a boundary that either holds or fails a
 required check.
 
-**Cost.** The independence contract will refuse a future shared helper placed in
+**Cost.** The router independence contract (8) will refuse a future shared helper placed in
 a router, and the correct response is to move the helper, which is more work in
 the moment than importing it. That is the cost being bought deliberately. Adding
 persistence to the manifests also makes the dependency real for anyone building
@@ -131,7 +141,8 @@ violations that a reviewer approved *with reasons* — both times the reviewer w
 right about the behaviour and had no place to put it. Review catches the
 violation it is looking at; it cannot catch the one that has not been written.
 
-**A single `services` layer contract instead of router independence.** Rejected:
+**A single `services` layer contract instead of contracts 5–7 plus router
+independence (8).** Rejected:
 a layers contract between `smartmatch_api` and `smartmatch_worker` says nothing
 about the coupling that actually exists, which is lateral and *inside* one
 package. The two failures observed are router→router, and a contract that does

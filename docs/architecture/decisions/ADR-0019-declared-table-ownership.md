@@ -53,27 +53,59 @@ invariant is recorded; the property it rests on is not.
 by a test. No structural change to `schema.py` happens before it.**
 
 1. A new module `smartmatch_persistence/ownership.py` holds a mapping from table
-   name to (bounded context, writing service or services). The six contexts are
+   name to three things: one **owning bounded context**; one **owning repository
+   module** in `smartmatch_persistence` — the single module that issues SQL
+   against that table; and the **set of writing services**. The six contexts are
    `domain-model.md` §2's, named as constants rather than free strings. The
    writer side names `api`, `worker`, or `migration` — the last for tables only
-   seeded or maintained by an Alembic revision.
+   seeded or maintained by an Alembic revision. The repository-module half is the
+   layer Stage 1 did not have a name for, and it is the half that is already true
+   without exception: no file under `services/` issues `insert()`, `update()` or
+   `delete()` against a `schema.<table>` object at all (OBSERVED, AST scan of
+   `services/`, 2026-09-08), so every table has exactly one module issuing its
+   statements — `job` and `job_event` → `jobs.py`, `outbox_record` → `outbox.py`,
+   `idempotency_record` → `idempotency.py`, `spend_reservation` → `spend.py`,
+   `match_run` → `match_runs.py`.
 2. A unit test asserts the map and `schema.py` agree **both ways**: every
    `sa.Table` declared in `schema.py` appears exactly once in the map, and every
    entry in the map names a real table. Both directions, for the reason
    `tests/unit/test_adr_index.py` gives about its own index: a map that is only
    checked one way goes stale on the first table nobody adds to it, and a stale
    map is read as complete.
-3. **No table in the tree has two writing services today**, so every entry
-   declares exactly one and the test asserts exactly that. A future table with
-   more than one writing service must say so *and* say what each writes, in the
-   diff that introduces it. The map is a description, not a wish; two writers
-   would be a fact to record, not an error to hide — but it is not a fact yet,
-   and the map must not pretend otherwise.
+3. **Multi-writer is allowed only by explicit declaration with a reason.** The
+   writing-service set is derived one level up from the repository: which service
+   package calls that repository's *mutating* methods. Measured that way, five
+   tables have two writing services today, and all five are two-writer by
+   ADR-0005's design rather than by accident — the Work Substrate tables `job`,
+   `job_event`, `outbox_record` and `idempotency_record`, plus
+   `spend_reservation`. `JobRepository.create/transition/append_event/claim` is
+   called from the API (`commands.py`, `pipeline_provisioning.py`,
+   `routers/cba_contacts.py`) and from the worker (`execution.py`,
+   `dispatcher.py`); `OutboxRepository.enqueue/claim_batch/mark_dispatched` from
+   the API (`commands.py`, `routers/cba_invitations.py`) and the worker
+   (`dispatcher.py`); the idempotency and spend repositories likewise
+   (`routers/redrive.py` and `worker/paid_extraction.py` among them). Each of the
+   five declares both services together with the reason string "API records
+   intent / worker transitions state (ADR-0005, ADR-0015 A1)". Every other table
+   declares exactly one service, and `match_run` is the worked example: written
+   only by the worker. The test therefore does not assert "one writer" — it
+   asserts that any entry naming more than one service carries a reason, so a new
+   second writer on a single-writer table fails the lane until someone declares
+   it and says why. Service granularity is too coarse for one invariant that
+   matters: ADR-0013 says registration never writes `attendance_record`, and both
+   the attendance route and the registration route live in the API. So the
+   writer half is derived and declared at **module** granularity — the calling
+   module, `smartmatch_api.routers.attendance`, not merely the service — and the
+   service set is the projection of it. ADR-0013's invariant then becomes an
+   assertion the test can make, rather than an assumption: `attendance_record`'s
+   declared writer modules do not include `smartmatch_api.routers.student_events`.
 4. **Match-run ownership is resolved here explicitly, and recorded as the
-   pattern.** The API writes the *request* — the `job` row and the outbox record
-   that carry the intent, through `submit_command`. The worker writes the
-   *result* — the `match_run` snapshot, and nothing else does. Two tables, two
-   owners, one command path between them. This is the shape every future async
+   pattern.** The API writes the *request* — but the `job` row and the outbox
+   record it writes through `submit_command` are exactly the tables the worker
+   also writes, which is why they are declared two-service. The worker alone
+   writes the *result*, the `match_run` snapshot. So the command path is not "two
+   tables, two owners" but "two shared substrate tables with a declared reason,
+   and one single-writer result table". This is the shape every future async
    capability should take, and stating it turns a docstring that could rot into
    a fact a test holds.
 5. **The `schema.py` split is not decided by this ADR.** If it happens, it is
@@ -93,6 +125,27 @@ conversation about persistence a shared vocabulary — a bug report can say "an
 Engagement table written by the API" and be understood without opening 2,691
 lines.
 
+**Seeding and re-verification.** The map is not typed out by hand.
+`tools/derive_table_writers.py` (owner decision, 8 September 2026) makes **two**
+syntactic passes, because the two halves of an entry live at two different
+layers. Pass 1 walks the AST of `python/smartmatch_persistence`: for each
+`schema.<table>` it records which module issues `insert()`, `update()` or
+`delete()` against it — the owning repository module — and collects the names of
+that module's mutating methods (any method whose body contains such a
+statement). Pass 2 walks `services/api` and `services/worker` for call sites of
+those method names, by attribute name, and records the **calling module** of
+each; the service is the module's package. The tool prints table → repository
+module → {calling modules} → {services}. Its output
+**seeds** `ownership.py` in the change that introduces the map, and the ownership
+test **re-runs the tool** and diffs it against the declaration, failing when the
+owning module or the writing-service set disagrees. Matching pass 2 on the
+attribute name over-approximates — an unrelated `.create` would be counted — and
+that is the intended direction: an over-approximation surfaces as a discrepancy
+somebody has to explain, never as a silent pass. Pass 1 has the same property
+against aliasing. So both halves of every entry are a measurement checked against
+a declaration, and a second writer appearing in a later PR fails the lane at the
+point it is introduced.
+
 **Cost.** A new table costs one map entry, and forgetting it fails the lane.
 That is a deliberate speed bump on exactly the change that should be deliberate.
 The map is also prose-adjacent in one respect the test cannot reach: nothing
@@ -100,13 +153,18 @@ verifies that the *context* named is the right context, only that it is one of
 the six and that the table exists. That is the same silent failure mode the ADR
 index's "Decides" column has, and it is recorded here for the same reason.
 
-**Enforcement.** A unit test in the no-database lane, alongside
-`tests/integration/test_schema_matches_migration.py`, which already establishes
-that `schema.py` is compared against something rather than trusted. The
-writer-side claim is not enforceable by a test on its own — nothing stops a
-router importing a repository the map says belongs to the worker. Making that
-assertable is possible under ADR-0018's contracts once both services are root
-packages, and is named here as the follow-on rather than claimed as done.
+**Enforcement.** A unit test in the no-database lane that re-runs
+`tools/derive_table_writers.py` and compares both halves of its output against
+the declared map — owning repository module and the writer set, at module
+granularity, projected to services — and fails any entry with more than one
+service that carries no reason string. It sits
+alongside `tests/integration/test_schema_matches_migration.py`, which already
+establishes that `schema.py` is compared against something rather than trusted.
+What the test still cannot reach is *which* service ought to be allowed to call a
+given repository: it records that the API calls `JobRepository.create`, not that
+it may. Making that assertable is possible under ADR-0018's contracts once both
+services are root packages, and is named here as the follow-on rather than
+claimed as done.
 
 ## Alternatives considered
 

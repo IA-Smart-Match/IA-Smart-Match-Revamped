@@ -17,7 +17,7 @@ Classifications: **OBSERVED** · **INFERRED** · **RISK** · **RECOMMENDATION** 
 capabilities, 57 published API paths, 44 `sa.Table` definitions, 119 check
 constraints, 3,807 test functions and a 26-step e2e walk against a live
 instance (`OPUS_AUDIT_HANDOFF.md` §1). Whether it is serving *real users today*
-is OQ-S2-001; the safe default is that it is.
+was OQ-S2-001, **answered 2026-09-08: NO — synthetic data only.**
 
 So the target architecture is **the current architecture with the outer
 boundaries made as real as the inner ones**. Nothing here is a redesign. Every
@@ -61,7 +61,7 @@ flowchart TB
     U["Users: student · event host · speaker connector · admin"]
     CF["Cloudflare Access"]
     WEB["web — React 18 SPA<br/>apps/web/legacy-frontend"]
-    GEN["clients/typescript<br/>generated from the OpenAPI contract<br/>NEW — M3, ADR-0020"]
+    GEN["clients/typescript<br/>generated from the OpenAPI contract<br/>by pinned openapi-typescript, types only<br/>NEW — M3, ADR-0020"]
     subgraph API["services/api — smartmatch_api"]
         MW["MaxBodySizeMiddleware"]
         RL["RequestLogMiddleware<br/>correlation id — NEW M4"]
@@ -137,20 +137,36 @@ flowchart TB
     R1["router --> router"] x--x R2["sibling router"]
 ```
 
-**Contracts 1–4 are unchanged.** Three are added by M2 (ADR-0018):
+**Contracts 1–4 are unchanged.** Five are added by M2 (ADR-0018), numbered 5–9
+by their order in the TOML:
 
 | # | New contract | Type | Forbids | Fixes |
 |---|---|---|---|---|
-| 5 | Services do not import each other | `forbidden` | `smartmatch_api` ↔ `smartmatch_worker` | R-06 §3c, AP-01 |
-| 6 | Routers are leaves | `forbidden` | `smartmatch_api.routers.*` → `smartmatch_api.routers.*` | R-06 §3b, AP-02 |
-| 7 | Services sit above the four inner layers | `layers` | any upward edge from `python/*` into `services/*` | AP-01 |
+| 5 | `The API sits above the inner packages, never beneath them` | `layers` | any upward edge from `python/*` into `smartmatch_api` | AP-01 |
+| 6 | `The worker sits above the inner packages, never beneath them` | `layers` | the same for `smartmatch_worker` | AP-01 |
+| 7 | `The API and the worker are independent services` | `independence` | `smartmatch_api` ↔ `smartmatch_worker` | R-06 §3c, AP-01 |
+| 8 | `Routers are independent of one another` | `independence` | `smartmatch_api.routers.*` → `smartmatch_api.routers.*`; lands with two transitional `ignore_imports`, removed in M2's second commit | R-06 §3b, AP-02 |
+| 9 | `Shared API modules must not import routers` | `forbidden` | shared `smartmatch_api` modules → `smartmatch_api.routers.*` (`main` excluded: it is the composition root) | R-06 §3b, AP-02 |
 
-Contract 6 cannot be declared while `cba_contact_channels.py:131` imports
-`_authorize_speaker_contacts` from `cba_contacts.py` and
+**OBSERVED (2026-09-08).** The draft TOML was executed against the tree with both
+service packages on `PYTHONPATH`: `Contracts: 9 kept, 0 broken`. With the two
+`ignore_imports` removed, exactly one contract fails —
+`Routers are independent of one another BROKEN`, naming
+`outreach_contacts` → `outreach` and `cba_contact_channels` → `cba_contacts`
+and nothing else; all other contracts KEPT. The block is paste-ready in fact,
+not in intent. `DEPENDENCY_RULES.md` §5 carries the exact command.
+
+Contract 8 is therefore **not** blocked on the promotion. `cba_contact_channels.py:131`
+imports `_authorize_speaker_contacts` from `cba_contacts.py` and
 `outreach_contacts.py:109` imports `READ_RATE_LIMIT` / `_authorize_outreach`
-from `outreach.py`. **The promotion is the prerequisite, not the consequence**
-— `job_authz.py` is the pattern, and its docstring records the identical
-history (two routers, two divergent subsets of one policy, consolidated).
+from `outreach.py`, and ADR-0018 lands the contract *first* with those two as
+named `ignore_imports` entries; the promotion into an owned module then deletes
+them. Two commits, each independently reversible — the contract commit makes the
+rule true for the other 23 router modules immediately and converts an invisible
+convention into two named lines with a scheduled end, and the promotion commit is
+a refactor with a contract already holding the result. `job_authz.py` is the
+pattern, and its docstring records the identical history (two routers, two
+divergent subsets of one policy, consolidated).
 
 **RECOMMENDATION — the new module is `smartmatch_api/unit_authz.py`.** Named
 for its subject (the unit and the roster hanging off it), not for its callers.
@@ -236,9 +252,17 @@ is measured against it rather than improvised.
 | Testing | `test_check_constraints.py` (43), `test_event_schema_constraints.py` (54), `test_schema_matches_migration.py` (whole-schema, symmetric) |
 | Observability | None. The store is not the narrator |
 
-**Delta 1 — M6, AP-03, R-20, ADR-0019.** A table→context→writing-service map
-declared **as data** in this package, with a test asserting every table appears
-exactly once and every named context exists. The map is the artifact; the
+**Delta 1 — M6, AP-03, R-20, ADR-0019.** An ownership map declared **as data**
+in this package: per table, one owning context, one owning repository module (the
+single module in this package that issues SQL against it — already true without
+exception, since nothing under `services/` issues SQL against a `schema.<table>`
+at all), and the set of writing services, derived from which service package
+calls that repository's mutating methods. More than one service is permitted only
+when the entry declares it *and* gives a reason; five entries do today — `job`,
+`job_event`, `outbox_record`, `idempotency_record`, `spend_reservation`, all
+reading "API records intent / worker transitions state (ADR-0005, ADR-0015 A1)".
+The test asserts every table appears exactly once, every named context exists,
+and both derived halves match the declaration. The map is the artifact; the
 `schema.py` split is an **optional** follow-up after M6 and never before
 (anti-goal: no splitting on line count).
 
@@ -262,9 +286,9 @@ with the widest downstream effect (handoff §8).
 | Ownership | The OpenAPI contract (`contracts/openapi/smartmatch.json`, 57 paths) and the error envelope |
 | Public interface | The published `/v1` paths plus `/api/health`, `/u/{token}`, the invitation response page |
 | Internal boundary | See sub-layers below |
-| Permitted deps | all four `python/` packages |
-| Forbidden deps | `smartmatch_worker` (contract 5, M2); router→router (contract 6, M2) |
-| Persistence ownership | Every table whose writing service is `api` in the M6 map. **`match_run` is not one of them** — the API writes the `job`, `outbox_record` and `idempotency_record` rows that carry the *request*; the worker writes the `match_run` snapshot (§5, §7) |
+| Permitted deps | all four `python/` packages (contract 5, `The API sits above the inner packages, never beneath them`, M2) |
+| Forbidden deps | `smartmatch_worker` (contract 7, `The API and the worker are independent services`, M2); router→router (contract 8, `Routers are independent of one another`, M2) |
+| Persistence ownership | Every table whose writing-service set contains `api` in the M6 map — including the four Work Substrate tables and `spend_reservation`, which it shares with the worker under a declared reason. **`match_run` is not one of them**: the API writes the `job`, `outbox_record` and `idempotency_record` rows that carry the *request*; the worker alone writes the `match_run` snapshot (§5, §7) |
 | Failure behaviour | `ApiError` → one envelope through `EXCEPTION_HANDLERS`. Quota is charged **before** the refusal (ADR-0015). A body over `MAX_REQUEST_BODY_BYTES` is refused before parsing, on both the honest-`Content-Length` branch and the buffering branch |
 | Testing | Contract + integration + e2e. **Delta — M0, R-10:** `services/api` enters `pytest --cov`; record the baseline, set no threshold in the same change |
 | Observability | **Delta — M4, AP-09, R-03:** one structured request log line with a correlation id, from a middleware beside `MaxBodySizeMiddleware`; every `ApiError` path logs once with its code. **No tracing vendor** |
@@ -273,7 +297,7 @@ with the widest downstream effect (handoff §8).
 
 | Sub-layer | Responsibility | Interface | May import | May not import |
 |---|---|---|---|---|
-| `routers/*` (25 modules, 28 `APIRouter` objects) | One capability's HTTP surface. **Leaves of the graph** | FastAPI `APIRouter` | shared modules, `python/*` | another router (contract 6, M2) |
+| `routers/*` (25 modules, 28 `APIRouter` objects) | One capability's HTTP surface. **Leaves of the graph** | FastAPI `APIRouter` | shared modules, `python/*` | another router (contract 8, M2) |
 | `dependencies.py` (fan-in 26) | Principal resolution, `enforce_rate_limit`, `charge_quota` | FastAPI dependencies | `python/*`, `config`, `errors` | routers |
 | `errors.py` (fan-in 26) | `ApiError`, `error_response`, `EXCEPTION_HANDLERS` — one envelope | exceptions + handlers | — | routers |
 | `units.py` (fan-in 18) | `load_unit_or_404` — the 404-vs-403 decision, made **once**; `MAX_SUBTREE_UNITS` | functions | `python/*` | routers |
@@ -310,9 +334,9 @@ than after CI fails.
 | Ownership | Job execution, lease/generation, the `job_event` stream |
 | Public interface | Four endpoints: health, `POST /tasks/execute`, `POST /operations/dispatch`, the heartbeat read |
 | Internal boundary | Registry ← execution ← dispatcher ← root composition (below) |
-| Permitted deps | all four `python/` packages |
-| Forbidden deps | `smartmatch_api` (contract 5, M2) |
-| Persistence ownership | `job`, `job_event`, outbox transitions, and every table whose writing service is `worker` in the M6 map |
+| Permitted deps | all four `python/` packages (contract 6, `The worker sits above the inner packages, never beneath them`, M2) |
+| Forbidden deps | `smartmatch_api` (contract 7, `The API and the worker are independent services`, M2) |
+| Persistence ownership | Every table whose writing-service set contains `worker` in the M6 map: `job`, `job_event`, `outbox_record`, `idempotency_record` and `spend_reservation` jointly with the API under a declared reason, and `match_run` alone |
 | Failure behaviour | **The status codes are the contract** (ADR-0021): `200` handled *including a duplicate delivery*; `503` the dispatcher-race window; `401` no credential; `403` credential did not verify, undifferentiated on purpose; `501` verification or queue not configured — a deployment fact, not a caller's mistake; `500` PostgreSQL unreachable. An unregistered command type is a **terminal refusal**, not a crash |
 | Testing | `test_outbox_dispatcher.py` (44) incl. crash windows. **Delta — M0, R-10:** into `--cov` |
 | Observability | `job_event` is already the strongest signal in the system. No change needed |
@@ -324,7 +348,7 @@ than after CI fails.
 | `handlers.py` — `default_registry()` | Registers `test.noop`, `import.create`, `match-run.create`. Its docstring rule stands: *a command type appears here only once something can genuinely execute it or genuinely refuse it* |
 | `dispatcher.py` | `reclaim_stranded` then `claim_batch` (`FOR UPDATE SKIP LOCKED`), deterministic task name, mark dispatched. **Delta — M1, R-08:** also calls `SpendReservationSweeper`, and `DispatchPassResponse` reports what it swept |
 | `execution.py` | Claim by lease + generation; `TaskExecutor._emit` renews the lease per progress event; `sweep_expired_leases` |
-| `main.py` — root composition | Verifies OIDC **before reading the body**; composes `with_outreach_send` unconditionally when `registry_is_ours`, and the paid-extraction handler only when spend ceilings are configured |
+| `main.py` — root composition | Verifies OIDC **before reading the body**; composes `with_outreach_send` (`:468-489`) unconditionally when `registry_is_ours`, and the paid-extraction handler (`with_paid_extraction`, `:491-492`) only when spend ceilings are configured |
 
 **Delta — M1, AP-05, R-04, ADR-0023.** A test asserting every submittable
 command type is registered *or* on an explicit intentionally-refused list.
@@ -338,7 +362,7 @@ see §7.
 | Responsibility | The product surface. Coordinator ×8, student ×6, volunteer ×6, legacy ×7 pages |
 | Ownership | Presentation and navigation. `productScope.ts` reads the *same* named capability decisions as the API; neither invents its own |
 | Public interface | Routes under `routes.tsx` behind `PortalGate` / `SessionGate` |
-| Internal boundary | **Target: all `/v1` access through `clients/typescript`.** Today: inline `fetch` across 49 files plus a 4,238-line hand-written `lib/api.ts` |
+| Internal boundary | **Target: all `/v1` access through `clients/typescript`** (generated by pinned `openapi-typescript`; first consumer is `lib/session.ts` + `app/hooks/useSession.tsx`). Today: inline `fetch` across 48 files (Stage 1 reported 49; recounted 2026-09-08) plus a 4,238-line hand-written `lib/api.ts` |
 | Permitted deps | the generated client |
 | Forbidden deps | hand-transcribed response types for a `/v1` endpoint |
 | Persistence ownership | None |
@@ -346,14 +370,21 @@ see §7.
 | Testing | **Delta — M0, R-09, P0:** `npm test` runs in the `web` job. Eight test files exist, including `queryClient.principal-isolation.test.ts` — a cross-principal cache-isolation guard everyone believes runs. One line. Then confirm the isolation test asserts what its name claims |
 | Observability | Correlation id from M4 echoed on failure, so a user report maps to a server log line |
 
-**Delta — M3, AP-07, R-02, ADR-0020.** Generate into `clients/typescript`;
+**Delta — M3, AP-07, R-02, ADR-0020.** Generate into `clients/typescript` with
+**`openapi-typescript`, pinned by exact version** — types only, zero runtime
+shipped to the browser, deterministic output (owner decision, 8 September 2026);
 enable the drift gate already named at the bottom of `verify.yml` (*"generated
-TypeScript client drift check (needs clients/)"*); **migrate one page as the
-pattern.** Do not migrate 49 files at once. Until then a backend field rename
+TypeScript client drift check (needs clients/)"*), implemented as *regenerate in
+CI, then `git diff --exit-code clients/typescript`*; **migrate one page as the
+pattern — `src/lib/session.ts` with `src/app/hooks/useSession.tsx`, the
+`GET /v1/me` path**, chosen because every authenticated page reaches identity
+through it. Do not migrate 48 files (Stage 1 reported 49; recounted 2026-09-08) at once. Until then a backend field rename
 passes every gate and reaches users as a runtime `undefined`.
 
-**Delta — M8, R-17 / R-06b.** Per-page decision on the seven legacy pages,
-blocked on OQ-S2-002; the three dead components (`OutreachWorkflowModal`,
+**Delta — M8, R-17 / R-06b.** The seven legacy pages are **deleted, with their
+routes redirected to the corresponding `/v1` pages** (OQ-S2-002, answered
+2026-09-08) — one card, not seven, and no deprecation window because OQ-S2-001 is
+answered NO; the three dead components (`OutreachWorkflowModal`,
 `AgenticOutreachPanel`, `FeedbackForm`) are deleted unconditionally —
 `AgenticOutreachPanel` names a capability **ADR-0003 excludes from Foundation**.
 
@@ -362,7 +393,7 @@ blocked on OQ-S2-002; the three dead components (`OutreachWorkflowModal`,
 | Axis | Target |
 |---|---|
 | Responsibility | The only store. Business data **and** coordination state |
-| Ownership | Per the M6 table→context→writer map |
+| Ownership | Per the M6 table→context→repository→writer-set map |
 | Public interface | The schema; migrations `0001`→`0033`, linear |
 | Internal boundary | Composite tenant-safe keys; `ltree` + two GiST path indexes |
 | Permitted deps | — |
@@ -466,27 +497,31 @@ Now the writing service — the axis nothing in the repository states today.
 
 ```mermaid
 flowchart TB
-    subgraph APIW["written by services/api"]
+    subgraph APIW["single writing service: services/api"]
         A1["org_unit · user_account · membership · resource_grant"]
         A2["event · event_tag · event_registration · discovery_review_item"]
         A3["attendance_record · point_ledger_entry · reward_item · redemption"]
         A4["pipeline_record · contact_channel · contact_channel_transition"]
         A5["outreach_draft · cba_invitation_batch · cba_invitation"]
-        A6["job + outbox_record + idempotency_record at submission"]
-        A7["redrive_record · rate_limit_counter"]
+        A6["redrive_record · rate_limit_counter"]
     end
-    subgraph WKW["written by services/worker"]
-        B1["job_event · job state transitions"]
-        B2["outbox_record claim and dispatch transitions"]
-        B3["import_batch · review_item"]
-        B4["outreach_send · delivery_event · suppression_record"]
-        B5["concurrency_lease · spend_reservation"]
+    subgraph BOTH["TWO writing services, by design — ADR-0005, ADR-0015 A1<br/>API records intent · worker transitions state"]
+        C1["job · job_event"]
+        C2["outbox_record"]
+        C3["idempotency_record"]
+        C4["spend_reservation"]
     end
-    B6["match_run — the run snapshot<br/>SINGLE WRITER: handlers.py:handle_match_run_create"]
-    UNDEC["No table has two writers today.<br/>What is missing is the DECLARATION, not the disambiguation."]
+    subgraph WKW["single writing service: services/worker"]
+        B1["import_batch · review_item"]
+        B2["outreach_send · delivery_event · suppression_record"]
+        B3["concurrency_lease"]
+        B4["match_run — the run snapshot<br/>SINGLE WRITER: handlers.py:handle_match_run_create"]
+    end
+    UNDEC["What is missing is the DECLARATION:<br/>which tables legitimately have two writing services,<br/>and which must have one."]
     APIW --> UNDEC
+    BOTH --> UNDEC
     WKW --> UNDEC
-    UNDEC --> FIX["Resolved by M6 — AP-03, R-20, ADR-0019<br/>declare one owning context and one writing service per table<br/>then a test holds it"]
+    UNDEC --> FIX["Resolved by M6 — AP-03, R-20, ADR-0019<br/>declare context, owning repository module and writing-service set per table<br/>multi-writer only with a reason — then a test holds it"]
 ```
 
 **OBSERVED, 2026-09-08 — and this corrects Stage 1.** `data-architecture.md` §8,
@@ -498,8 +533,19 @@ only repository calls are reads (`:1035` reads `schema.job.c.payload`; `:1175`
 `_match_runs.get`). The sole writer is
 `smartmatch_worker.handlers.handle_match_run_create` (~`:1109`), through
 `smartmatch_persistence.match_runs`, which is insert-only. ADR-0019 states this
-correctly; the Stage 1 documents do not. **No table in `schema.py` has two
-writers today.**
+correctly; the Stage 1 documents do not.
+
+**But correcting `match_run` does not make the tree single-writer.** Asked at the
+layer where writes happen, five tables have two writing services today. No file
+under `services/` issues SQL against a `schema.<table>` object at all (OBSERVED,
+AST scan, 2026-09-08) — every write goes through one repository module — and for
+`job`, `job_event`, `outbox_record`, `idempotency_record` and `spend_reservation`
+the callers of those repositories' mutating methods are both service packages:
+the API in `commands.py`, `pipeline_provisioning.py`, `routers/cba_contacts.py`,
+`routers/cba_invitations.py`, `routers/redrive.py`; the worker in `execution.py`,
+`dispatcher.py`, `paid_extraction.py`. That is ADR-0005's design — the API
+records intent, the worker transitions state — and the map's job is to say so
+rather than to pretend otherwise.
 
 **R-20 is not softened by that — it is sharpened.** The API *does* write rows
 related to a match run: the `job`, `outbox_record` and `idempotency_record` rows
@@ -579,9 +625,9 @@ assertion tying them"* (`risk-register.md` R-04,
 
 | Command type | Submitting router(s) | Executor | Registered where |
 |---|---|---|---|
-| `import.create` | `routers/imports.py:296` | `handle_import_create` | `default_registry()` ~L1358 |
+| `import.create` | `routers/imports.py:293` | `handle_import_create` | `default_registry()` ~L1358 |
 | `match-run.create` (`MATCH_RUN_COMMAND_TYPE`, `domain/match_run.py:75`) | `routers/match_runs.py:947` | `handle_match_run_create` | `default_registry()` |
-| `outreach.send` (`OUTREACH_SEND_COMMAND_TYPE`, `domain/outreach.py:126`) | `routers/outreach.py:679`, `routers/cba_invitations.py:1112` | `build_outreach_send_handler` | **root composition**, `worker/main.py` ~L451-489 via `with_outreach_send`, unconditionally when `registry_is_ours` |
+| `outreach.send` (`OUTREACH_SEND_COMMAND_TYPE`, `domain/outreach.py:126`) | `routers/outreach.py:679`, `routers/cba_invitations.py:1112` | `build_outreach_send_handler` | **root composition**, `worker/main.py:468-489` via `with_outreach_send`, unconditionally when `registry_is_ours` (guard at `:468`, call at `:470`) |
 | `test.noop` | none over HTTP | `handle_noop` | `default_registry()` |
 | `extraction.paid_pages` (`worker/paid_extraction.py:123`) | none over HTTP | `build_paid_extraction_handler` | root composition, only when spend ceilings are configured (`worker/main.py` ~L491); otherwise meets the registry's terminal refusal |
 
@@ -630,8 +676,11 @@ are aligned to it here.
 is exactly why a reader inferring ownership *per feature* — as the Stage 1 audit
 did — gets the writer set wrong. The audit's own error is the argument for a
 declared, per-table map (AP-03, ADR-0019). The M6 test therefore asserts that
-**every table has exactly one declared writer**; a future two-writer table is
-permitted only by an explicit declaration naming both writers and the reason.
+**every table has a declared writing-service set** — one service unless the
+entry names more *and* gives the reason, which five command-path tables do today
+(`job`, `job_event`, `outbox_record`, `idempotency_record`, `spend_reservation`,
+per ADR-0005). What the map forbids is an *undeclared* second writer, not
+co-writing.
 
 ### Disagreement 3 — R-11(a) is resolved in tree, not deferred
 
@@ -663,7 +712,8 @@ less `__init__.py` returns **25** modules, exporting **28** `APIRouter` objects
 `MODULE_BOUNDARIES.md` §1). Stage 2 uses **44 tables** and **25 router modules
 (28 `APIRouter` objects)** throughout (Stage 1 reported 43 / 26; recounted
 2026-09-08). Minor, but the M6 ownership map is generated *from* the table list
-and contract 6 is written against the module list, so both counts have to be
+and contract 8 (`Routers are independent of one another`) is written against the
+module list, so both counts have to be
 read from the tree and not from the audit.
 
 ---
@@ -703,19 +753,19 @@ Every target-state delta above, with its risk, principle and increment.
 | `utils.py` → `clock.py` | R-19 | AP-08 | M1 |
 | `GLOSSARY.md` published | — (domain-model §4) | AP-13 | M1 |
 | `smartmatch-persistence` in both service manifests | R-05 | AP-01 | M2 |
-| Both services in `root_packages`; contracts 5–7 | R-06 | AP-01 | M2 (ADR-0018) |
+| Both services in `root_packages`; contracts 5–9 | R-06 | AP-01 | M2 (ADR-0018) |
 | `unit_authz.py` promotion; router→router forbidden | R-06 | AP-02 | M2 |
-| `clients/typescript` + drift gate + one migrated page | R-02 | AP-07 | M3 (ADR-0020) |
+| `clients/typescript` (pinned `openapi-typescript`) + `git diff --exit-code` drift gate + `session.ts`/`useSession.tsx` migrated as the pattern | R-02 | AP-07 | M3 (ADR-0020) |
 | Request-logging middleware with correlation id; `ApiError` logs once | R-03 | AP-09 | M4 |
 | D1–D3 corrected; gate-claim test | R-15 | AP-06 | M5 |
 | Status headers on `docs/plans` | R-16 | AP-13 | M5 |
-| Table→context→writer map as data, with a test | R-20 | AP-03 | M6 (ADR-0019) |
+| Table→context→owning-repository→writing-service-set map as data, with a test | R-20 | AP-03 | M6 (ADR-0019) |
 | Indexes in `schema.py`; parity both ways | R-12 | AP-10 | M6 |
 | Metrics drill-down rate-limited and bounded | R-07 | AP-12 | M6 |
 | Adapter delivery contract test against the fixture queue | R-01 | AP-04 | M7 (ADR-0021) |
 | Appliance-is-production topology statement | R-18 | — | M7 (ADR-0022) |
 | Retention and downgrade recorded as decisions | R-13, R-14 | — | M7 (OQ-S2-003/004) |
-| Seven legacy pages; three dead components deleted | R-17, R-06b | AP-08 | M8 (OQ-S2-002) |
+| Seven legacy pages deleted with redirects; three dead components deleted | R-17, R-06b | AP-08 | M8 (OQ-S2-002, answered) |
 
 **Optional, after M6 and never before:** splitting `schema.py` along the
 declared ownership boundary.

@@ -172,7 +172,10 @@ rule plus a test, not a contract. The one current violation of its second half i
 `tools/generate_pilot_dataset.py:209`, which imports `MAX_CANDIDATES` from
 `routers/match_runs`. Disposition — the same as AP-02's: the constant is a
 published bound, not a router internal, and belongs beside `MAX_SUBTREE_UNITS` in
-an owned module. Until then it stands as a recorded exception, not as an accident.
+an owned module. **Disposition: T-1.5 in `IMPLEMENTATION_ROADMAP.md` moves
+`MAX_CANDIDATES` into an owned non-router module and re-points
+`tools/generate_pilot_dataset.py:209`.** Until that lands it stands as a recorded
+exception, not as an accident.
 
 **DR-8 — The domain still imports nothing.** Contracts 1–4 are unchanged, in
 their current wording, with their current forbidden lists. *Non-negotiable #1;
@@ -192,10 +195,30 @@ is to satisfy a linter.
 Under 2.x, `*` wildcards are supported in `forbidden` contracts'
 `source_modules` / `forbidden_modules` and in `independence` contracts' `modules`;
 `*` matches one module name segment and `**` matches any depth. The routers
-package is flat (26 modules directly under `smartmatch_api/routers/`), so a
+package is flat (25 modules plus `__init__.py` directly under
+`smartmatch_api/routers/`), so a
 single `*` is sufficient. **If `lint-imports` rejects a wildcard on this version,
 the fallback is to enumerate the 25 router modules explicitly** — verbose, and
 identical in effect; do not silence the contract to avoid the verbosity.
+
+**Contract numbering.** Contracts are numbered by their order in the TOML block
+below: 1–4 exist today and are unchanged, 5–9 are added by M2. Every reference
+elsewhere in `docs/` uses these numbers.
+
+| # | Name | Type | DR rule | AP |
+|---|---|---|---|---|
+| 1 | `Domain is pure — no frameworks, storage, providers, IO, or env` | `forbidden` | DR-8 | — (ADR-0002, non-negotiable #1) |
+| 2 | `Authz is pure — policy only, no frameworks or storage` | `forbidden` | DR-8 | — (ADR-0002) |
+| 3 | `Layering: outer packages may use domain types, never the reverse` | `layers` | DR-8 | — (ADR-0002) |
+| 4 | `Persistence is storage only — no network, providers, or frameworks` | `forbidden` | DR-8 | — (ADR-0002) |
+| 5 | `The API sits above the inner packages, never beneath them` | `layers` | DR-2 | AP-01 |
+| 6 | `The worker sits above the inner packages, never beneath them` | `layers` | DR-3 | AP-01 |
+| 7 | `The API and the worker are independent services` | `independence` | DR-2 + DR-3 | AP-01 |
+| 8 | `Routers are independent of one another` | `independence` | DR-4 | AP-02 |
+| 9 | `Shared API modules must not import routers` | `forbidden` | DR-6 | AP-02 |
+
+`root_packages` gaining `smartmatch_api` and `smartmatch_worker` (DR-1) is not a
+contract and takes no number; it is what makes 5–9 expressible.
 
 ```toml
 [tool.importlinter]
@@ -282,6 +305,7 @@ forbidden_modules = [
 # A separate contract per service rather than one shared layers list, because
 # the two services are siblings with no order between them — that relationship
 # is stated by the independence contract below, not by a layer.
+# Contract 5 — The API sits above the inner packages, never beneath them
 [[tool.importlinter.contracts]]
 name = "The API sits above the inner packages, never beneath them"
 type = "layers"
@@ -297,6 +321,7 @@ layers = [
 # although the worker imports it in zero files today: it is a policy package and
 # a future authorization decision in a handler is a legitimate import, not a
 # boundary violation.
+# Contract 6 — The worker sits above the inner packages, never beneath them
 [[tool.importlinter.contracts]]
 name = "The worker sits above the inner packages, never beneath them"
 type = "layers"
@@ -313,6 +338,7 @@ layers = [
 # outbox. The prose cross-references (routers/imports.py:102,
 # worker/handlers.py:312) are the correct form of that coupling and are not
 # imports. This contract records a property that holds, before it stops holding.
+# Contract 7 — The API and the worker are independent services
 [[tool.importlinter.contracts]]
 name = "The API and the worker are independent services"
 type = "independence"
@@ -332,6 +358,7 @@ modules = [
 #
 # Nothing may be added to this list. A third router with the same question
 # promotes the helper; it does not add an ignore.
+# Contract 8 — Routers are independent of one another
 [[tool.importlinter.contracts]]
 name = "Routers are independent of one another"
 type = "independence"
@@ -349,6 +376,7 @@ ignore_imports = [
 # CAPABILITY_SCOPED_ROUTERS (main.py:275). Verified: main is the only shared
 # module that imports routers today, so this contract passes on the current tree
 # with no ignores.
+# Contract 9 — Shared API modules must not import routers
 [[tool.importlinter.contracts]]
 name = "Shared API modules must not import routers"
 type = "forbidden"
@@ -369,16 +397,16 @@ forbidden_modules = [
 ]
 ```
 
-Five new contracts, named:
+Five new contracts — numbers 5–9 in the table above:
 
-1. `The API sits above the inner packages, never beneath them`
-2. `The worker sits above the inner packages, never beneath them`
-3. `The API and the worker are independent services`
-4. `Routers are independent of one another`
-5. `Shared API modules must not import routers`
+5. `The API sits above the inner packages, never beneath them`
+6. `The worker sits above the inner packages, never beneath them`
+7. `The API and the worker are independent services`
+8. `Routers are independent of one another`
+9. `Shared API modules must not import routers`
 
-plus the `root_packages` extension itself, which is not a contract but is the
-change that makes the five above possible.
+plus the `root_packages` extension itself, which is not a contract, takes no
+number, and is the change that makes contracts 5–9 possible.
 
 **After M1 renames `utils.py` to `clock.py` (R-19),
 `smartmatch_api.utils` in the last contract becomes `smartmatch_api.clock`.**
@@ -428,6 +456,21 @@ edit. Run the whole gate set with `make check`
 a docs-only change must keep it green, and a contract change must be run under
 `make imports` before it is committed.
 
+**OBSERVED (2026-09-08) — the block above was executed, not just written.** Run
+against the tree with both service packages on the path:
+
+```
+PYTHONPATH="python/smartmatch_domain:python/smartmatch_authz:python/smartmatch_providers:python/smartmatch_persistence:services/api:services/worker" \
+  lint-imports --config <the block in §3>
+```
+
+Result: `Contracts: 9 kept, 0 broken`. Re-run with the two `ignore_imports`
+entries deleted, exactly one contract fails —
+`Routers are independent of one another BROKEN` — and it names exactly
+`outreach_contacts` → `outreach` and `cba_contact_channels` → `cba_contacts`;
+every other contract stays KEPT. So §3 is paste-ready in fact rather than in
+intent, and the two exceptions are the whole of the debt.
+
 **Proving a contract bites — the ADR-0002 trick.**
 `ADR-0002-package-boundaries.md:56` records the method and it is the standard to
 meet: *"Verified by deliberately adding `import os` to a domain module: the
@@ -435,12 +478,13 @@ contract reported `BROKEN`. Anyone can repeat this in ten seconds."*
 
 A new contract is not landed until the same has been done to it:
 
-| Contract | Temporary edit that must report `BROKEN` |
-|---|---|
-| The API and the worker are independent services | add `import smartmatch_worker.handlers` to `services/api/smartmatch_api/main.py` |
-| Routers are independent of one another | add `from smartmatch_api.routers import units as _u` to any router not on the ignore list |
-| Shared API modules must not import routers | add `from smartmatch_api.routers import jobs` to `services/api/smartmatch_api/errors.py` |
-| The worker sits above the inner packages | add `import smartmatch_worker` to `python/smartmatch_persistence/.../jobs.py` |
+| # | Contract | Temporary edit that must report `BROKEN` |
+|---|---|---|
+| 5 | `The API sits above the inner packages, never beneath them` | add `import smartmatch_api.errors` to `python/smartmatch_persistence/.../jobs.py` |
+| 6 | `The worker sits above the inner packages, never beneath them` | add `import smartmatch_worker` to `python/smartmatch_persistence/.../jobs.py` |
+| 7 | `The API and the worker are independent services` | add `import smartmatch_worker.handlers` to `services/api/smartmatch_api/main.py` |
+| 8 | `Routers are independent of one another` | add `from smartmatch_api.routers import units as _u` to any router not on the ignore list |
+| 9 | `Shared API modules must not import routers` | add `from smartmatch_api.routers import jobs` to `services/api/smartmatch_api/errors.py` |
 
 Revert each edit immediately; record the result in the M2 change description.
 A contract that has never reported `BROKEN` is an untested assertion, and this

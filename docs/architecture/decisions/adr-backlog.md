@@ -96,10 +96,39 @@ still needed" column is satisfied and its owner has answered.
 - **Evidence still needed:** ADR-0019 accepted and the map green in CI; evidence
   that the merge-conflict cost R-20 predicts is actually being paid, which is a
   measurement nobody has taken.
+- **Follow-up tooling (owner decision, 8 September 2026).** The ownership map is
+  not hand-typed. `tools/derive_table_writers.py` makes two syntactic passes:
+  over `python/smartmatch_persistence`, to find the one module issuing
+  `insert()` / `update()` / `delete()` against each `schema.<table>` and to
+  collect that module's mutating method names; then over `services/api` and
+  `services/worker`, to find which service packages call those methods. It emits
+  table → owning repository module → writing-service set. Its output **seeds**
+  `ownership.py`; the ADR-0019 test then re-runs the tool and fails when either
+  half disagrees with the declaration, or when an entry naming more than one
+  service carries no reason. Five entries do name two services today — `job`,
+  `job_event`, `outbox_record`, `idempotency_record`, `spend_reservation`, all
+  with the ADR-0005 reason — so the split cannot assume a single writer per
+  table. That is what makes the map data rather than prose, and it is a
+  prerequisite for this split rather than a consequence of it — a split whose
+  ownership claims were typed by hand would be the same guess in more files.
 - **Owner:** engineering.
 - **Related:** R-20, ADR-0004, ADR-0019.
 
-### B-05 — Disposition of the seven legacy portal pages
+### B-05 — Disposition of the seven legacy portal pages — **RESOLVED 2026-09-08**
+
+> **Resolved.** The program owner answered on 8 September 2026: **delete the
+> seven pages and redirect their routes to the corresponding `/v1` pages.** The
+> answer and what it changes are recorded at OQ-S2-002 in
+> `docs/plans/open-questions/architecture-stage-2-deferred.md`. No ADR is needed:
+> the decision is a scoped deletion carried by M8 / Phase 6, not a durable
+> constraint on future changes, and `/v1` already serves the workflows. The entry
+> stays here, marked resolved rather than deleted, so that a reader who arrives
+> at the backlog looking for the legacy-page question finds the answer instead of
+> silence.
+>
+> The related half — **is the pilot live with real users** — is also answered
+> (OQ-S2-001: **NO**, synthetic data only), which is why the deletion carries no
+> deprecation window.
 
 - **Candidate title:** The legacy portal pages are ported, deleted, or corrected
 - **Would decide:** for each of the seven routed pages backed by 24 endpoints no
@@ -188,9 +217,39 @@ still needed" column is satisfied and its owner has answered.
 
 ---
 
+## Process — how these ADRs reach Accepted
+
+**Owner decision, 8 September 2026 (Danny Tran, program owner).**
+
+ADRs 0018–0023 are written at **Status: Proposed**. Stage 2 is a planning stage;
+proposing a decision is engineering's, accepting one is the owner's, and an ADR
+that says Accepted before anything implements it records an intention as a fact.
+
+The rule is mechanical:
+
+1. **The PR that implements an ADR flips it to Accepted.** Same PR, same commit
+   range as the code — not a later documentation pass. `tests/unit/test_adr_index.py`
+   asserts the `**Status:**` line and the `README.md` index row agree, so the
+   flip is two edits or the lane fails.
+2. **The same PR updates the `README.md` index row** for that ADR — the Status
+   column, and nothing else about the row.
+3. **Until then, an implementation PR cites the Proposed ADR by number**, in the
+   form *"implementing Proposed ADR-00xx"*. A PR body that cites an Accepted ADR
+   which is still Proposed in tree is describing a repository that does not
+   exist.
+4. **A partially implemented ADR stays Proposed.** Status is binary and the
+   increment is the unit: if M2 lands half of ADR-0018, ADR-0018 is still
+   Proposed. This is why the increments are small.
+5. **Rejecting one is the same shape.** An ADR that loses its argument becomes
+   `Rejected` with the reasoning appended, not deleted — the vocabulary
+   `test_adr_index.py` accepts is Accepted, Proposed, Rejected, Superseded,
+   Deprecated.
+
+---
+
 ## Inherited disagreements
 
-Two places where Stage 2 found the tree disagreeing with Stage 1. Both are
+Three places where Stage 2 found the tree disagreeing with Stage 1. All three are
 recorded rather than quietly corrected, because the *shape* of each disagreement
 is itself a finding.
 
@@ -212,7 +271,7 @@ third time the same reservation has been displaced, for the same reason each tim
 `test_adr_numbers_are_contiguous_from_one` refuses a gap. It now has no number at
 all, which is the honest state, and B-09 above is where it lives instead.
 
-**A third, smaller one.** `data-architecture.md` §8 and `domain-model.md` §6 both
+**The match-run writer.** `data-architecture.md` §8 and `domain-model.md` §6 both
 say `routers/match_runs.py` writes match-run rows directly, giving `match_run`
 two writers. In tree, `routers/match_runs.py:22-27` says nothing there inserts a
 `match_run` row and nothing there could — the table's `job_id` is a `NOT NULL`

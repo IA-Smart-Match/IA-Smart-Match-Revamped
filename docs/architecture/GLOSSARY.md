@@ -233,7 +233,10 @@ reads (`:1035`, `:1175`). The sole writer is
 `worker/handlers.py:handle_match_run_create` (~`:1109`), via the insert-only
 `smartmatch_persistence.match_runs`. What the API writes around a run is the
 *request*: `job`, `outbox_record`, `idempotency_record`, and the
-`match_weight_setting`/`match_weight_setting_revision` rows the run reads. Two
-tables, two owners, one command path — which is exactly why ownership is declared
-per table rather than inferred per feature (AP-03, R-20, ADR-0019, M6), not by a
-rename.
+`match_weight_setting`/`match_weight_setting_revision` rows the run reads. Those
+first three are **declared two-service tables by design** — along with
+`job_event` and `spend_reservation`, the API records intent and the worker
+transitions state (ADR-0005, ADR-0015 A1) — so single-writer is the rule for
+`match_run` and the exception is declared, not hidden. Which is exactly why
+ownership is declared per table rather than inferred per feature (AP-03, R-20,
+ADR-0019, M6), not by a rename.

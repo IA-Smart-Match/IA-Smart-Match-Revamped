@@ -34,7 +34,7 @@ unrequested, and do not propose a rewrite. Write down what an adapter must
 | Additional scoring factors | `domain/factor_registry.py` + `domain/factors/` | The factor registry + `REGISTRY_VERSION` supersession record | **None** | No | G1 closed; registry approval by the named approver |
 | Additional command types | router + `worker/handlers.py` or the worker root | `submit_command` → `CommandRegistry` | **None** | No | AP-05 test must pass; the capability's own gate |
 | Retention / archival | `db/migrations` + a dispatch-pass sweep | The scheduled dispatch pass (`sweep_expired_leases` precedent) | **None** | Yes, per table | **OQ-S2-003**; R-13 |
-| A second client (mobile / other SPA) | `clients/typescript` | The generated client + the OpenAPI contract | **None** | No | Blocked on M3 existing at all |
+| A second client (mobile / other SPA) | `clients/typescript` (pinned `openapi-typescript`) | The generated client + the OpenAPI contract | **None** | No | Blocked on M3 existing at all |
 
 ---
 
@@ -424,7 +424,7 @@ have their place, and the choice between them is the only real decision.
 composed at `worker/main.py`'s root **if it does** — the rule is stated in the
 tree: *"a registry function that takes no arguments cannot supply them"*, and
 `handlers` importing `outreach`/`paid_extraction` to reach them *"would make a
-cycle out of a dependency that is genuinely one-way"* (worker/main.py:440-458).
+cycle out of a dependency that is genuinely one-way"* (worker/main.py:451-459).
 
 **Interface it extends.** `submit_command` → `CommandRegistry`.
 
@@ -452,9 +452,9 @@ making it a build failure. Note the two things it must model correctly or it
 will report false gaps:
 
 - **Root-composed handlers count as registered.** `outreach.send` reaches the
-  worker via `with_outreach_send` at `worker/main.py:451-489`, unconditionally
-  when `registry_is_ours`; `extraction.paid_pages` via `with_paid_extraction`
-  at :491, only when spend ceilings are configured. Neither appears in
+  worker via `with_outreach_send` at `worker/main.py:468-489`, unconditionally
+  when `registry_is_ours` (the guard at `:468`, the call at `:470`);
+  `extraction.paid_pages` via `with_paid_extraction` at `:491-492`, only when spend ceilings are configured. Neither appears in
   `default_registry()`.
 - **Idempotency-scope names are not command types.** `speaker_contact.create`
   (`routers/cba_contacts.py:302,1097`), `job.redrive` and `job.abandon`
@@ -472,9 +472,9 @@ to a reader of `default_registry()`.**
 
 | Command type | Submitting router(s) | Executor | Registered where |
 |---|---|---|---|
-| `import.create` | `routers/imports.py:296` | `handle_import_create` | `default_registry()` |
+| `import.create` | `routers/imports.py:293` | `handle_import_create` | `default_registry()` |
 | `match-run.create` | `routers/match_runs.py:947` | `handle_match_run_create` | `default_registry()` |
-| `outreach.send` | `routers/outreach.py:679`, `routers/cba_invitations.py:1112` | `build_outreach_send_handler` | **root**, `worker/main.py:451-489` |
+| `outreach.send` | `routers/outreach.py:679`, `routers/cba_invitations.py:1112` | `build_outreach_send_handler` | **root**, `worker/main.py:468-489` |
 | `test.noop` | none over HTTP | `handle_noop` | `default_registry()` |
 | `extraction.paid_pages` | none over HTTP | `build_paid_extraction_handler` | **root**, conditionally, `worker/main.py:491` |
 
@@ -537,7 +537,10 @@ is the whole story.
 
 **Owning module.** The generated client, produced from
 `contracts/openapi/smartmatch.json` (57 paths, 120 schemas, already CI-gated for
-freshness).
+freshness) by **`openapi-typescript`, pinned by exact version** — types only, no
+runtime shipped to the browser (ADR-0020, owner decision 8 September 2026). A
+second client importing the same declarations is the point; a second *generator*
+would recreate the drift at the tool layer.
 
 **Interface it extends.** The **generated client** and the OpenAPI contract.
 Nothing on the server changes for a second consumer: the contract is the
@@ -561,10 +564,13 @@ statement published *inside the contract itself*.
 
 **Testing requirements.** The **drift gate** — already listed as deferred at the
 bottom of `verify.yml` as *"generated TypeScript client drift check (needs
-clients/)"*. Regenerate in CI and fail on a diff, so a backend field rename
-fails the build instead of reaching a user as a runtime `undefined`. Plus the
-first migrated page as the executable pattern; **do not migrate 49 files in one
-change** (R-02's remediation, `wip-analysis.md` §3.1).
+clients/)"*. Regenerate in CI and run `git diff --exit-code clients/typescript`,
+so a backend field rename fails the build instead of reaching a user as a runtime
+`undefined`. Plus the first migrated page as the executable pattern —
+`src/lib/session.ts` with `src/app/hooks/useSession.tsx`, the `GET /v1/me` path
+(ADR-0020); **do not migrate 48 files in one change** (Stage 1 reported 49; recounted 2026-09-08) (R-02's remediation,
+`wip-analysis.md` §3.1). A second client inherits that pattern: it resolves
+identity through the generated principal types rather than transcribing them.
 
 **Gating / OQ.** Blocked entirely on M3. Until `clients/typescript` exists,
 a second client would be a second hand-written transcription — the failure the

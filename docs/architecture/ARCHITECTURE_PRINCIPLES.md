@@ -37,8 +37,8 @@ to conflict with a landed gate, the AP is wrong until an ADR argues otherwise.
 
 | AP | Principle (short) | Risk IDs | Increment | Enforcing mechanism (after) |
 |---|---|---|---|---|
-| AP-01 | Service packages are contracted | R-05, R-06 | M2 | import-linter contracts 5–7 + manifest-declaration test |
-| AP-02 | Shared authorization has one owner | R-06 | M2 | import-linter contract 8 (`Routers are independent of one another`) |
+| AP-01 | Service packages are contracted | R-05, R-06 | M2 | import-linter contracts 5, 6, 7 + manifest-declaration test |
+| AP-02 | Shared authorization has one owner | R-06 | M2 | import-linter contracts 8 (`Routers are independent of one another`) and 9 (`Shared API modules must not import routers`) |
 | AP-03 | Table ownership is declared as data | R-20 | M6 | `tests/unit/test_table_ownership.py` (new) |
 | AP-04 | No provider IO in a request handler | R-01 | landed; M7 records adapter contracts | `scan_forbidden.py` rule `provider-call-in-request-path` (`tools/scan_forbidden.py:135`) |
 | AP-05 | Every command type has an executor or a refusal | R-04 | M1 | `tests/unit/test_command_registry_map.py` (new); ADR-0023 |
@@ -81,7 +81,10 @@ a `root_package`; it is governed by DR-7 as a review rule plus a manifest test,
 not by a contract. Test packages are unconstrained (DR-9).
 
 **Enforcement.** *Today:* nothing — this is the finding. *After M2:*
-import-linter contracts 5, 6 and 7 in `DEPENDENCY_RULES.md` §3, plus the
+import-linter contracts 5 (`The API sits above the inner packages, never beneath
+them`), 6 (`The worker sits above the inner packages, never beneath them`) and 7
+(`The API and the worker are independent services`) in `DEPENDENCY_RULES.md` §3,
+plus the
 manifest-declaration test of §4. Note that `Makefile:69` and `verify.yml:104`
 must gain `services/api:services/worker` on `PYTHONPATH` in the same change, or
 the new roots are unimportable and `lint-imports` errors rather than passes.
@@ -118,7 +121,7 @@ them stale.
 **Exceptions.** The two imports named above are the **transitional exception**:
 they are documented and argued in `main.py`'s router table, and they stand until
 M2 promotes the helpers. They are carried in the contract as explicit
-`ignore_imports` entries (DR-3, `DEPENDENCY_RULES.md` §3) so the contract can
+`ignore_imports` entries (DR-4, `DEPENDENCY_RULES.md` §3) so the contract can
 land *before* the promotion. No third such import is acceptable — the contract
 refuses it. `main.py` importing every router is not an exception; it is the
 composition root and is excluded by construction.
@@ -126,7 +129,12 @@ composition root and is excluded by construction.
 **Enforcement.** *Today:* review rule only, and it has failed twice. *After M2:*
 import-linter contract 8, `Routers are independent of one another`; the two
 `ignore_imports` lines are deleted in the same commit that promotes the helpers,
-which is what makes M2 reversible in two independent steps.
+which is what makes M2 reversible in two independent steps. The promoted module
+travels the other way as well: contract 9, `Shared API modules must not import
+routers`, keeps the owned shared modules — `job_authz`, the new `unit_authz`,
+`units`, `errors` — from ever importing a router back, so ownership stays
+one-directional. `main.py` is outside that contract's `source_modules` because
+it is the composition root.
 
 ---
 
@@ -145,7 +153,20 @@ on 2026-09-08, that is wrong: `routers/match_runs.py:18-30` states that nothing
 there inserts a `match_run` row and nothing there could, `job_id` being a
 `NOT NULL` FK to `job`; its only repository calls are reads (`:1035`, `:1175`).
 `handle_match_run_create` (~`handlers.py:1109`) is the sole writer, through the
-insert-only `smartmatch_persistence.match_runs`. No table has two writers today.
+insert-only `smartmatch_persistence.match_runs`. `match_run` has one writing
+service, not two.
+
+Correcting one table in one direction does not make the tree single-writer. Ask
+the question at the layer where writes actually happen and five tables come back
+with two writing services: no file under `services/` issues SQL against a
+`schema.<table>` object at all (OBSERVED, AST scan, 2026-09-08) — every write
+goes through a repository module in `smartmatch_persistence` — and for `job`,
+`job_event`, `outbox_record`, `idempotency_record` and `spend_reservation` the
+*callers* of those repositories' mutating methods are both service packages. The
+API records intent (`commands.py`, `pipeline_provisioning.py`,
+`routers/cba_invitations.py`, `routers/redrive.py`); the worker transitions state
+(`execution.py`, `dispatcher.py`, `paid_extraction.py`). That is ADR-0005's
+design, not a defect.
 
 The error was not careless. The API genuinely writes rows *related to* a match
 run — the `job`, `outbox_record` and `idempotency_record` rows `submit_command`
@@ -158,8 +179,10 @@ footprint gets the per-table writer set wrong. ADR-0013's invariant (attendance
 is the only input to points) depends on `attendance_record` having one writer,
 and nothing asserts that it does either — the same gap, one table over.
 
-**Rule.** Every table names one owning bounded context and exactly one writing
-service, declared as data in the repository and checked by a test. Ownership is declared
+**Rule.** Every table names one owning bounded context, one owning repository
+module in `smartmatch_persistence`, and a declared writing-service set — one
+service, unless the entry declares more and gives the reason. All three are
+declared as data in the repository and checked by a test. Ownership is declared
 **before** any structural change to `schema.py`.
 
 **Why.** "Who owns this data" currently has no answer, which is why the
@@ -168,8 +191,10 @@ boundary produces four files with the same problem. Ownership is the prerequisit
 the split is the optional consequence, and `risk-register.md` R-20 says so
 explicitly — *do not split for aesthetics*.
 
-**Exceptions.** No table has two writers today, so the map declares one writer
-per table and the test asserts exactly that. A future table with two legitimate
+**Exceptions.** Five tables declare two writing services today: `job`,
+`job_event`, `outbox_record`, `idempotency_record` and `spend_reservation`, each
+carrying the reason "API records intent / worker transitions state (ADR-0005,
+ADR-0015 A1)". Every other table declares one. A future table with two legitimate
 writers may declare both — provided the declaration names each writer *and* the
 reason, in the diff that introduces it. The rule forbids *undeclared* second
 writers, not co-writing. Reference/vocabulary tables written only by migrations declare the
@@ -177,7 +202,13 @@ migration as writer.
 
 **Enforcement.** *Today:* none. *After M6:* `tests/unit/test_table_ownership.py`
 asserting every `sa.Table` in `schema.py` appears in the ownership map and every
-map entry names a real table; ADR-0019 records the decision.
+map entry names a real table, and re-running `tools/derive_table_writers.py` to
+diff both the owning repository module and the writer set against the
+declaration — any entry naming more than one service and no reason fails. The
+writer set is declared at module granularity (`smartmatch_api.routers.attendance`)
+and projected to services, because ADR-0013's invariant separates two routes
+inside one service; `attendance_record`'s writer modules must exclude
+`smartmatch_api.routers.student_events`. ADR-0019 records the decision.
 
 ---
 
@@ -223,7 +254,8 @@ against the fixture queue.
 registers a small set of types; the map from *what a router can submit* to *what
 the worker can execute* exists nowhere and is asserted by nothing (**R-04**).
 Worse for a reader: `outreach.send` is composed at the root in
-`worker/main.py` ~L451-489 via `with_outreach_send` and is therefore **invisible**
+`worker/main.py:468-489` via `with_outreach_send` (the `if registry_is_ours:` at
+`:468`, the call at `:470`) and is therefore **invisible**
 to anyone reading `default_registry()`, and `extraction.paid_pages` is composed
 only when spend ceilings are configured. The Stage 2 resolution of U1 establishes
 the map today — 4 submitting routers, 3 command types over HTTP, every one with
@@ -291,7 +323,8 @@ in its own `description` that "the TypeScript client is generated from it and
 never hand-maintained" (`main.py` FastAPI `description=`). `clients/` does not
 exist; `pyproject.toml` `ruff` still carries
 `extend-exclude = ["clients/typescript"]`, the fossil of the claim. 42 `/v1`
-endpoints are consumed by hand-written `fetch` across 49 files
+endpoints are consumed by hand-written `fetch` across 48 files (Stage 1
+reported 49; recounted 2026-09-08)
 (**R-02**; `capability-inventory.md` §4 D2/D5).
 
 **Rule.** The frontend consumes a client generated from the committed contract,
@@ -304,8 +337,10 @@ unguarded at the consumer, which is the half of the loop that users experience.
 `clients/`)" on its deferred list — the decision was made and never executed.
 
 **Exceptions.** The seven legacy portal pages calling `/api/*` paths no service
-serves are outside the `/v1` contract entirely; their disposition is OQ-S2-002,
-not a client-generation exception. Migration is one page at a time — migrating 49
+serves are outside the `/v1` contract entirely; their disposition was OQ-S2-002,
+**answered 2026-09-08: delete them and redirect their routes to the `/v1` pages**
+— so they never become client consumers at all. Not a client-generation
+exception. Migration is one page at a time — migrating 49
 files at once is ruled out.
 
 **Enforcement.** *Today:* producer-side freshness gate only. *After M3:* the
@@ -441,7 +476,7 @@ be mounted ungated by omission.
 **Problem observed.** `GET /v1/units/{u}/metrics/{name}/drill-down` returns "the
 rows behind the number": authenticated, database-heavy, unbounded, and
 `services/api/smartmatch_api/routers/metrics.py` (702 lines) contains no
-`enforce_rate_limit` call at all — one of seven routers of 26 without one
+`enforce_rate_limit` call at all — one of seven of 25 router modules without one
 (**R-07**). The pattern to copy already exists:
 `services/api/smartmatch_api/units.py:31 MAX_SUBTREE_UNITS: Final[int] = 50`,
 applied as the default `limit` at `units.py:83`.
@@ -459,8 +494,8 @@ inline `LIMIT 500` is a number nobody owns.
 key — need no `MAX_*`. Export endpoints that are legitimately large must say so
 and be rate-limited harder, not exempted.
 
-**Enforcement.** *Today:* `enforce_rate_limit` applied by convention in 20 of 26
-routers; `metrics` is the counter-example. *After M6:* `enforce_rate_limit` on
+**Enforcement.** *Today:* `enforce_rate_limit` applied by convention in 20 of 25 router
+modules; `metrics` is the counter-example. *After M6:* `enforce_rate_limit` on
 `metrics` drill-down plus a bounding constant, and a contract test asserting every
 router exposing a collection read declares one.
 

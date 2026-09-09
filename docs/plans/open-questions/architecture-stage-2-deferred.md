@@ -18,6 +18,13 @@ deleted page, an unrecoverable row, or an outage on a pilot somebody is using.
 Nothing here is a placeholder that *reports success*. Where a decision is
 missing, the plan sequences around it and says which decision it is waiting on.
 
+**Two are answered.** OQ-S2-001 and OQ-S2-002 were decided by the program owner
+on 8 September 2026. Their records stay here, in full, with the answer and the
+date at the head of each — the house pattern is that an answered question keeps
+its reasoning, because the plan was built on the safe default and a reader needs
+to see which parts the answer moved. OQ-S2-003 through OQ-S2-006 remain open and
+their safe defaults still stand.
+
 **Not an open question: U1.** Stage 1 left "which command types reach the worker,
 and what executes them" UNKNOWN and reported "eight submitting routers, three
 handlers". That was resolved in tree on 2026-09-08 — four routers submit, three
@@ -34,18 +41,46 @@ finding, not a deferral, and it does not belong in this file.
 
 ## Summary
 
-| OQ | Question | Blocks | Safe default assumed | Who decides |
-|---|---|---|---|---|
-| **OQ-S2-001** | Is the pilot VM live, with real users on it right now? | The sequencing of every phase; batching; M8 deletions | **Assume YES.** Every increment gets a rollback window; M3 migrates one page; M4 changes no response; M6 adds no migration | Program owner |
-| **OQ-S2-002** | Disposition of the seven legacy portal pages — port, delete, or correct the notice? | M8 / Phase 6 (R-17) | **Assume none of the three.** Leave all seven exactly as they are; the M8 card is blocked, not defaulted | Program owner + the coordinator who uses them |
-| **OQ-S2-003** | Retention period per append-only table | Any deletion job; the privacy statement; storage planning | **Assume indefinite.** Nothing is deleted; no retention job is written (R-13) | Program owner + whoever holds the data-protection obligation |
-| **OQ-S2-004** | Is migration downgrade a supported operation? | The rollback story for every schema increment (R-14, U4) | **Assume NO.** Roll back by restore, not by downgrade; every increment is planned as forward-only-safe | Program owner + operations |
-| **OQ-S2-005** | Why was git history rewritten on 2026-09-05, and is pre-history recoverable? | R-16 archiving; any claim about provenance before that date (U8) | **Assume pre-history is unavailable.** Treat 2026-09-05 as the evidentiary floor; cite nothing earlier | Program owner |
-| **OQ-S2-006** | Does the product need travel-time proximity — a live route matrix? | The Google Routes adapter; `scoring_mode`; comparability of stored runs | **Assume NO.** Great-circle from ZCTA centroids stands; no adapter is written | Program owner, against customer §9 |
+| OQ | Question | Status | Blocks | Safe default assumed | Who decides |
+|---|---|---|---|---|---|
+| **OQ-S2-001** | Is the pilot VM live, with real users on it right now? | **ANSWERED 2026-09-08 — NO** | The sequencing of every phase; batching; M8 deletions | **Assume YES.** Every increment gets a rollback window; M3 migrates one page; M4 changes no response; M6 adds no migration | Program owner |
+| **OQ-S2-002** | Disposition of the seven legacy portal pages — port, delete, or correct the notice? | **ANSWERED 2026-09-08 — delete, with redirects** | M8 / Phase 6 (R-17) | **Assume none of the three.** Leave all seven exactly as they are; the M8 card is blocked, not defaulted | Program owner + the coordinator who uses them |
+| **OQ-S2-003** | Retention period per append-only table | Open | Any deletion job; the privacy statement; storage planning | **Assume indefinite.** Nothing is deleted; no retention job is written (R-13) | Program owner + whoever holds the data-protection obligation |
+| **OQ-S2-004** | Is migration downgrade a supported operation? | Open | The rollback story for every schema increment (R-14, U4) | **Assume NO.** Roll back by restore, not by downgrade; every increment is planned as forward-only-safe | Program owner + operations |
+| **OQ-S2-005** | Why was git history rewritten on 2026-09-05, and is pre-history recoverable? | Open | R-16 archiving; any claim about provenance before that date (U8) | **Assume pre-history is unavailable.** Treat 2026-09-05 as the evidentiary floor; cite nothing earlier | Program owner |
+| **OQ-S2-006** | Does the product need travel-time proximity — a live route matrix? | Open | The Google Routes adapter; `scoring_mode`; comparability of stored runs | **Assume NO.** Great-circle from ZCTA centroids stands; no adapter is written | Program owner, against customer §9 |
 
 ---
 
 ## OQ-S2-001 — Is the pilot VM live, with real users on it?
+
+> **ANSWERED 2026-09-08: NO — synthetic data only, no real users.**
+> Danny Tran, program owner. The deployed appliance carries seeded data from
+> `tools/seed_pilot_logins.py` and `tools/seed_pilot_principals.py` and nothing
+> else; no coordinator, student or speaker is doing real work on it. The record
+> below is kept in full — the question, the safe default Stage 2 planned on, and
+> what the answer changes — because the plan was built on the default and a
+> reader needs to see which parts the answer moves.
+
+**What the plan now does.** The "What changes if the answer is NO" branch below
+is no longer hypothetical; it is the plan:
+
+- **Phases 1–3 may batch.** M2, M3 and M4 no longer need separate rollback
+  windows and may land as one boundaries-and-contract change. Each stays
+  independently *reversible* — that is a Stage 2 rule, not a consequence of live
+  users — but they no longer need to be independently *scheduled*.
+- **No notice period on any removal.** M8's deletions, and the legacy-page
+  deletions OQ-S2-002 now authorizes, proceed the moment the change is reviewed.
+- **T-6.6 is unblocked** — it was waiting on this question through OQ-S2-002.
+- **M3 keeps its one pattern page** (`src/lib/session.ts` +
+  `src/app/hooks/useSession.tsx`, ADR-0020). That is now a *reviewability*
+  decision rather than a blast-radius one: a 49-file mechanical change is still
+  neither reviewable nor revertible in pieces.
+- **M6 still adds no migration**, and the `schema.py` split stays an optional
+  follow-up. Both were argued from ownership-before-mechanics (ADR-0019), not
+  from live users, so neither moves.
+- **ADR-0022** loses "and it has users on it" as an operational constraint; the
+  Compose appliance is still the production topology.
 
 **Question.** Is the deployed appliance carrying real coordinators, students and
 speakers doing real work right now — or is it an environment the team can take
@@ -100,6 +135,30 @@ people are on it. Concretely, that assumption is load-bearing in four places:
 ---
 
 ## OQ-S2-002 — Disposition of the seven legacy portal pages
+
+> **ANSWERED 2026-09-08: delete the seven pages now, and redirect their routes
+> to the corresponding `/v1` pages.** Danny Tran, program owner. Not a port, not
+> a corrected notice — the workflows they served exist on the `/v1` surface, so
+> the pages are duplicated coverage rather than lost coverage. The record below
+> is kept in full, including the deliberate no-default, because the reasoning for
+> refusing to guess is what made a real answer worth waiting for.
+
+**What the plan now does.**
+
+- **M8 / Phase 6 is unblocked as a single card**, not seven. The disposition is
+  uniform, so the "seven independent decisions" shape below collapses to one
+  change: delete the seven page modules, add a redirect from each legacy route to
+  its `/v1` equivalent, and delete the dead components (R-06b) in the same pass.
+- **No deprecation window and no notice period** — OQ-S2-001 is answered NO, so
+  there is no bookmarked route in anyone's browser to protect. The redirect is
+  there for correctness and for anything the repository itself links, not as a
+  grace period.
+- **A redirect is not a notice.** Nothing new is written into CBA-visible copy,
+  so `tools/scan_cba_terminology.py` has nothing new to read; the "correct the
+  notice" branch below is moot rather than satisfied.
+- **M3 does not grow.** The "port" branch would have made these pages generated
+  client consumers and pushed Phase 2 out; deleting them removes seven
+  transcription sites from R-02's tail instead.
 
 **Question.** For each of the seven legacy portal pages (R-17): port it to the
 current architecture, delete it, or leave it and correct the notice it shows?

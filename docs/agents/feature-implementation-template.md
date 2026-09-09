@@ -77,8 +77,12 @@ its worksheet.
 ## Data changes
 
 - **Table(s)** added or altered, and the columns:
-- **Ownership entry** — owning bounded context and single writing service
-  (AP-03 / ADR-0019). If both API and worker would write it, resolve that here.
+- **Ownership entry** — owning bounded context, owning repository module in
+  `smartmatch_persistence`, and the declared writing-service set (AP-03 /
+  ADR-0019). One service unless you declare more and give the reason, as the five
+  command-path tables do. If both API and worker would write it, say so here and
+  say why; seed the entry from `tools/derive_table_writers.py` rather than from
+  memory.
 - **Migration number** = current head + 1. Head is `0033_event_filed_by.py`, so
   the next is `0034_<slug>.py`. One transaction per revision (ADR-0009).
 - **Check constraints** — the constraint is the contract, not the annotation.
@@ -175,8 +179,10 @@ records intent."* `scan_forbidden.py:136` enforces the provider half.
 
 - **Deploy order** — migration first, or code first? Say which, and why the other
   order breaks.
-- **Is this reversible on a live pilot?** Assume yes-there-are-users
-  (OQ-S2-001). What is the rollback window and the exact rollback action?
+- **Is this reversible?** OQ-S2-001 is answered NO — the pilot carries synthetic
+  data only — so no user-facing notice period is required. State the rollback
+  window and the exact rollback action anyway: every increment is independently
+  reversible by rule.
 - **Is a downgrade required?** Note that whether migration downgrade is a
   supported operation at all is OQ-S2-004 — do not assume it.
 - **What happens to rows written by the new code if the code is rolled back?**

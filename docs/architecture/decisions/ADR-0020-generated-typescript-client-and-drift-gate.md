@@ -17,7 +17,8 @@ The OpenAPI document published by this API says, in its own `description`
 > and never hand-maintained."
 
 `clients/` does not exist. `apps/web/legacy-frontend/src/lib/api.ts` is 4,238
-hand-written lines, and the `/v1` calls are inline `fetch` across 49 files. 42
+hand-written lines, and the `/v1` calls are inline `fetch` across 48 files (Stage 1 reported 49;
+recounted 2026-09-08). 42
 `/v1` endpoints are consumed with response types transcribed per page (R-02,
 D2). `pyproject.toml:41` still carries
 `extend-exclude = ["clients/typescript", …]` — ruff excluding a path that has
@@ -49,32 +50,45 @@ job that regenerates and diffs it.**
 1. **Generation is from the committed contract**, not from a running server. The
    contract is already the CI-gated source of truth; introducing a second source
    would reintroduce the drift this closes.
-2. **The generator is pinned by exact version** and recorded in the repository,
-   on ADR-0004's reasoning about the schema: an artifact that is committed and
-   compared is only meaningful if the thing producing it is fixed.
-   `openapi-typescript` is the candidate — it emits types and no runtime — but
-   the tool choice is an implementation detail of M3 rather than part of this
-   decision. What is decided are the criteria it must meet:
+2. **The generator is `openapi-typescript`, pinned by exact version** in
+   `apps/web/legacy-frontend/package.json` and recorded here — owner decision,
+   8 September 2026 (Danny Tran, program owner). ADR-0004's reasoning about the
+   hand-written schema applies: an artifact that is committed and compared is
+   only meaningful if the thing producing it is fixed. `openapi-typescript` is
+   chosen because it meets all three criteria this decision requires, and it is
+   the only candidate that meets the second without qualification:
    - **deterministic output** — the same contract produces the same bytes, so a
      diff means a contract change and never a tool mood;
-   - **no runtime dependency shipped to the browser** — the client must not add
-     a request library, an interceptor stack, or a validation runtime to the
-     bundle;
-   - **types first** — the initial output is type declarations for paths,
-     operations and schemas. A generated fetch layer may follow; it is not
-     required for the gate to be worth having.
+   - **no runtime dependency shipped to the browser** — it emits type
+     declarations only, so the client adds no request library, interceptor stack
+     or validation runtime to the bundle;
+   - **types first** — the output is type declarations for paths, operations and
+     schemas. A generated fetch layer may follow; it is not required for the gate
+     to be worth having.
+
+   Generators that emit a runtime client (`openapi-generator`,
+   `orval`, `swagger-typescript-api`) are ruled out by the second criterion, not
+   by preference.
 3. **The output is committed.** A generated artifact that only exists in CI
    cannot be diffed against what the frontend actually compiled, and cannot be
    read by a developer or an agent trying to answer what a response looks like.
 4. **The drift gate**: a `verify.yml` job regenerates the client from the
-   committed contract and fails if the working tree differs. That is the gate
-   already listed as deferred; landing `clients/` is what unblocks it. The
+   committed contract and then runs `git diff --exit-code clients/typescript` —
+   owner decision, 8 September 2026. Non-zero exit is the failure; no bespoke
+   comparison script, because `git diff` is already the reviewer's mental model
+   of what drifted. That is the gate already listed as deferred; landing
+   `clients/` is what unblocks it. The
    corresponding deferred-list entry moves to the "implemented since this list
    was written" section in the same change, because a list that stays honest is
    the reason it exists.
-5. **One page is migrated, as the pattern.** Not 49. The migrated page imports
-   the generated types, `lib/api.ts` becomes an adapter over them rather than a
-   parallel transcription, and the diff is the reference every later page copies.
+5. **One page is migrated, as the pattern: `src/lib/session.ts` together with
+   `src/app/hooks/useSession.tsx` (the `GET /v1/me` path)** — owner decision,
+   8 September 2026. Not 49. It is the right pattern page because it is small
+   (178 + 138 lines), because every authenticated page in the frontend depends
+   on it, and because its transcribed principal shape is the one a backend field
+   rename would break most widely. The migrated pair imports the generated types,
+   `lib/api.ts` becomes an adapter over them rather than a parallel
+   transcription, and the diff is the reference every later page copies.
 6. **`main.py`'s `description` becomes true in the same change**, and the ruff
    `extend-exclude` entry stops being a fossil. If the client is not landing yet,
    the description is corrected first — a published false claim is not held
@@ -93,11 +107,14 @@ which is noise until the moment it is the entire point. `clients/typescript`
 must stay excluded from Python linting (it already is) and be excluded from
 frontend lint and coverage, or generated code becomes review burden. And the
 migration is genuinely long-tailed: 48 pages keep hand-written types after M3,
-which means the guarantee is partial for as long as that lasts. Partial and
-growing beats absent — but this ADR does not claim the loop is closed on the
-day it lands.
+which means the guarantee is partial for as long as that lasts — though every
+one of them reaches identity through the migrated `session.ts`, so the partial
+guarantee is not a narrow one. Partial and growing beats absent — but this ADR
+does not claim the loop is closed on the day it lands.
 
-**Enforcement.** The `verify.yml` drift job, plus `tsc` over the migrated page.
+**Enforcement.** The `verify.yml` drift job — regenerate with the pinned
+`openapi-typescript`, then `git diff --exit-code clients/typescript` — plus `tsc`
+over `src/lib/session.ts` and `src/app/hooks/useSession.tsx`.
 The gate fails on exactly two things: a contract change with no regeneration,
 and a hand edit to generated output. Neither is currently detectable at all.
 
@@ -125,7 +142,7 @@ committed contract.** Rejected: it creates a second source of truth and makes th
 frontend build depend on a running API, which the `web` job in `verify.yml`
 deliberately does not have.
 
-**Migrate all 49 files at once.** Rejected by R-02's own remediation and by the
+**Migrate all 48 files at once.** Rejected by R-02's own remediation and by the
 Stage 2 rule that every increment be independently shippable and reversible. A
-49-file mechanical change is neither reviewable nor revertible in pieces, and it
+48-file mechanical change is neither reviewable nor revertible in pieces, and it
 would land before anyone has learned what the adapter shape should be.
