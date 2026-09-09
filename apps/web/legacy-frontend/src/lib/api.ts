@@ -2674,6 +2674,68 @@ export async function fetchOutreachSend(unitId: string, sendId: string): Promise
   );
 }
 
+/**
+ * One send in a listing, **without** its delivery stream.
+ *
+ * The stream is absent rather than summarised, and the route says why: folding
+ * a send's events into one word is a choice about which fact to forget — a
+ * provider can report `delivered` and then `complained` — and making that
+ * choice once per row would bury it where nobody reviews it. A reader who needs
+ * to explain what happened to one message reads that send with
+ * {@link fetchOutreachSend}.
+ *
+ * `disposition` is `null` while the attempt is in flight. That is a third
+ * state, not a missing value: render it as in progress, never as a failure and
+ * never as a success.
+ */
+export interface OutreachSendSummary {
+  send_id: string;
+  draft_id: string;
+  job_id: string;
+  recipient_address: string;
+  /** `accepted`, `blocked`, `failed`, or null while the attempt is in flight. */
+  disposition: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  /** When the attempt reached an outcome, or null while it has not. */
+  concluded_at: string | null;
+}
+
+/**
+ * A page of sends, and how many were asked for.
+ *
+ * There is no total, and a caller must not derive one. `limit` and `offset` are
+ * what was asked for, not what exists; the number of send attempts a unit has
+ * made is not a figure this response reports.
+ */
+export interface OutreachSendListResponse {
+  sends: OutreachSendSummary[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/outreach/sends` — the unit's send attempts, newest first.
+ *
+ * The listing the coordinator surface was missing. Drafts could be listed and a
+ * single send could be read by id, so the only way to see what a unit had
+ * actually attempted was to have kept the ids from when it attempted them.
+ *
+ * These are **sends**, not threads. OQ-008 records that this slice stores send
+ * records rather than conversations: nothing here implies a reply exists, no
+ * row is part of an exchange, and a caller that renders this list under a
+ * "threads" heading is asserting a shape the data does not have.
+ */
+export async function fetchOutreachSends(unitId: string): Promise<OutreachSendListResponse> {
+  return requestJson<OutreachSendListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Speaker invitations (CBA-INVITATIONS, customer §6 steps 7-8, §13, §14)
 //
@@ -4232,6 +4294,105 @@ export interface AttendanceSummary {
 export async function fetchAttendanceSummary(unitId: string): Promise<AttendanceSummary> {
   return requestJson<AttendanceSummary>(
     `/v1/units/${encodeURIComponent(unitId)}/engagement/attendance-summary`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A unit's presentable events (`GET /v1/units/{unit_id}/events`)
+//
+// The route the coordinator portal was not calling. It has existed since the
+// discovery slice — `routers/events.py` — while the portal went on rendering an
+// "unavailable" panel for hosted events beside it, which said something false
+// about this deployment rather than something true about the legacy backend.
+//
+// Two things about the response shape are load-bearing and neither may be
+// flattened by a caller.
+//
+// `time` is a view, not a timestamp (ADR-0010). A `date_only` event has no
+// instant, and reporting one — midnight in some zone — is the fabrication that
+// ADR exists to stop, so `precision` says which of `starts_at` and `on_date` is
+// real and a renderer reads that rather than inferring it from a null.
+//
+// The two `withheld_*` counts are what keep an empty list meaningful: no events
+// and nothing withheld means the unit has none, while no events and seven
+// withheld means the unit has seven the pipeline could not finish. ADR-0011's
+// rule is that an unknown is never rendered as a zero, and the corollary this
+// response applies is that an omission is never rendered as an absence. Render
+// them.
+// ---------------------------------------------------------------------------
+
+/**
+ * An event's time at whichever precision is actually known (ADR-0010).
+ *
+ * Never collapsed to one nullable instant. `precision` is `exact`, `date_only`,
+ * or `unresolved`; `ends_at` is null when the source stated no end rather than
+ * when the event lasts no time, which is the absence that makes a calendar
+ * download refusable rather than guessable.
+ */
+export interface UnitEventTime {
+  precision: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  /** The IANA zone the event happens in — never the viewer's or the server's. */
+  time_zone: string | null;
+}
+
+/**
+ * Where the event came from (ADR-0012), as its own object.
+ *
+ * Every field but `origin` is null on a `coordinator_entry` event: a human
+ * typing an event fetched nothing, and a source URL invented to fill the column
+ * would be a fabricated field arriving through a response model.
+ */
+export interface UnitEventProvenance {
+  origin: string;
+  source_url: string | null;
+  fetched_at: string | null;
+  extractor_version: string | null;
+}
+
+/** One presentable event, as a coordinator's unit listing returns it. */
+export interface UnitEventSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  time: UnitEventTime;
+  /** Mapped vocabulary terms only. A quarantined value has no term to carry. */
+  tags: string[];
+  publication_status: string;
+  review_status: string;
+  provenance: UnitEventProvenance;
+}
+
+/** The unit's presentable events, and an honest account of what is missing. */
+export interface UnitEventList {
+  unit_id: string;
+  events: UnitEventSummary[];
+  /** Excluded because no date could be resolved (ADR-0010 rule 2). Render it. */
+  withheld_unresolved_date: number;
+  /** Excluded because a tag value awaits human review (ADR-0012). Render it. */
+  withheld_quarantined_tags: number;
+  /** True when the unit holds more presentable events than the response cap returns. */
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events` — the unit's presentable events.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed and
+ * never a build variable. `admin` and `coordinator` only, authorized
+ * server-side per request against the loaded unit: a caller the server refuses
+ * gets {@link ApiRequestError} with status `403`, and a unit in another tenant
+ * is a `404` rather than a `403` that would confirm the id names something
+ * real.
+ */
+export async function fetchUnitEvents(unitId: string): Promise<UnitEventList> {
+  return requestJson<UnitEventList>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
     { method: "GET" },
     { authenticated: true },
   );

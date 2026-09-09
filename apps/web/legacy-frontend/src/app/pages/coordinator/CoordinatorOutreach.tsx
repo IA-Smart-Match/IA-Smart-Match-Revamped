@@ -2,16 +2,31 @@
  * CBA contact — coordinator portal.
  *
  * This page used to load outreach *threads* from the legacy `/api/portals/*`
- * backend, which is not part of this repository. That is still true and the
- * thread panel still says so. What changed in R4 is that outreach drafts and
- * sends are now real: they come from `/v1/units/{unit_id}/outreach/*`, and the
- * Send button submits a durable command.
+ * backend, which is not part of this repository. R4 made drafts and sends real
+ * — they come from `/v1/units/{unit_id}/outreach/*`, and the Send button
+ * submits a durable command — but the page went on rendering an unavailable
+ * panel for threads beside them.
  *
- * What *is* real on this page comes from four sources and nothing else:
+ * That panel is now gone, and **not** because a thread list appeared. It is
+ * gone because it was the wrong instrument for what is missing. An unavailable
+ * panel says "this deployment does not carry that dataset", which invites the
+ * reader to expect the dataset back; the truth is that `/v1` outreach was
+ * designed to store something else. An `outreach_draft` is a composed message
+ * and an `outreach_send` is one attempt to deliver it (OQ-008). There is no
+ * inbound leg anywhere in this API, so a thread is not withheld here — it is a
+ * shape this data does not have, and {@link UnitSends} says so in the place the
+ * panel used to sit.
+ *
+ * What is emphatically not done is the easy version: renaming the sends listing
+ * "threads" so the old copy survives. That is the fabricated equivalence the
+ * unavailable panels exist to prevent, and a reader shown "threads" would go
+ * looking for replies that do not exist.
+ *
+ * What *is* real on this page comes from five sources and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
- * server granted them, and the two outreach reads behind {@link useOutreach}.
- * Neither is derived in the browser, and no identifier on this page is chosen
- * by it.
+ * server granted them, the two outreach reads behind {@link useOutreach}, and
+ * `GET /v1/units/{unit_id}/outreach/sends` for the listing below. Neither is
+ * derived in the browser, and no identifier on this page is chosen by it.
  *
  * ## What this page will not say
  *
@@ -40,12 +55,16 @@
  * {@link useOutreach} waiting for it.
  */
 
+import { useEffect, useState } from "react";
 import { AlertCircle, Clock, Mail, Send, UserCheck } from "lucide-react";
 
-import type { SpeakerInvitationOutcome } from "../../../lib/api";
-import { PortalDatasetUnavailable } from "../../components/PortalContent";
+import {
+  fetchOutreachSends,
+  type OutreachSendSummary,
+  type SpeakerInvitationOutcome,
+} from "../../../lib/api";
 import { grantedPortal } from "../../components/PortalGate";
-import { useOutreach, type QueuedSend } from "../../hooks/useOutreach";
+import { OUTREACH_UNAVAILABLE_REASON, useOutreach, type QueuedSend } from "../../hooks/useOutreach";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useSpeakerInvitations } from "../../hooks/useSpeakerInvitations";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -387,6 +406,153 @@ function InvitationBatches() {
   );
 }
 
+/**
+ * What this unit has actually attempted — the sends listing, and not a thread list.
+ *
+ * This section replaces a `PortalDatasetUnavailable` for "Outreach threads",
+ * and the replacement is deliberately not a rename. The legacy
+ * `/api/portals/event-coordinators/{id}/threads` is gone and what `/v1` holds
+ * is a different shape: an `outreach_send` is one attempt to deliver one
+ * composed message. OQ-008 records that this slice stores sends rather than
+ * threads. There is no inbound leg in this API, so no row below is half of an
+ * exchange, and nothing here implies anyone answered.
+ *
+ * Rendering these rows under the old heading would be the fabricated
+ * equivalence the unavailable panel existed to prevent — a reader told they are
+ * looking at threads goes looking for replies that are not withheld but absent.
+ * So the heading, the copy and the labels all say sends.
+ *
+ * `GET /v1/units/{unit_id}/outreach/sends` was the missing half of this page.
+ * Drafts could be listed and a single send could be read by id, so the only way
+ * to see what a unit had attempted was to have kept the ids from when it
+ * attempted them — which meant, in practice, that a send submitted in an
+ * earlier session was unreadable.
+ *
+ * ## Two things this section will not do
+ *
+ * It does not count. Neither `limit` nor `offset` is a total — they are what
+ * was asked for — and a count of one page presented as a number of attempts
+ * would be a figure with no owning query behind it.
+ *
+ * It does not summarise a delivery stream, because the listing carries none.
+ * The route omits it on purpose: folding a send's events into one word is a
+ * choice about which fact to forget when a provider reports one thing and then
+ * another, and making that choice once per row would bury it. A reader who
+ * needs to explain what happened to one message opens that send.
+ *
+ * ## The unit this reads
+ *
+ * `outreach.unitId` — the same unit the drafts above came from, so the two
+ * lists on this screen are one unit's. That is `getConfiguredUnitId()`, the
+ * `VITE_SMARTMATCH_UNIT_ID` build variable, because both hooks on this page
+ * scope themselves that way. The Connector dashboard's copy of this panel reads
+ * the unit the server *granted the account* instead, which on a multi-unit
+ * pilot is a different unit. That divergence is real and is named here rather
+ * than papered over; closing it means changing `useOutreach` and
+ * `useSpeakerInvitations`, which own that decision for every caller.
+ */
+function UnitSends({ unitId }: { unitId: string | null }) {
+  const [sends, setSends] = useState<OutreachSendSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    if (unitId === null) {
+      setSettled(true);
+      return;
+    }
+
+    let cancelled = false;
+    fetchOutreachSends(unitId)
+      .then((listing) => {
+        if (cancelled) return;
+        setSends(listing.sends);
+        setSettled(true);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        // The list is left null rather than emptied. A read that failed says
+        // nothing about how many sends exist, and an empty list would be a
+        // claim this is not in a position to make (ADR-0011).
+        setError(cause instanceof Error ? cause.message : "The send listing failed.");
+        setSettled(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [unitId]);
+
+  return (
+    <section className="space-y-3" aria-label="Outreach sends">
+      <h2 className="text-lg font-medium text-foreground">Sends</h2>
+      <p className="text-sm leading-6 text-muted-foreground">
+        Every attempt this unit has made to deliver a draft, newest first. These are send
+        records, not conversations: this API has no inbound leg, and no row here is part of an
+        exchange.
+      </p>
+
+      {unitId === null ? (
+        <p className="text-sm text-muted-foreground">{OUTREACH_UNAVAILABLE_REASON}</p>
+      ) : error !== null ? (
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{error}</span>
+        </p>
+      ) : sends === null ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          {settled ? "The send listing returned nothing." : "Loading sends…"}
+        </p>
+      ) : sends.length === 0 ? (
+        // Safe to say here, and only here: the server answered, and its answer
+        // was none.
+        <p className="text-sm text-muted-foreground">This unit has attempted no sends.</p>
+      ) : (
+        <ul className="space-y-2">
+          {sends.map((send) => (
+            <li key={send.send_id} className="rounded-2xl border border-border p-4 text-sm">
+              <p className="font-medium text-foreground">{send.recipient_address}</p>
+              {/* `describeDisposition` and nothing stronger — the same function
+                  the single-send panel uses, so the two cannot drift into
+                  saying different things about one field. */}
+              <p className="mt-1 text-muted-foreground">{describeDisposition(send.disposition)}</p>
+              {send.failure_reason !== null && (
+                <p className="mt-1 text-xs text-muted-foreground">{send.failure_reason}</p>
+              )}
+              <dl className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                <div>
+                  <dt className="inline font-medium">Attempted: </dt>
+                  {/* The server's own timestamp string, rendered as received. */}
+                  <dd className="inline font-mono">{send.created_at}</dd>
+                </div>
+                <div>
+                  <dt className="inline font-medium">Concluded: </dt>
+                  <dd className="inline font-mono">
+                    {send.concluded_at ?? "not yet — the attempt has no outcome"}
+                  </dd>
+                </div>
+                {send.provider !== null && (
+                  <div>
+                    <dt className="inline font-medium">Provider: </dt>
+                    <dd className="inline">{send.provider}</dd>
+                  </div>
+                )}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-xs leading-5 text-muted-foreground">
+        The server decides how many rows a page carries and reports no total, so this is a page
+        of attempts rather than all of them. Delivery events are not listed per row — a stream
+        folded into one word is a choice about which fact to forget, so it stays on the send
+        itself.
+      </p>
+    </section>
+  );
+}
+
 export function CoordinatorOutreach() {
   // `GET /v1/me` — the only source of who this is. It throws rather than
   // substituting a fixture principal, which is the Fix #7 guard.
@@ -498,15 +664,7 @@ export function CoordinatorOutreach() {
 
       <InvitationBatches />
 
-      <div className="space-y-4">
-        {/* Still true, and unchanged by R4: threads are a legacy dataset this
-            repository does not carry, and this slice deliberately did not
-            invent one (OQ-008). Sends are not threads. */}
-        <PortalDatasetUnavailable
-          dataset="Outreach threads"
-          endpoints={["/api/portals/event-coordinators/{id}/threads"]}
-        />
-      </div>
+      <UnitSends unitId={outreach.unitId} />
     </div>
   );
 }
