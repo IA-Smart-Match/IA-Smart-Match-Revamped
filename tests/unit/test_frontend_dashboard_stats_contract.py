@@ -293,12 +293,22 @@ def test_the_definition_is_rendered_verbatim() -> None:
         "definition.split",
         "definition.replace",
         "line-clamp",
-        "truncate",
     ):
         assert forbidden not in code, (
             f"the statistics surface applies {forbidden!r} to a server-owned string; a "
             "registered definition is rendered exactly as the register wrote it"
         )
+
+    # `\b` on both sides, and the reason is a real collision rather than
+    # fastidiousness: the event listing carries a server field named
+    # ``truncated``, which a substring check would flag while the CSS class
+    # ``truncate`` — the one that actually clips text — went on being the thing
+    # this test meant. A rule that cannot tell the server's word from the
+    # browser's would have to be deleted the first time it fired wrongly.
+    assert re.search(r"\btruncate\b", code) is None, (
+        "the statistics surface clips text with the `truncate` class; a registered "
+        "definition is rendered exactly as the register wrote it"
+    )
 
 
 def test_an_unmeasured_metric_states_its_reason_on_the_card_face() -> None:
@@ -437,6 +447,66 @@ def test_the_statistics_surface_names_the_statistics_the_api_cannot_answer() -> 
     )
     assert "GET /v1/units/{unit_id}/speaker-feedback-summary" in text, (
         "the surface must name the route the unit aggregate comes from"
+    )
+
+
+def test_the_statistics_surface_summarises_events_without_counting_them() -> None:
+    """The hosted-events panel reads ``/v1`` and computes nothing.
+
+    ``GET /v1/units/{unit_id}/events`` has existed since the discovery slice
+    and no portal page was calling it, so this surface rendered an "unavailable"
+    panel over a route that worked — a true statement about the legacy backend
+    and a false one about this deployment.
+
+    What it may render is what the *response* says about its own completeness:
+    the two withheld counts, which the route counts from the same rows the
+    listing is partitioned out of. What it may not render is ``events.length``.
+    That is a figure this browser computed, and it would sit among figures whose
+    whole claim is that one server query owns each of them — the register above
+    is where a count belongs, and it has no metric for this one.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchUnitEvents" in code, (
+        "the hosted-events panel must read the unit's event listing through its own helper"
+    )
+    for field in ("withheld_unresolved_date", "withheld_quarantined_tags"):
+        assert field in code, (
+            f"the panel must render {field!r}; without the withheld counts, 'this unit has no "
+            "events' and 'this unit has seven the pipeline could not finish' are one silence"
+        )
+
+    for forbidden in ("events.length", "listing.events.length"):
+        assert forbidden not in code, (
+            f"the statistics surface counts events with {forbidden!r}; every figure it shows "
+            "must be one a server query owns"
+        )
+
+
+def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
+    """An unavailable panel is a claim, and it must come down when it stops being true.
+
+    ``PortalDatasetUnavailable`` says a dataset is not carried by this
+    deployment. Left standing beside a working ``/v1`` read it is the same
+    fabricated-equivalence defect it was written to prevent, pointed the other
+    way: the reader is told a capability is absent while the page holds its
+    answer.
+
+    Meeting bookings is the one coordinator dataset with no ``/v1`` route today,
+    so it keeps its panel. Deleting that one alongside the others would turn a
+    named absence into an unnamed one.
+    """
+    text = STATS_PAGE.read_text(encoding="utf-8")
+    code = _code_only(text)
+
+    for retired in ("Your coordinator profile", "Hosted events and staffing"):
+        assert f'dataset="{retired}"' not in code, (
+            f"the surface still renders an unavailable panel for {retired!r}, which it now "
+            "reads from /v1"
+        )
+
+    assert 'dataset="Meeting bookings"' in code, (
+        "meeting bookings has no /v1 answer yet; its absence stays named rather than silent"
     )
 
 

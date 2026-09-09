@@ -1,18 +1,41 @@
 /**
  * Coordinator home — coordinator portal, and the Connector's pilot statistics.
  *
- * This page used to load your coordinator profile, hosted events and staffing, outreach threads, meeting bookings from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
+ * This page used to load your coordinator profile, hosted events and staffing,
+ * outreach threads and meeting bookings from the legacy `/api/portals/*`
+ * backend. That backend is not part of this repository, so each of the four was
+ * a `PortalDatasetUnavailable` panel naming the dataset and the route that
+ * would have served it, rather than a red failure banner blaming an outage for
+ * a capability that was never present.
+ *
+ * Two of those four have had a `/v1` answer all along and were simply unwired,
+ * and the panels above them were therefore saying something false about *this*
+ * deployment while saying something true about the legacy one:
+ *
+ *  - **your coordinator profile** is `GET /v1/me` and `GET /v1/me/portals`,
+ *    which this page already called for its own scoping. `PortalIdentityCard`
+ *    at the top of the page is that profile — who the server says you are, the
+ *    role that granted your portal, the org unit it covers, and the units that
+ *    grant reaches. There was never anything to fetch that was not already
+ *    fetched;
+ *  - **hosted events** is `GET /v1/units/{unit_id}/events`
+ *    (`routers/events.py`), which no portal page was calling.
+ *    `CoordinatorEvents.tsx` is the page for it; the panel below summarises
+ *    only what that response says about its own completeness and links there.
+ *
+ * The old label said "hosted events **and staffing**". The `/v1` listing
+ * carries no staffing of any kind, so the label went rather than being kept
+ * over a response that does not answer it — see `CoordinatorEvents.tsx`.
+ *
+ * **Meeting bookings** still has no `/v1` answer and keeps its panel. Deleting
+ * it alongside the others would turn a named absence into an unnamed one, which
+ * is the direction this page is built to refuse.
  *
  * What *is* real on this page comes from `/v1` routes and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
- * server granted them and the role and unit behind it, and the three reads the
- * statistics are drawn from. Neither identity route is derived in the browser,
- * and no identifier on this page is chosen by it.
+ * server granted them and the role and unit behind it, and the four unit-scoped
+ * reads below. Neither identity route is derived in the browser, and no
+ * identifier on this page is chosen by it.
  *
  * ## Why the statistics are here and not on `Dashboard.tsx` (TRACK 14)
  *
@@ -36,19 +59,26 @@
  *
  * ## Every number here has one owning server query (ADR-0011)
  *
- * Two reads, both of which count server-side:
+ * Two reads count server-side:
  * `GET /v1/units/{unit_id}/metrics?surface=cba` for the registered metrics —
  * the review queue's size, Speaker Requests, and the four funnel counts as the
  * CBA product labels them — and
  * `GET /v1/units/{unit_id}/engagement/attendance-summary` for how much
  * attendance evidence the unit holds.
  *
+ * The event listing added below contributes two more server-owned figures and
+ * no computed one: `withheld_unresolved_date` and `withheld_quarantined_tags`
+ * are counted by the same query the listing is partitioned out of. The count
+ * this page pointedly does **not** show is a count of the events themselves —
+ * `events.length` is arithmetic the browser did, and it would sit among figures
+ * whose whole claim is that a server query owns each of them.
+ *
  * Nothing on this page is folded, averaged, totalled or rounded. That is not
  * fastidiousness: a browser-side total is a second calculation of a published
  * number, it looks exactly as authoritative as the measured one, and it can be
- * drilled into by nothing. Where the two responses each carry a total, it is
- * the server's own — `AttendanceSummaryResponse.total` is documented as the
- * fold of `by_method`, computed from the same query that produced the parts.
+ * drilled into by nothing. Where a response carries a total, it is the server's
+ * own — `AttendanceSummaryResponse.total` is documented as the fold of
+ * `by_method`, computed from the same query that produced the parts.
  *
  * A `null` metric value is rendered as unknown *with the server's reason*, and
  * never as `0`. A measured `0` is rendered as `0`, because the query ran and
@@ -101,15 +131,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BarChart3, Info, MessageSquareHeart } from "lucide-react";
+import { BarChart3, CalendarDays, Info, MessageSquareHeart } from "lucide-react";
 
 import {
   ApiRequestError,
   fetchAttendanceSummary,
   fetchCbaUnitMetrics,
+  fetchUnitEvents,
   fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
   type MetricSummary,
+  type UnitEventList,
   type UnitFeedbackSummary,
 } from "../../../lib/api";
 import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
@@ -477,6 +509,103 @@ function StudentFeedbackPointer({ state }: { state: Loaded<UnitFeedbackSummary> 
 }
 
 /**
+ * Hosted events, summarised — the panel, and the page it defers to.
+ *
+ * This section used to be a `PortalDatasetUnavailable` for "Hosted events and
+ * staffing", which said something true about the legacy `/api/portals/*`
+ * backend and something false about this deployment:
+ * `GET /v1/units/{unit_id}/events` exists and no portal page was calling it.
+ *
+ * What it renders here is deliberately not the listing. `CoordinatorEvents.tsx`
+ * is the page for that, and duplicating rows onto a statistics surface would
+ * put two renderings of one response on two screens, to disagree the first time
+ * one of them is changed. This panel carries only what the *response itself*
+ * says about its own completeness — the two withheld counts and `truncated` —
+ * and hands the reader the page.
+ *
+ * There is deliberately **no count of listed events here**. `events.length`
+ * would be a figure this browser computed, sitting in a section whose whole
+ * claim is that every number on it has one owning server query; the register
+ * above is where a count of anything belongs, and it has no metric for this.
+ *
+ * The withheld counts are not decoration. Without them "no events" and "seven
+ * events the pipeline could not finish" are the same silence, which is
+ * ADR-0011's rule about zeros applied to an omission.
+ *
+ * Staffing is not summarised because the route carries none — see
+ * `CoordinatorEvents.tsx`'s docstring. The old panel's label is gone rather
+ * than kept over a response that does not answer it.
+ */
+function HostedEventsSummary({ state }: { state: Loaded<UnitEventList> }) {
+  const listing = state.data;
+
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="Hosted events">
+      <div className="flex items-start gap-2">
+        <CalendarDays
+          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="w-full space-y-2">
+          <h2 className="font-semibold text-foreground">Events your unit hosts</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            The server lists this unit&apos;s presentable events. Two kinds are held back — an
+            event with no resolved date, and one whose tag value is still awaiting human review —
+            and the response counts both rather than dropping them quietly.
+          </p>
+
+          {state.error !== null ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+            >
+              {state.error}
+            </p>
+          ) : listing === null ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              {state.settled ? "The listing returned nothing." : "Loading the event listing…"}
+            </p>
+          ) : (
+            <>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border/70 p-3">
+                  <dt className="text-xs text-muted-foreground">Not listed — no resolved date</dt>
+                  <dd className="text-sm tabular-nums text-foreground">
+                    {listing.withheld_unresolved_date}
+                  </dd>
+                </div>
+                <div className="rounded-xl border border-border/70 p-3">
+                  <dt className="text-xs text-muted-foreground">
+                    Not listed — tag awaiting review
+                  </dt>
+                  <dd className="text-sm tabular-nums text-foreground">
+                    {listing.withheld_quarantined_tags}
+                  </dd>
+                </div>
+              </dl>
+              {listing.truncated && (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  This unit holds more presentable events than one response returns.
+                </p>
+              )}
+            </>
+          )}
+
+          <p className="text-sm leading-6">
+            <Link
+              className="font-medium text-foreground underline underline-offset-4"
+              to="/coordinator-portal/events"
+            >
+              Open my events
+            </Link>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * The review queue, and why it is empty rather than absent.
  *
  * This is a *different* gap from the `/api/portals/*` panels above, and it is
@@ -545,11 +674,12 @@ export function CoordinatorHome() {
   const [metrics, setMetrics] = useState<Loaded<MetricSummary[]>>(PENDING);
   const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
   const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
+  const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
 
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Three independent reads, settled independently. Letting one refusal
+    // Four independent reads, settled independently. Letting one refusal
     // decide what another section shows would misreport which capability the
     // server actually withheld.
     try {
@@ -581,6 +711,17 @@ export function CoordinatorHome() {
       setFeedback({
         data: null,
         error: describeFailure(cause, "The unit feedback summary"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchUnitEvents(unitId);
+      setEvents({ data: listing, error: null, settled: true });
+    } catch (cause) {
+      setEvents({
+        data: null,
+        error: describeFailure(cause, "The unit's event listing"),
         settled: true,
       });
     }
@@ -621,22 +762,18 @@ export function CoordinatorHome() {
           <RegisteredMetrics state={metrics} />
           <AttendanceEvidence state={attendance} />
           <StudentFeedbackPointer state={feedback} />
+          <HostedEventsSummary state={events} />
         </>
       )}
 
       <div className="space-y-4">
         <PortalDatasetUnavailable
-          dataset="Your coordinator profile"
-          endpoints={["/api/portals/event-coordinators/{id}"]}
-        />
-        <PortalDatasetUnavailable
-          dataset="Hosted events and staffing"
-          endpoints={["/api/portals/event-coordinators/{id}/events"]}
-        />
-        <PortalDatasetUnavailable
           dataset="Outreach threads"
           endpoints={["/api/portals/event-coordinators/{id}/threads"]}
         />
+        {/* Meeting bookings has no `/v1` answer today, so it stays a named
+            absence rather than being quietly dropped now that the panels
+            around it have landed. */}
         <PortalDatasetUnavailable
           dataset="Meeting bookings"
           endpoints={["/api/portals/event-coordinators/{id}/meetings"]}
