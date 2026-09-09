@@ -252,6 +252,14 @@ app.include_router(jobs.router)
 app.include_router(redrive.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
+# The unit-scoped half of the same resource: `GET /v1/units/{unit_id}/review-items`,
+# the queue behind the `pending_review_items` badge `routers/metrics.py` already
+# published. Mounted here rather than folded into `review.router` because the two
+# prefixes genuinely differ — `/v1/units` against `/v1/review-items` — and a
+# FastAPI prefix cannot be escaped per-route. Unconditional, beside the decision
+# route it is the read half of: a route that lists what another route decides
+# should not be able to disappear separately from it.
+app.include_router(review.unit_router)
 
 #: Every router that answers to a named product capability, paired with the
 #: capability it serves.

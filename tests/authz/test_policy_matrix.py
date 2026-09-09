@@ -1799,6 +1799,37 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # Appended at the end rather than beside ``review.decide``, which it is
+    # plainly related to, for a merge reason rather than a taxonomic one:
+    # several branches append to this tuple at once, and an insertion in the
+    # middle conflicts with every one of them. The relationship between the two
+    # review operations is recorded where it is *checkable* — both name
+    # ``_REVIEW_ROLES``, and
+    # :func:`test_the_authorizer_reads_the_role_constant_the_matrix_names`
+    # holds each of them to it against the live object — rather than by
+    # adjacency in a list, which nothing verifies.
+    #
+    # A **separate authorizer** from ``review.decide``'s, over the same role
+    # set. ``decide`` authorizes against a unit it *derives* from the review
+    # item's own import batch and never accepts one from the request; this
+    # route is handed a ``unit_id`` in its path and authorizes against that
+    # unit directly. Those are different questions about different inputs.
+    # Making one helper serve both — by taking the role set, or the unit, as a
+    # parameter — would put a single call site where both could be widened
+    # from, which is exactly what ``speaker_requests.py``'s two read
+    # authorizers refuse to do and say so in their own docstrings.
+    Operation(
+        key="review_item.list",
+        method="GET",
+        path="/v1/units/{unit_id}/review-items",
+        module="smartmatch_api.routers.review",
+        authorizer="_authorize_review_item_list",
+        roles_constant="_REVIEW_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -6739,6 +6770,104 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; what is left is a deny on the unit",
         ),
     },
+    # Appended at the end for the merge reason the ``Operation`` above states.
+    #
+    # This rectangle is **identical** to ``review.decide``'s, and that is the
+    # claim worth making rather than an accident worth apologising for. The two
+    # operations read the same role constant, over the same resource type, at
+    # the same scope, so any cell where they differed would mean one of them
+    # had quietly acquired a rule the other did not have. Listing a unit's
+    # review queue and deciding one of its rows are two halves of one act
+    # (``routers/review.py``'s module docstring: deciding a submitted record is
+    # the other half of the same consequential act submitting it was), and
+    # nobody should be able to see the queue who could not act on it — a queue
+    # is every quarantined row's ``row_data``, which is the same disclosure a
+    # drill-down makes and which the metrics decision's §4 already role-gates
+    # to ``admin``/``coordinator`` alone.
+    #
+    # What ``evaluate`` cannot see, and so must be said here: a permit on this
+    # operation conveys **this unit's** review items and no others. The route
+    # takes the unit from its path, authorizes against that unit, and hands it
+    # to ``ReviewRepository.list_for_unit`` as the sole selector; there is no
+    # second value in the request that could widen the result, and no caller
+    # identity is a predicate. The contract test owns that, including the
+    # assertion that the list's length equals the ``pending_review_items``
+    # metric on the same fixture.
+    "review_item.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive; this is the coordinator whose unit "
+                "owns the import batches these review items came from, and who "
+                "the decision route already trusts to decide them"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="unit scoping is a path question, not a role question",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "active membership, required role, wrong path. No "
+                "`tenant_wide_roles` is passed: the metrics decision's §4 makes "
+                "an admin tenant-wide for *aggregates* only, and this route "
+                "publishes `row_data` — the same disclosure `metrics.drill_down` "
+                "withholds from this very shape"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the queue is every quarantined submission's `row_data` for the "
+                "unit. The membership is active at exactly the owning unit, so "
+                "the role is the only thing refusing it — the same refusal "
+                "`review.decide` and `metrics.drill_down` both make of this shape"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in `_REVIEW_ROLES`, and the membership is "
+                "active at exactly the owning unit, so the refusal is the role "
+                "alone. Listing is not a lesser act than deciding that a "
+                "narrower role could be trusted with: it discloses every "
+                "pending row at once"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "a read queues nothing, and the import job that produced these "
+                "rows is not the resource being authorized — the shape "
+                "degenerates to a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
 }
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
@@ -7020,6 +7149,22 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # `tests/contract/test_attendance_api.py`, the division of labour
         # `_authorize_invite_read` already uses.
         "_authorize_attendance_write",
+        # The twenty-fourth (`routers/review.py`), on the same terms as every
+        # name before it: load the unit with `load_unit_or_404`, then make
+        # exactly this call against that row's path with `_REVIEW_ROLES`.
+        #
+        # The one name in this tuple that shares its role constant with an
+        # operation authorized *elsewhere in its own module* —
+        # `review.decide`'s `assert_allowed` call reads `_REVIEW_ROLES` too.
+        # That is deliberate and is the reason this is still its own function
+        # rather than a parameter on the decision path: the two routes derive
+        # the unit they authorize against from different places (the decision
+        # from the review item's own import batch, this one from its path), and
+        # a shared helper taking either the unit or the role set as an argument
+        # would be a single call site from which both could be widened. Sharing
+        # the *constant* is checked against the live object; sharing a function
+        # would not be checked at all.
+        "_authorize_review_item_list",
     ):
         assert_allowed(
             resolved.principal,
