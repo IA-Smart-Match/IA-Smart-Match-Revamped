@@ -189,13 +189,20 @@ import sqlalchemy as sa
 from pilot_dataset_plan import (
     CALENDAR_ANCHOR,
     DEFAULT_SEED,
+    FEEDBACK_SPEAKER_RESPONSE_SHAPE,
+    FEEDBACK_STUDENT_COUNT,
     IN_LIST_CATEGORIES,
     EventPlan,
+    FeedbackPlan,
     ProfessionalPlan,
     StudentPlan,
     build_events,
     build_professionals,
+    build_speaker_feedback,
     build_students,
+    feedback_plan_summary,
+    feedback_student_external_subject,
+    feedback_student_token,
     plan_summary,
 )
 from seed_demo_pipeline import (
@@ -204,13 +211,22 @@ from seed_demo_pipeline import (
     resolve_tenant_id,
     resolve_unit_id,
 )
-from seed_pilot import SeedConfigurationError, require_development_fixture_settings
+from seed_pilot import (
+    SeedConfigurationError,
+    _existing_or_insert_membership,
+    require_development_fixture_settings,
+)
 from smartmatch_api.config import Settings
 from smartmatch_api.routers.match_runs import MAX_CANDIDATES
 from smartmatch_domain.event_vocabulary import G3_VOCABULARY
 from smartmatch_domain.events import DateOnlyTime, EventTime, ExactTime, UnresolvedTime
 from smartmatch_domain.explanation import MAX_SHORTLIST_SIZE
 from smartmatch_domain.pipeline import PipelineStage
+from smartmatch_domain.student_speaker_feedback import (
+    EditWindowState,
+    feedback_anchor,
+    resolve_edit_window,
+)
 from smartmatch_domain.synthetic_pilot import (
     SYNTHETIC_ATTENDANCE_METHOD,
     SYNTHETIC_BOARD_ROLE,
@@ -384,6 +400,14 @@ MATCH_RUN_PACE_SECONDS: Final[float] = 1.05
 #: limiter is a tool that hides how close it is running to one.
 INVITATION_BATCH_PACE_SECONDS: Final[float] = 3.05
 
+#: Seconds between student feedback submissions. ``STUDENT_FEEDBACK_RATE_LIMIT``
+#: allows thirty writes a minute and the whole of Phase C is a dozen or so
+#: requests spread over a cohort, so this is well clear of it. It is here for
+#: :data:`DECISION_PACE_SECONDS`'s reason and for one more: these requests each
+#: authenticate as a *different* principal, and pacing them keeps the API's
+#: quota accounting legible in a log rather than a burst.
+FEEDBACK_PACE_SECONDS: Final[float] = 0.35
+
 #: The generated Speaker Request's date. Derived from the plan's own calendar
 #: anchor rather than from ``date.today()``, for the reason
 #: :data:`~pilot_dataset_plan.CALENDAR_ANCHOR` is a literal: a request whose date
@@ -512,6 +536,17 @@ class RunReport:
     speaker_contacts_left_unreviewed: int = 0
     speaker_contacts_unclassifiable: int = 0
     match_runs: list[MatchRunOutcome] = field(default_factory=list)
+    feedback_students: int = 0
+    feedback_events: int = 0
+    feedback_speakers: int = 0
+    feedback_attendances: int = 0
+    feedback_ratings_posted: int = 0
+    feedback_ratings_amended: int = 0
+    feedback_withheld: int = 0
+    feedback_speakers_published: int = 0
+    feedback_speakers_suppressed: int = 0
+    feedback_unit_residual: int = 0
+    feedback_unit_publishes: bool = False
     notes: list[str] = field(default_factory=list)
 
     def lines(self) -> tuple[str, ...]:
@@ -544,6 +579,17 @@ class RunReport:
             f"speaker requests filed      {sum(1 for r in self.match_runs if r.speaker_request_id)}"
             f" of {len(self.match_runs)}",
             *(line for outcome in self.match_runs for line in outcome.lines()),
+            f"feedback students           {self.feedback_students} (each holds its own token)",
+            f"  events rated at           {self.feedback_events} (edit window still open)",
+            f"  speakers rated            {self.feedback_speakers}",
+            f"  attendance records        {self.feedback_attendances}",
+            f"  ratings posted            {self.feedback_ratings_posted}",
+            f"  ratings amended           {self.feedback_ratings_amended} (re-run)",
+            f"  deliberately withheld     {self.feedback_withheld} (attended, said nothing)",
+            f"  per-speaker published     {self.feedback_speakers_published}",
+            f"  per-speaker SUPPRESSED    {self.feedback_speakers_suppressed} (below threshold)",
+            f"  unit residual             {self.feedback_unit_residual}",
+            f"  unit aggregate publishes  {self.feedback_unit_publishes}",
         )
 
 
@@ -1768,6 +1814,293 @@ def compose_invitation_batch(
 
 
 # ---------------------------------------------------------------------------
+# Phase C — student speaker feedback, through the student's own route
+# ---------------------------------------------------------------------------
+#
+# Phase A goes through the API because a caller-facing writer exists. Phase B
+# goes through repositories because for those tables none does. Phase C is a
+# third case and belongs with Phase A: there is a real student route, and the
+# reason to use it is stronger here than anywhere else in this file.
+#
+# `routers/student_speaker_feedback.py` takes `student_id` from the verified
+# principal and from nowhere else — there is no request field a caller could put
+# somebody else's id in, which is the structural guarantee against MM-A01's
+# caller-selected identity. A generator that wrote `student_speaker_feedback`
+# rows through a repository would be exercising none of that: not the
+# attendance check, not the roster check, not the seven-day edit window, and not
+# the one thing the surface is built to make impossible. So every rating below
+# is a POST somebody's own bearer token made.
+#
+# That costs real principals — an account, a `student` membership, a token in
+# SMARTMATCH_DEV_PRINCIPALS — and the cost is the point.
+
+
+def feedback_window_state(event: EventPlan, *, now: datetime) -> EditWindowState:
+    """Where ``event`` sits in the seven-day window, by the domain's own rule.
+
+    ``feedback_anchor`` and ``resolve_edit_window`` are imported and called
+    rather than reimplemented, because the anchor is not the obvious thing: for
+    an exact event it is the stated end or else the start, and for a date-only
+    event it is **midnight at the end of that day, in UTC** — the event's own
+    time zone deliberately ignored. A tool that guessed "the event's date plus
+    seven" would be right most of the time and would silently produce a run
+    whose ratings the API refuses with ``409``.
+    """
+    anchor = feedback_anchor(
+        time_precision=(
+            "unresolved"
+            if event.on_date is None
+            else ("exact" if event.exact_hour is not None else "date_only")
+        ),
+        starts_at=(
+            None
+            if event.on_date is None or event.exact_hour is None
+            else datetime.combine(
+                event.on_date, clock_time(hour=event.exact_hour), tzinfo=ZoneInfo(PILOT_TIME_ZONE)
+            )
+        ),
+        ends_at=None,
+        on_date=event.on_date if event.exact_hour is None else None,
+    )
+    return resolve_edit_window(anchor=anchor, now=now).state
+
+
+def feedback_events(
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    *,
+    now: datetime,
+    wanted: int,
+) -> tuple[tuple[EventPlan, uuid.UUID], ...]:
+    """The events a rating can still be written against, most recent first.
+
+    Only events whose window is genuinely ``OPEN``. Two states are deliberately
+    excluded and each for its own reason:
+
+    * ``CLOSED`` — the API answers ``409 student_feedback_window_closed``, and
+      most of the generated calendar is closed because the plan spreads six
+      months *back* from a fixed anchor. That is the calendar being honest, not
+      a defect, and this phase works with whatever is still open.
+    * ``UNKNOWN`` — an ADR-0010 unresolved event, whose window ``permits_change``
+      because there is no anchor to have closed. Writable, and not used here: a
+      rating of a speaker at an event with no date is exactly the case OQ-CBA-052
+      is open on, and a generator picking a side of an open question by writing
+      rows into it would be answering it in code.
+
+    Returns fewer than ``wanted`` without complaint — the caller decides whether
+    that is enough. Returns them newest-first so a demo's ratings cluster on the
+    events a viewer is most likely to open.
+
+    Raises:
+        GeneratorError: nothing is open at all. Raised rather than skipped
+            because it means one specific thing worth saying out loud: the
+            plan's fixed ``CALENDAR_ANCHOR`` has aged more than seven days into
+            the past, so no generated event can be rated any more and this phase
+            can never produce a row until that literal moves.
+    """
+    open_events = [
+        (event, event_id)
+        for event, event_id in events
+        if event.resolved and feedback_window_state(event, now=now) is EditWindowState.OPEN
+    ]
+    if not open_events:
+        raise GeneratorError(
+            "no generated event still has an open feedback window, so no rating could be "
+            "written through the student route. The plan's CALENDAR_ANCHOR "
+            f"({CALENDAR_ANCHOR.isoformat()}) is a fixed literal and the window is seven "
+            "days wide, so once the anchor is more than a week past, every generated "
+            "event is closed. Move CALENDAR_ANCHOR in tools/pilot_dataset_plan.py — do "
+            "not widen the window, which is a ratified decision."
+        )
+    open_events.sort(key=lambda pair: pair[0].on_date or CALENDAR_ANCHOR, reverse=True)
+    return tuple(open_events[:wanted])
+
+
+def feedback_speakers(
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+    *,
+    wanted: int,
+) -> tuple[tuple[str, uuid.UUID], ...]:
+    """The speakers this phase rates, as ``(name, professional_id)`` pairs.
+
+    Taken from the §13 roster listing this run already read back — the same
+    mapping :func:`resolve_candidates` uses — so **no speaker id is derived
+    here and no student-scoped roster read is added**. That matters beyond
+    tidiness: OQ-CBA-064 concerns what a student may be told about a unit's
+    roster, and a seeder that asked the student surface "who spoke?" would be
+    exercising a read the open question has not settled. The seeder already
+    holds the ids it caused to exist, so it uses those.
+
+    A plain prefix of the roster rather than a selection. Which speakers get
+    which counts is :data:`~pilot_dataset_plan.FEEDBACK_SPEAKER_RESPONSE_SHAPE`'s
+    decision, and choosing *who* on any other grounds — the best scored, the
+    most reviewed — would make the published aggregate a statement about this
+    tool's taste.
+    """
+    chosen: list[tuple[str, uuid.UUID]] = []
+    for person in roster:
+        contact = contacts.get(person.name)
+        if contact is None:
+            continue
+        chosen.append((person.name, uuid.UUID(str(contact["professional_id"]))))
+        if len(chosen) == wanted:
+            break
+    return tuple(chosen)
+
+
+def write_feedback_students(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    unit_path: str,
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    count: int,
+    report: RunReport,
+) -> dict[int, uuid.UUID]:
+    """Create the feedback cohort and record their attendance. Returns rank -> account id.
+
+    Three writes per student, and each one is required by a different check the
+    route makes:
+
+    1. **The account**, through ``ProfessionalIdentityRepository.ensure_account``
+       — the compromise ``write_students`` already states and for the same
+       reason: no student-identity writer exists in the application, and this is
+       the only ``user_account`` writer that accepts a caller-supplied id, which
+       is what determinism needs. Its ``external_subject`` is the *stable*
+       string :func:`~pilot_dataset_plan.feedback_student_external_subject`
+       derives from a rank alone, rather than the tenant-and-unit-derived one
+       the ordinary students carry, because the rebuild script has to put that
+       subject into ``SMARTMATCH_DEV_PRINCIPALS`` before any tenant uuid exists.
+    2. **A ``student`` membership on this unit**, through ``seed_pilot``'s own
+       insert-or-verify helper rather than an ``UPDATE`` of this tool's own.
+       That helper refuses to change a membership that already exists with
+       different values, which is the behaviour wanted here: a re-run must not
+       quietly reassign a server-assigned role. Without a membership the route
+       answers ``403 forbidden`` — the role is what authorizes, and a token
+       proves only who you are.
+    3. **Attendance at each rated event.** ``eligibility`` requires an
+       ``attendance_record`` for this student at this event and applies no status
+       filter; without one the route answers ``403
+       student_feedback_not_eligible``. The method is
+       ``SYNTHETIC_ATTENDANCE_METHOD``, the same value every other synthetic
+       attendance in this file carries — no attendance method is invented here.
+
+    No ``link_to_unit`` call is made, exactly as in :func:`write_students`: a
+    student is not a professional, and a row in
+    ``professional_unit_relationship`` would put them in a fan-out pool.
+    """
+    accounts = ProfessionalIdentityRepository()
+    attendance = AttendanceRepository()
+    subject_ids: dict[int, uuid.UUID] = {}
+
+    for rank in range(1, count + 1):
+        external_subject = feedback_student_external_subject(rank)
+        subject_id = student_subject_id(
+            tenant_id=tenant_id, unit_id=unit_id, suffix=f"feedback-{rank:02d}"
+        )
+        accounts.ensure_account(
+            session,
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            external_subject=external_subject,
+            email=f"{external_subject}@synthetic.invalid",
+        )
+        _existing_or_insert_membership(
+            session.connection(),
+            tenant_id=tenant_id,
+            account_id=subject_id,
+            path=unit_path,
+            role="student",
+        )
+        for _, event_id in events:
+            attendance.record_attendance(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=unit_id,
+                subject_id=subject_id,
+                event_id=event_id,
+                method=SYNTHETIC_ATTENDANCE_METHOD,
+            )
+            report.feedback_attendances += 1
+        subject_ids[rank] = subject_id
+        report.feedback_students += 1
+        session.commit()
+
+    return subject_ids
+
+
+def post_speaker_feedback(
+    *,
+    api_base: str,
+    unit_id: uuid.UUID,
+    planned: Sequence[FeedbackPlan],
+    speakers: Sequence[tuple[str, uuid.UUID]],
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    report: RunReport,
+) -> None:
+    """Post each planned rating as the student who holds it.
+
+    One ``POST`` per planned rating, each authenticated with **that student's
+    own** bearer token. ``201`` created it, ``200`` amended or repeated one —
+    both are success, and the second is the ordinary re-run path, since the
+    natural key ``(tenant, student, event, speaker)`` makes a second submission
+    an edit of the caller's own rating rather than a second vote.
+
+    A planned entry whose ``rating`` is ``None`` produces **no request at all**.
+    Not a request carrying a zero, not a withdrawal, not a row in any state:
+    nothing. That is the whole of what a deliberately withheld rating means, and
+    it is why the loop's silence is explicit here rather than filtered out by
+    the caller — a reader of this function should see the branch that does
+    nothing.
+
+    Each speaker is rated at one event, chosen by rotating through the events
+    with open windows. The natural key includes the event, so two speakers
+    sharing an event is fine and a speaker appearing at two would be two
+    separate ratings from the same student — which the plan does not ask for.
+    """
+    for entry in planned:
+        if entry.rating is None:
+            # Deliberate silence. ADR-0011 rule 1: no evidence, no row, and
+            # certainly not a zero. This branch exists to be seen.
+            report.feedback_withheld += 1
+            continue
+
+        _, speaker_id = speakers[entry.speaker_rank % len(speakers)]
+        _, event_id = events[entry.speaker_rank % len(events)]
+        token = feedback_student_token(entry.student_rank)
+        status, payload = _request(
+            method="POST",
+            url=(
+                f"{api_base}/v1/units/{unit_id}/student/events/{event_id}"
+                f"/speakers/{speaker_id}/feedback"
+            ),
+            bearer_token=token,
+            # No comment. A rating is a number a student chose; a sentence
+            # attributed to a synthetic student is a quotation nobody said, and
+            # this generator has no business writing one.
+            body={"rating": entry.rating},
+        )
+        if status == 201:
+            report.feedback_ratings_posted += 1
+        elif status == 200:
+            report.feedback_ratings_amended += 1
+        else:
+            raise GeneratorError(
+                f"POST .../student/events/{event_id}/speakers/{speaker_id}/feedback answered "
+                f"{status} for feedback student {entry.student_rank}: {payload}. A 401 means "
+                "this token is not in the API process's SMARTMATCH_DEV_PRINCIPALS (it is read "
+                "once at startup); a 403 means the student holds no membership on this unit or "
+                "no attendance record at this event; a 409 means the seven-day edit window "
+                "closed."
+            )
+        time.sleep(FEEDBACK_PACE_SECONDS)
+
+    report.feedback_speakers = len(speakers)
+    report.feedback_events = len(events)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1792,6 +2125,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--events", type=int, default=60, help="Events to write to the calendar")
     parser.add_argument("--students", type=int, default=120, help="Students to create")
     parser.add_argument("--journeys", type=int, default=180, help="Pipeline journeys to open")
+    parser.add_argument(
+        "--feedback-students",
+        type=int,
+        default=FEEDBACK_STUDENT_COUNT,
+        help=(
+            "How many of the feedback cohort to create. Each needs a matching entry in the "
+            "API process's SMARTMATCH_DEV_PRINCIPALS, so lowering this is safe and raising "
+            "it above the cohort the plan derives tokens for is refused."
+        ),
+    )
     parser.add_argument(
         "--ready-attempts", type=int, default=60, help="API readiness poll attempts (2s apart)"
     )
@@ -2066,6 +2409,69 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         "construct a transport until that gate opens. Every batch above is therefore "
         "genuinely 'composed, not sent' — a true state of this surface, not a step this "
         "run skipped."
+    )
+
+    # -- Phase C: student speaker feedback, through the student's own route --
+    #
+    # After the roster exists, because a rating names a speaker who has to be on
+    # it, and after the events exist, because a rating names an event the
+    # student has to have attended.
+    feedback_plan = build_speaker_feedback(seed=args.seed)
+    feedback_summary = feedback_plan_summary(feedback_plan)
+    report.feedback_withheld = 0  # counted per entry below, not copied from the plan
+    report.feedback_speakers_published = feedback_summary.speakers_published
+    report.feedback_speakers_suppressed = feedback_summary.speakers_suppressed
+    report.feedback_unit_residual = feedback_summary.unit_residual
+    report.feedback_unit_publishes = feedback_summary.unit_publishes
+
+    rated_events = feedback_events(
+        written_events,
+        now=datetime.now(UTC),
+        wanted=len(FEEDBACK_SPEAKER_RESPONSE_SHAPE),
+    )
+    rated_speakers = feedback_speakers(
+        roster, contacts, wanted=len(FEEDBACK_SPEAKER_RESPONSE_SHAPE)
+    )
+    if not rated_speakers:
+        raise GeneratorError(
+            "no roster member could be rated: the §13 listing named none of the accepted "
+            "professionals, so the accept did not provision speaker_profile rows"
+        )
+    feedback_students = write_feedback_students(
+        session,
+        tenant_id=tenant_id,
+        unit_id=unit_id,
+        unit_path=args.unit_path,
+        events=rated_events,
+        count=args.feedback_students,
+        report=report,
+    )
+    print(
+        f"generate-pilot-dataset: feedback cohort of {len(feedback_students)} rating "
+        f"{len(rated_speakers)} speakers across {len(rated_events)} open-window events"
+    )
+    post_speaker_feedback(
+        api_base=api_base,
+        unit_id=unit_id,
+        planned=feedback_plan,
+        speakers=rated_speakers,
+        events=rated_events,
+        report=report,
+    )
+
+    report.notes.append(
+        "student feedback: the per-speaker aggregate publishes for "
+        f"{feedback_summary.speakers_published} speakers and is SUPPRESSED for "
+        f"{feedback_summary.speakers_suppressed}, because fewer than "
+        "MIN_RESPONSES_FOR_AGGREGATE students rated them. A suppressed aggregate carries "
+        "no count and no mean — not a zero, which is a thing no student can say. The unit "
+        f"aggregate publishes ({feedback_summary.unit_publishes}) with a residual of "
+        f"{feedback_summary.unit_residual}: the pooled count minus every published "
+        "per-speaker count, which is the only quantity a reader can form by subtracting "
+        "what this API publishes from what it publishes, and it is 0 or >= 3 by design. "
+        f"{feedback_summary.withheld} of {feedback_summary.opportunities} students who "
+        "attended and could have rated a speaker deliberately did not — those speakers' "
+        "counts are lower than the number of people who saw them, on purpose."
     )
 
     report.notes.append(

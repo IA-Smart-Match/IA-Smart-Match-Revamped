@@ -75,17 +75,24 @@ __all__ = [
     "CALENDAR_ANCHOR",
     "DEFAULT_SEED",
     "EVENT_LOCATION",
+    "FEEDBACK_RATING_DISTRIBUTION",
+    "FEEDBACK_SPEAKER_RESPONSE_SHAPE",
     "FEEDBACK_STUDENT_COUNT",
+    "FEEDBACK_WITHHELD_SHARE",
     "IN_LIST_CATEGORIES",
     "OUT_OF_LIST_CATEGORIES",
     "EventPlan",
+    "FeedbackPlan",
+    "FeedbackSummary",
     "PlanSummary",
     "ProfessionalPlan",
     "StudentPlan",
     "build_events",
     "build_professionals",
+    "build_speaker_feedback",
     "build_students",
     "feedback_dev_principals",
+    "feedback_plan_summary",
     "feedback_student_external_subject",
     "feedback_student_token",
     "plan_summary",
@@ -133,6 +140,73 @@ UNKNOWN_LOCATION_SHARE: Final[float] = 0.10
 #: rather than gaining a fuller shortlist.
 UNCLASSIFIED_INDUSTRY_SHARE: Final[float] = 0.15
 UNCLASSIFIED_ROLE_SHARE: Final[float] = 0.08
+
+#: How many ratings each planned speaker actually receives, one entry per
+#: speaker, and the arithmetic here is load-bearing rather than decorative.
+#:
+#: ``smartmatch_domain.student_speaker_feedback`` publishes a per-speaker
+#: aggregate only at ``MIN_RESPONSES_FOR_AGGREGATE`` (three) or above, and
+#: publishes the *unit* aggregate only when the pool clears the same threshold
+#: **and** its residual does::
+#:
+#:     residual = n_unit - sum of n_s over speakers whose own aggregate published
+#:     publish iff n_unit >= 3 and (residual == 0 or residual >= 3)
+#:
+#: The residual rule closes a subtraction: with one speaker published at ``n=3``
+#: and the unit at ``n=5``, the two ratings of somebody else are recoverable as a
+#: mean over two students, which is exactly the statement suppression exists to
+#: withhold.
+#:
+#: ``(5, 4, 2, 1)`` satisfies both while demonstrating both outcomes at once.
+#: Speakers one and two publish (5 and 4 are each above the threshold); speakers
+#: three and four are **suppressed** (2 and 1 are below it); the pool is 12 and
+#: the published sum is 9, so the residual is exactly 3 and the unit aggregate
+#: publishes. A demo built on this shows a published unit number beside a
+#: genuinely withheld per-speaker one, which is the pair a reader has to be able
+#: to tell apart.
+#:
+#: Change any entry and check the arithmetic again. ``(5, 4, 2)`` would leave a
+#: residual of 2 and silently suppress the unit aggregate — the demo would then
+#: show nothing at all and look broken rather than careful.
+FEEDBACK_SPEAKER_RESPONSE_SHAPE: Final[tuple[int, ...]] = (5, 4, 2, 1)
+
+#: Share of the students who *could* rate a given speaker and deliberately do
+#: not. They attended the event, the speaker is on the roster, the window is
+#: open — and no rating exists, so that speaker's count is lower than the number
+#: of people who saw them.
+#:
+#: This is the same discipline as :data:`UNKNOWN_TOPIC_SHARE` and its
+#: neighbours, applied to the one surface where the absence is most easily
+#: mistaken for a zero. A dataset in which everybody who could rate did would
+#: make the suppressed states above unreachable by construction, and would
+#: quietly assert a response rate no real programme has. It is emphatically not
+#: a number to render: a speaker nobody rated has an *unknown* mean, never
+#: ``0.0``, and :class:`SpeakerFeedbackAggregate` makes that combination
+#: unrepresentable rather than merely unproduced.
+#:
+#: The realized share can differ from this constant by a rounding step per
+#: speaker — opportunities are a whole number of people — so
+#: :func:`feedback_plan_summary` reports what a run actually withheld rather
+#: than restating this figure.
+FEEDBACK_WITHHELD_SHARE: Final[float] = 0.25
+
+#: How the posted ratings are distributed over the 1-5 scale, as
+#: ``(rating, relative weight)``. Skewed high and long-tailed low, which is the
+#: shape voluntary feedback actually takes: people who disliked a session mostly
+#: do not fill the form in, and the ones who do are few and emphatic.
+#:
+#: Not uniform, for the reason the attendance shape is not uniform: a flat draw
+#: over five values makes every speaker's mean land near 3.0, and a demo in
+#: which every published mean is the same number demonstrates nothing about the
+#: aggregate it is showing. The weights are relative and are scaled to whatever
+#: number of ratings :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE` calls for.
+FEEDBACK_RATING_DISTRIBUTION: Final[tuple[tuple[int, int], ...]] = (
+    (5, 5),
+    (4, 8),
+    (3, 4),
+    (2, 2),
+    (1, 1),
+)
 
 #: Share of events whose date cannot be resolved (ADR-0010 ``unresolved``).
 #: These have no identity key, never publish, and are withheld from the
@@ -761,6 +835,190 @@ def build_students(count: int, *, seed: int = DEFAULT_SEED) -> tuple[StudentPlan
         )
         for index in range(count)
     )
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackPlan:
+    """One student's opportunity to rate one speaker, taken or deliberately not.
+
+    A *plan of opportunities*, not of rows. ``rating is None`` means this
+    student attended, could have rated this speaker, and did not — so **no row
+    is written at all**. That is the whole point of the type: a withheld rating
+    is the absence of a ``student_speaker_feedback`` row, never a row carrying a
+    zero, and there is no field here a zero could be put in.
+
+    The ranks are positions, not identities. ``speaker_rank`` indexes
+    :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE` and ``student_rank`` is a one-based
+    ordinal into the feedback cohort; the writer maps each onto a real
+    ``speaker_profile.professional_id`` and a real principal it created. Keeping
+    them as positions is what lets this module stay pure — it invents no speaker
+    id, which is also what keeps OQ-CBA-064 untouched.
+
+    Attributes:
+        speaker_rank: Which planned speaker this opinion is about.
+        student_rank: Which member of the feedback cohort holds it.
+        rating: ``MIN_RATING..MAX_RATING``, or ``None`` for a deliberate
+            non-response.
+    """
+
+    speaker_rank: int
+    student_rank: int
+    rating: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackSummary:
+    """What a feedback plan will and will not let the aggregates say.
+
+    Computed rather than asserted, so a change to
+    :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE` shows up here — and in the test that
+    reads it — instead of quietly turning the unit aggregate off.
+
+    Attributes:
+        opportunities: Every (student, speaker) pair the plan reached.
+        posted: How many of them produced a rating.
+        withheld: How many deliberately did not. ``opportunities - posted``.
+        withheld_share: The realized share, which rounding can move a step away
+            from :data:`FEEDBACK_WITHHELD_SHARE`.
+        speakers_published: Speakers whose own aggregate will publish.
+        speakers_suppressed: Speakers whose own aggregate will be withheld.
+        unit_residual: The pool minus every published per-speaker count — the
+            one quantity a reader can form by subtracting what this API
+            publishes from what it publishes.
+        unit_publishes: Whether the unit aggregate clears both conditions.
+    """
+
+    opportunities: int
+    posted: int
+    withheld: int
+    withheld_share: float
+    speakers_published: int
+    speakers_suppressed: int
+    unit_residual: int
+    unit_publishes: bool
+
+
+def _feedback_opportunities(posted: int) -> int:
+    """How many students could have rated a speaker who received ``posted`` ratings.
+
+    ``posted`` grossed up by :data:`FEEDBACK_WITHHELD_SHARE`, rounded to a whole
+    number of people. Rounded rather than ceilinged: a ceiling would push every
+    speaker's withheld count up by one and make the realized share consistently
+    higher than the constant it is derived from, which would be this module
+    claiming a response rate it did not plan.
+
+    Raises:
+        ValueError: ``posted`` is negative.
+    """
+    if posted < 0:
+        raise ValueError("posted must not be negative")
+    return round(posted / (1.0 - FEEDBACK_WITHHELD_SHARE))
+
+
+def build_speaker_feedback(
+    *,
+    shape: Sequence[int] = FEEDBACK_SPEAKER_RESPONSE_SHAPE,
+    seed: int = DEFAULT_SEED,
+) -> tuple[FeedbackPlan, ...]:
+    """Plan who rates whom, with what, and who deliberately says nothing.
+
+    One entry per (speaker, student) opportunity. For speaker ``i``, the plan
+    reaches ``_feedback_opportunities(shape[i])`` students — cohort ranks ``1``
+    upward — and gives ``shape[i]`` of them a rating drawn from
+    :data:`FEEDBACK_RATING_DISTRIBUTION`. The rest carry ``rating=None`` and
+    produce no row.
+
+    Which students stay silent is drawn from a seeded stream rather than taken
+    off the end of the list, because the tail of the list is also the tail of
+    the cohort: withholding by position would make the same two students the
+    ones who never say anything about anybody, which is a pattern rather than a
+    response rate.
+
+    Ranks start at ``1`` and count up per speaker, so the widest speaker uses
+    ranks ``1..n`` and a narrower one uses a prefix of the same people. That
+    overlap is deliberate — a student who rated one speaker and not another is
+    the ordinary case, and a cohort partitioned per speaker would need far more
+    principals to say the same thing.
+
+    Raises:
+        ValueError: ``shape`` is empty, holds a negative count, or calls for
+            more students than :data:`FEEDBACK_STUDENT_COUNT` provides. The last
+            one is refused rather than clamped: silently narrowing a speaker's
+            pool would change the residual arithmetic
+            :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE` was chosen for, and the unit
+            aggregate would stop publishing for a reason nothing reported.
+    """
+    if not shape:
+        raise ValueError("shape must name at least one speaker")
+    if any(posted < 0 for posted in shape):
+        raise ValueError("every entry in shape must be non-negative")
+
+    widest = max(_feedback_opportunities(posted) for posted in shape)
+    if widest > FEEDBACK_STUDENT_COUNT:
+        raise ValueError(
+            f"this shape needs {widest} distinct students and the cohort holds "
+            f"{FEEDBACK_STUDENT_COUNT}; raise FEEDBACK_STUDENT_COUNT rather than "
+            "narrowing the shape, which would change the residual arithmetic"
+        )
+
+    silence_rng = _rng(seed, "feedback-silence")
+    rating_rng = _rng(seed, "feedback-ratings")
+    scale = [rating for rating, weight in FEEDBACK_RATING_DISTRIBUTION for _ in range(weight)]
+
+    planned: list[FeedbackPlan] = []
+    for speaker_rank, posted in enumerate(shape):
+        opportunities = _feedback_opportunities(posted)
+        ranks = list(range(1, opportunities + 1))
+        speaking = set(silence_rng.sample(ranks, min(posted, opportunities)))
+        for student_rank in ranks:
+            planned.append(
+                FeedbackPlan(
+                    speaker_rank=speaker_rank,
+                    student_rank=student_rank,
+                    rating=rating_rng.choice(scale) if student_rank in speaking else None,
+                )
+            )
+    return tuple(planned)
+
+
+def feedback_plan_summary(planned: Sequence[FeedbackPlan]) -> FeedbackSummary:
+    """Work out what the aggregates will be able to say about this plan.
+
+    The residual condition is restated here rather than imported, and that is a
+    deliberate duplication with a stated cost: this module may not import from
+    ``smartmatch_domain.student_speaker_feedback`` without making a pure plan
+    depend on the shipped aggregate. The duplication is safe only because
+    ``tests/unit/test_pilot_dataset_plan.py`` asserts this function's verdict
+    against that module's own ``aggregate_unit_feedback``, so the two cannot
+    drift without a test failing.
+    """
+    posted_by_speaker: dict[int, int] = {}
+    opportunities = 0
+    for entry in planned:
+        opportunities += 1
+        if entry.rating is not None:
+            posted_by_speaker[entry.speaker_rank] = posted_by_speaker.get(entry.speaker_rank, 0) + 1
+
+    posted = sum(posted_by_speaker.values())
+    published = [count for count in posted_by_speaker.values() if count >= _MIN_RESPONSES]
+    suppressed = sum(1 for count in posted_by_speaker.values() if count < _MIN_RESPONSES)
+    residual = posted - sum(published)
+    return FeedbackSummary(
+        opportunities=opportunities,
+        posted=posted,
+        withheld=opportunities - posted,
+        withheld_share=0.0 if opportunities == 0 else (opportunities - posted) / opportunities,
+        speakers_published=len(published),
+        speakers_suppressed=suppressed,
+        unit_residual=residual,
+        unit_publishes=posted >= _MIN_RESPONSES and (residual == 0 or residual >= _MIN_RESPONSES),
+    )
+
+
+#: The publication threshold, restated for :func:`feedback_plan_summary`. See
+#: that function on why the shipped constant is not imported here, and on the
+#: test that keeps the two equal.
+_MIN_RESPONSES: Final[int] = 3
 
 
 def plan_summary(
