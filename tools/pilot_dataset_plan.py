@@ -220,17 +220,27 @@ FEEDBACK_RATING_DISTRIBUTION: Final[tuple[tuple[int, int], ...]] = (
 #: has, and it would hide the one outcome the invitations surface exists to
 #: report honestly: that a shortlisted person cannot be written to yet.
 #:
-#: A half rather than a tenth, and the arithmetic is the reason. A batch holds
-#: the run's shortlist — three speakers drawn from the handful the fixture
-#: semantic-topic provider leaves scorable — so a small share would leave every
-#: batch all-skipped by luck, which demonstrates as little as all-invited would.
+#: Three quarters rather than a half, and the number was moved *after* a run
+#: rather than guessed. The batches do not sample the roster: a batch holds the
+#: run's shortlist, and every shortlist is drawn from the same handful of
+#: candidates the fixture semantic-topic provider leaves scorable — six distinct
+#: people across three runs, on the recorded run. A share applied to a hundred
+#: roster members therefore lands on a sample of six, where it has enormous
+#: variance: at one half it covered exactly one of the six, and eight of nine
+#: invitation rows were skipped. That is as uninformative as all-invited.
+#:
+#: Three quarters still leaves a real remainder — a quarter of the roster holds
+#: no channel at all — while making it unlikely that a three-person shortlist
+#: comes out uniformly one way. It is a coverage figure, not a claim about
+#: anybody's consent: what each covered person actually holds is recorded by
+#: ``generate_pilot_dataset.record_contact_channels``, and what it says is below.
 #:
 #: What a channel here does **not** assert is a real permission. See
 #: ``generate_pilot_dataset.record_contact_channels``: the consent evidence
 #: string says in words that this is generated fixture data on a reserved
 #: ``.invalid`` domain, because inventing a form submission id would be
 #: fabricating exactly the evidence gate G4 exists to require.
-CONTACT_CHANNEL_SHARE: Final[float] = 0.50
+CONTACT_CHANNEL_SHARE: Final[float] = 0.75
 
 
 def records_contact_channel(index: int) -> bool:
@@ -241,14 +251,16 @@ def records_contact_channel(index: int) -> bool:
     must reach the same people on every run, or two runs of one seed would
     disagree about who an invitation could address.
 
-    Every other member, which is exactly :data:`CONTACT_CHANNEL_SHARE`.
+    Three in every four, which is exactly :data:`CONTACT_CHANNEL_SHARE`. The
+    fourth is the deliberate remainder that keeps ``no_contact_channel`` a
+    visible outcome.
 
     Raises:
         ValueError: ``index`` is negative.
     """
     if index < 0:
         raise ValueError("index must not be negative")
-    return index % 2 == 0
+    return index % 4 != 3
 
 
 #: Share of events whose date cannot be resolved (ADR-0010 ``unresolved``).

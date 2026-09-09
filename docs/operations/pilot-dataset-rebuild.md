@@ -169,6 +169,11 @@ completed run.
 that route requires — because on this surface a retry without one is a second
 batch, and a second batch is a second message to everybody in the first.
 
+**Phase D: contact channels**, recorded and then separately activated through
+`routers/cba_contact_channels.py`, so a batch has somebody it can actually
+address. Sequenced before composition, because a batch resolves each
+recipient's channel as it composes.
+
 **Phase C: student speaker feedback**, through the student's own route. Each
 rating is a `POST` made with that student's own bearer token, because
 `routers/student_speaker_feedback.py` takes `student_id` from the verified
@@ -235,7 +240,7 @@ The actual output of `make verify-pilot-dataset` after
 `reward_item`.
 
 ```
-verify-pilot-dataset: tenant 2f394b37-… (slug 'pilot'), unit b1798a73-…
+verify-pilot-dataset: tenant 9a47555f-… (slug 'pilot'), unit 27691431-…
   professional_unit_relationship      250         generator Phase B
   event                                63         generator Phase B
   job                                   7         generator Phase A (HTTP import)
@@ -261,6 +266,23 @@ Alongside it, `pilot_credential` holds **4** rows — one login per role
 (`coordinator`, `student`, `admin`, `volunteer`). Step 5 gates on that count
 being non-zero, because a full database nobody can sign in to is a failed
 rebuild.
+
+`contact_channel` holds **75**, every one `active_candidate` with source
+`institutional_relationship` — recorded and then separately activated by
+Phase D. The other 25 roster members hold no channel at all, deliberately, and
+that is what produces the invitation split:
+
+```
+cba_invitation   pending                          6
+                 skipped / no_contact_channel     3
+```
+
+Six composed and three skipped across three batches (2/1, 3/0, 1/2) — a real
+mix rather than uniformly one outcome. Nothing is dispatched.
+
+Student feedback, from the same run: 8 students, 12 ratings posted, 4
+deliberately withheld, 2 per-speaker aggregates published, 2 suppressed, unit
+residual 3, unit aggregate publishes.
 
 Each of the three match runs, on the fixture path:
 
@@ -310,6 +332,7 @@ one screen:
 | `QUARANTINED_TAG_SHARE` | 0.15 | events carrying an off-vocabulary tag |
 | `OUT_OF_LIST_CATEGORY_SHARE` | 0.15 | events under a category the counting rule excludes |
 | `FEEDBACK_WITHHELD_SHARE` | 0.25 | students who attended, could rate a speaker, and did not |
+| `CONTACT_CHANNEL_SHARE` | 0.75 *covered* | the remaining quarter of the roster holds no channel, so cannot be invited |
 
 Two more are arithmetic rather than constants. Roughly one roster member in
 five is left **unreviewed** on §19 (`reviews_classification`), so the run
@@ -340,16 +363,25 @@ The attendance-derived balances are real regardless. `verify-pilot-dataset`
 will keep reporting `reward_item` as empty, and should — an operator who *did*
 supply a row and got nothing needs that failure.
 
-### Every invitation is skipped, and this is not a bug either
+### A quarter of the roster can never be invited, on purpose
 
 A batch invites somebody only if they hold a `contact_channel` that is
 `active_candidate`, carries an approved consent source, and is unsuppressed.
-Nothing in the import path writes a `contact_channel` row —
-`smartmatch_api.pipeline_provisioning` says so itself — and the generator will
-not write one: **a consent origin is exactly the evidence ADR-0011 and gate G4
-forbid a generator from manufacturing.** So the batches are real, the outcomes
-are real, and every outcome is a skip carrying the reason that names the
-condition which failed.
+Nothing in the import path writes such a row — `pipeline_provisioning` says so
+itself — so Phase D records them, through the consent surface's own acts: a
+create at `consented` naming an approved source and its evidence, then a
+**separate** transition to `active_candidate`. A create may never assert that
+state; a row born sendable makes "who activated this person" unanswerable.
+
+`CONTACT_CHANNEL_SHARE` covers three quarters of the roster and leaves the rest
+with nothing, so `no_contact_channel` stays a visible skip. A roster where
+everybody is reachable asserts a consent coverage no real programme has.
+
+**The consent evidence invents nothing.** It says in words that the address is
+generated fixture data on the reserved `.invalid` domain and that no permission
+is asserted and no form submission is cited. A fabricated submission id would
+be manufacturing precisely the evidence gate G4 requires, and an auditor
+following the trail would find a citation to nothing.
 
 ### Nothing is dispatched
 
