@@ -189,14 +189,22 @@ import sqlalchemy as sa
 from pilot_dataset_plan import (
     CALENDAR_ANCHOR,
     DEFAULT_SEED,
+    FEEDBACK_SPEAKER_RESPONSE_SHAPE,
+    FEEDBACK_STUDENT_COUNT,
     IN_LIST_CATEGORIES,
     EventPlan,
+    FeedbackPlan,
     ProfessionalPlan,
     StudentPlan,
     build_events,
     build_professionals,
+    build_speaker_feedback,
     build_students,
+    feedback_plan_summary,
+    feedback_student_external_subject,
+    feedback_student_token,
     plan_summary,
+    records_contact_channel,
 )
 from seed_demo_pipeline import (
     _SelectedJourney,
@@ -204,13 +212,22 @@ from seed_demo_pipeline import (
     resolve_tenant_id,
     resolve_unit_id,
 )
-from seed_pilot import SeedConfigurationError, require_development_fixture_settings
+from seed_pilot import (
+    SeedConfigurationError,
+    _existing_or_insert_membership,
+    require_development_fixture_settings,
+)
 from smartmatch_api.config import Settings
 from smartmatch_api.routers.match_runs import MAX_CANDIDATES
 from smartmatch_domain.event_vocabulary import G3_VOCABULARY
 from smartmatch_domain.events import DateOnlyTime, EventTime, ExactTime, UnresolvedTime
 from smartmatch_domain.explanation import MAX_SHORTLIST_SIZE
 from smartmatch_domain.pipeline import PipelineStage
+from smartmatch_domain.student_speaker_feedback import (
+    EditWindowState,
+    feedback_anchor,
+    resolve_edit_window,
+)
 from smartmatch_domain.synthetic_pilot import (
     SYNTHETIC_ATTENDANCE_METHOD,
     SYNTHETIC_BOARD_ROLE,
@@ -356,6 +373,42 @@ CLASSIFICATION_PACE_SECONDS: Final[float] = 2.05
 #: which is the spread that makes a ranking readable.
 SPEAKER_REQUEST_TARGETS: Final[int] = 2
 
+#: How many Speaker Requests a run files, and therefore how many match runs it
+#: submits and how many invitation batches it composes.
+#:
+#: It used to be one, and one was not enough to demonstrate the surface built on
+#: top of it. The invitations page composes against a **recorded shortlist**, so
+#: a single run means a single reachable shortlist: one batch, one set of
+#: outcomes, and no way to see two batches in different states beside each
+#: other. Three requests give the Connector surface a list rather than a row.
+#:
+#: Three rather than five, and the ceiling is arithmetic. Each run names the
+#: whole reviewed roster as candidates and each is paced below; more runs is
+#: more minutes for a demo that gains nothing after the third. Each is also one
+#: more chance to meet the ``422`` this generator refuses to paper over — see
+#: :func:`submit_match_run`.
+SPEAKER_REQUEST_COUNT: Final[int] = 3
+
+#: Seconds between match-run submissions. There is no per-unit match-run rate
+#: limit to stay under; this exists so three runs against the same roster do not
+#: arrive inside one second and contend on the same rows. A pace, not a retry.
+MATCH_RUN_PACE_SECONDS: Final[float] = 1.05
+
+#: Seconds between invitation-batch compositions.
+#: ``INVITATION_BATCH_RATE_LIMIT`` allows twenty a minute; three batches cannot
+#: approach that, and the pace is here for the reason
+#: :data:`DECISION_PACE_SECONDS` gives — a tool that runs flat out against a
+#: limiter is a tool that hides how close it is running to one.
+INVITATION_BATCH_PACE_SECONDS: Final[float] = 3.05
+
+#: Seconds between student feedback submissions. ``STUDENT_FEEDBACK_RATE_LIMIT``
+#: allows thirty writes a minute and the whole of Phase C is a dozen or so
+#: requests spread over a cohort, so this is well clear of it. It is here for
+#: :data:`DECISION_PACE_SECONDS`'s reason and for one more: these requests each
+#: authenticate as a *different* principal, and pacing them keeps the API's
+#: quota accounting legible in a log rather than a burst.
+FEEDBACK_PACE_SECONDS: Final[float] = 0.35
+
 #: The generated Speaker Request's date. Derived from the plan's own calendar
 #: anchor rather than from ``date.today()``, for the reason
 #: :data:`~pilot_dataset_plan.CALENDAR_ANCHOR` is a literal: a request whose date
@@ -372,6 +425,82 @@ class GeneratorError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class MatchRunOutcome:
+    """One Speaker Request, the run submitted against it, and the batch composed from it.
+
+    One record per variant rather than one set of scalars on the report, because
+    the whole point of filing more than one request is that the three differ:
+    different §7/§8 targets produce different shortlists, and a batch composed
+    from a thin shortlist and a batch composed from a full one are the two
+    states a Connector needs to be able to tell apart.
+
+    ``dispatched`` is a field and is always ``False``. It is recorded rather than
+    omitted because "composed, not sent" is a real and reportable state of a
+    batch, and a report with no such field would leave a reader to assume the
+    messages went out. Nothing here dispatches: the outreach transport ships
+    behind gate G4 (consent-origin policy, supervised recipient policy, and
+    deliverability review approved), and ``smartmatch_providers.registry``
+    refuses to construct an adapter until it opens.
+
+    Attributes:
+        variant: This request's ordinal, ``0``-based, and the offset into the
+            roster's ranked §7/§8 codes its targets are drawn from.
+        category: The in-list engagement category this request is named for.
+            Presentation only — ``POST /v1/units/{id}/speaker-requests`` has no
+            category field, and the counting rule reads a category off an
+            *event* row, not off a request. It is here so three requests read as
+            three different programmes rather than three copies.
+        skip_reasons: Why each un-invited recipient produced no invitation,
+            counted by reason. A skip is an outcome, not an error: see
+            :func:`compose_invitation_batch`.
+    """
+
+    variant: int
+    category: str
+    speaker_request_id: str | None = None
+    job: str | None = None
+    job_status: str | None = None
+    run_id: str | None = None
+    scoring_mode: str | None = None
+    candidates: int | None = None
+    scored: int | None = None
+    unscorable: int | None = None
+    excluded: int | None = None
+    excluded_reasons: dict[str, int] = field(default_factory=dict)
+    portfolio_status: str | None = None
+    shortlist: tuple[uuid.UUID, ...] = ()
+    batch_id: str | None = None
+    invited: int | None = None
+    skipped: int | None = None
+    skip_reasons: dict[str, int] = field(default_factory=dict)
+    dispatched: bool = False
+    notes: list[str] = field(default_factory=list)
+
+    def lines(self) -> tuple[str, ...]:
+        """This variant's block of the report, one fact per line."""
+        return (
+            f"request {self.variant + 1} ({self.category})",
+            f"  speaker request           {self.speaker_request_id or 'not filed'}",
+            f"  match-run job             {self.job or 'not submitted'}",
+            f"    job status              {self.job_status}",
+            f"    match run               {self.run_id}",
+            f"    scoring mode            {self.scoring_mode}",
+            f"    candidates named        {self.candidates}",
+            f"    scored candidates       {self.scored}",
+            f"    unscorable candidates   {self.unscorable} (reported, never zeroed)",
+            f"    excluded candidates     {self.excluded} (never evaluated)",
+            f"      by reason             {self.excluded_reasons or '{}'}",
+            f"    portfolio status        {self.portfolio_status}",
+            f"    shortlist               {len(self.shortlist)} speakers",
+            f"  invitation batch          {self.batch_id or 'not composed'}",
+            f"    invitations composed    {self.invited}",
+            f"    recipients skipped      {self.skipped}",
+            f"      by reason             {self.skip_reasons or '{}'}",
+            f"    dispatched              {self.dispatched} (G4-gated; composed, not sent)",
+        )
 
 
 @dataclass(slots=True)
@@ -407,18 +536,22 @@ class RunReport:
     speaker_contacts_reviewed: int = 0
     speaker_contacts_left_unreviewed: int = 0
     speaker_contacts_unclassifiable: int = 0
-    speaker_request_id: str | None = None
-    match_run_job: str | None = None
-    match_run_id: str | None = None
-    match_run_job_status: str | None = None
-    match_run_scoring_mode: str | None = None
-    match_run_candidates: int | None = None
-    match_run_scored: int | None = None
-    match_run_unscorable: int | None = None
-    match_run_excluded: int | None = None
-    match_run_excluded_reasons: dict[str, int] = field(default_factory=dict)
-    match_run_portfolio_status: str | None = None
-    match_run_shortlist: int | None = None
+    contact_channels_recorded: int = 0
+    contact_channels_activated: int = 0
+    contact_channels_already_recorded: int = 0
+    contacts_left_unreachable: int = 0
+    match_runs: list[MatchRunOutcome] = field(default_factory=list)
+    feedback_students: int = 0
+    feedback_events: int = 0
+    feedback_speakers: int = 0
+    feedback_attendances: int = 0
+    feedback_ratings_posted: int = 0
+    feedback_ratings_amended: int = 0
+    feedback_withheld: int = 0
+    feedback_speakers_published: int = 0
+    feedback_speakers_suppressed: int = 0
+    feedback_unit_residual: int = 0
+    feedback_unit_publishes: bool = False
     notes: list[str] = field(default_factory=list)
 
     def lines(self) -> tuple[str, ...]:
@@ -448,18 +581,24 @@ class RunReport:
             f"  classifications reviewed  {self.speaker_contacts_reviewed} (§19, now matchable)",
             f"  left unreviewed           {self.speaker_contacts_left_unreviewed} (deliberate)",
             f"  nothing to review         {self.speaker_contacts_unclassifiable} (unclassified)",
-            f"speaker request filed       {self.speaker_request_id or 'not filed'}",
-            f"match-run job               {self.match_run_job or 'not submitted'}",
-            f"  job status                {self.match_run_job_status}",
-            f"  match run                 {self.match_run_id}",
-            f"  scoring mode              {self.match_run_scoring_mode}",
-            f"  candidates named          {self.match_run_candidates}",
-            f"  scored candidates         {self.match_run_scored}",
-            f"  unscorable candidates     {self.match_run_unscorable} (reported, never zeroed)",
-            f"  excluded candidates       {self.match_run_excluded} (never evaluated)",
-            f"    by reason               {self.match_run_excluded_reasons or '{}'}",
-            f"  portfolio status          {self.match_run_portfolio_status}",
-            f"  shortlist                 {self.match_run_shortlist} speakers",
+            f"contact channels recorded   {self.contact_channels_recorded} (consented)",
+            f"  activated                 {self.contact_channels_activated} (separate act)",
+            f"  already recorded          {self.contact_channels_already_recorded} (re-run)",
+            f"  left with NO channel      {self.contacts_left_unreachable} (deliberate)",
+            f"speaker requests filed      {sum(1 for r in self.match_runs if r.speaker_request_id)}"
+            f" of {len(self.match_runs)}",
+            *(line for outcome in self.match_runs for line in outcome.lines()),
+            f"feedback students           {self.feedback_students} (each holds its own token)",
+            f"  events rated at           {self.feedback_events} (edit window still open)",
+            f"  speakers rated            {self.feedback_speakers}",
+            f"  attendance records        {self.feedback_attendances}",
+            f"  ratings posted            {self.feedback_ratings_posted}",
+            f"  ratings amended           {self.feedback_ratings_amended} (re-run)",
+            f"  deliberately withheld     {self.feedback_withheld} (attended, said nothing)",
+            f"  per-speaker published     {self.feedback_speakers_published}",
+            f"  per-speaker SUPPRESSED    {self.feedback_speakers_suppressed} (below threshold)",
+            f"  unit residual             {self.feedback_unit_residual}",
+            f"  unit aggregate publishes  {self.feedback_unit_publishes}",
         )
 
 
@@ -1078,26 +1217,38 @@ def reviews_classification(index: int) -> bool:
     return index % 5 != 4
 
 
-def _frequent_codes(values: Sequence[str | None], *, wanted: int) -> list[str]:
+def _frequent_codes(values: Sequence[str | None], *, wanted: int, offset: int = 0) -> list[str]:
     """The ``wanted`` most common non-null codes, ties broken by the code itself.
 
     Deterministic on purpose: ``collections.Counter.most_common`` breaks ties by
     insertion order, which for this caller is roster order, which changes with
     ``--professionals``. Sorting on the count *and* the code makes the Speaker
     Request's targets a function of the seed alone.
+
+    ``offset`` slides the window down the ranking, and it is what makes
+    :data:`SPEAKER_REQUEST_COUNT` requests differ from one another rather than
+    being three copies of the same filing. It wraps: a roster holding fewer
+    distinct codes than ``offset + wanted`` reaches around to the head rather
+    than returning a short list, because a Speaker Request naming *fewer*
+    targets than its siblings would score its candidates on a narrower
+    comparison and the three runs would stop being comparable. Wrapping is
+    stated here rather than left to a caller to notice.
     """
     counts: dict[str, int] = {}
     for value in values:
         if value is not None:
             counts[value] = counts.get(value, 0) + 1
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    return [code for code, _ in ranked[:wanted]]
+    ranked = [code for code, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+    if not ranked:
+        return []
+    return [ranked[(offset + step) % len(ranked)] for step in range(min(wanted, len(ranked)))]
 
 
 def speaker_request_body(
     roster: Sequence[ProfessionalPlan],
     *,
     seed: int,
+    variant: int = 0,
 ) -> dict[str, Any]:
     """Build the ``POST /v1/units/{unit_id}/speaker-requests`` body (customer §12).
 
@@ -1119,11 +1270,37 @@ def speaker_request_body(
     the tag vocabulary, because a description assembled out of the same twelve
     terms the speakers' expertise cells are drawn from would make the comparison
     a lexical overlap wearing a semantic factor's clothes.
+
+    ``variant`` selects one of :data:`SPEAKER_REQUEST_COUNT` sibling requests.
+    It does three things and each is deliberate: it slides the §7/§8 target
+    window down the roster's ranking (see :func:`_frequent_codes`), so the three
+    runs score their candidates against genuinely different targets rather than
+    producing one shortlist three times; it picks an in-list engagement category
+    to name the request after; and it distinguishes the ADR-0012 identity key —
+    same host unit, same folded title, same date — so filing three requests on
+    one date does not resolve all three onto the first.
+
+    The category is **presentation only**. There is no category field on
+    ``POST /v1/units/{id}/speaker-requests``, and the ratified counting rule
+    reads a category off an ``event`` row rather than off a request; naming one
+    here would be inventing a field if it claimed to be anything more.
+
+    Raises:
+        ValueError: ``variant`` is negative.
     """
+    if variant < 0:
+        raise ValueError("variant must not be negative")
+    category = IN_LIST_CATEGORIES[variant % len(IN_LIST_CATEGORIES)]
     industries = _frequent_codes(
-        [person.industry_code for person in roster], wanted=SPEAKER_REQUEST_TARGETS
+        [person.industry_code for person in roster],
+        wanted=SPEAKER_REQUEST_TARGETS,
+        offset=variant * SPEAKER_REQUEST_TARGETS,
     )
-    roles = _frequent_codes([person.role_code for person in roster], wanted=SPEAKER_REQUEST_TARGETS)
+    roles = _frequent_codes(
+        [person.role_code for person in roster],
+        wanted=SPEAKER_REQUEST_TARGETS,
+        offset=variant * SPEAKER_REQUEST_TARGETS,
+    )
     if not industries or not roles:
         raise GeneratorError(
             "the planned roster states no §7 sector or no §8 role category at all, so no "
@@ -1131,9 +1308,11 @@ def speaker_request_body(
             "UNCLASSIFIED_ROLE_SHARE in tools/pilot_dataset_plan.py"
         )
     return {
-        "title": f"Synthetic pilot speaker panel {seed}",
+        "title": f"Synthetic pilot {category.lower()} panel {seed}-{variant + 1}",
         "time_zone": PILOT_TIME_ZONE,
-        "on_date": (CALENDAR_ANCHOR + timedelta(days=SPEAKER_REQUEST_LEAD_DAYS)).isoformat(),
+        "on_date": (
+            CALENDAR_ANCHOR + timedelta(days=SPEAKER_REQUEST_LEAD_DAYS + variant)
+        ).isoformat(),
         "is_virtual": True,
         "industry_codes": industries,
         "role_codes": roles,
@@ -1199,7 +1378,7 @@ def file_speaker_request(
     bearer_token: str,
     unit_id: uuid.UUID,
     body: Mapping[str, Any],
-    report: RunReport,
+    outcome: MatchRunOutcome,
 ) -> uuid.UUID:
     """File the Speaker Request a match run cannot exist without, and return its id.
 
@@ -1220,7 +1399,7 @@ def file_speaker_request(
             f"POST /v1/units/{unit_id}/speaker-requests answered {status}: {payload}"
         )
     request_id = uuid.UUID(str(payload["request_id"]))
-    report.speaker_request_id = str(request_id)
+    outcome.speaker_request_id = str(request_id)
     print(
         f"generate-pilot-dataset: speaker request {request_id} "
         f"({'filed' if status == 201 else 'already filed, updated'})"
@@ -1423,21 +1602,27 @@ def submit_match_run(
     request_id: str,
     attempts: int,
     delay: float,
-    report: RunReport,
+    outcome: MatchRunOutcome,
 ) -> None:
-    """Submit the run, follow it to a terminal state, and report the shortlist.
+    """Submit the run, follow it to a terminal state, and record the shortlist.
 
     A ``202`` on its own proves the body was well formed and nothing else. What a
     stakeholder opens is the *persisted run*, so this follows the job to a
-    terminal state and reads the run back — and reports the shortlist it found,
+    terminal state and reads the run back — and records the shortlist it found,
     including when that shortlist is thin. A green submission over an empty
     shortlist is not a working demo, and reporting it as one is the failure mode
     this whole phase exists to avoid.
 
-    ``503 registry_not_ready`` is reported rather than raised. It means the
-    factor registry on this appliance is not approved or not fully implemented,
-    which is a deployment fact about the stack rather than a defect in the
-    dataset the run had already generated.
+    The shortlist is **kept**, not merely counted, because the invitation batch
+    this variant composes next is composed from it. That is the whole reason
+    more than one request is filed: the invitations surface composes against a
+    recorded shortlist, so one run is one reachable batch.
+
+    ``503 registry_not_ready`` and ``422`` are recorded rather than raised. Both
+    are the appliance answering honestly — the factor registry here is not
+    approved, or fewer candidates could be scored than the shortlist needs — and
+    both leave this variant with a filed request and no run, which is a state the
+    report names rather than a failure that aborts the other two variants.
     """
     status, payload = _request(
         method="POST",
@@ -1447,11 +1632,10 @@ def submit_match_run(
         request_id=request_id,
     )
     if status == 503 and isinstance(payload, dict) and "registry_not_ready" in str(payload):
-        report.notes.append(
+        outcome.notes.append(
             "match run NOT submitted: the API answered 503 registry_not_ready, so this "
-            "appliance's factor registry is not approved or not fully implemented. Every "
-            "other phase above completed; the Connector surface has a filed Speaker "
-            "Request and a reviewed roster and no run to open."
+            "appliance's factor registry is not approved or not fully implemented. This "
+            "variant has a filed Speaker Request and no run to open."
         )
         return
     if status == 422:
@@ -1463,54 +1647,54 @@ def submit_match_run(
         # OQ-CBA-061 until ADR-0017 dissolved it — see the note below).
         # Papering over it with a smaller portfolio_size here would be this
         # tool choosing a presentation rule.
-        report.notes.append(
+        outcome.notes.append(
             "match run REFUSED with 422: fewer candidates could be scored than the "
-            f"{MAX_SHORTLIST_SIZE}-speaker shortlist needs. The Connector surface has a "
-            "filed Speaker Request and a reviewed roster and NO run to open. See the "
-            f"OQ-CBA-061 note below — the API's answer was: {payload}"
+            f"{MAX_SHORTLIST_SIZE}-speaker shortlist needs. This variant has a filed "
+            "Speaker Request and NO run to open. See the OQ-CBA-061 note the run prints "
+            f"— the API's answer was: {payload}"
         )
         return
     if status != 202 or not isinstance(payload, dict):
         raise GeneratorError(f"POST /v1/units/{unit_id}/match-runs answered {status}: {payload}")
 
     job_id = uuid.UUID(str(payload["job_id"]))
-    report.match_run_job = str(job_id)
-    report.match_run_scoring_mode = payload.get("scoring_mode")
-    report.match_run_candidates = len(body["candidate_subject_ids"])
-    report.match_run_scored = payload.get("scored_candidates")
-    report.match_run_unscorable = payload.get("unscorable_candidates")
+    outcome.job = str(job_id)
+    outcome.scoring_mode = payload.get("scoring_mode")
+    outcome.candidates = len(body["candidate_subject_ids"])
+    outcome.scored = payload.get("scored_candidates")
+    outcome.unscorable = payload.get("unscorable_candidates")
 
     excluded = payload.get("excluded_candidates") or []
-    report.match_run_excluded = len(excluded)
+    outcome.excluded = len(excluded)
     reasons: dict[str, int] = {}
     for entry in excluded:
         reason = str(entry.get("reason"))
         reasons[reason] = reasons.get(reason, 0) + 1
-    report.match_run_excluded_reasons = reasons
+    outcome.excluded_reasons = reasons
 
-    report.match_run_job_status = wait_for_job(
+    outcome.job_status = wait_for_job(
         api_base=api_base,
         bearer_token=bearer_token,
         job_id=job_id,
         attempts=attempts,
         delay=delay,
     )
-    if report.match_run_job_status != "succeeded":
-        report.notes.append(
-            f"the match-run job finished {report.match_run_job_status!r} rather than "
-            "'succeeded', so there is no persisted run for a stakeholder to open. The "
-            "submission was accepted; the work was not completed."
+    if outcome.job_status != "succeeded":
+        outcome.notes.append(
+            f"the match-run job finished {outcome.job_status!r} rather than 'succeeded', so "
+            "there is no persisted run for a stakeholder to open. The submission was "
+            "accepted; the work was not completed."
         )
         return
 
     run_id = _completed_match_run_id(api_base=api_base, bearer_token=bearer_token, job_id=job_id)
     if run_id is None:
-        report.notes.append(
+        outcome.notes.append(
             "the match-run job succeeded but its completion event named no match_run_id, "
             "so this tool cannot say what the shortlist holds"
         )
         return
-    report.match_run_id = str(run_id)
+    outcome.run_id = str(run_id)
 
     status, run = _request(
         method="GET",
@@ -1521,13 +1705,529 @@ def submit_match_run(
         raise GeneratorError(
             f"GET /v1/units/{unit_id}/match-runs/{run_id} answered {status}: {run}"
         )
-    report.match_run_portfolio_status = run.get("portfolio_status")
-    report.match_run_shortlist = len(run.get("shortlist") or [])
+    outcome.portfolio_status = run.get("portfolio_status")
+    shortlist = run.get("shortlist") or []
+    outcome.shortlist = tuple(uuid.UUID(str(entry["subject_id"])) for entry in shortlist)
     if not run.get("shortlist_available", True):
-        report.notes.append(
+        outcome.notes.append(
             "the persisted run's shortlist could not be reconstructed: "
             f"{run.get('shortlist_unavailable_reason')}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase D — contact channels, through the three acts the consent surface wants
+# ---------------------------------------------------------------------------
+
+
+def record_contact_channels(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+    report: RunReport,
+) -> None:
+    """Give half the roster an address an invitation may address. Two acts each.
+
+    ``routers/cba_contact_channels.py`` is explicit that this is not one step,
+    and this function does not shortcut it:
+
+    1. **The create** — ``POST .../speaker-contacts/{professional_id}/channels``
+       — records the address at ``consented``, naming an approved source and the
+       evidence for it. A create may assert at most ``discovered`` (this unit
+       holds the address and says nothing more) or ``consented`` (a named,
+       dated, approved permission already exists). It may **never** create an
+       ``active_candidate``.
+    2. **The transition** — ``POST .../channels/{id}/transitions`` — moves
+       ``consented -> active_candidate``, the single legal edge into the one
+       state a send may address, carrying an actor.
+
+    That second request is not ceremony and is not skippable. A row born
+    sendable makes "who activated this person" a question with no answer, which
+    is the exact defect the module's docstring says it exists to prevent. The
+    only way to reach ``active_candidate`` is a recorded move, so this makes one.
+
+    **What the evidence string says, and why it says it.** The consent evidence
+    names this dataset and its reserved domain in words. It does not invent a
+    form submission id, a date somebody signed something, or a coordinator's
+    note about a conversation that did not happen — those would be fabricating
+    precisely the evidence gate G4 exists to require, and an auditor following
+    the trail would find a citation to nothing. What is true here is that a
+    synthetic-pilot fixture recorded a synthetic address, and that is what the
+    trail says. ``institutional_relationship`` is the approved source it is
+    recorded under: these are a unit's own roster contacts on that unit's own
+    campus fixture, which is the one of the four approved sources that describes
+    a relationship rather than an act somebody took.
+
+    **Half the roster, and the other half is deliberate.**
+    :func:`~pilot_dataset_plan.records_contact_channel` decides which, so a
+    remainder is left holding no channel at all and ``no_contact_channel``
+    stays a visible skip on every composed batch. A roster where everybody is
+    reachable would assert a consent coverage no real programme has.
+
+    Nothing here sends. The synthetic-pilot authorization covers recording a
+    channel and a consent; it does not cover dispatch, and dispatch stays behind
+    gate G4.
+    """
+    for index, person in enumerate(roster):
+        if not records_contact_channel(index):
+            report.contacts_left_unreachable += 1
+            continue
+        contact = contacts.get(person.name)
+        if contact is None:
+            continue
+        professional_id = uuid.UUID(str(contact["professional_id"]))
+        base = f"{api_base}/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels"
+
+        status, payload = _request(
+            method="POST",
+            url=base,
+            bearer_token=bearer_token,
+            body={
+                # Derived, never typed: the same `.invalid` address this run
+                # already put on the account (RFC 2606, cannot resolve, cannot
+                # be written to by accident).
+                "address": synthetic_professional_email(professional_id),
+                "contact_state": "consented",
+                "consent_source": "institutional_relationship",
+                "consent_evidence": (
+                    "Synthetic pilot dataset: this address is generated on the reserved "
+                    ".invalid domain by tools/generate_pilot_dataset.py and is not "
+                    "deliverable. No real permission is asserted and no form submission "
+                    "is cited."
+                ),
+                "reason": "Synthetic pilot fixture: recorded so an invitation batch has a "
+                "reachable recipient to compose against.",
+            },
+        )
+        if status == 409:
+            # Already recorded on an earlier run, or suppressed. Either way this
+            # tool does not record a second consent over it — that is the "we
+            # got a new form" reasoning suppression exists to overrule.
+            report.contact_channels_already_recorded += 1
+            time.sleep(CLASSIFICATION_PACE_SECONDS)
+            continue
+        if status != 201 or not isinstance(payload, dict):
+            raise GeneratorError(f"POST {base} answered {status}: {payload}")
+        channel_id = payload["channel"]["contact_channel_id"]
+        report.contact_channels_recorded += 1
+        time.sleep(CLASSIFICATION_PACE_SECONDS)
+
+        status, payload = _request(
+            method="POST",
+            url=f"{base}/{channel_id}/transitions",
+            bearer_token=bearer_token,
+            body={
+                "to_state": "active_candidate",
+                "reason": "Synthetic pilot fixture: activated as a separate recorded act, "
+                "because a channel may never be created in this state.",
+            },
+        )
+        if status != 201:
+            raise GeneratorError(
+                f"POST {base}/{channel_id}/transitions answered {status}: {payload}. The "
+                "channel was recorded at 'consented' and NOT activated, so it cannot be "
+                "addressed — which is the correct outcome for a failed activation, but "
+                "leaves this run half done."
+            )
+        report.contact_channels_activated += 1
+        time.sleep(CLASSIFICATION_PACE_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# Invitations — composed against a recorded shortlist, and never sent
+# ---------------------------------------------------------------------------
+
+
+def compose_invitation_batch(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    seed: int,
+    outcome: MatchRunOutcome,
+) -> None:
+    """Compose one invitation per shortlisted speaker, through the real route.
+
+    ``POST /v1/units/{unit_id}/speaker-invitations/batches``, with the
+    ``Idempotency-Key`` header the route requires. That header is required
+    rather than defaulted for a reason worth restating at the place it is
+    supplied: on this surface a retry without one is a *second batch*, and a
+    second batch is a second message to everybody in the first. The key is
+    derived from the seed and the variant, so a re-run replays the first
+    submission's decisions instead of composing again.
+
+    **Nothing is dispatched.** ``201`` means the batch and every outcome in it
+    are rows a Connector can read back; it does not mean a message left the
+    building, and this tool does not ask for one to. Outreach ships behind gate
+    G4 — consent-origin policy, supervised recipient policy and deliverability
+    review, all approved — and ``smartmatch_providers.registry`` refuses to
+    construct a transport until it opens. "Composed, not sent" is therefore the
+    true state of every batch this generator produces, and
+    :attr:`MatchRunOutcome.dispatched` records it as a fact rather than leaving
+    a reader to assume otherwise.
+
+    **Every recipient may be skipped on a freshly generated appliance, and that
+    is not a defect.** A batch invites somebody only if they hold a contact
+    channel that is ``active_candidate``, carries an approved consent source and
+    is unsuppressed. Nothing in the import path writes a ``contact_channel``
+    row — ``smartmatch_api.pipeline_provisioning`` says so itself — and this
+    generator will not write one either: a consent origin is precisely the kind
+    of evidence ADR-0011 and gate G4 forbid a generator from manufacturing. So
+    the honest outcome is a real batch holding real skips, each carrying the
+    reason that names the condition which failed, and the report prints them by
+    reason. Seeding a consent to make the number look better would be inventing
+    the one piece of evidence this entire surface exists to respect.
+
+    No batch is composed when the run produced no shortlist. A batch needs at
+    least one recipient (``professional_ids`` is ``min_length=1``), and picking
+    one by hand would make the batch a record of this tool's choice rather than
+    of the run's.
+    """
+    if not outcome.shortlist:
+        outcome.notes.append(
+            "no invitation batch composed: this variant has no recorded shortlist to "
+            "compose against, and a hand-picked recipient list would make the batch a "
+            "record of this tool's choice rather than of the run's."
+        )
+        return
+
+    status, payload = _request(
+        method="POST",
+        url=f"{api_base}/v1/units/{unit_id}/speaker-invitations/batches",
+        bearer_token=bearer_token,
+        body={
+            "professional_ids": [str(subject_id) for subject_id in outcome.shortlist],
+            "match_run_id": outcome.run_id,
+            "event_name": f"Synthetic pilot {outcome.category.lower()} panel",
+            # Stored and rendered verbatim, never parsed — the field's own
+            # contract. A date formatted for a person to read, not an instant.
+            "event_date": (
+                CALENDAR_ANCHOR + timedelta(days=SPEAKER_REQUEST_LEAD_DAYS + outcome.variant)
+            ).strftime("%d %B %Y"),
+            # A display name, not an identity: who *submitted* the batch is the
+            # authenticated caller and is recorded separately, so this cannot
+            # attribute the batch to somebody else.
+            "coordinator_name": "Synthetic Pilot Speaker Connector",
+        },
+        request_id=f"pilot-dataset-invitations-{seed}-{outcome.variant + 1}",
+    )
+    if status != 201 or not isinstance(payload, dict):
+        raise GeneratorError(
+            f"POST /v1/units/{unit_id}/speaker-invitations/batches answered {status}: {payload}"
+        )
+
+    outcome.batch_id = str(payload["batch_id"])
+    outcome.invited = payload.get("invited_count")
+    outcome.skipped = payload.get("skipped_count")
+
+    skip_reasons: dict[str, int] = {}
+    for entry in payload.get("invitations") or []:
+        reason = entry.get("skip_reason")
+        if reason is not None:
+            skip_reasons[str(reason)] = skip_reasons.get(str(reason), 0) + 1
+    outcome.skip_reasons = skip_reasons
+
+    if payload.get("replayed"):
+        outcome.notes.append(
+            "the invitation batch was REPLAYED: this idempotency key had already composed "
+            "a batch, so nothing was recomposed and the outcomes above are the first "
+            "submission's. That is the key doing its job, not a failure."
+        )
+    print(
+        f"generate-pilot-dataset: invitation batch {outcome.batch_id} "
+        f"({outcome.invited} composed, {outcome.skipped} skipped, not dispatched)"
+    )
+    time.sleep(INVITATION_BATCH_PACE_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# Phase C — student speaker feedback, through the student's own route
+# ---------------------------------------------------------------------------
+#
+# Phase A goes through the API because a caller-facing writer exists. Phase B
+# goes through repositories because for those tables none does. Phase C is a
+# third case and belongs with Phase A: there is a real student route, and the
+# reason to use it is stronger here than anywhere else in this file.
+#
+# `routers/student_speaker_feedback.py` takes `student_id` from the verified
+# principal and from nowhere else — there is no request field a caller could put
+# somebody else's id in, which is the structural guarantee against MM-A01's
+# caller-selected identity. A generator that wrote `student_speaker_feedback`
+# rows through a repository would be exercising none of that: not the
+# attendance check, not the roster check, not the seven-day edit window, and not
+# the one thing the surface is built to make impossible. So every rating below
+# is a POST somebody's own bearer token made.
+#
+# That costs real principals — an account, a `student` membership, a token in
+# SMARTMATCH_DEV_PRINCIPALS — and the cost is the point.
+
+
+def feedback_window_state(event: EventPlan, *, now: datetime) -> EditWindowState:
+    """Where ``event`` sits in the seven-day window, by the domain's own rule.
+
+    ``feedback_anchor`` and ``resolve_edit_window`` are imported and called
+    rather than reimplemented, because the anchor is not the obvious thing: for
+    an exact event it is the stated end or else the start, and for a date-only
+    event it is **midnight at the end of that day, in UTC** — the event's own
+    time zone deliberately ignored. A tool that guessed "the event's date plus
+    seven" would be right most of the time and would silently produce a run
+    whose ratings the API refuses with ``409``.
+    """
+    anchor = feedback_anchor(
+        time_precision=(
+            "unresolved"
+            if event.on_date is None
+            else ("exact" if event.exact_hour is not None else "date_only")
+        ),
+        starts_at=(
+            None
+            if event.on_date is None or event.exact_hour is None
+            else datetime.combine(
+                event.on_date, clock_time(hour=event.exact_hour), tzinfo=ZoneInfo(PILOT_TIME_ZONE)
+            )
+        ),
+        ends_at=None,
+        on_date=event.on_date if event.exact_hour is None else None,
+    )
+    return resolve_edit_window(anchor=anchor, now=now).state
+
+
+def feedback_events(
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    *,
+    now: datetime,
+    wanted: int,
+) -> tuple[tuple[EventPlan, uuid.UUID], ...]:
+    """The events a rating can still be written against, most recent first.
+
+    Only events whose window is genuinely ``OPEN``. Two states are deliberately
+    excluded and each for its own reason:
+
+    * ``CLOSED`` — the API answers ``409 student_feedback_window_closed``, and
+      most of the generated calendar is closed because the plan spreads six
+      months *back* from a fixed anchor. That is the calendar being honest, not
+      a defect, and this phase works with whatever is still open.
+    * ``UNKNOWN`` — an ADR-0010 unresolved event, whose window ``permits_change``
+      because there is no anchor to have closed. Writable, and not used here: a
+      rating of a speaker at an event with no date is exactly the case OQ-CBA-052
+      is open on, and a generator picking a side of an open question by writing
+      rows into it would be answering it in code.
+
+    Returns fewer than ``wanted`` without complaint — the caller decides whether
+    that is enough. Returns them newest-first so a demo's ratings cluster on the
+    events a viewer is most likely to open.
+
+    Raises:
+        GeneratorError: nothing is open at all. Raised rather than skipped
+            because it means one specific thing worth saying out loud: the
+            plan's fixed ``CALENDAR_ANCHOR`` has aged more than seven days into
+            the past, so no generated event can be rated any more and this phase
+            can never produce a row until that literal moves.
+    """
+    open_events = [
+        (event, event_id)
+        for event, event_id in events
+        if event.resolved and feedback_window_state(event, now=now) is EditWindowState.OPEN
+    ]
+    if not open_events:
+        raise GeneratorError(
+            "no generated event still has an open feedback window, so no rating could be "
+            "written through the student route. The plan's CALENDAR_ANCHOR "
+            f"({CALENDAR_ANCHOR.isoformat()}) is a fixed literal and the window is seven "
+            "days wide, so once the anchor is more than a week past, every generated "
+            "event is closed. Move CALENDAR_ANCHOR in tools/pilot_dataset_plan.py — do "
+            "not widen the window, which is a ratified decision."
+        )
+    open_events.sort(key=lambda pair: pair[0].on_date or CALENDAR_ANCHOR, reverse=True)
+    return tuple(open_events[:wanted])
+
+
+def feedback_speakers(
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+    *,
+    wanted: int,
+) -> tuple[tuple[str, uuid.UUID], ...]:
+    """The speakers this phase rates, as ``(name, professional_id)`` pairs.
+
+    Taken from the §13 roster listing this run already read back — the same
+    mapping :func:`resolve_candidates` uses — so **no speaker id is derived
+    here and no student-scoped roster read is added**. That matters beyond
+    tidiness: OQ-CBA-064 concerns what a student may be told about a unit's
+    roster, and a seeder that asked the student surface "who spoke?" would be
+    exercising a read the open question has not settled. The seeder already
+    holds the ids it caused to exist, so it uses those.
+
+    A plain prefix of the roster rather than a selection. Which speakers get
+    which counts is :data:`~pilot_dataset_plan.FEEDBACK_SPEAKER_RESPONSE_SHAPE`'s
+    decision, and choosing *who* on any other grounds — the best scored, the
+    most reviewed — would make the published aggregate a statement about this
+    tool's taste.
+    """
+    chosen: list[tuple[str, uuid.UUID]] = []
+    for person in roster:
+        contact = contacts.get(person.name)
+        if contact is None:
+            continue
+        chosen.append((person.name, uuid.UUID(str(contact["professional_id"]))))
+        if len(chosen) == wanted:
+            break
+    return tuple(chosen)
+
+
+def write_feedback_students(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    unit_path: str,
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    count: int,
+    report: RunReport,
+) -> dict[int, uuid.UUID]:
+    """Create the feedback cohort and record their attendance. Returns rank -> account id.
+
+    Three writes per student, and each one is required by a different check the
+    route makes:
+
+    1. **The account**, through ``ProfessionalIdentityRepository.ensure_account``
+       — the compromise ``write_students`` already states and for the same
+       reason: no student-identity writer exists in the application, and this is
+       the only ``user_account`` writer that accepts a caller-supplied id, which
+       is what determinism needs. Its ``external_subject`` is the *stable*
+       string :func:`~pilot_dataset_plan.feedback_student_external_subject`
+       derives from a rank alone, rather than the tenant-and-unit-derived one
+       the ordinary students carry, because the rebuild script has to put that
+       subject into ``SMARTMATCH_DEV_PRINCIPALS`` before any tenant uuid exists.
+    2. **A ``student`` membership on this unit**, through ``seed_pilot``'s own
+       insert-or-verify helper rather than an ``UPDATE`` of this tool's own.
+       That helper refuses to change a membership that already exists with
+       different values, which is the behaviour wanted here: a re-run must not
+       quietly reassign a server-assigned role. Without a membership the route
+       answers ``403 forbidden`` — the role is what authorizes, and a token
+       proves only who you are.
+    3. **Attendance at each rated event.** ``eligibility`` requires an
+       ``attendance_record`` for this student at this event and applies no status
+       filter; without one the route answers ``403
+       student_feedback_not_eligible``. The method is
+       ``SYNTHETIC_ATTENDANCE_METHOD``, the same value every other synthetic
+       attendance in this file carries — no attendance method is invented here.
+
+    No ``link_to_unit`` call is made, exactly as in :func:`write_students`: a
+    student is not a professional, and a row in
+    ``professional_unit_relationship`` would put them in a fan-out pool.
+    """
+    accounts = ProfessionalIdentityRepository()
+    attendance = AttendanceRepository()
+    subject_ids: dict[int, uuid.UUID] = {}
+
+    for rank in range(1, count + 1):
+        external_subject = feedback_student_external_subject(rank)
+        subject_id = student_subject_id(
+            tenant_id=tenant_id, unit_id=unit_id, suffix=f"feedback-{rank:02d}"
+        )
+        accounts.ensure_account(
+            session,
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            external_subject=external_subject,
+            email=f"{external_subject}@synthetic.invalid",
+        )
+        _existing_or_insert_membership(
+            session.connection(),
+            tenant_id=tenant_id,
+            account_id=subject_id,
+            path=unit_path,
+            role="student",
+        )
+        for _, event_id in events:
+            attendance.record_attendance(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=unit_id,
+                subject_id=subject_id,
+                event_id=event_id,
+                method=SYNTHETIC_ATTENDANCE_METHOD,
+            )
+            report.feedback_attendances += 1
+        subject_ids[rank] = subject_id
+        report.feedback_students += 1
+        session.commit()
+
+    return subject_ids
+
+
+def post_speaker_feedback(
+    *,
+    api_base: str,
+    unit_id: uuid.UUID,
+    planned: Sequence[FeedbackPlan],
+    speakers: Sequence[tuple[str, uuid.UUID]],
+    events: Sequence[tuple[EventPlan, uuid.UUID]],
+    report: RunReport,
+) -> None:
+    """Post each planned rating as the student who holds it.
+
+    One ``POST`` per planned rating, each authenticated with **that student's
+    own** bearer token. ``201`` created it, ``200`` amended or repeated one —
+    both are success, and the second is the ordinary re-run path, since the
+    natural key ``(tenant, student, event, speaker)`` makes a second submission
+    an edit of the caller's own rating rather than a second vote.
+
+    A planned entry whose ``rating`` is ``None`` produces **no request at all**.
+    Not a request carrying a zero, not a withdrawal, not a row in any state:
+    nothing. That is the whole of what a deliberately withheld rating means, and
+    it is why the loop's silence is explicit here rather than filtered out by
+    the caller — a reader of this function should see the branch that does
+    nothing.
+
+    Each speaker is rated at one event, chosen by rotating through the events
+    with open windows. The natural key includes the event, so two speakers
+    sharing an event is fine and a speaker appearing at two would be two
+    separate ratings from the same student — which the plan does not ask for.
+    """
+    for entry in planned:
+        if entry.rating is None:
+            # Deliberate silence. ADR-0011 rule 1: no evidence, no row, and
+            # certainly not a zero. This branch exists to be seen.
+            report.feedback_withheld += 1
+            continue
+
+        _, speaker_id = speakers[entry.speaker_rank % len(speakers)]
+        _, event_id = events[entry.speaker_rank % len(events)]
+        token = feedback_student_token(entry.student_rank)
+        status, payload = _request(
+            method="POST",
+            url=(
+                f"{api_base}/v1/units/{unit_id}/student/events/{event_id}"
+                f"/speakers/{speaker_id}/feedback"
+            ),
+            bearer_token=token,
+            # No comment. A rating is a number a student chose; a sentence
+            # attributed to a synthetic student is a quotation nobody said, and
+            # this generator has no business writing one.
+            body={"rating": entry.rating},
+        )
+        if status == 201:
+            report.feedback_ratings_posted += 1
+        elif status == 200:
+            report.feedback_ratings_amended += 1
+        else:
+            raise GeneratorError(
+                f"POST .../student/events/{event_id}/speakers/{speaker_id}/feedback answered "
+                f"{status} for feedback student {entry.student_rank}: {payload}. A 401 means "
+                "this token is not in the API process's SMARTMATCH_DEV_PRINCIPALS (it is read "
+                "once at startup); a 403 means the student holds no membership on this unit or "
+                "no attendance record at this event; a 409 means the seven-day edit window "
+                "closed."
+            )
+        time.sleep(FEEDBACK_PACE_SECONDS)
+
+    report.feedback_speakers = len(speakers)
+    report.feedback_events = len(events)
 
 
 # ---------------------------------------------------------------------------
@@ -1555,6 +2255,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--events", type=int, default=60, help="Events to write to the calendar")
     parser.add_argument("--students", type=int, default=120, help="Students to create")
     parser.add_argument("--journeys", type=int, default=180, help="Pipeline journeys to open")
+    parser.add_argument(
+        "--feedback-students",
+        type=int,
+        default=FEEDBACK_STUDENT_COUNT,
+        help=(
+            "How many of the feedback cohort to create. Each needs a matching entry in the "
+            "API process's SMARTMATCH_DEV_PRINCIPALS, so lowering this is safe and raising "
+            "it above the cohort the plan derives tokens for is refused."
+        ),
+    )
     parser.add_argument(
         "--ready-attempts", type=int, default=60, help="API readiness poll attempts (2s apart)"
     )
@@ -1770,27 +2480,153 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         report=report,
     )
 
-    # -- Phase A.6: the Speaker Request, then the run against it ------------
-    speaker_request_id = file_speaker_request(
+    # -- Phase D: contact channels, before anything composes an invitation --
+    #
+    # Deliberately BEFORE the batches below. A batch resolves each recipient's
+    # channel at the moment it composes, so a channel recorded afterwards would
+    # change nothing about the outcomes already stored, and every batch would
+    # hold nothing but skips. Half the roster is left unreachable on purpose, so
+    # the batches carry a mix rather than being uniformly one or the other.
+    record_contact_channels(
         api_base=api_base,
         bearer_token=args.bearer_token,
         unit_id=unit_id,
-        body=speaker_request_body(roster, seed=args.seed),
+        roster=roster,
+        contacts=contacts,
         report=report,
     )
-    submit_match_run(
-        api_base=api_base,
-        bearer_token=args.bearer_token,
-        unit_id=unit_id,
-        body=match_run_body(
-            speaker_request_id=speaker_request_id,
-            candidate_subject_ids=resolve_candidates(roster, contacts),
+
+    # -- Phase A.6: several Speaker Requests, a run each, a batch each ------
+    #
+    # Several rather than one, because the invitations surface composes against
+    # a *recorded shortlist*: one run is one reachable shortlist, one batch, and
+    # no way to see two batches beside each other. Each variant targets a
+    # different slice of the roster's ranked §7/§8 codes, so the three runs
+    # score against genuinely different targets rather than repeating one.
+    #
+    # The candidate pool is the same reviewed roster every time and is resolved
+    # once. Naming the same people against different targets is the comparison
+    # worth demonstrating; re-resolving it per variant would only risk the three
+    # runs disagreeing about who was even considered.
+    candidate_subject_ids = resolve_candidates(roster, contacts)
+    for variant in range(SPEAKER_REQUEST_COUNT):
+        body = speaker_request_body(roster, seed=args.seed, variant=variant)
+        outcome = MatchRunOutcome(
+            variant=variant,
+            category=IN_LIST_CATEGORIES[variant % len(IN_LIST_CATEGORIES)],
+        )
+        report.match_runs.append(outcome)
+
+        speaker_request_id = file_speaker_request(
+            api_base=api_base,
+            bearer_token=args.bearer_token,
+            unit_id=unit_id,
+            body=body,
+            outcome=outcome,
+        )
+        submit_match_run(
+            api_base=api_base,
+            bearer_token=args.bearer_token,
+            unit_id=unit_id,
+            body=match_run_body(
+                speaker_request_id=speaker_request_id,
+                candidate_subject_ids=candidate_subject_ids,
+                seed=args.seed + variant,
+            ),
+            request_id=f"pilot-dataset-match-run-{args.seed}-{variant + 1}",
+            attempts=args.dispatch_attempts,
+            delay=2.0,
+            outcome=outcome,
+        )
+        compose_invitation_batch(
+            api_base=api_base,
+            bearer_token=args.bearer_token,
+            unit_id=unit_id,
             seed=args.seed,
-        ),
-        request_id=f"pilot-dataset-match-run-{args.seed}",
-        attempts=args.dispatch_attempts,
-        delay=2.0,
+            outcome=outcome,
+        )
+        time.sleep(MATCH_RUN_PACE_SECONDS)
+
+    report.notes.append(
+        "contact channels: half the roster holds an activated channel and half holds NONE, "
+        "so every batch above carries a mix of composed invitations and honest "
+        "`no_contact_channel` skips. Each activated channel took the two acts the consent "
+        "surface requires — a create at `consented` naming an approved source and its "
+        "evidence, then a separate recorded transition to `active_candidate`, which a "
+        "create may never assert. The evidence string names this dataset and its reserved "
+        ".invalid domain rather than citing a form submission that does not exist."
+    )
+    report.notes.append(
+        "NO invitation batch was dispatched, and none was meant to be. Composing writes "
+        "the batch and its outcomes as rows a Connector can read back; sending is a "
+        "separate operation behind gate G4 (consent-origin policy, supervised recipient "
+        "policy, deliverability review), and smartmatch_providers.registry refuses to "
+        "construct a transport until that gate opens. Every batch above is therefore "
+        "genuinely 'composed, not sent' — a true state of this surface, not a step this "
+        "run skipped."
+    )
+
+    # -- Phase C: student speaker feedback, through the student's own route --
+    #
+    # After the roster exists, because a rating names a speaker who has to be on
+    # it, and after the events exist, because a rating names an event the
+    # student has to have attended.
+    feedback_plan = build_speaker_feedback(seed=args.seed)
+    feedback_summary = feedback_plan_summary(feedback_plan)
+    report.feedback_withheld = 0  # counted per entry below, not copied from the plan
+    report.feedback_speakers_published = feedback_summary.speakers_published
+    report.feedback_speakers_suppressed = feedback_summary.speakers_suppressed
+    report.feedback_unit_residual = feedback_summary.unit_residual
+    report.feedback_unit_publishes = feedback_summary.unit_publishes
+
+    rated_events = feedback_events(
+        written_events,
+        now=datetime.now(UTC),
+        wanted=len(FEEDBACK_SPEAKER_RESPONSE_SHAPE),
+    )
+    rated_speakers = feedback_speakers(
+        roster, contacts, wanted=len(FEEDBACK_SPEAKER_RESPONSE_SHAPE)
+    )
+    if not rated_speakers:
+        raise GeneratorError(
+            "no roster member could be rated: the §13 listing named none of the accepted "
+            "professionals, so the accept did not provision speaker_profile rows"
+        )
+    feedback_students = write_feedback_students(
+        session,
+        tenant_id=tenant_id,
+        unit_id=unit_id,
+        unit_path=args.unit_path,
+        events=rated_events,
+        count=args.feedback_students,
         report=report,
+    )
+    print(
+        f"generate-pilot-dataset: feedback cohort of {len(feedback_students)} rating "
+        f"{len(rated_speakers)} speakers across {len(rated_events)} open-window events"
+    )
+    post_speaker_feedback(
+        api_base=api_base,
+        unit_id=unit_id,
+        planned=feedback_plan,
+        speakers=rated_speakers,
+        events=rated_events,
+        report=report,
+    )
+
+    report.notes.append(
+        "student feedback: the per-speaker aggregate publishes for "
+        f"{feedback_summary.speakers_published} speakers and is SUPPRESSED for "
+        f"{feedback_summary.speakers_suppressed}, because fewer than "
+        "MIN_RESPONSES_FOR_AGGREGATE students rated them. A suppressed aggregate carries "
+        "no count and no mean — not a zero, which is a thing no student can say. The unit "
+        f"aggregate publishes ({feedback_summary.unit_publishes}) with a residual of "
+        f"{feedback_summary.unit_residual}: the pooled count minus every published "
+        "per-speaker count, which is the only quantity a reader can form by subtracting "
+        "what this API publishes from what it publishes, and it is 0 or >= 3 by design. "
+        f"{feedback_summary.withheld} of {feedback_summary.opportunities} students who "
+        "attended and could have rated a speaker deliberately did not — those speakers' "
+        "counts are lower than the number of people who saw them, on purpose."
     )
 
     report.notes.append(

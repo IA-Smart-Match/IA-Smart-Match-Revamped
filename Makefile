@@ -138,16 +138,24 @@ db-up: ## Start local PostgreSQL and create the dev database
 		| grep -q 1 || su postgres -c "createdb -O smartmatch smartmatch"
 	@echo "PostgreSQL ready at $(SMARTMATCH_DATABASE_URL)"
 
+# `$(abspath $(VENV))` rather than `../$(VENV)`, in both targets below. Alembic
+# has to be run from `db/`, so the path to it needs a `..` prefix — but only
+# when VENV is relative, which is the default and was the only case ever tried.
+# An absolute VENV, which is how a git worktree borrows the parent checkout's
+# virtualenv, produced `..//abs/path/bin/alembic` and a bare "No such file or
+# directory". `abspath` resolves a relative VENV against make's own working
+# directory (the repository root, before the `cd`) and leaves an absolute one
+# alone, so both spellings now reach the same interpreter.
 .PHONY: migrate
 migrate: ## Apply migrations to head
-	cd db && ../$(VENV)/bin/alembic upgrade head
+	cd db && $(abspath $(VENV))/bin/alembic upgrade head
 
 .PHONY: migrate-check
 migrate-check: ## Verify migrations apply cleanly from an empty database
 	@su postgres -c "dropdb --if-exists smartmatch_migcheck"
 	@su postgres -c "createdb -O smartmatch smartmatch_migcheck"
 	cd db && SMARTMATCH_DATABASE_URL="postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch_migcheck" \
-		../$(VENV)/bin/alembic upgrade head
+		$(abspath $(VENV))/bin/alembic upgrade head
 	@su postgres -c "dropdb smartmatch_migcheck"
 	@echo "Migrations apply cleanly from empty."
 
@@ -184,6 +192,19 @@ seed-pilot-rewards: ## Seed one funded reward item; every value is required — 
 	# is no compose one-shot for this tool on purpose — see that module's
 	# docstring.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_rewards.py $(SEED_PILOT_REWARD_ARGS)
+
+.PHONY: verify-pilot-dataset
+verify-pilot-dataset: ## Fail if any table a pilot demo reads from is empty for the pilot tenant
+	# Read-only, and the counterpart to the seeds above rather than another one.
+	# `make seed-pilot` and the generator both report what they believed they
+	# wrote; this reports what the database holds. The two came apart once — a
+	# tenant carrying every repository-written row and none of the HTTP-written
+	# ones, because the API was up and the dispatch path was not — and from a
+	# screen that is indistinguishable from a full dataset whose numbers happen
+	# to be unknown. Exits non-zero on any empty table and names the writer that
+	# should have filled it. See tools/verify_pilot_dataset.py's module docstring
+	# for why an empty table is a row count and never an ADR-0011 zeroed value.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/verify_pilot_dataset.py $(VERIFY_PILOT_DATASET_ARGS)
 
 # ---------------------------------------------------------------------------
 # Contracts
