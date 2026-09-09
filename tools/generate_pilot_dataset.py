@@ -204,6 +204,7 @@ from pilot_dataset_plan import (
     feedback_student_external_subject,
     feedback_student_token,
     plan_summary,
+    records_contact_channel,
 )
 from seed_demo_pipeline import (
     _SelectedJourney,
@@ -535,6 +536,10 @@ class RunReport:
     speaker_contacts_reviewed: int = 0
     speaker_contacts_left_unreviewed: int = 0
     speaker_contacts_unclassifiable: int = 0
+    contact_channels_recorded: int = 0
+    contact_channels_activated: int = 0
+    contact_channels_already_recorded: int = 0
+    contacts_left_unreachable: int = 0
     match_runs: list[MatchRunOutcome] = field(default_factory=list)
     feedback_students: int = 0
     feedback_events: int = 0
@@ -576,6 +581,10 @@ class RunReport:
             f"  classifications reviewed  {self.speaker_contacts_reviewed} (§19, now matchable)",
             f"  left unreviewed           {self.speaker_contacts_left_unreviewed} (deliberate)",
             f"  nothing to review         {self.speaker_contacts_unclassifiable} (unclassified)",
+            f"contact channels recorded   {self.contact_channels_recorded} (consented)",
+            f"  activated                 {self.contact_channels_activated} (separate act)",
+            f"  already recorded          {self.contact_channels_already_recorded} (re-run)",
+            f"  left with NO channel      {self.contacts_left_unreachable} (deliberate)",
             f"speaker requests filed      {sum(1 for r in self.match_runs if r.speaker_request_id)}"
             f" of {len(self.match_runs)}",
             *(line for outcome in self.match_runs for line in outcome.lines()),
@@ -1707,6 +1716,127 @@ def submit_match_run(
 
 
 # ---------------------------------------------------------------------------
+# Phase D — contact channels, through the three acts the consent surface wants
+# ---------------------------------------------------------------------------
+
+
+def record_contact_channels(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    roster: Sequence[ProfessionalPlan],
+    contacts: Mapping[str, Mapping[str, Any]],
+    report: RunReport,
+) -> None:
+    """Give half the roster an address an invitation may address. Two acts each.
+
+    ``routers/cba_contact_channels.py`` is explicit that this is not one step,
+    and this function does not shortcut it:
+
+    1. **The create** — ``POST .../speaker-contacts/{professional_id}/channels``
+       — records the address at ``consented``, naming an approved source and the
+       evidence for it. A create may assert at most ``discovered`` (this unit
+       holds the address and says nothing more) or ``consented`` (a named,
+       dated, approved permission already exists). It may **never** create an
+       ``active_candidate``.
+    2. **The transition** — ``POST .../channels/{id}/transitions`` — moves
+       ``consented -> active_candidate``, the single legal edge into the one
+       state a send may address, carrying an actor.
+
+    That second request is not ceremony and is not skippable. A row born
+    sendable makes "who activated this person" a question with no answer, which
+    is the exact defect the module's docstring says it exists to prevent. The
+    only way to reach ``active_candidate`` is a recorded move, so this makes one.
+
+    **What the evidence string says, and why it says it.** The consent evidence
+    names this dataset and its reserved domain in words. It does not invent a
+    form submission id, a date somebody signed something, or a coordinator's
+    note about a conversation that did not happen — those would be fabricating
+    precisely the evidence gate G4 exists to require, and an auditor following
+    the trail would find a citation to nothing. What is true here is that a
+    synthetic-pilot fixture recorded a synthetic address, and that is what the
+    trail says. ``institutional_relationship`` is the approved source it is
+    recorded under: these are a unit's own roster contacts on that unit's own
+    campus fixture, which is the one of the four approved sources that describes
+    a relationship rather than an act somebody took.
+
+    **Half the roster, and the other half is deliberate.**
+    :func:`~pilot_dataset_plan.records_contact_channel` decides which, so a
+    remainder is left holding no channel at all and ``no_contact_channel``
+    stays a visible skip on every composed batch. A roster where everybody is
+    reachable would assert a consent coverage no real programme has.
+
+    Nothing here sends. The synthetic-pilot authorization covers recording a
+    channel and a consent; it does not cover dispatch, and dispatch stays behind
+    gate G4.
+    """
+    for index, person in enumerate(roster):
+        if not records_contact_channel(index):
+            report.contacts_left_unreachable += 1
+            continue
+        contact = contacts.get(person.name)
+        if contact is None:
+            continue
+        professional_id = uuid.UUID(str(contact["professional_id"]))
+        base = f"{api_base}/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels"
+
+        status, payload = _request(
+            method="POST",
+            url=base,
+            bearer_token=bearer_token,
+            body={
+                # Derived, never typed: the same `.invalid` address this run
+                # already put on the account (RFC 2606, cannot resolve, cannot
+                # be written to by accident).
+                "address": synthetic_professional_email(professional_id),
+                "contact_state": "consented",
+                "consent_source": "institutional_relationship",
+                "consent_evidence": (
+                    "Synthetic pilot dataset: this address is generated on the reserved "
+                    ".invalid domain by tools/generate_pilot_dataset.py and is not "
+                    "deliverable. No real permission is asserted and no form submission "
+                    "is cited."
+                ),
+                "reason": "Synthetic pilot fixture: recorded so an invitation batch has a "
+                "reachable recipient to compose against.",
+            },
+        )
+        if status == 409:
+            # Already recorded on an earlier run, or suppressed. Either way this
+            # tool does not record a second consent over it — that is the "we
+            # got a new form" reasoning suppression exists to overrule.
+            report.contact_channels_already_recorded += 1
+            time.sleep(CLASSIFICATION_PACE_SECONDS)
+            continue
+        if status != 201 or not isinstance(payload, dict):
+            raise GeneratorError(f"POST {base} answered {status}: {payload}")
+        channel_id = payload["channel"]["contact_channel_id"]
+        report.contact_channels_recorded += 1
+        time.sleep(CLASSIFICATION_PACE_SECONDS)
+
+        status, payload = _request(
+            method="POST",
+            url=f"{base}/{channel_id}/transitions",
+            bearer_token=bearer_token,
+            body={
+                "to_state": "active_candidate",
+                "reason": "Synthetic pilot fixture: activated as a separate recorded act, "
+                "because a channel may never be created in this state.",
+            },
+        )
+        if status != 201:
+            raise GeneratorError(
+                f"POST {base}/{channel_id}/transitions answered {status}: {payload}. The "
+                "channel was recorded at 'consented' and NOT activated, so it cannot be "
+                "addressed — which is the correct outcome for a failed activation, but "
+                "leaves this run half done."
+            )
+        report.contact_channels_activated += 1
+        time.sleep(CLASSIFICATION_PACE_SECONDS)
+
+
+# ---------------------------------------------------------------------------
 # Invitations — composed against a recorded shortlist, and never sent
 # ---------------------------------------------------------------------------
 
@@ -2350,6 +2480,22 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         report=report,
     )
 
+    # -- Phase D: contact channels, before anything composes an invitation --
+    #
+    # Deliberately BEFORE the batches below. A batch resolves each recipient's
+    # channel at the moment it composes, so a channel recorded afterwards would
+    # change nothing about the outcomes already stored, and every batch would
+    # hold nothing but skips. Half the roster is left unreachable on purpose, so
+    # the batches carry a mix rather than being uniformly one or the other.
+    record_contact_channels(
+        api_base=api_base,
+        bearer_token=args.bearer_token,
+        unit_id=unit_id,
+        roster=roster,
+        contacts=contacts,
+        report=report,
+    )
+
     # -- Phase A.6: several Speaker Requests, a run each, a batch each ------
     #
     # Several rather than one, because the invitations surface composes against
@@ -2401,6 +2547,15 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         )
         time.sleep(MATCH_RUN_PACE_SECONDS)
 
+    report.notes.append(
+        "contact channels: half the roster holds an activated channel and half holds NONE, "
+        "so every batch above carries a mix of composed invitations and honest "
+        "`no_contact_channel` skips. Each activated channel took the two acts the consent "
+        "surface requires — a create at `consented` naming an approved source and its "
+        "evidence, then a separate recorded transition to `active_candidate`, which a "
+        "create may never assert. The evidence string names this dataset and its reserved "
+        ".invalid domain rather than citing a form submission that does not exist."
+    )
     report.notes.append(
         "NO invitation batch was dispatched, and none was meant to be. Composing writes "
         "the batch and its outcomes as rows a Connector can read back; sending is a "

@@ -378,3 +378,38 @@ def test_a_rank_outside_the_cohort_is_refused():
         plan.feedback_student_token(0)
     with pytest.raises(ValueError):
         plan.feedback_student_external_subject(plan.FEEDBACK_STUDENT_COUNT + 1)
+
+
+# ---------------------------------------------------------------------------
+# Contact channels — a fraction reachable, a deliberate remainder not
+# ---------------------------------------------------------------------------
+
+
+def test_the_contact_channel_rule_matches_its_declared_share():
+    """The constant and the function must not drift apart."""
+    reached = sum(1 for index in range(100) if plan.records_contact_channel(index))
+    assert abs(reached / 100 - plan.CONTACT_CHANNEL_SHARE) < 0.02
+
+
+def test_a_deliberate_remainder_of_the_roster_holds_no_channel():
+    """`no_contact_channel` must stay a reachable skip on a composed batch.
+
+    A roster where everybody is addressable asserts a consent coverage no real
+    programme has, and it would hide the one outcome the invitations surface
+    exists to report honestly — that a shortlisted person cannot be written to.
+    """
+    unreachable = [index for index in range(100) if not plan.records_contact_channel(index)]
+    assert unreachable
+    assert len(unreachable) < 100
+
+
+def test_which_roster_members_are_reachable_is_a_function_of_the_index_alone():
+    """Two runs of one seed must agree about who an invitation could address."""
+    first = [plan.records_contact_channel(index) for index in range(100)]
+    second = [plan.records_contact_channel(index) for index in range(100)]
+    assert first == second
+
+
+def test_a_negative_roster_index_is_refused():
+    with pytest.raises(ValueError):
+        plan.records_contact_channel(-1)

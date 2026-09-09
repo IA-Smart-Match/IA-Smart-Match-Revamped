@@ -73,6 +73,7 @@ from smartmatch_domain.naics_sectors import SECTOR_CODES
 
 __all__ = [
     "CALENDAR_ANCHOR",
+    "CONTACT_CHANNEL_SHARE",
     "DEFAULT_SEED",
     "EVENT_LOCATION",
     "FEEDBACK_RATING_DISTRIBUTION",
@@ -96,6 +97,7 @@ __all__ = [
     "feedback_student_external_subject",
     "feedback_student_token",
     "plan_summary",
+    "records_contact_channel",
 ]
 
 #: The seed a run uses unless one is passed. Recorded here rather than left to
@@ -207,6 +209,47 @@ FEEDBACK_RATING_DISTRIBUTION: Final[tuple[tuple[int, int], ...]] = (
     (2, 2),
     (1, 1),
 )
+
+#: Share of the §13 roster for which a contact channel is recorded and then
+#: activated, so an invitation batch has somebody it can actually address.
+#:
+#: **The remainder is the point of the constant.** Half the roster is left with
+#: no channel at all, so ``no_contact_channel`` stays a visible skip reason on
+#: every composed batch rather than a state only a test can reach. A roster
+#: where everybody is reachable asserts a consent coverage no real programme
+#: has, and it would hide the one outcome the invitations surface exists to
+#: report honestly: that a shortlisted person cannot be written to yet.
+#:
+#: A half rather than a tenth, and the arithmetic is the reason. A batch holds
+#: the run's shortlist — three speakers drawn from the handful the fixture
+#: semantic-topic provider leaves scorable — so a small share would leave every
+#: batch all-skipped by luck, which demonstrates as little as all-invited would.
+#:
+#: What a channel here does **not** assert is a real permission. See
+#: ``generate_pilot_dataset.record_contact_channels``: the consent evidence
+#: string says in words that this is generated fixture data on a reserved
+#: ``.invalid`` domain, because inventing a form submission id would be
+#: fabricating exactly the evidence gate G4 exists to require.
+CONTACT_CHANNEL_SHARE: Final[float] = 0.50
+
+
+def records_contact_channel(index: int) -> bool:
+    """Whether roster member ``index`` gets a contact channel recorded and activated.
+
+    Arithmetic rather than random, for :data:`DEFAULT_SEED`'s reason applied to
+    the other decision this dataset makes on somebody's behalf: the same roster
+    must reach the same people on every run, or two runs of one seed would
+    disagree about who an invitation could address.
+
+    Every other member, which is exactly :data:`CONTACT_CHANNEL_SHARE`.
+
+    Raises:
+        ValueError: ``index`` is negative.
+    """
+    if index < 0:
+        raise ValueError("index must not be negative")
+    return index % 2 == 0
+
 
 #: Share of events whose date cannot be resolved (ADR-0010 ``unresolved``).
 #: These have no identity key, never publish, and are withheld from the

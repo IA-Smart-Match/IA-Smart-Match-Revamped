@@ -69,6 +69,13 @@
 #   COORDINATOR_SUBJECT/EMAIL/TOKEN  the seeded coordinator and its dev bearer
 #                              token (defaults: local-pilot-coordinator,
 #                              coordinator@example.test, local-dev)
+#   SMARTMATCH_ENV_FILE        env file holding the four owner-supplied
+#                              SMARTMATCH_PILOT_*_EMAIL/_PASSWORD pairs.
+#                              Defaults to this repository root's .env, falling
+#                              back to the main checkout's when run from a git
+#                              worktree (a worktree has no .env of its own).
+#                              Sourced into a subshell for one command; no value
+#                              from it is ever printed or logged.
 #   SEED_PILOT_REWARD_ARGS     owner-supplied reward worksheet row; unset means
 #                              the catalog is left empty on purpose
 #   KEEP_RUNNING=1             leave the API and worker up after the run
@@ -138,6 +145,45 @@ say "0. preflight"
 [[ -x "$PY" ]] || die "no interpreter at $PY. Run 'make setup', or set VENV to a checkout that has one."
 command -v psql >/dev/null || die "psql is not on PATH; the drop/recreate below needs it."
 pg_isready -q || die "PostgreSQL is not accepting connections at ${PGHOST}:${PGPORT}."
+
+# A port already in use is the single most dangerous thing that can be wrong
+# here, and it is silent. If an API is already listening on API_PORT — a
+# `make run-api` left over from a by-hand session, say — this script's own
+# uvicorn fails to bind and dies, the health check below then succeeds against
+# the OTHER process, and the whole run proceeds against an appliance that has
+# none of this script's configuration: no SMARTMATCH_DEV_PRINCIPALS, so every
+# feedback student 401s, and no local task queue, so `/operations/dispatch`
+# answers 501 and every import sits queued forever.
+#
+# That is not hypothetical. It is the most likely way the appliance reached the
+# state described at the top of this file: two host processes up, nothing
+# driving dispatch, and a generator that found a healthy API.
+#
+# So this refuses to start rather than checking harder afterwards. A "is this
+# the process I started?" probe is possible but weaker — it would still have to
+# guess, and the operator's real question is "what else is running?"
+refuse_busy_port() {
+  local name="$1" port="$2"
+  if ss -ltn "sport = :${port}" 2>/dev/null | grep -q LISTEN; then
+    printf '\nreset-pilot-dataset: FATAL: something is already listening on port %s.\n' "$port" >&2
+    ss -ltnp "sport = :${port}" 2>/dev/null >&2 || true
+    cat >&2 <<EOF
+
+That process would answer this script's ${name} health check, and the run would
+then proceed against an appliance carrying NONE of this script's configuration
+— no SMARTMATCH_DEV_PRINCIPALS (every feedback student 401s) and no local task
+queue (/operations/dispatch answers 501 and every import stays queued). That is
+how a half-written dataset happens.
+
+Stop it, or run this script on other ports:
+  API_PORT=8010 WORKER_PORT=8011 scripts/reset_pilot_dataset.sh
+EOF
+    exit 1
+  fi
+}
+refuse_busy_port api "$API_PORT"
+refuse_busy_port worker "$WORKER_PORT"
+
 mkdir -p "$LOG_DIR"
 echo "interpreter   $PY"
 echo "database      $DATABASE_URL"
@@ -198,16 +244,78 @@ make VENV="$VENV" seed-pilot \
 say "4. make seed-pilot-principals"
 make VENV="$VENV" seed-pilot-principals
 
-# The four /login credentials come from SMARTMATCH_PILOT_*_EMAIL/_PASSWORD and
-# nowhere else. A pair left blank creates nothing and is named on stderr; no
-# default password is invented here or there. That is not a failure of this
-# rebuild — the dataset does not depend on a browser login — so a non-zero exit
-# is reported and stepped over rather than aborting a run that is otherwise fine.
+# The four /login credentials, and this step is NOT optional.
+#
+# Step 1 dropped the database, which took `pilot_credential` with it. A rebuild
+# that ends with no usable login is a failed rebuild, not a partial success: the
+# point of the dataset is that a person can sign in and walk the portals, and a
+# full database nobody can open is worth exactly as much as an empty one. So
+# this gates the same way step 8 gates on Phase A producing zero jobs.
+#
+# The credentials come from SMARTMATCH_PILOT_*_EMAIL/_PASSWORD in an env file
+# and from nowhere else. **No default password is invented here or in the seed
+# tool**, and no value is ever echoed: the file is sourced into a subshell that
+# lives exactly as long as the one command that needs it, and this script only
+# ever reports role NAMES.
+#
+# ENV_FILE defaults to the repository root's own .env, and falls back to the
+# main checkout's when this is a git worktree — a worktree has no .env of its
+# own (it is gitignored and untracked, so it is not shared), which is precisely
+# why an earlier run of this script found nothing and seeded no login at all.
 say "5. make seed-pilot-logins"
-if ! make VENV="$VENV" seed-pilot-logins; then
-  echo "reset-pilot-dataset: NOTE: seed-pilot-logins did not create every login." >&2
-  echo "  The SMARTMATCH_PILOT_*_EMAIL/_PASSWORD pairs are owner-supplied; nothing was" >&2
-  echo "  defaulted. The dataset below is unaffected — only the browser sign-in is." >&2
+ENV_FILE="${SMARTMATCH_ENV_FILE:-}"
+if [[ -z "$ENV_FILE" ]]; then
+  ENV_FILE="$ROOT/.env"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    # `--git-common-dir` is the main checkout's .git even from inside a
+    # worktree, so its parent is the main working tree.
+    common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    if [[ -n "$common_dir" ]]; then
+      candidate="$(cd "$(dirname "$(cd "$common_dir" && pwd)")" && pwd)/.env"
+      [[ -f "$candidate" ]] && ENV_FILE="$candidate"
+    fi
+  fi
+fi
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  die "no env file with the pilot login credentials.
+
+Looked for ${ENV_FILE}. The four SMARTMATCH_PILOT_*_EMAIL/_PASSWORD pairs are
+owner-supplied and this script will not invent a password. Point it at the file
+that holds them:
+
+  SMARTMATCH_ENV_FILE=/path/to/.env scripts/reset_pilot_dataset.sh"
+fi
+echo "credentials from  $ENV_FILE (values never printed)"
+
+(
+  # A subshell, so nothing sourced here outlives this command. `set -a` exports
+  # what the file assigns; SMARTMATCH_DATABASE_URL is re-asserted afterwards
+  # because the env file carries one of its own and this run's target database
+  # is the one chosen above, not the one that file happens to name.
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+  export SMARTMATCH_DATABASE_URL="$DATABASE_URL"
+  make VENV="$VENV" seed-pilot-logins
+) || echo "reset-pilot-dataset: seed-pilot-logins exited non-zero; the gate below decides." >&2
+
+# The gate. Asked of the database rather than of the tool's exit code, for the
+# reason step 8 gives: a report of what a tool believed it did is not evidence.
+CREDENTIAL_ROWS="$(psql -d "$DATABASE" -tAc 'SELECT count(*) FROM pilot_credential;')"
+echo "pilot_credential rows: $CREDENTIAL_ROWS"
+if [[ "$CREDENTIAL_ROWS" -eq 0 ]]; then
+  die "seeding produced ZERO logins, so nobody can sign in to the appliance this
+script is about to fill.
+
+Step 1 dropped the database and took the existing pilot_credential rows with it.
+The four SMARTMATCH_PILOT_*_EMAIL/_PASSWORD pairs in ${ENV_FILE} are what
+recreate them; a pair with only one half filled in is an error rather than a
+half-configured login, and a missing pair creates nothing. No password is
+defaulted here. Fill the pairs in and re-run.
+
+Nothing below this point ran."
 fi
 
 # ---------------------------------------------------------------------------
