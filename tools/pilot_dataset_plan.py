@@ -75,6 +75,7 @@ __all__ = [
     "CALENDAR_ANCHOR",
     "DEFAULT_SEED",
     "EVENT_LOCATION",
+    "FEEDBACK_STUDENT_COUNT",
     "IN_LIST_CATEGORIES",
     "OUT_OF_LIST_CATEGORIES",
     "EventPlan",
@@ -84,6 +85,9 @@ __all__ = [
     "build_events",
     "build_professionals",
     "build_students",
+    "feedback_dev_principals",
+    "feedback_student_external_subject",
+    "feedback_student_token",
     "plan_summary",
 ]
 
@@ -145,6 +149,104 @@ QUARANTINED_TAG_SHARE: Final[float] = 0.15
 #: toward ``opportunities``, and a dataset with none of them would never prove
 #: that the filter does anything.
 OUT_OF_LIST_CATEGORY_SHARE: Final[float] = 0.15
+
+#: How many students hold a bearer token and rate a speaker through the real
+#: student route. A small named cohort rather than the whole student body, and
+#: the size is forced by arithmetic rather than chosen for looks.
+#:
+#: Customer feedback publishes an aggregate only above
+#: ``smartmatch_domain.student_speaker_feedback.MIN_RESPONSES_FOR_AGGREGATE``
+#: (three), and the unit-level aggregate additionally requires its *residual* —
+#: the pooled count minus every per-speaker count that published — to be zero or
+#: itself at least three. :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE` below is chosen
+#: to satisfy both while still leaving a speaker suppressed, and its widest
+#: speaker needs this many distinct students to have attended and spoken.
+#:
+#: Each of these students is a real principal: an account, a ``student``
+#: membership on the pilot unit, and a dev bearer token the API's
+#: ``SMARTMATCH_DEV_PRINCIPALS`` map resolves. Nothing here writes a rating on
+#: somebody's behalf — every rating is a ``POST`` the student's own token made,
+#: because ``routers/student_speaker_feedback.py`` takes ``student_id`` from the
+#: verified principal and there is no request field that could carry another.
+FEEDBACK_STUDENT_COUNT: Final[int] = 8
+
+#: The ``external_subject`` prefix for that cohort.
+#:
+#: Deliberately **not** derived from the tenant and unit uuids the way
+#: ``generate_pilot_dataset.student_subject_id`` derives the ordinary students'
+#: identities. Those uuids do not exist until ``make seed-pilot`` has run,
+#: whereas ``SMARTMATCH_DEV_PRINCIPALS`` has to be in the API process's
+#: environment *before* it boots — the API reads it once at startup. A subject
+#: that a rebuild script can compute from nothing but a rank is what lets the
+#: script write that map before starting anything.
+_FEEDBACK_SUBJECT_PREFIX: Final[str] = "synthetic-pilot-feedback-student-"
+
+#: The bearer-token prefix for the same cohort. Short, plain and readable, for
+#: the reason ``docker-compose.yml``'s header note gives about its own tokens:
+#: nothing in a fixture identity map may carry the *shape* of a real credential.
+#: These have no password, no expiry and no revocation because there is no
+#: account-authentication system here to have them, and the settings validator
+#: refuses the whole map outside ``edition=dev`` with fixture providers.
+_FEEDBACK_TOKEN_PREFIX: Final[str] = "pilot-feedback-"
+
+
+def feedback_student_external_subject(rank: int) -> str:
+    """The stable ``user_account.external_subject`` for feedback student ``rank``.
+
+    Args:
+        rank: A one-based ordinal within the cohort.
+
+    Raises:
+        ValueError: ``rank`` is outside ``1..FEEDBACK_STUDENT_COUNT``. Refused
+            rather than clamped: a caller asking for a rank the cohort does not
+            hold would otherwise get a subject the seeder never created, and the
+            API's answer to a token mapped to an unseeded subject is a bare
+            ``401`` that says nothing about why.
+    """
+    _require_rank(rank)
+    return f"{_FEEDBACK_SUBJECT_PREFIX}{rank:02d}"
+
+
+def feedback_student_token(rank: int) -> str:
+    """The dev bearer token that resolves to :func:`feedback_student_external_subject`.
+
+    Raises:
+        ValueError: ``rank`` is outside ``1..FEEDBACK_STUDENT_COUNT``.
+    """
+    _require_rank(rank)
+    return f"{_FEEDBACK_TOKEN_PREFIX}{rank:02d}"
+
+
+def feedback_dev_principals(count: int = FEEDBACK_STUDENT_COUNT) -> dict[str, str]:
+    """The whole cohort as a ``SMARTMATCH_DEV_PRINCIPALS`` fragment.
+
+    Returned as a plain ``dict`` rather than a JSON string so the one place that
+    serialises it is the one place that writes an environment variable. The
+    rebuild script merges this with the coordinator's own token before starting
+    the API; merging rather than replacing is what keeps the coordinator token
+    the operator already had working.
+
+    Raises:
+        ValueError: ``count`` is outside ``0..FEEDBACK_STUDENT_COUNT``.
+    """
+    if not 0 <= count <= FEEDBACK_STUDENT_COUNT:
+        raise ValueError(
+            f"count must be between 0 and FEEDBACK_STUDENT_COUNT ({FEEDBACK_STUDENT_COUNT})"
+        )
+    return {
+        feedback_student_token(rank): feedback_student_external_subject(rank)
+        for rank in range(1, count + 1)
+    }
+
+
+def _require_rank(rank: int) -> None:
+    """Refuse a rank the feedback cohort does not hold."""
+    if not 1 <= rank <= FEEDBACK_STUDENT_COUNT:
+        raise ValueError(
+            f"feedback student rank {rank} is outside 1..{FEEDBACK_STUDENT_COUNT}; "
+            "raise FEEDBACK_STUDENT_COUNT if the cohort really needs to be bigger"
+        )
+
 
 #: Given names, all of historical figures, so a reader recognises immediately
 #: that these rows are illustrative. The existing review seed

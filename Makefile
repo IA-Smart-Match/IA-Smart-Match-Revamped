@@ -185,6 +185,19 @@ seed-pilot-rewards: ## Seed one funded reward item; every value is required — 
 	# docstring.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_rewards.py $(SEED_PILOT_REWARD_ARGS)
 
+.PHONY: verify-pilot-dataset
+verify-pilot-dataset: ## Fail if any table a pilot demo reads from is empty for the pilot tenant
+	# Read-only, and the counterpart to the seeds above rather than another one.
+	# `make seed-pilot` and the generator both report what they believed they
+	# wrote; this reports what the database holds. The two came apart once — a
+	# tenant carrying every repository-written row and none of the HTTP-written
+	# ones, because the API was up and the dispatch path was not — and from a
+	# screen that is indistinguishable from a full dataset whose numbers happen
+	# to be unknown. Exits non-zero on any empty table and names the writer that
+	# should have filled it. See tools/verify_pilot_dataset.py's module docstring
+	# for why an empty table is a row count and never an ADR-0011 zeroed value.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/verify_pilot_dataset.py $(VERIFY_PILOT_DATASET_ARGS)
+
 # ---------------------------------------------------------------------------
 # Contracts
 # ---------------------------------------------------------------------------

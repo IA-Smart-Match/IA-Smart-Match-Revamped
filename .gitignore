@@ -88,3 +88,8 @@ error.log
 
 # Local git worktrees for parallel agent work; never part of the repository.
 _worktrees/
+
+# Process logs from scripts/reset_pilot_dataset.sh — the API, worker, dispatch
+# driver and generator stdout for one local rebuild. A transcript of a run on
+# one machine, useful while debugging that run and meaningless in the history.
+.pilot-reset-logs/
