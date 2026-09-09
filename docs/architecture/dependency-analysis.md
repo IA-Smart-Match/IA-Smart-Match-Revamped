@@ -231,7 +231,7 @@ a Stage 2 ADR candidate, not a migration increment.
 | Persistence concerns in domain logic | **No** | Contract 1 forbids `sqlalchemy` in domain; domain modules are pure dataclasses + functions |
 | Storage layer making network calls | **No** | Contract 4 forbids `httpx`/`requests` in persistence |
 | Inline provider IO from an HTTP handler | **No** | `scan_forbidden.py:136` regex-matches route decorators followed within 600 chars by `resend.` / `smtplib` / `sendgrid` / `.send_email(` / `genai.` / `openai.` / `requests.get(http`; CI-gated |
-| Caller-selected identity | **No** | `scan_forbidden.py:61` forbids `mock[-_]login`, `caller[-_]selected[-_]role`, `role = request.json` |
+| Caller-selected identity | **No** | `scan_forbidden.py:61` forbids the mock‑login, caller‑selected‑role, and role-from-request-body patterns (see the rule for the exact regex) |
 | Tenant/user id taken from a request body | **No** | `scan_forbidden.py:166` forbids `(tenant_id\|user_id\|student_id\|professional_id) = (payload\|body\|request.json\|data)[` |
 | Module-level mutable global state | **No** | `scan_forbidden.py:99` forbids `_?[A-Z_]*(QUEUE\|STATE\|CACHE\|REGISTRY\|STORE\|BUS\|RESULTS?) = {} \| [] \| deque()` |
 

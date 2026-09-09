@@ -275,7 +275,7 @@ IO. That rule is real and enforced; it is not written down as a principle.
 | Property | Mechanism |
 |---|---|
 | Deny by default | `authz.evaluate` returns `Effect`; `assert_allowed` raises |
-| Identity is never caller-supplied | `Principal` assembled server-side from `user_account` + `membership`; scanner forbids `role = request.json` and `tenant_id = payload[...]` |
+| Identity is never caller-supplied | `Principal` assembled server-side from `user_account` + `membership`; scanner forbids a role taken from the request body and `tenant_id = payload[...]` |
 | Tenant isolation | composite tenant-safe keys + `ltree` scope, GiST-indexed; `test_tenant_isolation.py`, `test_policy_matrix.py` (41) |
 | Authorization coverage | **all 26 routers**; six authorize by documented delegation. No unauthorized route found |
 | Consent | explicit state machine with an escalation predicate and a full transition log; checked at composition *and* at send; e2e 18 and 21 |
