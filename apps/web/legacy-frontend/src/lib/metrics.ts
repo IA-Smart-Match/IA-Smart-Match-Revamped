@@ -67,7 +67,7 @@ export function unavailableOpportunitiesMetric(
   return {
     name: "Opportunities",
     definition:
-      "Events eligible for coordinator outreach under the approved opportunities metric definition (pending stakeholder workshop).",
+      "Events eligible for Event Host outreach under the approved opportunities metric definition (pending stakeholder workshop).",
     value: unknownValue(reason),
     provenance: "observed",
   };

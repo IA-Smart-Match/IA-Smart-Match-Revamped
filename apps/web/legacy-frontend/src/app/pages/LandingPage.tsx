@@ -19,7 +19,7 @@ const steps = [
   {
     icon: HeartHandshake,
     number: "02",
-    title: "Choose the right volunteer",
+    title: "Choose the right speaker",
     description: "Compare experience, interests, availability, and workload before making an assignment.",
   },
   {
@@ -61,10 +61,10 @@ export function LandingPage() {
             <motion.div {...introReveal} className="relative z-10 space-y-7">
               <div className="space-y-6">
                 <h1 className="max-w-4xl text-4xl font-bold leading-[1.05] tracking-[-0.03em] text-primary sm:text-5xl lg:text-6xl">
-                  Match volunteers with events where they can help most.
+                  Match speakers with events where they can help most.
                 </h1>
                 <p className="max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
-                  Smart Match helps coordinators create and organize events, compare volunteer
+                  Smart Match helps Event Hosts create and organize events, compare speaker
                   experience and availability, and keep staffing assignments in one place.
                 </p>
               </div>
@@ -95,7 +95,7 @@ export function LandingPage() {
                 <div className="space-y-4">
                   {[
                     ["What the event needs", "Product design and career mentoring"],
-                    ["Volunteer availability", "Available on the event date"],
+                    ["Speaker availability", "Available on the event date"],
                     ["Break need", "Low — available for another event"],
                   ].map(([label, value], index) => (
                     <div key={label} className="flex gap-4 rounded-2xl bg-muted/70 p-4">
@@ -120,7 +120,7 @@ export function LandingPage() {
               How Smart Match works
             </h2>
             <p className="mt-3 text-lg leading-8 text-muted-foreground">
-              Give coordinators the information they need to make thoughtful assignments without adding more busywork.
+              Give Event Hosts the information they need to make thoughtful assignments without adding more busywork.
             </p>
           </div>
 
@@ -157,12 +157,12 @@ export function LandingPage() {
                 <HeartHandshake className="h-24 w-24" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#A4D65E]">Support volunteers</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#A4D65E]">Support speakers</p>
                 <h2 id="workload-care" className="mt-3 text-3xl font-semibold text-white sm:text-4xl">
                   Make room for the right break.
                 </h2>
                 <p className="mt-4 max-w-2xl text-lg leading-8 text-white/80">
-                  Workload information helps coordinators see when someone has been assigned often and may need time to rest before another event.
+                  Workload information helps Event Hosts see when a speaker has been assigned often and may need time to rest before another event.
                 </p>
               </div>
             </div>

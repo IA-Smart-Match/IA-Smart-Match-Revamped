@@ -46,7 +46,7 @@ EVENT_WRITE_RATE_LIMIT = RateLimit(
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-EventStatus = Literal["draft", "published"]
+EventStatus = Literal["draft", "published", "cancelled"]
 TimePrecision = Literal["exact", "date_only", "unresolved"]
 
 
@@ -66,6 +66,8 @@ class EventWrite(BaseModel):
     audience: str | None = Field(default=None, max_length=500)
     contact_name: str | None = Field(default=None, max_length=200)
     contact_email: str | None = Field(default=None, max_length=320)
+    speaker_topics: list[str] = Field(default_factory=list, max_length=30)
+    region: str | None = Field(default=None, max_length=200)
 
     @field_validator("title")
     @classmethod
@@ -93,6 +95,19 @@ class EventWrite(BaseModel):
         if normalized and not _EMAIL.fullmatch(normalized):
             raise ValueError("contact_email must be a valid email address")
         return normalized or None
+
+    @field_validator("speaker_topics")
+    @classmethod
+    def normalize_speaker_topics(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if any(len(value) > 100 for value in normalized):
+            raise ValueError("speaker topics must be at most 100 characters")
+        return normalized
+
+    @field_validator("region")
+    @classmethod
+    def normalize_region(cls, value: str | None) -> str | None:
+        return (value.strip() or None) if value is not None else None
 
     @model_validator(mode="after")
     def schedule_is_honest(self) -> EventWrite:
@@ -140,6 +155,8 @@ class EventPatch(BaseModel):
     audience: str | None = Field(default=None, max_length=500)
     contact_name: str | None = Field(default=None, max_length=200)
     contact_email: str | None = Field(default=None, max_length=320)
+    speaker_topics: list[str] | None = Field(default=None, max_length=30)
+    region: str | None = Field(default=None, max_length=200)
 
     @field_validator("title")
     @classmethod
@@ -163,6 +180,16 @@ class EventPatch(BaseModel):
     def optional_contact_email_is_valid(cls, value: str | None) -> str | None:
         return EventWrite.contact_email_is_valid(value)
 
+    @field_validator("speaker_topics")
+    @classmethod
+    def optional_speaker_topics(cls, values: list[str] | None) -> list[str] | None:
+        return EventWrite.normalize_speaker_topics(values) if values is not None else None
+
+    @field_validator("region")
+    @classmethod
+    def optional_region(cls, value: str | None) -> str | None:
+        return EventWrite.normalize_region(value)
+
 
 class EventResponse(BaseModel):
     id: uuid.UUID
@@ -182,10 +209,15 @@ class EventResponse(BaseModel):
     audience: str | None
     contact_name: str | None
     contact_email: str | None
+    speaker_topics: list[str]
+    region: str | None
     status: EventStatus
     provenance: Literal["observed"] = "observed"
     created_at: datetime
     updated_at: datetime
+    version: int
+    attendance_closed_at: datetime | None
+    cancelled_at: datetime | None
 
 
 class EventListResponse(BaseModel):
@@ -384,10 +416,13 @@ def update_event(
     )
     if current is None:
         raise _not_found()
-    merged = {
-        key: current[key]
-        for key in EventWrite.model_fields
-    }
+    if current["status"] == "cancelled":
+        raise ApiError(
+            status_code=409,
+            code="event_cancelled",
+            message="A cancelled event cannot be edited.",
+        )
+    merged = {key: current[key] for key in EventWrite.model_fields}
     merged.update(body.model_dump(exclude_unset=True))
     validated = EventWrite.model_validate(merged)
     try:
@@ -424,6 +459,12 @@ def publish_event(
     )
     if current is None:
         raise _not_found()
+    if current["status"] == "cancelled":
+        raise ApiError(
+            status_code=409,
+            code="event_cancelled",
+            message="A cancelled event cannot be published again.",
+        )
     required = (
         "description",
         "category",
@@ -438,8 +479,7 @@ def publish_event(
     missing = [
         key
         for key in required
-        if current[key] is None
-        or (isinstance(current[key], str) and not current[key].strip())
+        if current[key] is None or (isinstance(current[key], str) and not current[key].strip())
     ]
     if current["time_precision"] == "unresolved":
         missing.append("schedule")

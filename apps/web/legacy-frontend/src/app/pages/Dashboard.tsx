@@ -515,8 +515,8 @@ export function Dashboard() {
     .map((assignment) => assignment.volunteer_fatigue)
     .filter((value): value is number => value !== null);
   const averageFatigueMetric = accountableDemoMetric(
-    "Average volunteer break need",
-    "Average workload indicator from recent volunteer assignments.",
+    "Average speaker break need",
+    "Average workload indicator from recent speaker assignments.",
     assignmentsAvailable && knownFatigueAssignments.length > 0
       ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) /
           knownFatigueAssignments.length
@@ -525,7 +525,7 @@ export function Dashboard() {
       provenance: assignmentProvenance,
       unknownReason:
         assignmentsAvailable && calendarAssignments.length === 0
-          ? "No recent volunteer assignments were recorded."
+          ? "No recent speaker assignments were recorded."
           : assignmentsAvailable
             ? "Not enough recent assignment data."
             : "Assignment overlays are unavailable.",
@@ -533,7 +533,7 @@ export function Dashboard() {
   );
   const restRecommendedMetric = accountableDemoMetric(
     "Rest recommended count",
-    "Volunteers who should rest before another event.",
+    "Speakers who should rest before another event.",
     assignmentsAvailable
       ? calendarAssignments.filter(
           (assignment) => assignment.recovery_status === "Rest Recommended",
@@ -547,13 +547,13 @@ export function Dashboard() {
 
   const feedbackRowsMetric = accountableDemoMetric(
     "Feedback rows",
-    "Coordinator accept/decline submissions captured for matcher tuning.",
+    "Event Host accept/decline submissions captured for matching review.",
     feedbackAvailable ? feedbackStats.total_feedback : null,
     { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackAcceptanceMetric = accountableDemoMetric(
     "Feedback acceptance rate",
-    "Accepted decisions divided by all coordinator feedback rows.",
+    "Accepted decisions divided by all Event Host feedback rows.",
     feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.acceptance_rate
       : null,
@@ -561,7 +561,7 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet, so there is no rate to report."
+          ? "No Event Host feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -573,7 +573,7 @@ export function Dashboard() {
   );
   const feedbackMembershipMetric = accountableDemoMetric(
     "Membership interest rate",
-    "Follow-through signals attributed to coordinator feedback.",
+    "Follow-through information attributed to Event Host feedback.",
     feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.membership_interest_rate
       : null,
@@ -581,7 +581,7 @@ export function Dashboard() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet, so there is no rate to report."
+          ? "No Event Host feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -731,7 +731,7 @@ export function Dashboard() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Volunteer breaks and event coverage</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Speaker breaks and event coverage</h3>
               <p className="text-sm text-gray-600">
                 A compact view of event coverage and volunteers needing to recover.
               </p>
@@ -769,7 +769,7 @@ export function Dashboard() {
                 formatNumber={(value) => value.toLocaleString("en-US")}
               />
             </p>
-            <p className="mt-1 text-sm text-gray-600">Still need volunteer coverage</p>
+            <p className="mt-1 text-sm text-gray-600">Still need speaker coverage</p>
           </div>
           <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Average break need</p>
@@ -786,7 +786,7 @@ export function Dashboard() {
             <p className="mt-2 text-3xl font-semibold text-gray-900">
               <AccountableValue metric={restRecommendedMetric} />
             </p>
-            <p className="mt-1 text-sm text-gray-600">Volunteers the matcher should avoid</p>
+            <p className="mt-1 text-sm text-gray-600">Speakers who may need a break</p>
           </div>
         </div>
       </div>
@@ -796,7 +796,7 @@ export function Dashboard() {
           <div className="flex items-center gap-2">
             <MessageSquareHeart className="h-5 w-5 text-[#005030]" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Coordinator feedback on matches</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Event Host feedback on matches</h3>
               <p className="text-sm text-gray-600">
                 Coordinator feedback drives a bounded weight snapshot and pain-score trend.
               </p>
@@ -829,7 +829,7 @@ export function Dashboard() {
               feedbackStats.accepted !== null &&
               feedbackStats.declined !== null
                 ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
-                : "Coordinator feedback breakdown unavailable."}
+                : "Event Host feedback breakdown unavailable."}
             </p>
           </div>
           <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
@@ -871,7 +871,7 @@ export function Dashboard() {
               {leadAdjustment
                 ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
                 : feedbackAvailable
-                  ? "Collect more coordinator outcomes to unlock recommendations."
+                  ? "Collect more Event Host outcomes to support recommendations."
                   : "Feedback optimizer stats are unavailable."}
             </p>
           </div>
@@ -883,7 +883,7 @@ export function Dashboard() {
             {feedbackStats.trend.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                 {feedbackAvailable
-                  ? "Trend data will appear once coordinators submit feedback from the React workflow."
+                  ? "Trend data will appear once Event Hosts submit feedback."
                   : "Feedback optimizer stats are unavailable."}
               </div>
             ) : (
@@ -919,7 +919,7 @@ export function Dashboard() {
               {feedbackStats.recommended_adjustments.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
                   {feedbackAvailable
-                    ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
+                    ? "No weight changes yet. More Event Host feedback is needed."
                     : "Feedback optimizer stats are unavailable."}
                 </div>
               ) : (

@@ -23,12 +23,6 @@ VOLUNTEERS_TSX = (
 NULLABLE_TYPE_DECLARATIONS = (
     "volunteer_fatigue: number | null;",  # CalendarAssignmentSummary (V1)
     "recent_assignment_count: number | null;",  # CalendarAssignmentSummary (V2)
-    "scan_count: number | null;",  # QrCodeAsset (V3)
-    "conversion_count: number | null;",  # QrCodeAsset (V3)
-    "conversion_rate: number | null;",  # QrCodeAsset (V3)
-    "total_generated: number | null;",  # QrStatsSummary (V4)
-    "total_scans: number | null;",  # QrStatsSummary (V4)
-    "total_conversions: number | null;",  # QrStatsSummary (V4)
     "total_feedback: number | null;",  # FeedbackStatsSummary (V5)
     "accepted: number | null;",  # FeedbackStatsSummary (V5)
     "declined: number | null;",  # FeedbackStatsSummary (V5)
@@ -96,7 +90,6 @@ def test_api_ts_defines_normalize_fatigue_or_null_seam() -> None:
 
 def test_empty_summary_placeholders_are_not_fabricated_zero_objects() -> None:
     source = API_TS.read_text(encoding="utf-8")
-    assert "export function emptyQrStatsSummary(): QrStatsSummary" in source
     assert "export function emptyFeedbackStatsSummary(): FeedbackStatsSummary" in source
     # The placeholder returned before the first fetch resolves (or after a
     # failed fetch) must use null, not 0, for every numeric field.

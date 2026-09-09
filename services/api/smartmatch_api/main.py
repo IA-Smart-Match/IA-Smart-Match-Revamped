@@ -10,9 +10,9 @@ What is **not** present, and why:
   single most dangerous pattern in the legacy baseline
   (``bdce024:src/api/routers/portals.py:435``). Identity now comes from a
   verified token, and the local account, tenant, and roles are read server-side.
-* Match-run, discovery, and send commands — each waits on its gate: G1 for the
-  factor registry, G3 for agent controls, G4 for consent-origin policy. The
-  submission machinery they will use is built and exercised by ``/imports``.
+* Automated discovery and email-send commands — these remain absent while their
+  release gates are closed. Manual event entry and the approved, deterministic
+  speaker match workflow are implemented without calling external providers.
 * Any handler that calls a provider inline — prohibited by v1.1 §1.6. The
   request path records intent; the dispatcher moves it; the worker performs it.
 """
@@ -24,7 +24,6 @@ from contextlib import asynccontextmanager
 from typing import Any, Final
 
 from fastapi import FastAPI, status
-from fastapi.responses import HTMLResponse
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
@@ -32,7 +31,17 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from smartmatch_api.config import get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
-from smartmatch_api.routers import engagement, events, imports, jobs, me, metrics, redrive, review
+from smartmatch_api.routers import (
+    engagement,
+    events,
+    imports,
+    jobs,
+    me,
+    metrics,
+    redrive,
+    review,
+    speakers,
+)
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
 #: application entirely. Shares its value with
@@ -207,6 +216,7 @@ app.include_router(me.router)
 app.include_router(metrics.router)
 app.include_router(events.router)
 app.include_router(events.public_router)
+app.include_router(speakers.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
 
@@ -222,46 +232,3 @@ def health() -> dict[str, Any]:
     """
     settings = get_settings()
     return {"status": "ok", "release": settings.release}
-
-
-@app.get(
-    "/u/{token}",
-    tags=["outreach"],
-    summary="Unsubscribe confirmation page",
-    # Media types are declared per response rather than through
-    # ``response_class=HTMLResponse``. A route-wide response class sets the
-    # media type for *every* response the route publishes, including the error
-    # responses inherited from the application-level ``responses`` above — so
-    # this route, and only this route, documented its 4xx bodies as
-    # ``text/html`` while the exception handlers return ``application/json``.
-    # A generated client would take the contract at its word and try to parse
-    # an error envelope as HTML.
-    #
-    # The handler still returns an ``HTMLResponse``; only the documented
-    # contract changes. Declaring 200 as HTML here keeps that accurate.
-    responses={
-        200: {"content": {"text/html": {}}, "description": "Confirmation page"},
-        **{
-            code: {"model": ErrorEnvelope, "content": {"application/json": {}}}
-            for code in (400, 401, 403, 404, 409, 422, 429)
-        },
-    },
-)
-def unsubscribe_page(token: str) -> HTMLResponse:
-    """Render the unsubscribe confirmation page. **Never changes state.**
-
-    Fixes the v1.0 mutating-GET unsubscribe (v1.1 §1.10). A GET here is reached
-    by link scanners, mail-client prefetchers, and security proxies; if it
-    mutated, those would silently unsubscribe recipients who never clicked.
-
-    The actual unsubscribe is the signed POST, or the RFC 8058 one-click POST
-    that mail providers issue directly. Both arrive with R4.
-    """
-    # Rendered from a template in R4. The token is deliberately not echoed into
-    # the HTML — reflecting it invites both leakage and injection.
-    return HTMLResponse(
-        "<!doctype html><title>Unsubscribe</title>"
-        "<h1>Confirm unsubscribe</h1>"
-        "<p>Confirm below to stop receiving these messages.</p>",
-        status_code=status.HTTP_200_OK,
-    )

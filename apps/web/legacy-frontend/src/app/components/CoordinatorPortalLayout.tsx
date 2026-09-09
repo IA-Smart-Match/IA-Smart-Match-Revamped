@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   CalendarDays,
-  Mail,
+  ClipboardList,
   Video,
   Menu,
   X,
@@ -14,7 +14,7 @@ import { BrandLogo } from "./BrandLogo";
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
   { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
-  { name: "IA West Contact", href: "/coordinator-portal/outreach", icon: Mail },
+  { name: "Speaker handoffs", href: "/coordinator-portal/outreach", icon: ClipboardList },
   { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 
@@ -35,7 +35,7 @@ export function CoordinatorPortalLayout() {
   })();
 
   const user = session.user ?? {};
-  const displayName = String(user.name ?? "Coordinator");
+  const displayName = String(user.name ?? "Event Host");
   const school = String(user.school ?? "IA West");
   const initials = displayName
     .split(" ")
@@ -68,7 +68,7 @@ export function CoordinatorPortalLayout() {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
-            <BrandLogo label="Event coordinator portal" />
+            <BrandLogo label="Event Host portal" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"

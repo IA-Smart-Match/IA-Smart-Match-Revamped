@@ -86,9 +86,7 @@ class LTree(sa.types.UserDefinedType):  # type: ignore[type-arg]
 _UUID = postgresql.UUID(as_uuid=True)
 _TS = sa.DateTime(timezone=True)
 
-_EVENT_CATEGORIES = (
-    "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
-)
+_EVENT_CATEGORIES = "'hackathon', 'datathon', 'competition', 'guest lecturer event', 'school event'"
 
 
 tenant = sa.Table(
@@ -147,8 +145,16 @@ event = sa.Table(
     sa.Column("audience", sa.Text, nullable=True),
     sa.Column("contact_name", sa.Text, nullable=True),
     sa.Column("contact_email", sa.Text, nullable=True),
+    sa.Column("speaker_topics", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("region", sa.Text, nullable=True),
     sa.Column("status", sa.Text, nullable=False, server_default="draft"),
     sa.Column("source_kind", sa.Text, nullable=False, server_default="manual"),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("attendance_closed_at", _TS, nullable=True),
+    sa.Column("attendance_closed_by", _UUID, nullable=True),
+    sa.Column("cancelled_at", _TS, nullable=True),
+    sa.Column("cancelled_by", _UUID, nullable=True),
+    sa.Column("cancellation_reason", sa.Text, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="event_pkey"),
@@ -166,6 +172,16 @@ event = sa.Table(
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
     ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "attendance_closed_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "cancelled_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
     sa.CheckConstraint(
         f"category IS NULL OR category IN ({_EVENT_CATEGORIES})",
         name="ck_event_category",
@@ -174,7 +190,7 @@ event = sa.Table(
         "time_precision IN ('exact', 'date_only', 'unresolved')",
         name="ck_event_time_precision",
     ),
-    sa.CheckConstraint("status IN ('draft', 'published')", name="ck_event_status"),
+    sa.CheckConstraint("status IN ('draft', 'published', 'cancelled')", name="ck_event_status"),
     sa.CheckConstraint("source_kind = 'manual'", name="ck_event_source_kind"),
     sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_event_capacity"),
     sa.CheckConstraint(
@@ -193,11 +209,9 @@ event = sa.Table(
         "AND time_zone IS NOT NULL)",
         name="ck_event_temporal_shape",
     ),
+    sa.CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="ck_event_end_after_start"),
     sa.CheckConstraint(
-        "ends_at IS NULL OR ends_at > starts_at", name="ck_event_end_after_start"
-    ),
-    sa.CheckConstraint(
-        "status = 'draft' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
+        "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
         "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
         "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
         "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' "
@@ -216,6 +230,272 @@ sa.Index(
     sa.text("COALESCE(on_date, (starts_at AT TIME ZONE time_zone)::date)"),
     unique=True,
     postgresql_where=sa.text("time_precision <> 'unresolved'"),
+)
+
+_SPEAKER_EVENT_STATUSES = (
+    "'not_emailed_yet', 'awaiting_response', 'declined', 'ready_for_handoff', "
+    "'handed_off', 'awaiting_final_confirmation', 'confirmed', 'withdrawn', "
+    "'attended', 'did_not_attend', 'event_cancelled'"
+)
+
+speaker = sa.Table(
+    "speaker",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("title", sa.Text, nullable=True),
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("board_role", sa.Text, nullable=True),
+    sa.Column("expertise_topics", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("home_region", sa.Text, nullable=True),
+    sa.Column("service_regions", postgresql.JSONB, nullable=False, server_default="[]"),
+    sa.Column("contact_email", sa.Text, nullable=True),
+    sa.Column("contact_phone", sa.Text, nullable=True),
+    sa.Column("available", sa.Boolean, nullable=False, server_default=sa.true()),
+    sa.Column("active", sa.Boolean, nullable=False, server_default=sa.true()),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_speaker_tenant_id"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_tenant_unit_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("btrim(name) <> ''", name="ck_speaker_name"),
+)
+
+speaker_roster = sa.Table(
+    "speaker_roster",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("published_by", _UUID, nullable=True),
+    sa.Column("published_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("tenant_id", "owning_unit_id", name="speaker_roster_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="CASCADE"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "published_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_roster_entry = sa.Table(
+    "speaker_roster_entry",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("roster_version", sa.Integer, nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("title", sa.Text, nullable=True),
+    sa.Column("company", sa.Text, nullable=True),
+    sa.Column("board_role", sa.Text, nullable=True),
+    sa.Column("expertise_topics", postgresql.JSONB, nullable=False),
+    sa.Column("home_region", sa.Text, nullable=True),
+    sa.Column("service_regions", postgresql.JSONB, nullable=False),
+    sa.PrimaryKeyConstraint(
+        "tenant_id", "owning_unit_id", "speaker_id", name="speaker_roster_entry_pkey"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["speaker_roster.tenant_id", "speaker_roster.owning_unit_id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="CASCADE",
+    ),
+)
+
+speaker_match_run = sa.Table(
+    "speaker_match_run",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("requested_by", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("request_fingerprint", sa.Text, nullable=False),
+    sa.Column("roster_version", sa.Integer, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_match_run_pkey"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_match_run_scope"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "idempotency_key", name="uq_speaker_match_run_idempotency"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "event_id"],
+        ["event.tenant_id", "event.owning_unit_id", "event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "requested_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_match_result = sa.Table(
+    "speaker_match_result",
+    METADATA,
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("match_run_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("position", sa.Integer, nullable=False),
+    sa.Column("topic_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("proximity_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("total_score", sa.Numeric(6, 5), nullable=False),
+    sa.Column("explanations", postgresql.JSONB, nullable=False),
+    sa.PrimaryKeyConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "match_run_id",
+        "speaker_id",
+        name="speaker_match_result_pkey",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "match_run_id"],
+        ["speaker_match_run.tenant_id", "speaker_match_run.owning_unit_id", "speaker_match_run.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="RESTRICT",
+    ),
+)
+
+speaker_event = sa.Table(
+    "speaker_event",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    sa.Column("speaker_id", _UUID, nullable=False),
+    sa.Column("assigned_host_id", _UUID, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="not_emailed_yet"),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_pkey"),
+    sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_event_scope"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "event_id", "speaker_id", name="uq_speaker_event_pair"
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "event_id"],
+        ["event.tenant_id", "event.owning_unit_id", "event.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_id"],
+        ["speaker.tenant_id", "speaker.owning_unit_id", "speaker.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "assigned_host_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(f"status IN ({_SPEAKER_EVENT_STATUSES})", name="ck_speaker_event_status"),
+)
+speaker_shortlist_submission = sa.Table(
+    "speaker_shortlist_submission",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("match_run_id", _UUID, nullable=False),
+    sa.Column("idempotency_key", sa.Text, nullable=False),
+    sa.Column("request_fingerprint", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_shortlist_submission_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "idempotency_key",
+        name="uq_speaker_shortlist_idempotency",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "match_run_id"],
+        [
+            "speaker_match_run.tenant_id",
+            "speaker_match_run.owning_unit_id",
+            "speaker_match_run.id",
+        ],
+        ondelete="CASCADE",
+    ),
+)
+speaker_event_history = sa.Table(
+    "speaker_event_history",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_event_id", _UUID, nullable=False),
+    sa.Column("from_status", sa.Text, nullable=True),
+    sa.Column("to_status", sa.Text, nullable=False),
+    sa.Column("action_kind", sa.Text, nullable=False),
+    sa.Column("actor_id", _UUID, nullable=False),
+    sa.Column("note", sa.Text, nullable=True),
+    sa.Column("correction_reason", sa.Text, nullable=True),
+    sa.Column("idempotency_key", sa.Text, nullable=True),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_history_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "idempotency_key",
+        name="uq_speaker_event_history_idempotency",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_event_id"],
+        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+)
+speaker_event_note = sa.Table(
+    "speaker_event_note",
+    METADATA,
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("speaker_event_id", _UUID, nullable=False),
+    sa.Column("actor_id", _UUID, nullable=False),
+    sa.Column("body", sa.Text, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_event_note_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id", "speaker_event_id"],
+        ["speaker_event.tenant_id", "speaker_event.owning_unit_id", "speaker_event.id"],
+        ondelete="CASCADE",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint("btrim(body) <> ''", name="ck_speaker_event_note_body"),
 )
 
 event_feedback_qr = sa.Table(

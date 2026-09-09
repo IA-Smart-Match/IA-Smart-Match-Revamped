@@ -51,6 +51,45 @@
         "title": "CommandAcceptedResponse",
         "type": "object"
       },
+      "CorrectionInput": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "to_status": {
+            "enum": [
+              "not_emailed_yet",
+              "awaiting_response",
+              "declined",
+              "ready_for_handoff",
+              "handed_off",
+              "awaiting_final_confirmation",
+              "confirmed",
+              "withdrawn",
+              "attended",
+              "did_not_attend",
+              "event_cancelled"
+            ],
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_status",
+          "expected_version",
+          "reason"
+        ],
+        "title": "CorrectionInput",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The inner error object.",
         "properties": {
@@ -96,6 +135,32 @@
           "error"
         ],
         "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "EventActionInput": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "EventActionInput",
         "type": "object"
       },
       "EventListResponse": {
@@ -228,6 +293,33 @@
             ],
             "title": "On Date"
           },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "speaker_topics": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Topics"
+          },
           "starts_at": {
             "anyOf": [
               {
@@ -311,6 +403,18 @@
       },
       "EventResponse": {
         "properties": {
+          "attendance_closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attendance Closed At"
+          },
           "audience": {
             "anyOf": [
               {
@@ -321,6 +425,18 @@
               }
             ],
             "title": "Audience"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled At"
           },
           "capacity": {
             "anyOf": [
@@ -428,6 +544,24 @@
             "title": "Provenance",
             "type": "string"
           },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "speaker_topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Speaker Topics",
+            "type": "array"
+          },
           "starts_at": {
             "anyOf": [
               {
@@ -443,7 +577,8 @@
           "status": {
             "enum": [
               "draft",
-              "published"
+              "published",
+              "cancelled"
             ],
             "title": "Status",
             "type": "string"
@@ -481,6 +616,10 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           },
           "volunteer_needs": {
             "anyOf": [
@@ -523,9 +662,14 @@
           "audience",
           "contact_name",
           "contact_email",
+          "speaker_topics",
+          "region",
           "status",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "version",
+          "attendance_closed_at",
+          "cancelled_at"
         ],
         "title": "EventResponse",
         "type": "object"
@@ -638,6 +782,26 @@
               }
             ],
             "title": "On Date"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "speaker_topics": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Speaker Topics",
+            "type": "array"
           },
           "starts_at": {
             "anyOf": [
@@ -785,6 +949,78 @@
         "title": "FeedbackQrResponse",
         "type": "object"
       },
+      "HistoryItem": {
+        "properties": {
+          "action_kind": {
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "correction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Reason"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "to_status": {
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "from_status",
+          "to_status",
+          "action_kind",
+          "actor_id",
+          "note",
+          "correction_reason",
+          "created_at"
+        ],
+        "title": "HistoryItem",
+        "type": "object"
+      },
       "ImportRequest": {
         "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.\n\nThe ``oneOf`` below is what makes that exclusivity a *documented* part of\nthe contract rather than a rule only ``create_import`` enforces at\nruntime \u2014 a generated client, or a human reading the OpenAPI document, can\nsee it without reading this docstring. It does not replace the runtime\ncheck: ``oneOf`` describes the shape a request should take, and\n``create_import`` is still what actually rejects both or neither, in the\nAPI's own stable error envelope rather than in whatever validator a\ngenerated client's own OpenAPI tooling produces from this schema.",
         "oneOf": [
@@ -908,6 +1144,131 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "MatchRunResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/MatchSuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "suggestions",
+          "created_at"
+        ],
+        "title": "MatchRunResponse",
+        "type": "object"
+      },
+      "MatchSuggestion": {
+        "properties": {
+          "board_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "expertise_topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expertise Topics",
+            "type": "array"
+          },
+          "explanations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Explanations",
+            "type": "array"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "service_regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Regions",
+            "type": "array"
+          },
+          "speaker_id": {
+            "format": "uuid",
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "speaker_id",
+          "name",
+          "title",
+          "company",
+          "board_role",
+          "expertise_topics",
+          "home_region",
+          "service_regions",
+          "explanations"
+        ],
+        "title": "MatchSuggestion",
         "type": "object"
       },
       "MeResponse": {
@@ -1139,6 +1500,154 @@
         "title": "MetricsResponse",
         "type": "object"
       },
+      "NoteInput": {
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "NoteInput",
+        "type": "object"
+      },
+      "NoteItem": {
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "actor_id",
+          "body",
+          "created_at"
+        ],
+        "title": "NoteItem",
+        "type": "object"
+      },
+      "PublicSpeakerResponse": {
+        "properties": {
+          "board_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "expertise_topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expertise Topics",
+            "type": "array"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "service_regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Regions",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "title",
+          "company",
+          "board_role",
+          "expertise_topics",
+          "home_region",
+          "service_regions"
+        ],
+        "title": "PublicSpeakerResponse",
+        "type": "object"
+      },
+      "PublishRosterResponse": {
+        "properties": {
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "published_at"
+        ],
+        "title": "PublishRosterResponse",
+        "type": "object"
+      },
       "RedriveAcceptedResponse": {
         "description": "Acknowledgement that a re-drive was recorded and will be dispatched.",
         "properties": {
@@ -1239,6 +1748,736 @@
           "decided_at"
         ],
         "title": "ReviewDecisionResponse",
+        "type": "object"
+      },
+      "ShortlistInput": {
+        "properties": {
+          "speaker_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Speaker Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "speaker_ids"
+        ],
+        "title": "ShortlistInput",
+        "type": "object"
+      },
+      "SpeakerEventResponse": {
+        "properties": {
+          "assigned_host_id": {
+            "format": "uuid",
+            "title": "Assigned Host Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_title": {
+            "title": "Event Title",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/NoteItem"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "speaker_company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Company"
+          },
+          "speaker_id": {
+            "format": "uuid",
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "speaker_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Title"
+          },
+          "status": {
+            "enum": [
+              "not_emailed_yet",
+              "awaiting_response",
+              "declined",
+              "ready_for_handoff",
+              "handed_off",
+              "awaiting_final_confirmation",
+              "confirmed",
+              "withdrawn",
+              "attended",
+              "did_not_attend",
+              "event_cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "speaker_id",
+          "assigned_host_id",
+          "status",
+          "version",
+          "speaker_name",
+          "speaker_title",
+          "speaker_company",
+          "event_title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerEventResponse",
+        "type": "object"
+      },
+      "SpeakerEventSummary": {
+        "properties": {
+          "assigned_host_id": {
+            "format": "uuid",
+            "title": "Assigned Host Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_title": {
+            "title": "Event Title",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "speaker_company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Company"
+          },
+          "speaker_id": {
+            "format": "uuid",
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "speaker_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Title"
+          },
+          "status": {
+            "enum": [
+              "not_emailed_yet",
+              "awaiting_response",
+              "declined",
+              "ready_for_handoff",
+              "handed_off",
+              "awaiting_final_confirmation",
+              "confirmed",
+              "withdrawn",
+              "attended",
+              "did_not_attend",
+              "event_cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "speaker_id",
+          "assigned_host_id",
+          "status",
+          "version",
+          "speaker_name",
+          "speaker_title",
+          "speaker_company",
+          "event_title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerEventSummary",
+        "type": "object"
+      },
+      "SpeakerInput": {
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "available": {
+            "default": true,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "board_role": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "expertise_topics": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Expertise Topics",
+            "type": "array"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "service_regions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Service Regions",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SpeakerInput",
+        "type": "object"
+      },
+      "SpeakerListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SpeakerResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/PublicSpeakerResponse"
+                }
+              ]
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "roster_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Version"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "total"
+        ],
+        "title": "SpeakerListResponse",
+        "type": "object"
+      },
+      "SpeakerPatch": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "board_role": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "expertise_topics": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expertise Topics"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "service_regions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Regions"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "SpeakerPatch",
+        "type": "object"
+      },
+      "SpeakerResponse": {
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "available": {
+            "default": true,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "board_role": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 320,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expertise_topics": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Expertise Topics",
+            "type": "array"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "service_regions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Service Regions",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "id",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerResponse",
+        "type": "object"
+      },
+      "TransitionInput": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "to_status": {
+            "enum": [
+              "not_emailed_yet",
+              "awaiting_response",
+              "declined",
+              "ready_for_handoff",
+              "handed_off",
+              "awaiting_final_confirmation",
+              "confirmed",
+              "withdrawn",
+              "attended",
+              "did_not_attend",
+              "event_cancelled"
+            ],
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_status",
+          "expected_version"
+        ],
+        "title": "TransitionInput",
         "type": "object"
       }
     }
@@ -1461,118 +2700,6 @@
         "summary": "Open Feedback Qr",
         "tags": [
           "events"
-        ]
-      }
-    },
-    "/u/{token}": {
-      "get": {
-        "description": "Render the unsubscribe confirmation page. **Never changes state.**\n\nFixes the v1.0 mutating-GET unsubscribe (v1.1 \u00a71.10). A GET here is reached\nby link scanners, mail-client prefetchers, and security proxies; if it\nmutated, those would silently unsubscribe recipients who never clicked.\n\nThe actual unsubscribe is the signed POST, or the RFC 8058 one-click POST\nthat mail providers issue directly. Both arrive with R4.",
-        "operationId": "unsubscribe_page_u__token__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              },
-              "text/html": {}
-            },
-            "description": "Confirmation page"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Request Entity Too Large"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Too Many Requests"
-          }
-        },
-        "summary": "Unsubscribe confirmation page",
-        "tags": [
-          "outreach"
         ]
       }
     },
@@ -3022,6 +4149,334 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/events/{event_id}/cancel": {
+      "post": {
+        "operationId": "cancel_event_v1_units__unit_id__events__event_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventActionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeakerEventResponse"
+                  },
+                  "title": "Response Cancel Event V1 Units  Unit Id  Events  Event Id  Cancel Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Cancel Event",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/events/{event_id}/close-attendance": {
+      "post": {
+        "operationId": "close_attendance_v1_units__unit_id__events__event_id__close_attendance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventActionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeakerEventResponse"
+                  },
+                  "title": "Response Close Attendance V1 Units  Unit Id  Events  Event Id  Close Attendance Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Close Attendance",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/events/{event_id}/feedback-qr": {
       "get": {
         "operationId": "get_feedback_qr_v1_units__unit_id__events__event_id__feedback_qr_get",
@@ -3305,6 +4760,156 @@
         "summary": "Put Feedback Qr",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/events/{event_id}/match-runs": {
+      "post": {
+        "operationId": "run_match_v1_units__unit_id__events__event_id__match_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Run Match",
+        "tags": [
+          "speakers"
         ]
       }
     },
@@ -3605,6 +5210,170 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/match-runs/{match_run_id}/shortlist": {
+      "post": {
+        "operationId": "submit_shortlist_v1_units__unit_id__match_runs__match_run_id__shortlist_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "match_run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Match Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShortlistInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeakerEventSummary"
+                  },
+                  "title": "Response Submit Shortlist V1 Units  Unit Id  Match Runs  Match Run Id  Shortlist Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Submit Shortlist",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/metrics": {
       "get": {
         "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.",
@@ -3878,6 +5647,1434 @@
         "summary": "Drill into an accountable metric",
         "tags": [
           "metrics"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-events": {
+      "get": {
+        "operationId": "list_speaker_events_v1_units__unit_id__speaker_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeakerEventResponse"
+                  },
+                  "title": "Response List Speaker Events V1 Units  Unit Id  Speaker Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List Speaker Events",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-events/{record_id}": {
+      "get": {
+        "operationId": "get_speaker_event_v1_units__unit_id__speaker_events__record_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get Speaker Event",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-events/{record_id}/corrections": {
+      "post": {
+        "operationId": "correct_status_v1_units__unit_id__speaker_events__record_id__corrections_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Correct Status",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-events/{record_id}/notes": {
+      "post": {
+        "operationId": "add_note_v1_units__unit_id__speaker_events__record_id__notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Add Note",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-events/{record_id}/transitions": {
+      "post": {
+        "operationId": "transition_v1_units__unit_id__speaker_events__record_id__transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Transition",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-roster/publish": {
+      "post": {
+        "operationId": "publish_roster_v1_units__unit_id__speaker_roster_publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishRosterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Publish Roster",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speakers": {
+      "get": {
+        "operationId": "list_speakers_v1_units__unit_id__speakers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List Speakers",
+        "tags": [
+          "speakers"
+        ]
+      },
+      "post": {
+        "operationId": "create_speaker_v1_units__unit_id__speakers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Create Speaker",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speakers/{speaker_id}": {
+      "get": {
+        "operationId": "get_speaker_v1_units__unit_id__speakers__speaker_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get Speaker",
+        "tags": [
+          "speakers"
+        ]
+      },
+      "patch": {
+        "operationId": "update_speaker_v1_units__unit_id__speakers__speaker_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "speaker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Speaker Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Update Speaker",
+        "tags": [
+          "speakers"
         ]
       }
     }

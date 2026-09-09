@@ -64,7 +64,7 @@ export const STUDENT_REWARD_CATALOG: StudentRewardItem[] = [
   {
     id: "industry-mentor",
     title: "IA West mentor session",
-    subtitle: "60-minute 1:1 with a volunteer leader in your target field (scheduling coordinated by chapter).",
+    subtitle: "60-minute 1:1 with a speaker in your target field (scheduling coordinated by the chapter).",
     pointsCost: 2500,
     category: "growth",
     icon: Briefcase,

@@ -28,9 +28,6 @@ const Calendar = lazy(() =>
 const Outreach = lazy(() =>
   import("./pages/Outreach").then((m) => ({ default: m.Outreach })),
 );
-const AIMatching = lazy(() =>
-  import("./pages/AIMatching").then((m) => ({ default: m.AIMatching })),
-);
 
 const StudentHome = lazy(() =>
   import("./pages/student/StudentHome").then((m) => ({ default: m.StudentHome })),
@@ -138,7 +135,7 @@ export const router = createBrowserRouter([
       { path: "events", element: withSuspense(<Events />) },
       { path: "opportunities", element: <Navigate to="/events" replace /> },
       { path: "volunteers", element: withSuspense(<Volunteers />) },
-      { path: "ai-matching", element: withSuspense(<AIMatching />) },
+      { path: "ai-matching", element: <Navigate to="/events" replace /> },
       { path: "pipeline", element: withSuspense(<Pipeline />) },
       { path: "calendar", element: withSuspense(<Calendar />) },
       { path: "outreach", element: withSuspense(<Outreach />) },

@@ -20,20 +20,6 @@ export interface CppEvent {
   "Contact Email / Phone (published)"?: string;
 }
 
-export interface CrawlerEvent {
-  url: string;
-  title: string;
-  status: "crawling" | "found" | "error" | "done";
-  timestamp: string;
-  /** Which provider discovered this URL: seed URL list, Gemini grounding, or Tavily search. */
-  source?: "seed" | "gemini" | "tavily" | "search";
-}
-
-export interface CrawlerResultsResponse {
-  events: Array<Record<string, unknown>>;
-  count: number;
-  source: string;
-}
 
 /**
  * A legacy pipeline row as the client is allowed to see it.
@@ -169,54 +155,8 @@ export interface MatchScore {
   weighted_factor_scores: Record<string, number>;
 }
 
-export interface OutreachEmailPayload {
-  subject_line: string;
-  greeting: string;
-  body: string;
-  closing: string;
-  full_email: string;
-}
 
-export type OutreachEmailVoice = "school_coordinator" | "ia_west_chapter";
-
-export interface OutreachEmailResponse {
-  email: string;
-  email_data: OutreachEmailPayload;
-  /** Present when the API resolved sender perspective (school vs IA West chapter). */
-  voice?: OutreachEmailVoice;
-}
-
-export interface QrCodeAsset {
-  referral_code: string;
-  speaker_name: string;
-  speaker_title: string;
-  speaker_company: string;
-  event_name: string;
-  generated_at: string;
-  destination_url: string;
-  scan_url: string;
-  /** null when the QR analytics endpoint reported no count for this code — ADR-0011: absent evidence, not a measured zero. */
-  scan_count: number | null;
-  conversion_count: number | null;
-  conversion_rate: number | null;
-  last_scanned_at: string;
-  qr_svg: string;
-  qr_svg_data_url: string;
-  qr_png_data_url: string;
-  qr_image_url: string;
-  download_url: string;
-}
-
-export interface QrStatsSummary {
-  /** null when the QR analytics endpoint reported no total — ADR-0011: absent evidence, not a measured zero. */
-  total_generated: number | null;
-  total_scans: number | null;
-  total_conversions: number | null;
-  conversion_rate: number | null;
-  entries: QrCodeAsset[];
-}
-
-export type ManualEventStatus = "draft" | "published";
+export type ManualEventStatus = "draft" | "published" | "cancelled";
 export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
 
 export interface ManualEvent {
@@ -237,10 +177,15 @@ export interface ManualEvent {
   audience: string | null;
   contact_name: string | null;
   contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
   status: ManualEventStatus;
   provenance: "observed";
   created_at: string;
   updated_at: string;
+  version: number;
+  attendance_closed_at: string | null;
+  cancelled_at: string | null;
 }
 
 export interface ManualEventInput {
@@ -259,6 +204,36 @@ export interface ManualEventInput {
   audience?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
+  speaker_topics?: string[];
+  region?: string | null;
+}
+
+export interface SpeakerProfile {
+  id: string; name: string; title: string | null; company: string | null; board_role: string | null;
+  expertise_topics: string[]; home_region: string | null; service_regions: string[];
+  contact_email?: string | null; contact_phone?: string | null; available?: boolean; active?: boolean;
+  version?: number; created_at?: string; updated_at?: string;
+}
+
+export interface SpeakerProfileInput {
+  name: string; title?: string | null; company?: string | null; board_role?: string | null;
+  expertise_topics: string[]; home_region?: string | null; service_regions: string[];
+  contact_email?: string | null; contact_phone?: string | null; available: boolean; active: boolean;
+}
+
+export interface MatchSuggestion extends Omit<SpeakerProfile, "contact_email" | "contact_phone" | "available" | "active"> {
+  speaker_id: string; explanations: string[];
+}
+
+export interface MatchRun { id: string; event_id: string; suggestions: MatchSuggestion[]; created_at: string; }
+
+export type SpeakerEventStatus = "not_emailed_yet" | "awaiting_response" | "declined" | "ready_for_handoff" | "handed_off" | "awaiting_final_confirmation" | "confirmed" | "withdrawn" | "attended" | "did_not_attend" | "event_cancelled";
+export interface SpeakerEventHistory { id: string; from_status: SpeakerEventStatus | null; to_status: SpeakerEventStatus; action_kind: string; actor_id: string; note: string | null; correction_reason: string | null; created_at: string; }
+export interface SpeakerEventNote { id: string; actor_id: string; body: string; created_at: string; }
+export interface SpeakerEventRecord {
+  id: string; event_id: string; speaker_id: string; assigned_host_id: string; status: SpeakerEventStatus;
+  version: number; speaker_name: string; speaker_title: string | null; speaker_company: string | null;
+  event_title: string; created_at: string; updated_at: string; history: SpeakerEventHistory[]; notes: SpeakerEventNote[];
 }
 
 export interface FeedbackQrAsset {
@@ -618,7 +593,7 @@ function coverageLabel(status: CoverageStatus): string {
     case "partial":
       return "Partial coverage";
     case "needs_coverage":
-      return "Needs volunteers";
+      return "Needs speakers";
     default:
       return "Coverage pending";
   }
@@ -889,130 +864,6 @@ function normalizeRankedMatch(payload: Partial<RankedMatch> & Record<string, unk
   };
 }
 
-function normalizeQrCodeAsset(payload: unknown, index = 0): QrCodeAsset {
-  const record = extractRecord(payload);
-  const conversionCountRaw = parseNumberOrNull(
-    record.conversion_count ??
-      record.conversions ??
-      record.member_inquiry_count ??
-      record.membership_interest_count,
-  );
-  const conversionCount = conversionCountRaw === null ? null : Math.max(conversionCountRaw, 0);
-  const scanCountRaw = parseNumberOrNull(record.scan_count ?? record.scans ?? record.total_scans);
-  const scanCount = scanCountRaw === null ? null : Math.max(scanCountRaw, 0);
-  const conversionRateValue = parseNumberOrNull(
-    record.conversion_rate ?? record.conversionRate ?? record.roi_rate,
-  );
-  // A rate needs a denominator: with no scans (real or unknown), there is no
-  // ratio to report, so the derived rate is null rather than a fabricated 0.
-  const derivedConversionRate =
-    scanCount !== null && scanCount > 0 && conversionCount !== null ? conversionCount / scanCount : null;
-  const normalizedConversionRate =
-    conversionRateValue !== null
-      ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
-      : derivedConversionRate !== null
-        ? clamp(derivedConversionRate, 0, 1)
-        : null;
-
-  return {
-    referral_code: parseString(
-      record.referral_code ?? record.referralCode ?? record.code ?? record.slug,
-      `${parseString(record.speaker_name ?? record.name ?? "qr")}-${parseString(
-        record.event_name ?? record.event ?? index,
-      )}`,
-    ),
-    speaker_name: parseString(record.speaker_name ?? record.speaker ?? record.name ?? ""),
-    speaker_title: parseString(record.speaker_title ?? record.title ?? record.speakerTitle ?? ""),
-    speaker_company: parseString(record.speaker_company ?? record.company ?? record.speakerCompany ?? ""),
-    event_name: parseString(record.event_name ?? record.event ?? record["Event / Program"] ?? ""),
-    generated_at: parseString(record.generated_at ?? record.created_at ?? record.createdAt ?? ""),
-    destination_url: parseString(
-      record.destination_url ?? record.destinationUrl ?? record.landing_url ?? record.redirect_url ?? "",
-    ),
-    scan_url: parseString(record.scan_url ?? record.scanUrl ?? record.redirect_url ?? record.url ?? ""),
-    scan_count: scanCount,
-    conversion_count: conversionCount,
-    conversion_rate: normalizedConversionRate,
-    last_scanned_at: parseString(record.last_scanned_at ?? record.lastScanAt ?? record.latest_scan_at ?? ""),
-    qr_svg: parseString(record.qr_svg ?? record.svg ?? record.qrMarkup ?? ""),
-    qr_svg_data_url: parseString(record.qr_svg_data_url ?? record.svg_data_url ?? ""),
-    qr_png_data_url: parseString(
-      record.qr_png_data_url ??
-        record.png_data_url ??
-        record.qr_data_url ??
-        (record.qr_png_base64 ? `data:image/png;base64,${parseString(record.qr_png_base64)}` : ""),
-    ),
-    qr_image_url: parseString(record.qr_image_url ?? record.image_url ?? record.imageUrl ?? record.qr_url ?? ""),
-    download_url: parseString(
-      record.download_url ?? record.asset_url ?? record.downloadUrl ?? record.qr_data_url ?? "",
-    ),
-  };
-}
-
-function normalizeQrStats(payload: unknown): QrStatsSummary {
-  const source = extractRecord(payload);
-  const entries = toRecordArray(payload)
-    .map((record, index) => normalizeQrCodeAsset(record, index))
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.last_scanned_at || left.generated_at || "");
-      const rightTime = Date.parse(right.last_scanned_at || right.generated_at || "");
-      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
-    });
-  // Entries carry their own null-safe counts (see normalizeQrCodeAsset); a
-  // derived sum is only meaningful once every entry actually reports one.
-  const entryScanCounts = entries.map((entry) => entry.scan_count);
-  const entryConversionCounts = entries.map((entry) => entry.conversion_count);
-  const allEntryScansKnown = entries.length > 0 && entryScanCounts.every((value) => value !== null);
-  const allEntryConversionsKnown = entries.length > 0 && entryConversionCounts.every((value) => value !== null);
-
-  const totalGenerated =
-    parseNumberOrNull(
-      source.total_generated ??
-        source.generated_count ??
-        source.codes_generated ??
-        source.referral_count ??
-        source.total_codes,
-    ) ?? (entries.length > 0 ? entries.length : null);
-  const totalScans =
-    parseNumberOrNull(source.total_scans ?? source.scan_count ?? source.scans ?? source.total_visits) ??
-    (allEntryScansKnown
-      ? (entryScanCounts as number[]).reduce((sum, value) => sum + value, 0)
-      : null);
-  const totalConversions =
-    parseNumberOrNull(
-      source.total_conversions ??
-        source.conversion_count ??
-        source.conversions ??
-        source.total_inquiries ??
-        source.membership_interest_count,
-    ) ??
-    (allEntryConversionsKnown
-      ? (entryConversionCounts as number[]).reduce((sum, value) => sum + value, 0)
-      : null);
-  const conversionRateValue = parseNumberOrNull(
-    source.conversion_rate ?? source.conversionRate ?? source.roi_rate,
-  );
-  // No scans (real or unknown) means no ratio to report — null, not a
-  // fabricated 0.
-  const derivedConversionRate =
-    totalScans !== null && totalScans > 0 && totalConversions !== null
-      ? totalConversions / totalScans
-      : null;
-
-  return {
-    total_generated: totalGenerated,
-    total_scans: totalScans,
-    total_conversions: totalConversions,
-    conversion_rate:
-      conversionRateValue !== null
-        ? clamp(conversionRateValue > 1 ? conversionRateValue / 100 : conversionRateValue, 0, 1)
-        : derivedConversionRate !== null
-          ? clamp(derivedConversionRate, 0, 1)
-          : null,
-    entries,
-  };
-}
-
 function normalizeFeedbackAdjustment(payload: unknown): FeedbackAdjustment {
   const record = extractRecord(payload);
   return {
@@ -1197,17 +1048,6 @@ export async function fetchContacts(): Promise<PocContact[]> {
  * a measured zero. Callers gate rendering on an `*Available` flag rather than
  * inferring availability from these values.
  */
-export function emptyQrStatsSummary(): QrStatsSummary {
-  return {
-    total_generated: null,
-    total_scans: null,
-    total_conversions: null,
-    conversion_rate: null,
-    entries: [],
-  };
-}
-
-/** See `emptyQrStatsSummary` — same "no evidence yet" contract. */
 export function emptyFeedbackStatsSummary(): FeedbackStatsSummary {
   return {
     total_feedback: null,
@@ -1232,13 +1072,6 @@ export function emptyFeedbackStatsSummary(): FeedbackStatsSummary {
   };
 }
 
-export async function fetchQrStats(): Promise<WithSource<QrStatsSummary>> {
-  const payload = await requestJson<Record<string, unknown>>("/api/qr/stats");
-  const rawSource = payload?.source;
-  const source: "live" | "demo" | "csv" = rawSource === "demo" ? "demo" : rawSource === "csv" ? "csv" : "live";
-  return { data: normalizeQrStats(payload), source, isMockData: source !== "live" };
-}
-
 export async function fetchFeedbackStats(): Promise<WithSource<FeedbackStatsSummary>> {
   const payload = await requestJson<Record<string, unknown>>("/api/feedback/stats");
   const rawSource = payload?.source;
@@ -1258,32 +1091,6 @@ export async function submitFeedback(
     feedback: toObjectRecord(record.feedback),
     optimizer_snapshot: normalizeFeedbackWeightSnapshot(record.optimizer_snapshot),
   };
-}
-
-export async function generateQrAsset(
-  speakerName: string,
-  eventName: string,
-): Promise<QrCodeAsset | null> {
-  const payload = await requestJson<unknown>("/api/qr/generate", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-    }),
-  });
-  const asset = normalizeQrCodeAsset(payload);
-  if (
-    !asset.referral_code &&
-    !asset.scan_url &&
-    !asset.qr_svg &&
-    !asset.qr_svg_data_url &&
-    !asset.qr_png_data_url &&
-    !asset.qr_image_url &&
-    !asset.download_url
-  ) {
-    return null;
-  }
-  return asset;
 }
 
 export async function rankSpeakers(
@@ -1326,112 +1133,6 @@ export async function scoreSpeaker(
   });
 }
 
-export async function generateEmail(
-  speakerName: string,
-  eventName: string,
-  options?: { voice?: OutreachEmailVoice; request_source?: string },
-): Promise<OutreachEmailResponse> {
-  return requestJson<OutreachEmailResponse>("/api/outreach/email", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-      ...(options?.voice ? { voice: options.voice } : {}),
-      ...(options?.request_source ? { request_source: options.request_source } : {}),
-    }),
-  });
-}
-
-export async function generateIcs(
-  eventName: string,
-  eventDate?: string,
-  location?: string,
-  description?: string,
-): Promise<{ ics_content: string }> {
-  return requestJson<{ ics_content: string }>("/api/outreach/ics", {
-    method: "POST",
-    body: JSON.stringify({
-      event_name: eventName,
-      event_date: eventDate,
-      location,
-      description,
-    }),
-  });
-}
-
-export interface WorkflowStepResult {
-  status: "ok" | "error";
-  error?: string;
-}
-
-export interface WorkflowResponse {
-  email: string;
-  email_data: OutreachEmailPayload;
-  ics_content: string;
-  pipeline_updated: boolean;
-  steps: {
-    email: WorkflowStepResult;
-    ics: WorkflowStepResult;
-    pipeline: WorkflowStepResult;
-  };
-  dispatch_mode: string;
-}
-
-export async function initiateWorkflow(
-  speakerName: string,
-  eventName: string,
-): Promise<WorkflowResponse> {
-  return requestJson<WorkflowResponse>("/api/outreach/workflow", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-    }),
-  });
-}
-
-export interface AgenticOutreachWorkflowInput {
-  speaker_name: string;
-  event_name: string;
-  coordinator_id?: string;
-  event_date?: string;
-  request_source: string;
-  voice: OutreachEmailVoice;
-}
-
-/**
- * Opens the agentic outreach workflow's server-sent-events stream. Routes
- * through the same fetch + error-envelope policy as `requestJson` (rather
- * than a bare `fetch`) so a refusal (auth, validation, etc.) surfaces the
- * backend's real `code`/`message` instead of failing silently; the caller
- * still owns reading and parsing the `data: ` lines out of the stream.
- */
-export async function openAgenticOutreachWorkflowStream(
-  input: AgenticOutreachWorkflowInput,
-  signal: AbortSignal,
-): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-  const response = await fetch("/api/outreach/agentic-workflow/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-    signal,
-  });
-
-  if (!response.ok) {
-    await throwApiRequestError(response);
-  }
-
-  if (!response.body) {
-    throw new ApiRequestError(
-      "The server did not return a streaming response body.",
-      response.status,
-      "empty_stream_body",
-    );
-  }
-
-  return response.body.getReader();
-}
-
 export interface CppCourse {
   course_key: string;
   display_name: string;
@@ -1463,42 +1164,6 @@ export async function rankSpeakersForCourse(
     body: JSON.stringify({ course_key: courseKey, limit, weights }),
   });
   return payload.map(normalizeRankedMatch);
-}
-
-export async function startCrawl(): Promise<{ status: string }> {
-  return requestJson<{ status: string }>("/api/crawler/start", {
-    method: "POST",
-  });
-}
-
-export async function fetchCrawlerResults(): Promise<CrawlerResultsResponse> {
-  return requestJson<CrawlerResultsResponse>("/api/crawler/results");
-}
-
-export async function clearCrawlerResults(): Promise<{ deleted: number; status: string }> {
-  return requestJson<{ deleted: number; status: string }>("/api/crawler/results", {
-    method: "DELETE",
-  });
-}
-
-export interface CrawlerVisitedUrl {
-  url: string;
-  source: "seed" | "gemini" | "tavily";
-  title: string;
-  timestamp: string;
-}
-
-export interface CrawlerStatusResponse {
-  state: "idle" | "running" | "done";
-  started_at: string | null;
-  finished_at: string | null;
-  error: string | null;
-  visited_count?: number;
-  visited_urls?: CrawlerVisitedUrl[];
-}
-
-export async function fetchCrawlerStatus(): Promise<CrawlerStatusResponse> {
-  return requestJson<CrawlerStatusResponse>("/api/crawler/status");
 }
 
 export interface UniversityContact {
@@ -1594,19 +1259,6 @@ export interface StudentSpeakerSuggestion {
   expertise_tags: string;
   shared_events: AttendedEventRef[];
   shared_event_count: number;
-}
-
-export interface OutreachThread {
-  thread_id: string;
-  coordinator_id: string;
-  event_id: string;
-  ia_contact: string;
-  subject: string;
-  status: "confirmed" | "in_progress" | "awaiting_response" | "new";
-  last_message_at: string;
-  message_count: number;
-  next_action: string;
-  source?: string;
 }
 
 export interface MeetingBooking {
@@ -1706,12 +1358,6 @@ export async function fetchCoordinatorProfile(coordinatorId: string): Promise<Ev
   );
 }
 
-export async function fetchCoordinatorThreads(coordinatorId: string): Promise<{ data: OutreachThread[]; total: number; source: string }> {
-  return requestJson<{ data: OutreachThread[]; total: number; source: string }>(
-    `${API_BASE}/portals/event-coordinators/${coordinatorId}/threads`,
-  );
-}
-
 export async function fetchCoordinatorMeetings(coordinatorId: string): Promise<{ data: MeetingBooking[]; total: number; source: string }> {
   return requestJson<{ data: MeetingBooking[]; total: number; source: string }>(
     `${API_BASE}/portals/event-coordinators/${coordinatorId}/meetings`,
@@ -1802,6 +1448,59 @@ export async function saveFeedbackQr(
     { method: "PUT", body: JSON.stringify({ destination_url: destinationUrl }) },
     { authenticated: true },
   );
+}
+
+export async function fetchSpeakers(unitId: string): Promise<{ data: SpeakerProfile[]; total: number; roster_version: number | null; published_at: string | null }> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, undefined, { authenticated: true });
+}
+
+export async function createSpeaker(unitId: string, input: SpeakerProfileInput): Promise<SpeakerProfile> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, { method: "POST", body: JSON.stringify(input) }, { authenticated: true });
+}
+
+export async function updateSpeaker(unitId: string, speakerId: string, input: SpeakerProfileInput & { version: number }): Promise<SpeakerProfile> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers/${encodeURIComponent(speakerId)}`, { method: "PATCH", body: JSON.stringify(input) }, { authenticated: true });
+}
+
+export async function publishSpeakerRoster(unitId: string): Promise<{ version: number; published_at: string }> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-roster/publish`, { method: "POST" }, { authenticated: true });
+}
+
+export async function runSpeakerMatch(unitId: string, eventId: string, idempotencyKey = crypto.randomUUID()): Promise<MatchRun> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/match-runs`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }, { authenticated: true });
+}
+
+export async function submitSpeakerShortlist(unitId: string, matchRunId: string, speakerIds: string[], idempotencyKey = crypto.randomUUID()): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/match-runs/${encodeURIComponent(matchRunId)}/shortlist`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ speaker_ids: speakerIds }) }, { authenticated: true });
+}
+
+export async function fetchSpeakerEvents(unitId: string, eventId?: string): Promise<SpeakerEventRecord[]> {
+  const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events${query}`, undefined, { authenticated: true });
+}
+
+export async function fetchSpeakerEvent(unitId: string, recordId: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}`, undefined, { authenticated: true });
+}
+
+export async function transitionSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, note?: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/transitions`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, note }) }, { authenticated: true });
+}
+
+export async function addSpeakerEventNote(unitId: string, recordId: string, body: string): Promise<SpeakerEventNote> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/notes`, { method: "POST", body: JSON.stringify({ body }) }, { authenticated: true });
+}
+
+export async function correctSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, reason: string): Promise<SpeakerEventRecord> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/corrections`, { method: "POST", body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, reason }) }, { authenticated: true });
+}
+
+export async function closeEventAttendance(unitId: string, eventId: string, expectedVersion: number): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/close-attendance`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion }) }, { authenticated: true });
+}
+
+export async function cancelManualEvent(unitId: string, eventId: string, expectedVersion: number, reason: string): Promise<SpeakerEventRecord[]> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/cancel`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion, reason }) }, { authenticated: true });
 }
 
 // ---------------------------------------------------------------------------

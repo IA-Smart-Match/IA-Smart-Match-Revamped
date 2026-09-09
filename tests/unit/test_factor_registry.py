@@ -53,9 +53,12 @@ def test_unimplemented_factors_contribute_no_active_weight():
             )
 
 
-def test_active_weights_empty_until_m2_implements_scoring_factors():
-    """G1 approved 2026-09-03; topic_relevance and travel_burden land in M2."""
-    assert active_weights() == {}
+def test_active_weights_use_approved_speaker_match_weights():
+    """The implemented speaker workflow uses the approved deterministic weights."""
+    assert active_weights() == {
+        "topic_relevance": pytest.approx(0.70),
+        "travel_burden": pytest.approx(0.30),
+    }
     proposed = proposed_weights()
     assert set(proposed) == {"topic_relevance", "travel_burden", "availability"}
     assert proposed["topic_relevance"] == pytest.approx(0.70)
@@ -100,9 +103,11 @@ def test_weight_out_of_range_is_rejected():
         )
 
 
-def test_only_one_scoring_factor_is_implemented_today():
-    """Post-G1 pre-M2: no scoring factors are implemented yet."""
-    assert normalize_weights() == {}
+def test_approved_scoring_factors_are_implemented():
+    assert normalize_weights() == {
+        "topic_relevance": pytest.approx(0.70),
+        "travel_burden": pytest.approx(0.30),
+    }
 
 
 def test_normalize_weights_honours_overrides_and_renormalizes():
@@ -119,12 +124,11 @@ def test_normalize_weights_honours_overrides_and_renormalizes():
     assert bumped[other] < base[other]
 
 
-def test_normalize_weights_ignores_unknown_and_unimplemented_keys():
+def test_normalize_weights_ignores_unknown_keys():
     """Unknown keys cannot inject weight mass into the mapping."""
     weights = normalize_weights({"not_a_factor": 5.0, "topic_relevance": 5.0})
     assert "not_a_factor" not in weights
-    assert "topic_relevance" not in weights
-    assert weights == {}
+    assert weights["topic_relevance"] > weights["travel_burden"]
 
 
 def test_normalize_weights_rejects_negative_weights():
@@ -135,7 +139,7 @@ def test_normalize_weights_rejects_negative_weights():
 def test_normalize_weights_all_zero_returns_zeros_not_nan():
     """A zero total must not divide by zero and produce NaN scores."""
     weights = normalize_weights(dict.fromkeys(normalize_weights(), 0.0))
-    assert weights == {}
+    assert weights == {"topic_relevance": 0.0, "travel_burden": 0.0}
 
 
 def test_weight_mappings_are_immutable():

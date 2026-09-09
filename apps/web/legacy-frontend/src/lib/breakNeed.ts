@@ -18,4 +18,4 @@ export function breakNeedLabel(status: string | null | undefined): string {
 }
 
 export const breakNeedExplanation =
-  "A higher percentage means this volunteer has had more recent assignments and may need a break.";
+  "A higher percentage means this speaker has had more recent assignments and may need a break.";

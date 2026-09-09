@@ -29,6 +29,7 @@ that is worth seeing from the index.
 | [ADR-0013](ADR-0013-attendance-derived-engagement.md) | Attendance-derived engagement: a server-side ledger, and rewards with an owner | Accepted | 25 August 2026 | Points are a fold over an append-only `point_ledger_entry` derived from recorded attendance and nothing else — never a stored counter and never a browser formula, and a reversal is a compensating entry rather than a delete. Redemption is a command with an approval step. A catalog item with a real fulfilment cost cannot be listed without a named budget owner and a funded balance, and the economy is calibrated against a stated, tested property. | — | — | — |
 | [ADR-0014](ADR-0014-disclosure-consent.md) | Disclosure consent is a separate record from contact consent | Accepted | 25 August 2026 | Permission for a *peer* to see that someone attended is its own record — subject, audience scope, purpose, granted/revoked — and **not** `smartmatch_domain.consent` widened, which models an organization's licence to contact a discovered person and has no audience dimension at all. Also records that in-app chat is cut rather than deferred. | — | — | — |
 | [ADR-0015](ADR-0015-charge-quota-before-refusal.md) | Charge quota before the route can refuse the request | Accepted | 25 August 2026 | Every command route charges quota as its **first** statement — ahead of the resource load, the authorization, and the header and body validators — and the charge commits in a transaction of its own, so a `403`, `404` or `400` costs the caller what they spent producing it. Decides that an authenticated caller pays for requests they were never allowed to make, and for ids that do not exist. Refines ADR-0006's *timing*, not its counting. | 31 August 2026 — Amendment A1 ratified as session policy: monetary spend gets reserve-before-paid-call semantics, distinct from quota counting; live-provider estimate A3, credentials, and production ceilings remain external dependencies, not ratified by this entry (see the ADR's Amendment A1 section) | — | — |
+| [ADR-0016](ADR-0016-speaker-roster-and-invitation-tracking.md) | Speaker roster and invitation tracking | Accepted | 8 September 2026 | Speaker Connectors publish the available roster and record outside outreach; Event Hosts run deterministic topic-and-region matching and manage post-handoff confirmation and attendance through shared, audited records. Smart Match does not draft or send email. | — | — | — |
 
 ## Two pointers worth having
 
@@ -57,7 +58,7 @@ hard to locate:
 
 ## Reserved numbers
 
-**ADR-0016 is reserved** for agent-memory Slice 1
+**ADR-0017 is reserved** for agent-memory Slice 1
 (`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
 beside it). It has no file yet. Do not take that number for anything else.
 

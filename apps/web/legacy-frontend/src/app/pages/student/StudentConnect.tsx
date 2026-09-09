@@ -440,7 +440,7 @@ function buildSpeakerSuggestions(
       speaker_name: speakerName,
       speaker_title: specialist?.title ?? "IA West Speaker",
       speaker_company: specialist?.company ?? "Insights Association West",
-      board_role: specialist?.board_role ?? "Volunteer Speaker",
+      board_role: specialist?.board_role ?? "Speaker",
       metro_region: specialist?.metro_region ?? "West Coast",
       expertise_tags: specialist?.expertise_tags ?? "",
       shared_events: [sharedEvent],

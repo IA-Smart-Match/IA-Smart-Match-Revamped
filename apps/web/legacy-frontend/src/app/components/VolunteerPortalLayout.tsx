@@ -33,7 +33,7 @@ export function VolunteerPortalLayout() {
   })();
 
   const user = session.user ?? {};
-  const displayName = String(user.name ?? "Volunteer");
+  const displayName = String(user.name ?? "Speaker");
   const company = String(user.company ?? "IA West");
   const initials = displayName
     .split(" ")
@@ -66,7 +66,7 @@ export function VolunteerPortalLayout() {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
-            <BrandLogo label="Volunteer portal" />
+            <BrandLogo label="Speaker portal" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"

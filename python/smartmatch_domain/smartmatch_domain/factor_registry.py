@@ -138,7 +138,7 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         display_label="Topic Relevance",
         kind=FactorKind.SUITABILITY,
         proposed_weight=0.70,
-        implemented=False,
+        implemented=True,
         rationale=(
             "Alignment between the professional's expertise and the event_need's "
             "required and preferred topics. Primary scoring factor per G1 "
@@ -147,13 +147,13 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
     ),
     FactorSpec(
         key="travel_burden",
-        display_label="Travel Burden (proximity)",
-        kind=FactorKind.PENALTY,
+        display_label="Proximity",
+        kind=FactorKind.SUITABILITY,
         proposed_weight=0.30,
-        implemented=False,
+        implemented=True,
         rationale=(
-            "Proximity / route-matrix travel time (v1.1 §3.1). Straight-line "
-            "interim until D3 provider. Secondary scoring factor per G1 approval."
+            "Whether the event region is in the speaker's home or service regions. "
+            "Secondary scoring factor per the approved speaker workflow."
         ),
     ),
     FactorSpec(
@@ -163,8 +163,8 @@ PROPOSED_FACTORS: Final[tuple[FactorSpec, ...]] = (
         proposed_weight=0.0,
         implemented=False,
         rationale=(
-            "Applied after shortlist per program direction: match before "
-            "availability; coordinator batch-invites and tracks responses."
+            "Applied before matching: only the published, currently available "
+            "speaker roster is eligible."
         ),
     ),
 )

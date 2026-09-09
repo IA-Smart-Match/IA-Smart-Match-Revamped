@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 
 const landing = readFileSync(new URL("../src/app/pages/LandingPage.tsx", import.meta.url), "utf8");
 const adminLayout = readFileSync(new URL("../src/app/components/Layout.tsx", import.meta.url), "utf8");
+const hostLayout = readFileSync(new URL("../src/app/components/CoordinatorPortalLayout.tsx", import.meta.url), "utf8");
+const speakerLayout = readFileSync(new URL("../src/app/components/VolunteerPortalLayout.tsx", import.meta.url), "utf8");
 const volunteers = readFileSync(new URL("../src/app/pages/Volunteers.tsx", import.meta.url), "utf8");
 const calendar = readFileSync(new URL("../src/app/pages/Calendar.tsx", import.meta.url), "utf8");
 const pipeline = readFileSync(new URL("../src/app/pages/Pipeline.tsx", import.meta.url), "utf8");
@@ -12,12 +14,20 @@ const fonts = readFileSync(new URL("../src/styles/fonts.css", import.meta.url), 
 const theme = readFileSync(new URL("../src/styles/theme.css", import.meta.url), "utf8");
 
 test("landing page uses approved public copy without fabricated proof points", () => {
-  assert.match(landing, /Match volunteers with events where they can help most\./);
+  assert.match(landing, /Match speakers with events where they can help most\./);
   assert.match(landing, /How Smart Match works/);
   assert.doesNotMatch(landing, /AI-Driven Volunteer Coordination/i);
   assert.doesNotMatch(landing, /View Demo/i);
   assert.doesNotMatch(landing, /2,481|842|94%/);
   assert.doesNotMatch(landing, /demo/i);
+});
+
+test("visible role names use the approved Smart Match terminology", () => {
+  assert.match(adminLayout, /Speaker Connector/);
+  assert.match(hostLayout, /Event Host/);
+  assert.match(speakerLayout, /Speaker portal/);
+  assert.match(landing, /Event Hosts/);
+  assert.doesNotMatch(adminLayout, />\s*IA Admin\s*</);
 });
 
 test("landing page uses the CPP logo and a dynamic copyright year", () => {

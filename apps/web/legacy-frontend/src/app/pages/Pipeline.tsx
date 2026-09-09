@@ -176,13 +176,13 @@ export function Pipeline() {
 
   const feedbackRows = accountableDemoMetric(
     "Feedback rows",
-    "Coordinator accept/decline submissions captured for matcher tuning.",
+    "Event Host accept/decline submissions captured for matching review.",
     feedbackAvailable ? feedbackStats.total_feedback : null,
     { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
   );
   const feedbackAcceptance = accountableDemoMetric(
     "Feedback acceptance rate",
-    "Accepted decisions divided by all coordinator feedback rows.",
+    "Accepted decisions divided by all Event Host feedback rows.",
     feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
       ? feedbackStats.acceptance_rate
       : null,
@@ -190,7 +190,7 @@ export function Pipeline() {
       provenance: feedbackProvenance,
       unknownReason:
         feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No coordinator feedback submitted yet, so there is no rate to report."
+          ? "No Event Host feedback submitted yet, so there is no rate to report."
           : "Feedback optimizer stats are unavailable.",
     },
   );
@@ -283,7 +283,7 @@ export function Pipeline() {
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Coordinator submissions captured so far.</p>
+                <p className="mt-1 text-xs text-gray-600">Event Host submissions captured so far.</p>
               </div>
               <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
                 <p className="text-sm font-medium text-primary">Acceptance rate</p>
@@ -322,7 +322,7 @@ export function Pipeline() {
                   {leadAdjustment
                     ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
                     : feedbackAvailable
-                      ? "Needs more coordinator outcomes."
+                      ? "Needs more Event Host outcomes."
                       : "Feedback optimizer stats are unavailable."}
                 </p>
               </div>
@@ -337,7 +337,7 @@ export function Pipeline() {
                 {feedbackStats.trend.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
                     {feedbackAvailable
-                      ? "Trend rows will appear here once feedback is submitted from the coordinator workflow."
+                      ? "Trend rows will appear here once Event Hosts submit feedback."
                       : "Feedback optimizer stats are unavailable, so there is no trend to plot."}
                   </div>
                 ) : (

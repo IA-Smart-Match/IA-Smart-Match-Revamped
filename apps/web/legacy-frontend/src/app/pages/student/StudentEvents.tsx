@@ -124,23 +124,12 @@ export function StudentEvents() {
                     <span>Registered {new Date(reg.registered_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleAddToCalendar(reg.event_name)}
-                    className="rounded-xl border border-border/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
-                  >
-                    Add to Calendar
-                  </button>
-                  <a
-                    href="/api/qr/stats"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                  >
-                    <AppIcon name="qr" className="h-4 w-4" />
-                    View QR Code
-                  </a>
-                </div>
+                <button
+                  onClick={() => handleAddToCalendar(reg.event_name)}
+                  className="rounded-xl border border-border/70 px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
+                >
+                  Add to Calendar
+                </button>
               </div>
             </div>
           ))}

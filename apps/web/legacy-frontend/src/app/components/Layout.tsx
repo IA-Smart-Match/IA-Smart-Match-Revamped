@@ -2,10 +2,9 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   Users,
-  Sparkles,
   TrendingUp,
   CalendarDays,
-  Mail,
+  ClipboardList,
   Menu,
   X,
 } from "lucide-react";
@@ -23,18 +22,17 @@ const navigationSections = [
   {
     label: "MANAGE",
     items: [
-      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of events and volunteer coverage" },
+      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of events and speaker coverage" },
       { name: "Events", href: "/events", icon: CalendarDays, tooltip: "Create and publish events" },
-      { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Volunteer profiles, assignments, and availability" },
-      { name: "Match progress", href: "/pipeline", icon: TrendingUp, tooltip: "Follow each match from introduction to event" },
+      { name: "Speakers", href: "/volunteers", icon: Users, tooltip: "Speaker profiles, assignments, and availability" },
+      { name: "Invitation progress", href: "/pipeline", icon: TrendingUp, tooltip: "Follow speaker invitations by event" },
       { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
     ],
   },
   {
     label: "COORDINATE",
     items: [
-      { name: "Find matches", href: "/ai-matching", icon: Sparkles, tooltip: "Compare volunteers with open opportunities" },
-      { name: "Outreach", href: "/outreach", icon: Mail, tooltip: "Generate outreach emails and QR assets" },
+      { name: "Invitations", href: "/outreach", icon: ClipboardList, tooltip: "Track speaker invitations" },
     ],
   },
 ];
@@ -69,7 +67,7 @@ export function Layout() {
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
-            <BrandLogo label="Smart Match administration" />
+            <BrandLogo label="Speaker Connector portal" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-[#59665f] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -132,7 +130,7 @@ export function Layout() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">
-                  IA Admin
+                  Speaker Connector
                 </p>
                 <p className="truncate text-xs text-[#59665f]">admin@ia.org</p>
               </div>

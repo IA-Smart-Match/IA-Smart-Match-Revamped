@@ -63,19 +63,8 @@ def test_student_connect_has_no_mock_chat() -> None:
         )
 
 
-def test_agentic_outreach_panel_never_claims_outreach_was_sent() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    for pattern in AGENTIC_PANEL_FORBIDDEN:
-        assert pattern not in source, (
-            f"AgenticOutreachPanel reintroduced unconditional success: {pattern!r}"
-        )
-
-
-def test_agentic_outreach_panel_states_no_send_path_exists() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    assert "No send path exists" in source, (
-        "AgenticOutreachPanel must truthfully state that outreach cannot be dispatched"
-    )
+def test_agentic_outreach_panel_is_removed() -> None:
+    assert not AGENTIC_OUTREACH_PANEL.exists()
 
 
 def test_outreach_page_has_no_stub_controls() -> None:

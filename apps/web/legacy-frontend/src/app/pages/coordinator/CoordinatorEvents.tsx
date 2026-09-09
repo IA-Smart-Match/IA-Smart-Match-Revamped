@@ -1,50 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CalendarDays, MapPin, Users } from "lucide-react";
-
+import { useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CalendarDays, MapPin, Sparkles, Users } from "lucide-react";
 import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
-import { fetchManualEvents, getConfiguredUnitId, type ManualEvent } from "../../../lib/api";
+import { closeEventAttendance, fetchManualEvents, getConfiguredUnitId, runSpeakerMatch, submitSpeakerShortlist, type ManualEvent, type MatchRun } from "../../../lib/api";
 
-function schedule(event: ManualEvent) {
-  if (event.time_precision === "date_only") return `${event.on_date} · All day · ${event.time_zone}`;
-  if (event.time_precision === "exact" && event.starts_at) {
-    const formatted = new Intl.DateTimeFormat("en-US", {
-      dateStyle: "long", timeStyle: "short", timeZone: event.time_zone ?? undefined,
-    }).format(new Date(event.starts_at));
-    return `${formatted} · ${event.time_zone}`;
-  }
-  return "Schedule unavailable";
+function schedule(event: ManualEvent) { if (event.time_precision === "date_only") return `${event.on_date} · All day · ${event.time_zone}`; if (event.time_precision === "exact" && event.starts_at) return `${new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: event.time_zone ?? undefined }).format(new Date(event.starts_at))} · ${event.time_zone}`; return "Schedule unavailable"; }
+
+function MatchPanel({ event, unitId }: { event: ManualEvent; unitId: string }) {
+  const principalKey = usePrincipalKey(); const client = useQueryClient(); const runKey = useRef(crypto.randomUUID()); const shortlistKey = useRef(crypto.randomUUID());
+  const [run, setRun] = useState<MatchRun | null>(null); const [selected, setSelected] = useState<string[]>([]); const [submitted, setSubmitted] = useState(false);
+  const match = useMutation({ mutationFn: () => runSpeakerMatch(unitId, event.id, runKey.current), onSuccess: (result) => { setRun(result); setSelected([]); } });
+  const shortlist = useMutation({ mutationFn: () => submitSpeakerShortlist(unitId, run!.id, selected, shortlistKey.current), onSuccess: async () => { setSubmitted(true); await client.invalidateQueries({ queryKey: [principalKey, "speaker-events", unitId] }); } });
+  const closeAttendance = useMutation({ mutationFn: () => closeEventAttendance(unitId, event.id, event.version), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: [principalKey, "speaker-events", unitId] }), client.invalidateQueries({ queryKey: [principalKey, "manual-events", unitId] })]); } });
+  return <div className="mt-5 border-t pt-5"><button disabled={match.isPending} onClick={() => match.mutate()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Sparkles className="h-4 w-4" />{match.isPending ? "Finding speakers…" : run ? "Run Smart Match again" : "Run Smart Match"}</button>
+    {match.error ? <p role="alert" className="mt-3 text-sm text-destructive">{match.error instanceof Error ? match.error.message : "Smart Match could not run."}</p> : null}
+    {run ? <div className="mt-4"><h3 className="font-semibold">Suggested speakers</h3><p className="mt-1 text-xs text-muted-foreground">Choose one to three. Smart Match uses relevant topics and service region; it does not contact anyone.</p>{run.suggestions.length ? <div className="mt-3 space-y-2">{run.suggestions.map((speaker) => <label key={speaker.speaker_id} className="flex cursor-pointer gap-3 rounded-xl border p-3"><input type="checkbox" checked={selected.includes(speaker.speaker_id)} disabled={!selected.includes(speaker.speaker_id) && selected.length >= 3} onChange={(e) => setSelected((current) => e.target.checked ? [...current, speaker.speaker_id] : current.filter((id) => id !== speaker.speaker_id))} /><span><strong>{speaker.name}</strong><span className="block text-sm text-muted-foreground">{[speaker.title, speaker.company].filter(Boolean).join(" · ")}</span><span className="mt-1 block text-xs text-primary">{speaker.explanations.join(" · ")}</span></span></label>)}</div> : <p className="mt-3 rounded-xl bg-muted p-3 text-sm">No speaker has enough topic or region evidence for this event.</p>}{run.suggestions.length ? <button disabled={!selected.length || shortlist.isPending || submitted} onClick={() => shortlist.mutate()} className="mt-3 min-h-11 rounded-xl border border-primary px-4 text-sm font-semibold text-primary disabled:opacity-60">{submitted ? "Selected speakers submitted" : shortlist.isPending ? "Submitting…" : "Submit selected speakers"}</button> : null}{shortlist.error ? <p role="alert" className="mt-2 text-sm text-destructive">{shortlist.error instanceof Error ? shortlist.error.message : "The shortlist could not be submitted."}</p> : null}</div> : null}
+    <div className="mt-5 border-t pt-4"><button disabled={closeAttendance.isPending || Boolean(event.attendance_closed_at)} onClick={() => { if (window.confirm("Close attendance? Confirmed speakers without a check-in will be marked Did Not Attend.")) closeAttendance.mutate(); }} className="min-h-11 rounded-xl border px-4 text-sm font-semibold disabled:opacity-60">{event.attendance_closed_at ? "Attendance closed" : closeAttendance.isPending ? "Closing…" : "Close attendance"}</button>{closeAttendance.error ? <p role="alert" className="mt-2 text-sm text-destructive">{closeAttendance.error instanceof Error ? closeAttendance.error.message : "Attendance could not be closed."}</p> : null}</div>
+  </div>;
 }
 
 export function CoordinatorEvents() {
-  const unitId = getConfiguredUnitId();
-  const principalKey = usePrincipalKey();
-  const query = useQuery({
-    queryKey: [principalKey, "manual-events", unitId, "published"],
-    queryFn: () => fetchManualEvents(unitId!, "published"),
-    enabled: Boolean(principalKey && unitId),
-  });
-
-  if (!unitId) return <div className="rounded-2xl border border-border bg-card p-8"><h1 className="text-2xl">Events</h1><p className="mt-2 text-muted-foreground">Choose an authorized unit to view its published events.</p></div>;
-  if (query.isLoading) return <div className="space-y-4"><h1 className="text-2xl">Events</h1><div className="h-32 animate-pulse rounded-2xl bg-muted" /><div className="h-32 animate-pulse rounded-2xl bg-muted" /></div>;
+  const unitId = getConfiguredUnitId(); const principalKey = usePrincipalKey();
+  const query = useQuery({ queryKey: [principalKey, "manual-events", unitId, "published"], queryFn: () => fetchManualEvents(unitId!, "published"), enabled: Boolean(principalKey && unitId) });
+  if (!unitId) return <div className="rounded-2xl border bg-card p-8"><h1 className="text-2xl">Events</h1><p className="mt-2 text-muted-foreground">Sign in with an authorized unit to view its published events.</p></div>;
+  if (query.isLoading) return <div className="space-y-4"><h1 className="text-2xl">Events</h1><div className="h-32 animate-pulse rounded-2xl bg-muted" /></div>;
   if (query.error) return <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center"><AlertTriangle className="mx-auto mb-3 h-8 w-8 text-destructive" /><h1 className="text-2xl">Events</h1><p role="alert" className="mt-2 text-destructive">{query.error instanceof Error ? query.error.message : "Events could not be loaded."}</p></div>;
-
   const events = query.data?.data ?? [];
-  return (
-    <div className="space-y-6">
-      <div><h1 className="text-2xl font-semibold text-foreground">Events</h1><p className="mt-2 text-muted-foreground">Published events available for volunteer coordination.</p></div>
-      {events.length === 0 ? <div className="rounded-2xl border border-border bg-card p-10 text-center shadow-sm"><CalendarDays className="mx-auto mb-3 h-9 w-9 text-muted-foreground" /><p className="font-medium">No published events yet</p><p className="mt-1 text-sm text-muted-foreground">Events appear here after an administrator publishes them.</p></div> : <div className="grid gap-4 lg:grid-cols-2">{events.map((event) => (
-        <article key={event.id} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">{event.title}</h2><p className="mt-1 text-sm capitalize text-primary">{event.category}</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Published</span></div>
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">{event.description}</p>
-          <dl className="mt-5 space-y-3 text-sm">
-            <div className="flex gap-2"><CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><dt className="sr-only">Schedule</dt><dd>{schedule(event)}</dd></div></div>
-            <div className="flex gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><dt className="sr-only">Location</dt><dd>{event.location}</dd></div></div>
-            <div className="flex gap-2"><Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><dt className="sr-only">Volunteer openings</dt><dd>{event.volunteer_openings} volunteer openings · {event.volunteer_needs}</dd></div></div>
-          </dl>
-          <div className="mt-5 rounded-xl bg-muted px-4 py-3 text-sm"><p className="font-medium">Audience: {event.audience}</p><p className="mt-1 text-muted-foreground">Contact {event.contact_name} at {event.contact_email}</p></div>
-          <p className="mt-3 text-xs text-muted-foreground">Source: Entered by an administrator</p>
-        </article>
-      ))}</div>}
-    </div>
-  );
+  return <div className="space-y-6"><header><h1 className="text-3xl font-semibold">Events</h1><p className="mt-2 text-muted-foreground">Review published events, run Smart Match, and submit speakers for Connector outreach.</p></header>{events.length === 0 ? <div className="rounded-2xl border bg-card p-10 text-center"><CalendarDays className="mx-auto mb-3 h-9 w-9 text-muted-foreground" /><p className="font-medium">No published events yet</p></div> : <div className="grid gap-4 lg:grid-cols-2">{events.map((event) => <article key={event.id} className="rounded-2xl border bg-card p-6 shadow-sm"><h2 className="text-xl font-semibold">{event.title}</h2><p className="mt-3 text-sm leading-6 text-muted-foreground">{event.description}</p><dl className="mt-4 space-y-2 text-sm"><div className="flex gap-2"><CalendarDays className="h-4 w-4 text-primary" /><dd>{schedule(event)}</dd></div><div className="flex gap-2"><MapPin className="h-4 w-4 text-primary" /><dd>{event.location}{event.region ? ` · ${event.region}` : ""}</dd></div><div className="flex gap-2"><Users className="h-4 w-4 text-primary" /><dd>{event.volunteer_openings} speaker openings</dd></div></dl><p className="mt-3 text-xs text-muted-foreground">Topics: {event.speaker_topics.length ? event.speaker_topics.join(", ") : "Not specified"}</p><MatchPanel event={event} unitId={unitId} /></article>)}</div>}</div>;
 }

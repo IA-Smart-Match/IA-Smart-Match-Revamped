@@ -32,7 +32,20 @@ Before changing the frontend:
 
 ## Product voice
 
-Smart Match helps people coordinate volunteers and events. Write for a person doing that work, not for a software buyer or data scientist.
+Smart Match helps people coordinate speakers and events. Write for a person doing that work, not for a software buyer or data scientist.
+
+### Role names
+
+Keep the established backend authorization keys for compatibility, but never expose those internal names as role labels in the interface.
+
+| Backend role key | User-facing role name |
+|---|---|
+| `admin` | Speaker Connector |
+| `coordinator` | Event Host |
+| `volunteer` | Speaker |
+| `student` | Student |
+
+Use the user-facing terms in headings, navigation, help text, profile fallbacks, statuses, and accessibility labels. Internal route names, API fields, database columns, and authorization checks retain their existing identifiers.
 
 ### Writing rules
 
@@ -48,22 +61,22 @@ Smart Match helps people coordinate volunteers and events. Write for a person do
 
 | Avoid in visible copy | Use instead |
 |---|---|
-| AI-driven coordination | Volunteer coordination |
+| AI-driven coordination | Speaker coordination |
 | Algorithm / signals | How the match was determined |
 | Pipeline | Match progress |
-| CRM-style reporting | Assignment and outreach history |
+| CRM-style reporting | Invitation and attendance history |
 | Scrape / ingestion | Create events / import approved records |
 | Fatigue Index | Break need |
 | Average fatigue | Average break need |
 
-“Break need” describes recent workload, not a medical condition or judgment about the volunteer.
+“Break need” describes recent workload, not a medical condition or judgment about the speaker.
 
 - `Available`: recent workload does not indicate a break.
-- `Consider a break`: recent assignments suggest checking with the volunteer.
-- `Break recommended`: recent workload strongly suggests giving the volunteer time off.
+- `Consider a break`: recent assignments suggest checking with the speaker.
+- `Break recommended`: recent workload strongly suggests giving the speaker time off.
 - Missing evidence: `Not enough recent assignment data`.
 
-Use `src/lib/breakNeed.ts` for these labels. Wherever a percentage appears, include: “A higher percentage means this volunteer has had more recent assignments and may need a break.” Never convert a missing value to `0%`.
+Use `src/lib/breakNeed.ts` for these labels. Wherever a percentage appears, include: “A higher percentage means this speaker has had more recent assignments and may need a break.” Never convert a missing value to `0%`.
 
 ## Visual system
 
@@ -119,33 +132,33 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 ### Public landing page
 
 - Sticky header: CPP logo, minimal navigation, and one clean text-style “Sign in” action. Do not put a bordered capsule around the top sign-in link.
-- Hero headline: “Match volunteers with events where they can help most.”
-- Supporting copy: “Smart Match helps coordinators create and organize events, compare volunteer experience and availability, and keep staffing assignments in one place.”
+- Hero headline: “Match speakers with events where they can help most.”
+- Supporting copy: “Smart Match helps Event Hosts create and organize events, compare speaker experience and availability, and keep staffing assignments in one place.”
 - Workflow section heading: “How Smart Match works.”
-- Describe creating events, choosing volunteers, and tracking assignments in plain language.
+- Describe creating events, choosing speakers, and tracking assignments in plain language.
 - Do not add eyebrow badges above headlines. This includes phrases such as “Volunteer coordination made clearer” and “A straightforward process.”
 - Do not add hard-coded statistics, fake live activity, simulated terminals, a “View Demo” action, public demo wording, a second/lower sign-in promotion, or a sign-in link in the footer.
 - End with a semantic footer whose year is generated at runtime: `© [current year] Cal Poly Pomona. All rights reserved.`
 
 ### Signed-in shells
 
-Administrator, coordinator, volunteer, and student experiences share the same visual language but may expose different navigation based on server-authorized roles.
+Speaker Connector, Event Host, Speaker, and Student experiences share the same visual language but may expose different navigation based on server-authorized roles.
 
 - The left sidebar owns the product identity, current section navigation, profile summary, and sign-out action.
 - Place sign out directly beneath the profile area on desktop. Use the corresponding account area on mobile.
 - Do not add a desktop top bar that repeats the page or portal name already shown in the sidebar/content.
 - Use one `h1` for the page name. Do not place a generic category label such as “Volunteer management” or “Master calendar” above it.
 - Do not place decorative icons beside page headings. Icons are appropriate inside actions, statuses, empty states, or navigation when they improve recognition.
-- Put the action queue before summary statistics on administrator and coordinator home pages. For a small count, name the people or records rather than hiding them behind an average.
-- Mobile layouts use a compact header and a usable navigation drawer. Student and volunteer tasks are phone-first; administrator and coordinator tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
+- Put the action queue before summary statistics on Speaker Connector and Event Host home pages. For a small count, name the people or records rather than hiding them behind an average.
+- Mobile layouts use a compact header and a usable navigation drawer. Student and Speaker tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
 
 ### Events and feedback QR codes
 
 - Manual event entry is the primary event source. Do not add crawler controls, crawler status, discovery feeds, or background-scraping language to a visible frontend path.
-- Administrators may create, edit, and publish events. Coordinators consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
+- Speaker Connectors may create, edit, and publish events. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
 - Preserve the event's IANA time zone. Convert a local form time using the selected zone, and display the saved instant in that same named zone.
 - Keep drafts usable when details are incomplete. Publishing must surface the backend's missing-field response without clearing the form.
-- Feedback QR management belongs only on the administrator event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.
+- Feedback QR management belongs only on the Speaker Connector event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.
 - Generate SVG/PNG QR assets locally. Never send the destination or redirect URL to a third-party QR service.
 - Call the metric “QR opens.” It is not a response, conversion, or proof that the external form was completed.
 - Clearly state that the form opens on an external website and Smart Match does not host or inspect it. Show its hostname before saving.
@@ -299,6 +312,16 @@ Current implementation locations:
 Do not copy a component merely to change its colors or spacing. Extend the shared primitive or add a documented variant. Keep domain calculations in the backend/domain layer; the frontend may format and explain a value but must not reimplement matching scores, eligibility, authorization, or workload rules.
 
 ## Definition of done
+
+## Speaker roster and invitation workflow
+
+- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`; display them as Speaker Connector, Event Host, Speaker, and Student.
+- Speaker Connectors maintain private contact details and atomically publish the available roster. Event Hosts receive only the published profile fields—never email or phone.
+- Smart Match lives on an Event Host's event view. It returns at most three evidence-backed suggestions using event topics and region. Explain relevant topics and regional service in words; never display internal weights, scores, percentages, or confidence.
+- Submitting a shortlist creates invitation records in **Not Emailed Yet**. It does not draft, send, schedule, or monitor email. Connectors contact speakers outside Smart Match.
+- Both roles use one shared speaker-event record, notes, and append-only history. Render only actions authorized for the signed-in role and current status.
+- Preserve stale-version errors and idempotency protections. Never simulate a transition or show client-only success.
+- Email templates, batch invitation actions, send controls, fake messaging, and agentic outreach do not belong in the frontend or API boundary.
 
 A frontend change is complete only when all relevant items are true:
 

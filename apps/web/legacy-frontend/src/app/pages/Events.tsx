@@ -6,6 +6,7 @@ import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
 import { QRCodeCard } from "@/components/QRCodeCard";
 import {
   ApiRequestError,
+  cancelManualEvent,
   createManualEvent,
   fetchFeedbackQr,
   fetchManualEvents,
@@ -26,12 +27,13 @@ type FormState = {
   starts_at: string; ends_at: string; on_date: string; time_zone: string; location: string;
   capacity: string; volunteer_openings: string; volunteer_needs: string; audience: string;
   contact_name: string; contact_email: string;
+  speaker_topics: string; region: string;
 };
 
 const blankForm = (): FormState => ({
   title: "", description: "", category: "", time_precision: "exact", starts_at: "", ends_at: "",
   on_date: "", time_zone: defaultZone, location: "", capacity: "", volunteer_openings: "",
-  volunteer_needs: "", audience: "", contact_name: "", contact_email: "",
+  volunteer_needs: "", audience: "", contact_name: "", contact_email: "", speaker_topics: "", region: "",
 });
 
 function dateTimeLocal(value: string | null, zone: string | null) {
@@ -53,6 +55,7 @@ function formFromEvent(event: ManualEvent): FormState {
     capacity: event.capacity?.toString() ?? "", volunteer_openings: event.volunteer_openings?.toString() ?? "",
     volunteer_needs: event.volunteer_needs ?? "", audience: event.audience ?? "",
     contact_name: event.contact_name ?? "", contact_email: event.contact_email ?? "",
+    speaker_topics: event.speaker_topics.join(", "), region: event.region ?? "",
   };
 }
 
@@ -101,6 +104,8 @@ function inputFromForm(form: FormState): ManualEventInput {
     volunteer_openings: number(form.volunteer_openings), volunteer_needs: form.volunteer_needs.trim() || null,
     audience: form.audience.trim() || null, contact_name: form.contact_name.trim() || null,
     contact_email: form.contact_email.trim() || null,
+    speaker_topics: form.speaker_topics.split(",").map((topic) => topic.trim()).filter(Boolean),
+    region: form.region.trim() || null,
   };
 }
 
@@ -130,6 +135,7 @@ export function Events() {
   const [selected, setSelected] = useState<ManualEvent | null>(null);
   const [form, setForm] = useState<FormState>(blankForm);
   const [notice, setNotice] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
   const createKey = useRef(crypto.randomUUID());
   const key = [principalKey, "manual-events", unitId, "all"] as const;
   const eventsQuery = useQuery({ queryKey: key, queryFn: () => fetchManualEvents(unitId!, "all"), enabled: Boolean(principalKey && unitId) });
@@ -143,11 +149,13 @@ export function Events() {
       : createManualEvent(unitId!, inputFromForm(form), createKey.current),
     onSuccess: async (event) => { setSelected(event); setNotice("Draft saved."); await invalidate(); },
   });
-  const publishMutation = useMutation({ mutationFn: () => publishManualEvent(unitId!, selected!.id), onSuccess: async (event) => { setSelected(event); setNotice("Event published. Coordinators can now see it."); await invalidate(); } });
+  const publishMutation = useMutation({ mutationFn: () => publishManualEvent(unitId!, selected!.id), onSuccess: async (event) => { setSelected(event); setNotice("Event published. Event Hosts can now see it."); await invalidate(); } });
   const qrMutation = useMutation({ mutationFn: (url: string) => saveFeedbackQr(unitId!, selected!.id, url), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: [principalKey, "feedback-qr", unitId, selected?.id] }); } });
   const events = eventsQuery.data?.data ?? [];
   const drafts = useMemo(() => events.filter((event) => event.status === "draft"), [events]);
   const published = useMemo(() => events.filter((event) => event.status === "published"), [events]);
+  const cancelled = useMemo(() => events.filter((event) => event.status === "cancelled"), [events]);
+  const cancelMutation = useMutation({ mutationFn: () => cancelManualEvent(unitId!, selected!.id, selected!.version, cancellationReason), onSuccess: async () => { setSelected(null); setNotice("Event cancelled. Its feedback QR is now inactive."); setCancellationReason(""); await invalidate(); } });
   const mutationError = saveMutation.error ?? publishMutation.error;
 
   if (!unitId) return <div className="rounded-2xl border border-border bg-card p-8"><h1 className="text-2xl">Events</h1><p className="mt-2 text-muted-foreground">Choose an authorized unit before managing events.</p></div>;
@@ -156,7 +164,7 @@ export function Events() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><h1 className="text-3xl font-semibold">Events</h1><p className="mt-2 text-muted-foreground">Create events, publish them for coordinators, and prepare an external feedback QR.</p></div>
+        <div><h1 className="text-3xl font-semibold">Events</h1><p className="mt-2 text-muted-foreground">Create events, publish them for Event Hosts, and prepare an external feedback QR.</p></div>
         <button type="button" onClick={() => { setSelected(null); setForm(blankForm()); setNotice(""); createKey.current = crypto.randomUUID(); }} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Plus className="h-4 w-4" />Create event</button>
       </div>
 
@@ -164,7 +172,7 @@ export function Events() {
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <section className="space-y-4" aria-label="Saved events">
           {eventsQuery.isLoading ? <p className="rounded-2xl border border-border bg-card p-6">Loading events…</p> : null}
-          {[{ title: "Drafts", items: drafts }, { title: "Published", items: published }].map((group) => (
+          {[{ title: "Drafts", items: drafts }, { title: "Published", items: published }, { title: "Cancelled", items: cancelled }].map((group) => (
             <div key={group.title} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <h2 className="text-lg font-semibold">{group.title}</h2>
               <div className="mt-3 space-y-2">{group.items.length ? group.items.map((event) => (
@@ -189,8 +197,10 @@ export function Events() {
               <label>Time zone<input value={form.time_zone} onChange={(e) => field("time_zone", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
               <label>Location<input value={form.location} onChange={(e) => field("location", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
               <label>Capacity<input type="number" min="0" value={form.capacity} onChange={(e) => field("capacity", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
-              <label>Volunteer openings<input type="number" min="0" value={form.volunteer_openings} onChange={(e) => field("volunteer_openings", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
-              <label className="sm:col-span-2">Volunteer needs<textarea rows={2} value={form.volunteer_needs} onChange={(e) => field("volunteer_needs", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
+              <label>Speaker openings<input type="number" min="0" value={form.volunteer_openings} onChange={(e) => field("volunteer_openings", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
+              <label className="sm:col-span-2">Speaker needs<textarea rows={2} value={form.volunteer_needs} onChange={(e) => field("volunteer_needs", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
+              <label className="sm:col-span-2">Event topics <span className="text-xs text-muted-foreground">(comma separated)</span><input value={form.speaker_topics} onChange={(e) => field("speaker_topics", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
+              <label>Event region<input value={form.region} onChange={(e) => field("region", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
               <label>Audience<input value={form.audience} onChange={(e) => field("audience", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
               <label>Contact name<input value={form.contact_name} onChange={(e) => field("contact_name", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
               <label className="sm:col-span-2">Contact email<input type="email" value={form.contact_email} onChange={(e) => field("contact_email", e.target.value)} className="mt-1 w-full rounded-xl border bg-input-background px-3 py-2" /></label>
@@ -198,8 +208,9 @@ export function Events() {
             {mutationError ? <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{eventErrorMessage(mutationError)}</p> : null}
             {notice ? <p role="status" className="mt-4 rounded-xl bg-primary/5 p-3 text-sm text-primary">{notice}</p> : null}
             <div className="mt-5 flex flex-wrap gap-3"><button disabled={saveMutation.isPending} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Save className="h-4 w-4" />{saveMutation.isPending ? "Saving…" : "Save draft"}</button>{selected?.status === "draft" ? <button type="button" disabled={publishMutation.isPending} onClick={() => publishMutation.mutate()} className="rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary disabled:opacity-60">{publishMutation.isPending ? "Publishing…" : "Publish event"}</button> : null}</div>
+            {selected && selected.status !== "cancelled" ? <div className="mt-6 border-t pt-5"><h3 className="font-semibold">Cancel event</h3><p className="mt-1 text-xs text-muted-foreground">Cancellation closes active invitations and disables the feedback QR. It cannot be undone here.</p><div className="mt-3 flex flex-wrap gap-2"><input required value={cancellationReason} onChange={(e) => setCancellationReason(e.target.value)} placeholder="Reason for cancellation" className="min-w-64 flex-1 rounded-xl border bg-input-background px-3 py-2" /><button type="button" disabled={!cancellationReason.trim() || cancelMutation.isPending} onClick={() => cancelMutation.mutate()} className="rounded-xl border border-destructive px-4 text-sm font-semibold text-destructive disabled:opacity-60">{cancelMutation.isPending ? "Cancelling…" : "Cancel event"}</button></div>{cancelMutation.error ? <p role="alert" className="mt-2 text-sm text-destructive">{cancelMutation.error instanceof Error ? cancelMutation.error.message : "The event could not be cancelled."}</p> : null}</div> : null}
           </form>
-          {selected ? <QRCodeCard asset={qrQuery.data ?? null} loading={qrMutation.isPending || qrQuery.isLoading} error={qrMutation.error instanceof Error ? qrMutation.error.message : null} onSave={async (url) => { await qrMutation.mutateAsync(url); }} /> : <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground"><CalendarDays className="mb-2 h-5 w-5" />Save or select an event to configure its feedback QR code.</div>}
+          {selected && selected.status !== "cancelled" ? <QRCodeCard asset={qrQuery.data ?? null} loading={qrMutation.isPending || qrQuery.isLoading} error={qrMutation.error instanceof Error ? qrMutation.error.message : null} onSave={async (url) => { await qrMutation.mutateAsync(url); }} /> : <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground"><CalendarDays className="mb-2 h-5 w-5" />{selected?.status === "cancelled" ? "Feedback QR redirects are inactive for cancelled events." : "Save or select an event to configure its feedback QR code."}</div>}
         </div>
       </div>
     </div>

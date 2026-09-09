@@ -364,7 +364,7 @@ export function Calendar() {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
+          <h1 className="text-3xl font-semibold text-slate-900">Event Host scheduling view</h1>
         </div>
         <FailureState
           title="The calendar could not be loaded"
@@ -397,19 +397,19 @@ export function Calendar() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Needs coverage</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.needsCoverage}</p>
-          <p className="mt-1 text-sm text-slate-600">Open windows that still need a volunteer</p>
+          <p className="mt-1 text-sm text-slate-600">Open windows that still need a speaker</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average break need</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">
             {formatPercent(metrics.averageFatigue)}
           </p>
-          <p className="mt-1 text-sm text-slate-600">Higher values mean volunteers may need more rest</p>
+          <p className="mt-1 text-sm text-slate-600">Higher values mean speakers may need more rest</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Break recommended</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900">{metrics.cooldownCount}</p>
-          <p className="mt-1 text-sm text-slate-600">Volunteers who should rest before another event</p>
+          <p className="mt-1 text-sm text-slate-600">Speakers who should rest before another event</p>
         </div>
       </div>
 
@@ -785,7 +785,7 @@ export function Calendar() {
               <div className="mb-4 flex items-center gap-2">
                 <Users className="h-5 w-5 text-primary" />
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Volunteer assignments</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">Speaker assignments</h3>
                   <p className="text-sm text-slate-600">
                     Coverage-aware assignments and recovery status for the selected day.
                   </p>
@@ -803,7 +803,7 @@ export function Calendar() {
                         <div>
                           <p className="font-semibold text-slate-900">{assignment.volunteer_name}</p>
                           <p className="text-sm text-slate-600">
-                            {assignment.volunteer_title || "Board volunteer"}
+                            {assignment.volunteer_title || "Speaker"}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
                             {assignment.event_name} · {assignment.stage}

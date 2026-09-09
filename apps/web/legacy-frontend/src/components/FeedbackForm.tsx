@@ -76,7 +76,7 @@ export function FeedbackForm({
   onSubmitted,
   onCancel,
   title = "Record Feedback",
-  description = "Capture the coordinator outcome so the optimizer can learn from real match decisions.",
+  description = "Capture the Event Host outcome so future suggestions can reflect real match decisions.",
   className = "",
 }: FeedbackFormProps) {
   const [decision, setDecision] = useState<"accept" | "decline">("accept");
@@ -152,7 +152,7 @@ export function FeedbackForm({
           <p className="mt-1 font-semibold text-slate-900">{eventName}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Volunteer</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Speaker</p>
           <p className="mt-1 font-semibold text-slate-900">{speakerName}</p>
         </div>
       </div>
