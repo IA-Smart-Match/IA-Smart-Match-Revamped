@@ -4236,3 +4236,139 @@ export async function fetchAttendanceSummary(unitId: string): Promise<Attendance
     { authenticated: true },
   );
 }
+
+/**
+ * The three statuses a review item may be listed at.
+ *
+ * Mirrors the server's `ReviewItemStatusFilter`, which is a `Literal` for the
+ * reason worth repeating on this side: there is deliberately no "all" member.
+ * A caller always names exactly one status, so no value a UI could pass — an
+ * empty string, an unset variable — resolves to "every row". The server refuses
+ * anything outside this union with a `422` rather than widening the query.
+ */
+export type ReviewItemStatus = "pending" | "accepted" | "rejected";
+
+/**
+ * One quarantined import row awaiting — or carrying — a coordinator's decision.
+ *
+ * `row_data` is the submitted record verbatim, and its shape is genuinely
+ * unknown to this client: it is whatever columns the import carried, which vary
+ * by dataset. It is typed as an open record rather than given invented fields,
+ * because a type that claimed to know the columns would be wrong for the first
+ * import that carried different ones.
+ *
+ * There is no `decided_by`, and its absence is a decision rather than an
+ * oversight. The column exists on the row and holds a `user_account` id; no
+ * route in this API discloses one, and the list route deliberately does not
+ * become the first. A field added here would be permanently null, which reads
+ * as "nobody decided it" rather than "we are not told".
+ *
+ * `decided_at` is `null` for exactly the pending rows — undecided, never
+ * unknown (ADR-0011 rule 1). A surface that rendered it as a dash or a zero
+ * date would be discarding that distinction.
+ */
+export interface ReviewItem {
+  id: string;
+  /** The import that submitted this row; rows from one import share it. */
+  import_batch_id: string;
+  /** This row's position within its import batch, from zero. */
+  row_index: number;
+  status: ReviewItemStatus;
+  /** The submitted record, exactly as the import wrote it. Columns vary by dataset. */
+  row_data: Record<string, unknown>;
+  created_at: string;
+  /** When this item was decided, or `null` while it is still pending. */
+  decided_at: string | null;
+}
+
+/**
+ * One unit's review items at one status.
+ *
+ * Carries no count, of these items or of the unit's pending total. That number
+ * has an owning query — `GET /v1/units/{unit_id}/metrics` — and ADR-0011 rule 4
+ * is that it is read from there rather than recomputed beside it.
+ * `items.length` is the length of *this page* and is not a total whenever
+ * `truncated` is true.
+ *
+ * `truncated` is measured rather than guessed: the server reads one row beyond
+ * its cap and reports whether it came back. A surface that ignored it would
+ * render a full page as a complete one, which is the silent-zero failure
+ * ADR-0011 rule 1 forbids.
+ */
+export interface ReviewItemListResponse {
+  unit_id: string;
+  /** The status these items were filtered to; echoes the request. */
+  status: ReviewItemStatus;
+  items: ReviewItem[];
+  /** True when more items exist at this status than the response cap returned. */
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/review-items` — the queue behind the
+ * `pending_review_items` badge.
+ *
+ * The dashboard has counted pending review items since before this route
+ * existed, and nothing listed them, so the screen showed a number it could not
+ * explain. Both sides derive a row's owning unit through the same join, so the
+ * length of this list and the value of that metric are the same number by
+ * construction rather than by coincidence.
+ *
+ * Nothing but `unitId` selects whose rows come back. `status` chooses a column
+ * value and cannot widen across units, and there is no caller identity on this
+ * path at all. Authorization is `admin`/`coordinator` against the loaded unit,
+ * decided per request: a caller the server refuses gets {@link ApiRequestError}
+ * with status `403`, and a unit in another tenant is a `404` rather than a
+ * `403` that would confirm the id names something real.
+ */
+export async function fetchReviewItems(
+  unitId: string,
+  status: ReviewItemStatus = "pending",
+): Promise<ReviewItemListResponse> {
+  return requestJson<ReviewItemListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/review-items?status=${encodeURIComponent(status)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** What a coordinator may write to a pending item. Never `pending`: that is not a decision. */
+export type ReviewDecision = "accepted" | "rejected";
+
+/**
+ * What changed, read back from the row rather than echoed from the request.
+ *
+ * No pending count, for the reason {@link ReviewItemListResponse} gives: the
+ * metrics route owns that number. A caller wanting the new count re-reads it
+ * there, which is also the only way the two can be guaranteed to agree.
+ */
+export interface ReviewDecisionResult {
+  id: string;
+  status: ReviewDecision;
+  decided_at: string;
+}
+
+/**
+ * `POST /v1/review-items/{review_item_id}/decision` — accept or reject one row.
+ *
+ * The item is named, and the unit the decision is authorized against is derived
+ * server-side from that item's own import batch. No unit travels in this call,
+ * deliberately: a caller who could name one could name a sibling department's,
+ * and an authorizer that trusted the assertion over the row's own ancestry is
+ * the archived MM-A01 defect.
+ *
+ * A second decision on the same row is a `409`, not a silent success — the
+ * server's `UPDATE` is guarded by `status = 'pending'`, so a retried request
+ * refuses cleanly rather than double-applying. Callers should surface that as
+ * the state disagreement it is, typically by re-reading the queue.
+ */
+export async function decideReviewItem(
+  reviewItemId: string,
+  decision: ReviewDecision,
+): Promise<ReviewDecisionResult> {
+  return requestJson<ReviewDecisionResult>(
+    `/v1/review-items/${encodeURIComponent(reviewItemId)}/decision`,
+    { method: "POST", body: JSON.stringify({ decision }) },
+    { authenticated: true },
+  );
+}
