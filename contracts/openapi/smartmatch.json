@@ -3540,6 +3540,110 @@
         "title": "ReviewDecisionResponse",
         "type": "object"
       },
+      "ReviewItemListResponse": {
+        "description": "One unit's review items at one status.\n\nCarries no count \u2014 not of these items and not of the unit's pending total.\n``GET /v1/units/{unit_id}/metrics`` owns ``pending_review_items``, and\nADR-0011 rule 4 is that a number with an owning query is read from that\nquery rather than recomputed by a second handler that would have to stay in\nstep with it by hand. :attr:`ReviewDecisionResponse` refuses the same\ntemptation for the same reason, and the contract test asserts the two\nsurfaces agree rather than letting this one restate the number.\n\n:attr:`truncated` is the one thing this response says about what it is not\nshowing, and it is a fact rather than an estimate: the handler reads\n``MAX_ROWS + 1`` rows and reports whether the extra one came back. It is\nnever a guess and never a silent zero \u2014 ADR-0011 rule 1, unknown must not\ndegrade to 0 \u2014 because \"there are more\" is measured by the same query that\nproduced the page, not by a second count whose filters could drift from it.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewItemView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "description": "The status these items were filtered to; echoes the request.",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when more items exist at this status than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "status",
+          "items",
+          "truncated"
+        ],
+        "title": "ReviewItemListResponse",
+        "type": "object"
+      },
+      "ReviewItemView": {
+        "description": "One review item as the queue discloses it.\n\nDeliberately **not** carrying ``decided_by``, which the row does have. That\ncolumn holds a ``user_account`` id, and nothing in this API discloses one\ntoday \u2014 ``ReviewDecisionResponse`` above answers a decision with ``id``,\n``status`` and ``decided_at`` and stops there. Under deny-by-default the\nabsence of an existing disclosure is the answer, not an invitation: a list\nis the widest possible place to become the first surface that publishes who\nacted, since it returns many rows at once to anyone holding the unit's\nrole rather than one row to the caller who just acted. Publishing it would\nbe a product decision with its own justification to write down, and this\nroute is not the place that decision would be made. See\n``ReviewItemRow``'s docstring, which omits it one layer down for the same\nreason, so it is never selected at all rather than selected and dropped.\n\n``row_data`` is the submitted record itself, verbatim as the import wrote\nit. That is the point of a review queue \u2014 a coordinator cannot decide a row\nthey cannot read \u2014 and it is also why ``_REVIEW_ROLES`` gates this route\nexactly as ``metrics.drill_down`` is gated: this is the same disclosure the\ndrill-down makes, so it answers to the same roles.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this item was decided, or null when it is still pending. Null means undecided and never 'unknown' \u2014 the column is null for exactly the pending rows (ck_review_item_decision_evidence).",
+            "title": "Decided At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "import_batch_id": {
+            "description": "The import that submitted this row; rows from one import share it.",
+            "format": "uuid",
+            "title": "Import Batch Id",
+            "type": "string"
+          },
+          "row_data": {
+            "additionalProperties": true,
+            "description": "The submitted record, exactly as the import wrote it.",
+            "title": "Row Data",
+            "type": "object"
+          },
+          "row_index": {
+            "description": "This row's position within its import batch, from zero.",
+            "title": "Row Index",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "import_batch_id",
+          "row_index",
+          "status",
+          "row_data",
+          "created_at"
+        ],
+        "title": "ReviewItemView",
+        "type": "object"
+      },
       "RewardBalanceResponse": {
         "description": "The caller's own point balance, and whether it is a number at all.\n\n``state`` is carried beside ``points`` rather than left to be inferred from\na ``null``, which is ADR-0011's whole point: a consumer that has to\nreconstruct \"unknown\" from an absent number is one ``?? 0`` away from\nrendering a fabricated zero, which is exactly what the deleted\n``studentPoints.ts`` call site did (``profile ? getStudentTotalPoints(profile) : 0``).",
         "properties": {
@@ -11720,6 +11824,153 @@
         "summary": "Approve, deny, or fulfil a redemption",
         "tags": [
           "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/review-items": {
+      "get": {
+        "description": "Return the review items this unit owns at one status, oldest first.\n\nThe queue behind the badge. ``GET /v1/units/{unit_id}/metrics`` has counted\n``pending_review_items`` for this unit since before this route existed, and\nuntil it did there was nothing to click through to \u2014 the dashboard showed a\nnumber it could not explain. The list and the count derive a row's owning\nunit through the *same* join (``review_item`` \u2192 ``import_batch`` \u2192\n``owning_unit_id``, in ``ReviewRepository.list_for_unit``), because\n``review_item`` has no owning unit column and two derivations that drifted\nwould put a row in one unit's queue and another unit's badge. See the module\ndocstring; the contract test asserts the two agree on one fixture.\n\n**Nothing in the request selects whose rows come back beyond the authorized\nunit.** The path names a unit, which\n:func:`_authorize_review_item_list` loads and authorizes against before any\nreview item is read; ``status`` chooses a column value and cannot widen\nacross units; and there is no caller-supplied identity, no ``user_id``, no\n``batch_id`` and no free-text predicate anywhere on this path. A caller who\nmay read this unit reads all of this unit's items at that status, and a\ncaller who may not reads none of them.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nsame query that produced the page rather than by a second count whose\nfilters could drift from this one's \u2014 the shape\n``speaker_requests.py::list_speaker_requests`` uses, followed here\ndeliberately rather than reinvented. A full page therefore never reads as a\ncomplete one, and \"there are more\" is measured rather than assumed: ADR-0011\nrule 1, an unknown must not degrade to a 0 (or, here, to a quiet ``false``).\n\nQuota is charged before the unit is loaded and before authorization runs\n(ADR-0015), so a caller producing 404s against unit ids they invented spends\nexactly what a caller reading their own queue spends \u2014 the same ordering\n``decide_review_item`` and ``create_import`` both apply, for the same\nreason: those are the refusals cheapest to produce in bulk.\n\nRaises:\n    ApiError: 403 when the caller holds no ``_REVIEW_ROLES`` membership\n        covering this unit; 404 when the unit is not this tenant's; 429 when\n        the minute's quota is spent. A 422 comes from Pydantic when\n        ``status`` is not one of the three the column admits.",
+        "operationId": "list_unit_review_items_v1_units__unit_id__review_items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which status to list. Defaults to the queue a coordinator works.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "description": "Which status to list. Defaults to the queue a coordinator works.",
+              "enum": [
+                "pending",
+                "accepted",
+                "rejected"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewItemListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's review items",
+        "tags": [
+          "review"
         ]
       }
     },

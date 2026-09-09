@@ -44,6 +44,59 @@ cost of a `202` response for work that, unlike an import, really did finish
 before the response was written. So this is an ordinary synchronous mutation,
 `200` on success, the same shape `routers/redrive.py::abandon_job` takes for
 the same reason: nothing is left to follow.
+
+## The routes this module owns
+
+* `POST /v1/review-items/{review_item_id}/decision` — decide one item, on
+  `router`. Named by item, with its unit derived; see above.
+* `GET /v1/units/{unit_id}/review-items` — list a unit's items, on
+  `unit_router`. Named by unit, because a queue has no item to derive one
+  from; see below.
+
+## Why the list is named by unit, when the decision is not
+
+The decision route's whole argument above is that a caller must not be able to
+*assert* which unit their request is scoped against. The list route takes a
+`unit_id` in its path and so appears to do exactly that. It does not, and the
+difference is worth stating precisely rather than leaving as an apparent
+contradiction.
+
+A review item names a unit whether or not the request does, so on the decision
+route a `unit_id` in the path would be a **second, redundant** value alongside
+the row's own ancestry — and MM-A01 is what happens when an authorizer trusts
+the redundant one over the row. A queue has no such row to derive from: "which
+unit's queue" *is* the request, the way `/v1/units/{unit_id}/imports` and
+`/v1/units/{unit_id}/metrics` are. There is no second value for a bug to
+prefer, so there is no mismatch to go unchecked.
+
+What makes that safe is not the path shape but the authorization:
+`_authorize_review_item_list` loads *that* unit with `load_unit_or_404` and
+authorizes against the loaded row's own path, so naming a unit is a request to
+be refused, never a claim to be believed. A coordinator naming a sibling
+department's `unit_id` is denied by the policy on containment, and a unit in
+another tenant is a 404 rather than a 403 that would confirm the id names
+something real.
+
+## The list and the count must not be able to disagree
+
+`GET /v1/units/{unit_id}/metrics` has published `pending_review_items` for this
+unit since before either review route existed. That count is the *reason* this
+list exists: the coordinator dashboard showed a number with no route behind it,
+so the screen contradicted itself — a badge saying seven items pending, and
+nowhere to see the seven.
+
+Closing that by writing a *second* query would have reproduced the defect in a
+subtler form, because `review_item` carries no owning unit column: the unit is
+derived by joining `import_batch.owning_unit_id`, and two derivations that
+drifted apart would put a row in one unit's queue and another unit's badge.
+So `ReviewRepository.list_for_unit` reuses the join shape
+`routers/metrics.py::_pending_review_item_rows_v1` already makes — same joins,
+same tenant scoping, same `ORDER BY created_at, id` — and
+`tests/contract/test_review_item_list.py` asserts the equality directly, on one
+fixture, through both routes. ADR-0011 rule 4 is the rule being followed: a
+number with an owning query is read from that query. This route does not carry
+a count of its own, for the reason `ReviewDecisionResponse`'s docstring already
+gives about its own response.
 """
 
 from __future__ import annotations
@@ -53,23 +106,36 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Final, Literal, cast
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Query, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_persistence import schema
 from smartmatch_persistence.rate_limit import RateLimit
-from smartmatch_persistence.review import ReviewRepository
+from smartmatch_persistence.review import ReviewItemRow, ReviewRepository
 from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.pipeline_provisioning import provision_on_accept
+from smartmatch_api.units import load_unit_or_404
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/review-items", tags=["review"])
+
+#: The unit-scoped half of this module. A second ``APIRouter`` rather than a
+#: second module, because both routes are the same resource seen from two
+#: sides — one names an item and derives its unit, the other names a unit and
+#: lists its items — and splitting them would put the two halves of one
+#: authorization story in two files. The prefixes genuinely differ
+#: (``/v1/review-items`` against ``/v1/units``) and a FastAPI prefix cannot be
+#: escaped per-route, so one router cannot serve both. The same shape
+#: ``outreach.py``, ``cba_invitations.py`` and ``student_speaker_feedback.py``
+#: already use for their own second routers; ``main.py`` mounts this one
+#: beside ``router``.
+unit_router = APIRouter(prefix="/v1/units", tags=["review"])
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +165,31 @@ REVIEW_DECISION_RATE_LIMIT = RateLimit(
 #: literals: the two roles agreeing today does not mean a widening of one
 #: should silently widen the other.
 _REVIEW_ROLES = frozenset({"admin", "coordinator"})
+
+#: Reading the queue, charged separately from deciding in it. A read starts
+#: nothing and writes nothing, so it is looser than
+#: :data:`REVIEW_DECISION_RATE_LIMIT` for the same reason that one is looser
+#: than ``imports.py::IMPORT_RATE_LIMIT`` — and it is the identical shape and
+#: number ``speaker_requests.py::SPEAKER_REQUEST_READ_RATE_LIMIT`` uses for the
+#: identical act: a coordinator working a queue in a browser, refreshing it
+#: after each decision. Its own ``operation`` string rather than a share of the
+#: decision's, so a caller exhausting one is not refused the other: a
+#: coordinator who has spent their minute's decisions must still be able to see
+#: what is left, and being unable to *look* is not a limit anyone intended.
+REVIEW_LIST_RATE_LIMIT: Final[RateLimit] = RateLimit(
+    operation="review.list",
+    max_requests=120,
+    window=timedelta(minutes=1),
+)
+
+#: The most review items one response returns. G3 §2.2a's 200-record cap,
+#: reused rather than a second number invented here — the same value and the
+#: same reason ``speaker_requests.py::MAX_ROWS``, ``events.py::MAX_ROWS`` and
+#: ``match_runs.py::MAX_CANDIDATES`` all carry. Paging is deliberately not
+#: shipped: a cursor nobody has asked for is a contract to maintain, and
+#: :attr:`ReviewItemListResponse.truncated` is what keeps a full page from
+#: reading as a complete one.
+MAX_ROWS: Final[int] = 200
 
 #: The only two values `ReviewRepository.decide` will ever write, and the only
 #: two `ck_review_item_status` (migration `0008`) admits beyond `pending`.
@@ -137,6 +228,98 @@ class ReviewDecisionResponse(BaseModel):
     id: uuid.UUID
     status: ReviewDecisionValue
     decided_at: datetime
+
+
+#: Every status a review item may be listed at, and nothing else.
+#:
+#: Wider than :data:`ReviewDecisionValue` by exactly one member, because the
+#: two answer different questions: that type is what a decision may *write*,
+#: and ``pending`` is not a decision. This one is what a queue may be *filtered
+#: to*, and a coordinator wanting to see what they already accepted is asking a
+#: reasonable question about rows that exist.
+#:
+#: A ``Literal`` rather than ``str``, for the reason
+#: :data:`ReviewDecisionValue`'s own comment gives: an out-of-vocabulary value
+#: is refused by Pydantic in the standard ``invalid_request`` 422 envelope
+#: before the handler body runs, so there is one enforcement site rather than a
+#: second hand-written one to keep in step with ``ck_review_item_status``. It
+#: also means there is no "everything" arm to reach by accident — no empty
+#: string, no ``all``, no ``None`` that a repository predicate could widen into
+#: the whole table. A caller must always name exactly one status, and the
+#: default is the one the dashboard counts.
+ReviewItemStatusFilter = Literal["pending", "accepted", "rejected"]
+
+
+class ReviewItemView(BaseModel):
+    """One review item as the queue discloses it.
+
+    Deliberately **not** carrying ``decided_by``, which the row does have. That
+    column holds a ``user_account`` id, and nothing in this API discloses one
+    today — ``ReviewDecisionResponse`` above answers a decision with ``id``,
+    ``status`` and ``decided_at`` and stops there. Under deny-by-default the
+    absence of an existing disclosure is the answer, not an invitation: a list
+    is the widest possible place to become the first surface that publishes who
+    acted, since it returns many rows at once to anyone holding the unit's
+    role rather than one row to the caller who just acted. Publishing it would
+    be a product decision with its own justification to write down, and this
+    route is not the place that decision would be made. See
+    ``ReviewItemRow``'s docstring, which omits it one layer down for the same
+    reason, so it is never selected at all rather than selected and dropped.
+
+    ``row_data`` is the submitted record itself, verbatim as the import wrote
+    it. That is the point of a review queue — a coordinator cannot decide a row
+    they cannot read — and it is also why ``_REVIEW_ROLES`` gates this route
+    exactly as ``metrics.drill_down`` is gated: this is the same disclosure the
+    drill-down makes, so it answers to the same roles.
+    """
+
+    id: uuid.UUID
+    import_batch_id: uuid.UUID = Field(
+        description="The import that submitted this row; rows from one import share it."
+    )
+    row_index: int = Field(description="This row's position within its import batch, from zero.")
+    status: ReviewItemStatusFilter
+    row_data: dict[str, Any] = Field(
+        description="The submitted record, exactly as the import wrote it."
+    )
+    created_at: datetime
+    decided_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When this item was decided, or null when it is still pending. "
+            "Null means undecided and never 'unknown' — the column is null for "
+            "exactly the pending rows (ck_review_item_decision_evidence)."
+        ),
+    )
+
+
+class ReviewItemListResponse(BaseModel):
+    """One unit's review items at one status.
+
+    Carries no count — not of these items and not of the unit's pending total.
+    ``GET /v1/units/{unit_id}/metrics`` owns ``pending_review_items``, and
+    ADR-0011 rule 4 is that a number with an owning query is read from that
+    query rather than recomputed by a second handler that would have to stay in
+    step with it by hand. :attr:`ReviewDecisionResponse` refuses the same
+    temptation for the same reason, and the contract test asserts the two
+    surfaces agree rather than letting this one restate the number.
+
+    :attr:`truncated` is the one thing this response says about what it is not
+    showing, and it is a fact rather than an estimate: the handler reads
+    ``MAX_ROWS + 1`` rows and reports whether the extra one came back. It is
+    never a guess and never a silent zero — ADR-0011 rule 1, unknown must not
+    degrade to 0 — because "there are more" is measured by the same query that
+    produced the page, not by a second count whose filters could drift from it.
+    """
+
+    unit_id: uuid.UUID
+    status: ReviewItemStatusFilter = Field(
+        description="The status these items were filtered to; echoes the request."
+    )
+    items: list[ReviewItemView]
+    truncated: bool = Field(
+        description="True when more items exist at this status than the response cap returns."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +420,171 @@ def _load_review_item_context_or_404(
         unit_path=cast(str, row.owning_unit_path),
         dataset=cast(str, row.dataset),
         row_data=cast("Mapping[str, Any]", row.row_data),
+    )
+
+
+def _authorize_review_item_list(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> uuid.UUID:
+    """Load the unit and authorize a coordinator's read of its review queue.
+
+    **Its own function, and never a parameter on the decision path.** The two
+    review routes gate on the same constant, :data:`_REVIEW_ROLES`, and it
+    would be entirely possible to give ``decide_review_item``'s inline
+    ``assert_allowed`` an extra argument and call it from here too. That is the
+    refactor ``speaker_requests.py``'s two read authorizers exist to refuse,
+    and their docstrings say why in one sentence: a helper that takes the role
+    set — or the unit — as an argument makes a single call site the place from
+    which every operation sharing it can be widened at once. Two functions
+    naming one constant is a coupling the policy matrix *checks*
+    (``test_the_authorizer_reads_the_role_constant_the_matrix_names``, against
+    the live object); one function serving two operations is a coupling nothing
+    checks, and the day the two roles should stop agreeing there would be no
+    seam to separate them at.
+
+    They also do genuinely different work. ``decide_review_item`` authorizes
+    against a unit it *derives* from the review item's own import batch
+    (:func:`_load_review_item_context_or_404`) and never accepts one from the
+    request; this function is handed a ``unit_id`` from the path and loads
+    *that* unit. Sharing a body would require one of the two to pass the other's
+    input, which is how the derived unit stops being derived.
+
+    ``load_unit_or_404`` scopes the lookup by the caller's own tenant, so a unit
+    in another tenant is a 404 rather than a 403 that would confirm the id names
+    something real — the same conclusion
+    :func:`_load_review_item_context_or_404` reaches about a review item id.
+    Authorization then runs against **that loaded row's path**, never against a
+    path taken from the request, so naming a unit is a request to be refused
+    rather than a claim to be believed.
+
+    No ``require_membership``: :data:`_REVIEW_ROLES` is non-empty, so
+    ``evaluate`` already refuses a bare ``resource_grant`` on the required-roles
+    check (S-007). No ``tenant_wide_roles``: the metrics-authorization
+    decision's §4 makes an ``admin`` unrestricted within the tenant for
+    *aggregates*, and this route publishes ``row_data`` — the same disclosure
+    ``metrics.drill_down`` withholds from an admin outside the subtree. Widening
+    it here would silently overturn that, so nothing is passed.
+
+    Returns:
+        The authorized unit id — the only value that selects which rows the
+        caller is about to read.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_REVIEW_ROLES,
+    )
+    return unit_id
+
+
+@unit_router.get(
+    "/{unit_id}/review-items",
+    response_model=ReviewItemListResponse,
+    summary="List a unit's review items",
+)
+def list_unit_review_items(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    status_filter: Annotated[
+        ReviewItemStatusFilter,
+        Query(
+            alias="status",
+            description="Which status to list. Defaults to the queue a coordinator works.",
+        ),
+    ] = "pending",
+) -> ReviewItemListResponse:
+    """Return the review items this unit owns at one status, oldest first.
+
+    The queue behind the badge. ``GET /v1/units/{unit_id}/metrics`` has counted
+    ``pending_review_items`` for this unit since before this route existed, and
+    until it did there was nothing to click through to — the dashboard showed a
+    number it could not explain. The list and the count derive a row's owning
+    unit through the *same* join (``review_item`` → ``import_batch`` →
+    ``owning_unit_id``, in ``ReviewRepository.list_for_unit``), because
+    ``review_item`` has no owning unit column and two derivations that drifted
+    would put a row in one unit's queue and another unit's badge. See the module
+    docstring; the contract test asserts the two agree on one fixture.
+
+    **Nothing in the request selects whose rows come back beyond the authorized
+    unit.** The path names a unit, which
+    :func:`_authorize_review_item_list` loads and authorizes against before any
+    review item is read; ``status`` chooses a column value and cannot widen
+    across units; and there is no caller-supplied identity, no ``user_id``, no
+    ``batch_id`` and no free-text predicate anywhere on this path. A caller who
+    may read this unit reads all of this unit's items at that status, and a
+    caller who may not reads none of them.
+
+    Reads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the
+    same query that produced the page rather than by a second count whose
+    filters could drift from this one's — the shape
+    ``speaker_requests.py::list_speaker_requests`` uses, followed here
+    deliberately rather than reinvented. A full page therefore never reads as a
+    complete one, and "there are more" is measured rather than assumed: ADR-0011
+    rule 1, an unknown must not degrade to a 0 (or, here, to a quiet ``false``).
+
+    Quota is charged before the unit is loaded and before authorization runs
+    (ADR-0015), so a caller producing 404s against unit ids they invented spends
+    exactly what a caller reading their own queue spends — the same ordering
+    ``decide_review_item`` and ``create_import`` both apply, for the same
+    reason: those are the refusals cheapest to produce in bulk.
+
+    Raises:
+        ApiError: 403 when the caller holds no ``_REVIEW_ROLES`` membership
+            covering this unit; 404 when the unit is not this tenant's; 429 when
+            the minute's quota is spent. A 422 comes from Pydantic when
+            ``status`` is not one of the three the column admits.
+    """
+    charge_quota(session, principal, REVIEW_LIST_RATE_LIMIT)
+
+    authorized_unit_id = _authorize_review_item_list(session, principal, unit_id)
+
+    rows = _review_items.list_for_unit(
+        session,
+        tenant_id=principal.tenant_id,
+        # The unit the authorizer just returned, not the raw path parameter.
+        # They are equal today by construction, and using the returned value
+        # says which of the two is load-bearing: the id that survived
+        # authorization is the one the query may be scoped by.
+        owning_unit_id=authorized_unit_id,
+        status=status_filter,
+        limit=MAX_ROWS + 1,
+    )
+
+    return ReviewItemListResponse(
+        unit_id=authorized_unit_id,
+        status=status_filter,
+        items=[_item_view(row) for row in rows[:MAX_ROWS]],
+        truncated=len(rows) > MAX_ROWS,
+    )
+
+
+def _item_view(row: ReviewItemRow) -> ReviewItemView:
+    """Render one row for the wire, selecting fields rather than spreading them.
+
+    Written out field by field instead of ``ReviewItemView(**vars(row))`` so
+    that a column added to :class:`~smartmatch_persistence.review.ReviewItemRow`
+    later cannot reach the wire by accident. ``decided_by`` is the exact reason
+    that matters here: the omission is a decision, and a spread would let the
+    next person undo it without noticing they had.
+    """
+    return ReviewItemView(
+        id=row.id,
+        import_batch_id=row.import_batch_id,
+        row_index=row.row_index,
+        status=cast(ReviewItemStatusFilter, row.status),
+        row_data=dict(row.row_data),
+        created_at=row.created_at,
+        decided_at=row.decided_at,
     )
 
 
