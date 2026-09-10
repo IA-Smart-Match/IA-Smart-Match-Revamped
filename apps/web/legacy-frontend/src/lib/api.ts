@@ -1,4 +1,10 @@
 import { resolveBearerToken } from "./bearerToken.ts";
+import {
+  clearSignedOut,
+  hasSignedOut,
+  markSignedOut,
+  type MarkerStorage,
+} from "./signOutMarker.ts";
 
 export interface Specialist {
   name: string;
@@ -356,6 +362,21 @@ async function throwApiRequestError(response: Response): Promise<never> {
   throw new ApiRequestError(message, response.status, code, details);
 }
 
+/**
+ * `sessionStorage`, or `null` where the runtime has none (SSR, a test).
+ *
+ * Only for handing storage to `lib/signOutMarker.ts`, whose functions take it
+ * as an argument so they can be tested without a DOM. The bearer-token
+ * accessors below keep their own literal `sessionStorage.getItem/setItem/
+ * removeItem` calls on purpose: `tests/unit/test_frontend_auth_contract.py`
+ * greps the frontend for exactly those spellings to prove this file is the
+ * only one that touches browser storage, and hiding them behind a helper would
+ * quietly disarm that guard.
+ */
+function browserSessionStorage(): MarkerStorage | null {
+  return typeof sessionStorage !== "undefined" ? sessionStorage : null;
+}
+
 /** The sessionStorage key the browser may hold a `/v1` bearer token under. */
 export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
 
@@ -367,7 +388,9 @@ export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
  * stored for this tab) and the build-time `VITE_SMARTMATCH_BEARER_TOKEN` (the
  * fixture token a compose/dev build is started with). The stored one wins —
  * see `resolveBearerToken()` in `src/lib/bearerToken.ts` for why the other
- * order sent every signed-in principal into the coordinator portal. Both are
+ * order sent every signed-in principal into the coordinator portal, and why an
+ * explicit sign-out (`src/lib/signOutMarker.ts`) suppresses the fixture
+ * outright rather than letting it inherit the session. Both are
  * *credentials* — the server decides what they mean. Nothing here, and nothing
  * downstream of here, lets the browser assert a tenant, user, or role; that is
  * the whole point of Fix #7. See `src/lib/session.ts` for the identity the
@@ -383,7 +406,7 @@ export function readSmartmatchBearerToken(): string | null {
       ? sessionStorage.getItem(SMARTMATCH_BEARER_STORAGE_KEY)
       : null;
 
-  return resolveBearerToken(envToken, sessionToken);
+  return resolveBearerToken(envToken, sessionToken, hasSignedOut(browserSessionStorage()));
 }
 
 /**
@@ -398,6 +421,20 @@ export function clearStoredSmartmatchBearerToken(): void {
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.removeItem(SMARTMATCH_BEARER_STORAGE_KEY);
   }
+}
+
+/**
+ * Records that the person deliberately signed out of this browser, so the
+ * build-time fixture token stops being offered as their credential.
+ *
+ * Without this, clearing the stored token on a compose/dev bundle simply
+ * promoted `VITE_SMARTMATCH_BEARER_TOKEN` to being the only credential left,
+ * and the next `GET /v1/me` signed the person back in as whoever that fixture
+ * maps to — the seeded coordinator on the pilot appliance. See
+ * `src/lib/signOutMarker.ts`.
+ */
+export function markSmartmatchSignedOut(): void {
+  markSignedOut(browserSessionStorage());
 }
 
 /**
@@ -417,6 +454,10 @@ export function storeSmartmatchBearerToken(token: string): void {
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.setItem(SMARTMATCH_BEARER_STORAGE_KEY, token);
   }
+  // Signing in is the one thing that supersedes an earlier sign-out, so it is
+  // also the only place the marker is dropped. Ordering matters: the mark goes
+  // once the credential that replaces it is in place.
+  clearSignedOut(browserSessionStorage());
 }
 
 function smartmatchAuthHeaders(): Record<string, string> {
