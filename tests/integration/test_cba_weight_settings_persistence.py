@@ -165,7 +165,12 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: on ``event`` — a table this file's tests never read or write. Nothing here
 #: about a unit's weights, its revision log, or who last changed them is
 #: affected.
-_HEAD_REVISION = "0033_event_filed_by"
+#: Moved again by OQ-CBA-066's card: ``0034_cba_meeting`` chains to
+#: ``0033_event_filed_by`` and is now the head. It creates the
+#: ``cba_meeting`` table and alters nothing that already existed, so
+#: nothing here about a unit's weights, its revision log, or who last
+#: changed them is affected.
+_HEAD_REVISION = "0034_cba_meeting"
 
 NEED = "need-weight-settings-1"
 
