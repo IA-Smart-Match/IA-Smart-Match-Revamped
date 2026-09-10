@@ -115,23 +115,30 @@ jobs:
         # Fail here, before authenticating, with a message that names the
         # missing variable. An unset variable otherwise surfaces as an opaque
         # 400 from an API three steps later.
+        #
+        # All six required 'pilot-vm' environment variables are checked in one
+        # uniform loop (the two secrets, CLOUDFLARE_ACCESS_CLIENT_ID/SECRET,
+        # are deliberately NOT required here — the probe step treats them as
+        # optional and sends the Access headers only when both are present).
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           missing=0
-          for name in GCP_PROJECT_ID GCP_ZONE GCE_INSTANCE SMARTMATCH_PUBLIC_URL; do
+          for name in \
+            GCP_PROJECT_ID \
+            GCP_ZONE \
+            GCE_INSTANCE \
+            SMARTMATCH_PUBLIC_URL \
+            GCP_WORKLOAD_IDENTITY_PROVIDER \
+            GCP_DEPLOY_SERVICE_ACCOUNT \
+          ; do
             if [ -z "${!name:-}" ]; then
               echo "::error::environment variable ${name} is not set on the 'pilot-vm' environment"
               missing=1
             fi
           done
-          if [ -z "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
-            echo "::error::GCP_WORKLOAD_IDENTITY_PROVIDER is not set on the 'pilot-vm' environment"
-            missing=1
-          fi
-          if [ -z "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" ]; then
-            echo "::error::GCP_DEPLOY_SERVICE_ACCOUNT is not set on the 'pilot-vm' environment"
-            missing=1
-          fi
           exit "$missing"
 
       - name: Authenticate to GCP with Workload Identity Federation
