@@ -217,9 +217,20 @@ ensure_runtime_user() {
 
 ensure_directories() {
   local directory
-  for directory in "$STATE_DIR" "$STATE_DIR/backups" "$STATE_DIR/logs" "$STATE_DIR/deployments" "$SSH_DIR"; do
+  # APP_DIR is listed here deliberately. Otherwise the clone is the thing that
+  # creates it, and `git clone` runs as RUNTIME_USER — which cannot create a
+  # directory inside a STATE_DIR owned by root. That failure surfaces as a bare
+  # "could not create work tree dir: Permission denied" and misleadingly
+  # suggests the deploy key is missing.
+  for directory in "$STATE_DIR" "$STATE_DIR/backups" "$STATE_DIR/logs" "$STATE_DIR/deployments" "$SSH_DIR" "$APP_DIR"; do
     if [ -d "$directory" ]; then
       say "directory: ${directory}"
+      # An existing directory is NOT evidence of a correct one. If STATE_DIR was
+      # created by hand, or by an earlier run as root, it stays root-owned — and
+      # then RUNTIME_USER cannot write deploy.lock or release.env inside it, so
+      # deploy.sh dies at "flock: cannot open lock file". Re-assert ownership on
+      # every run rather than trusting existence.
+      [ "$CHECK_ONLY" -eq 1 ] || chown "$RUNTIME_USER:$RUNTIME_USER" "$directory" 2>/dev/null || true
     elif [ "$CHECK_ONLY" -eq 1 ]; then
       MISSING+=("$directory")
       continue
@@ -229,6 +240,23 @@ ensure_directories() {
     fi
   done
   [ "$CHECK_ONLY" -eq 1 ] || chmod 0700 "$SSH_DIR" 2>/dev/null || true
+
+  # deploy.sh takes its flock on ${STATE_DIR}/deploy.lock and records the
+  # deployed SHA in ${STATE_DIR}/release.env, which smartmatch.service reads at
+  # boot. Both live directly in STATE_DIR, so both must be writable by
+  # RUNTIME_USER before the first deployment rather than after a failed one.
+  local file
+  for file in "$STATE_DIR/deploy.lock" "$STATE_DIR/release.env"; do
+    if [ "$CHECK_ONLY" -eq 1 ]; then
+      [ -f "$file" ] || MISSING+=("${file} (writable by ${RUNTIME_USER})")
+      continue
+    fi
+    touch "$file" 2>/dev/null \
+      && chown "$RUNTIME_USER:$RUNTIME_USER" "$file" 2>/dev/null \
+      && chmod 0644 "$file" 2>/dev/null \
+      && say "state file: ${file}" \
+      || MISSING+=("$file")
+  done
 }
 
 ensure_deploy_key() {

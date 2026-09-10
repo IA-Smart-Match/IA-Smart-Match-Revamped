@@ -79,7 +79,11 @@ $script:WebBase    = if ($env:SMARTMATCH_WEB_BASE)    { $env:SMARTMATCH_WEB_BASE
 
 # The compose file's own x-compose-dev-identity literal. It authenticates
 # nothing outside the compose network.
-$script:ApiBearer  = if ($env:SMARTMATCH_API_BEARER) { $env:SMARTMATCH_API_BEARER } else { 'compose-api' }
+# `$null -ne` rather than a truthiness test, mirroring bash's `${VAR-default}`
+# in scripts/compose_health.sh. An explicitly EMPTY SMARTMATCH_API_BEARER means
+# "this appliance ships no fixture credential"; treating empty as unset would
+# fall back to 'compose-api' and reintroduce the dependency.
+$script:ApiBearer  = if ($null -ne $env:SMARTMATCH_API_BEARER) { $env:SMARTMATCH_API_BEARER } else { 'compose-api' }
 $script:PilotEmail = 'compose-pilot-coordinator@example.invalid'
 
 # Resolved exactly the way compose resolves ${SMARTMATCH_RELEASE}: the process
@@ -418,13 +422,57 @@ function Test-FrontendSpaRoute {
 }
 
 function Test-FrontendApiProxy {
+    # Behavioural parity with scripts/compose_health.sh's check_frontend_api_proxy.
+    # See the long comment there for why this proves a NEGATIVE first: an
+    # appliance deployed with SMARTMATCH_DEV_PRINCIPALS="{}" ships no fixture
+    # credential, so an unauthenticated 401 carrying the API's own error
+    # envelope is what proves the /v1 proxy reached the API AND that auth is
+    # fail-closed. A broken proxy answers with SPA HTML, 404, 502 or a timeout,
+    # never with {"error":{"code":"unauthenticated"}}.
+    $anon = Invoke-HttpGet -Url "$script:WebBase/v1/me"
+    if ($anon.Code -ne '401') {
+        return New-CheckResult 'frontend-api-proxy' $false "unauthenticated GET $script:WebBase/v1/me -> $($anon.Code), expected 401: either the /v1 proxy is not reaching the API, or the API is answering without credentials"
+    }
+    $anonDocument = ConvertFrom-JsonSafe $anon.Body
+    $anonCode = if ($null -ne $anonDocument -and $null -ne $anonDocument.error) { $anonDocument.error.code } else { $null }
+    if ($anonCode -ne 'unauthenticated') {
+        $seen = if ($null -ne $anonCode) { $anonCode } else { 'none' }
+        # No apostrophe in this message. tests/unit/test_launcher_parity.py
+        # balances parentheses after crudely stripping single-quoted strings,
+        # so an apostrophe here would pair with the quote around $seen and take
+        # the opening parenthesis with it, failing that check for no real reason.
+        return New-CheckResult 'frontend-api-proxy' $false "unauthenticated GET $script:WebBase/v1/me -> 401 but the body is not the API error envelope [error.code=$seen]; something other than the API answered"
+    }
+
+    # What the second half asserts depends on whether THIS appliance deploys a
+    # fixture identity map, read from the running container rather than from a
+    # variable the caller had to remember to set. See the long comment in
+    # scripts/compose_health.sh for why: a stale variable took the wrong branch
+    # once and rolled a release back.
+    $principals = (docker compose exec -T api printenv SMARTMATCH_DEV_PRINCIPALS 2>$null) -join ''
+    $principals = $principals.Trim()
+
+    if ([string]::IsNullOrEmpty($principals) -or $principals -eq '{}') {
+        # No fixture identities deployed, so a fixture token must be REFUSED.
+        # Proving the refusal is stronger than declining to look.
+        $bearer = if ([string]::IsNullOrEmpty($script:ApiBearer)) { 'compose-api' } else { $script:ApiBearer }
+        $fixture = Invoke-HttpGet -Url "$script:WebBase/v1/me" -Headers @("Authorization: Bearer $bearer")
+        if ($fixture.Code -eq '200') {
+            return New-CheckResult 'frontend-api-proxy' $false "a fixture bearer token still authenticates against $script:WebBase/v1/me even though no dev principals are deployed"
+        }
+        if ($fixture.Code -ne '401') {
+            return New-CheckResult 'frontend-api-proxy' $false "a fixture bearer token got $($fixture.Code) from $script:WebBase/v1/me, expected 401; this check can no longer prove the fixture path is closed"
+        }
+        return New-CheckResult 'frontend-api-proxy' $true 'proxied /v1/me -> 401 unauthenticated and 401 for a fixture token (proxy reachable, auth fail-closed, no fixture identity deployed)'
+    }
+
     $response = Invoke-HttpGet -Url "$script:WebBase/v1/me" -Headers @("Authorization: Bearer $script:ApiBearer")
     if ($response.Code -ne '200') {
-        return New-CheckResult 'frontend-api-proxy' $false "GET $script:WebBase/v1/me -> $($response.Code): the dev server's /v1 proxy is not reaching the API"
+        return New-CheckResult 'frontend-api-proxy' $false "proxied /v1/me with the configured bearer -> $($response.Code): the dev server's /v1 proxy is not carrying credentials to the API"
     }
     $document = ConvertFrom-JsonSafe $response.Body
     if ($null -ne $document -and $document.email -eq $script:PilotEmail) {
-        return New-CheckResult 'frontend-api-proxy' $true "proxied /v1/me authenticated as $($document.email)"
+        return New-CheckResult 'frontend-api-proxy' $true "proxied /v1/me -> 401 unauthenticated, and authenticated as $($document.email)"
     }
     $who = if ($null -ne $document) { $document.email } else { 'nobody' }
     return New-CheckResult 'frontend-api-proxy' $false "proxied /v1/me authenticated as '$who', not the seeded principal"

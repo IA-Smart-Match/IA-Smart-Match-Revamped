@@ -115,23 +115,30 @@ jobs:
         # Fail here, before authenticating, with a message that names the
         # missing variable. An unset variable otherwise surfaces as an opaque
         # 400 from an API three steps later.
+        #
+        # All six required 'pilot-vm' environment variables are checked in one
+        # uniform loop (the two secrets, CLOUDFLARE_ACCESS_CLIENT_ID/SECRET,
+        # are deliberately NOT required here — the probe step treats them as
+        # optional and sends the Access headers only when both are present).
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           missing=0
-          for name in GCP_PROJECT_ID GCP_ZONE GCE_INSTANCE SMARTMATCH_PUBLIC_URL; do
+          for name in \
+            GCP_PROJECT_ID \
+            GCP_ZONE \
+            GCE_INSTANCE \
+            SMARTMATCH_PUBLIC_URL \
+            GCP_WORKLOAD_IDENTITY_PROVIDER \
+            GCP_DEPLOY_SERVICE_ACCOUNT \
+          ; do
             if [ -z "${!name:-}" ]; then
               echo "::error::environment variable ${name} is not set on the 'pilot-vm' environment"
               missing=1
             fi
           done
-          if [ -z "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
-            echo "::error::GCP_WORKLOAD_IDENTITY_PROVIDER is not set on the 'pilot-vm' environment"
-            missing=1
-          fi
-          if [ -z "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" ]; then
-            echo "::error::GCP_DEPLOY_SERVICE_ACCOUNT is not set on the 'pilot-vm' environment"
-            missing=1
-          fi
           exit "$missing"
 
       - name: Authenticate to GCP with Workload Identity Federation
@@ -185,6 +192,16 @@ jobs:
           echo "CLOUDSDK_AUTH_ACCESS_TOKEN=${impersonated}" >> "$GITHUB_ENV"
           echo "CLOUDSDK_CORE_PROJECT=${GCP_PROJECT_ID}" >> "$GITHUB_ENV"
           echo "CLOUDSDK_COMPUTE_ZONE=${GCP_ZONE}" >> "$GITHUB_ENV"
+          # A bare access token says nothing about WHO it belongs to. Without
+          # core/account, `gcloud compute ssh` cannot work out which OS Login
+          # profile to use and fails with:
+          #   [None] does not have permission to access users instance [None]
+          #   ... Request for user [None] does not match the credential for
+          #   [<service account>]
+          # which reads like an IAM problem but is really a missing identity
+          # hint. This is not a secret — it is the same address already echoed
+          # below and stored as a plain environment variable.
+          echo "CLOUDSDK_CORE_ACCOUNT=${DEPLOY_SERVICE_ACCOUNT}" >> "$GITHUB_ENV"
           echo "authenticated as ${DEPLOY_SERVICE_ACCOUNT}"
 
       - name: Deploy over IAP
@@ -252,21 +269,36 @@ jobs:
         # A service token is used rather than a bypass rule. Making the probe
         # work by punching a hole in the Access policy would test a policy
         # nobody actually runs.
+        #
+        # KNOWN GAP (tracked separately, not fixed by this workflow): there is
+        # currently NO Cloudflare Access wall in front of SMARTMATCH_PUBLIC_URL
+        # — an unauthenticated GET already returns 200. Because of that, the
+        # CF-Access-Client-Id / CF-Access-Client-Secret headers below are sent
+        # CONDITIONALLY: only when both secrets are actually configured. That
+        # keeps this probe working today (no secrets, no Access) and requires
+        # no workflow change on the day Access is put back in front of the
+        # tunnel (add the two secrets to the 'pilot-vm' environment and the
+        # headers start flowing automatically).
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
 
-          if [ -z "${CF_ACCESS_CLIENT_ID}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
-            echo "::error::the Cloudflare Access service-token secrets are not configured on the 'pilot-vm' environment"
-            exit 1
+          access_headers=()
+          if [ -n "${CF_ACCESS_CLIENT_ID}" ] && [ -n "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "Cloudflare Access secrets are configured — sending CF-Access headers"
+            access_headers=(
+              -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
+              -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+            )
+          else
+            echo "::notice::Cloudflare Access service-token secrets are not configured — probing without CF-Access headers (there is currently no Access wall in front of SMARTMATCH_PUBLIC_URL; this is a known, separately tracked gap)"
           fi
 
           probe() {
             curl -sS -o /tmp/probe.body -w '%{http_code}' --max-time 30 \
-              -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
-              -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+              "${access_headers[@]}" \
               "$1"
           }
 
@@ -280,6 +312,36 @@ jobs:
               exit 1
             fi
           done
+
+          # No fixture bearer token may authenticate against the public URL.
+          #
+          # This is a security regression test, not a health check. The
+          # appliance used to map four committed fixture tokens to the seeded
+          # coordinator, student, host and admin, while the public hostname sat
+          # in front of them with no Access wall and this repository was public.
+          # docker-compose.vm.yml withdrew that map; this proves it stays
+          # withdrawn, from the outside, on every deployment.
+          #
+          # 401 is required. A 200 means the bypass is back. Any other code is
+          # also a failure: it means this assertion is no longer testing what it
+          # claims to, and a security test that silently stops testing is worse
+          # than no test at all.
+          for fixture_token in compose-api compose-student compose-host compose-admin; do
+            fixture_code="$(curl -sS -o /tmp/fixture.body -w '%{http_code}' --max-time 30 \
+              "${access_headers[@]}" \
+              -H "Authorization: Bearer ${fixture_token}" \
+              "${SMARTMATCH_PUBLIC_URL}/v1/me")"
+            echo "GET /v1/me with the ${fixture_token} fixture token -> ${fixture_code}"
+            if [ "$fixture_code" = "200" ]; then
+              echo "::error::the ${fixture_token} fixture token authenticated against ${SMARTMATCH_PUBLIC_URL}. The deployed appliance is accepting a credential committed to a public repository."
+              exit 1
+            fi
+            if [ "$fixture_code" != "401" ]; then
+              echo "::error::/v1/me answered ${fixture_code} for the ${fixture_token} fixture token, expected 401. This assertion can no longer prove the fixture path is closed."
+              exit 1
+            fi
+          done
+          echo "no fixture token authenticates: every one was refused with 401"
 
           # The API, through the frontend's own proxy — one request that
           # crosses Cloudflare, the tunnel, the frontend, and the API.
