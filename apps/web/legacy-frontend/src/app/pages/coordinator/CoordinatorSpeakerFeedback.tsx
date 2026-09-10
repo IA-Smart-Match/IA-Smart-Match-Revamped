@@ -91,8 +91,8 @@ import {
   type SpeakerContact,
   type SpeakerFeedbackSummary,
 } from "../../../lib/api";
-import { PagedList } from "../../components/PagedList";
 import { DEFAULT_READ_CONCURRENCY, mapWithConcurrency } from "../../../lib/concurrency";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
