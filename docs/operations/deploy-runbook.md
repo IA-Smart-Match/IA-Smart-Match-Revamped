@@ -4,13 +4,37 @@
 which deployment steps do not exist yet. Written for whoever holds a psql prompt
 against a database that matters.
 
-**Nothing in this repository is deployed.** There is no registry, no running
-instance, and no applied infrastructure. That is not a gap this document papers
-over — the sections below marked *not yet applicable* say what is missing and
-what would have to exist first, rather than describing a procedure for
-infrastructure nobody can run it against. The only procedure here that has a
-real target today is the migration procedure, because a local or CI PostgreSQL
-is a real target.
+**Nothing in this repository is deployed to managed cloud infrastructure.**
+There is no registry, no Cloud Run service, no Cloud SQL instance, and no
+applied Terraform. That is not a gap this document papers over — the sections
+below marked *not yet applicable* say what is missing and what would have to
+exist first, rather than describing a procedure for infrastructure nobody can
+run it against.
+
+**One qualification, added after this document's opening was checked against
+reality.** This file used to say flatly that there is "no running instance".
+That is no longer true, and the distinction matters to anyone holding a psql
+prompt. A single GCE VM runs the `docker compose` appliance against a real
+PostgreSQL container carrying synthetic pilot data, reachable at
+`https://pilot.plated.blog` through a Cloudflare Tunnel — see
+[`vm-deploy.md`](vm-deploy.md) for what that machine is and how a commit
+actually reaches it. Every "not yet applicable" row below still stands, because
+each is about *managed cloud* infrastructure that genuinely does not exist; but
+"nothing is running" is not a safe assumption to migrate under.
+
+The practical consequence for this runbook is that the migration procedure now
+has three real targets rather than two: a local PostgreSQL, CI's service
+container, and the VM's `db` container. The third differs from the first two in
+a way worth naming. **The deployment path in use on that VM takes no backup
+before it migrates.** `scripts/vm/deploy.sh:267-321` does take one — `pg_dump
+--clean --if-exists` before anything moves, with the deployment stopped outright
+if the dump fails — but that script is not what runs on the machine today, for
+the reasons recorded in [`vm-deploy.md`](vm-deploy.md). Until the decision
+recorded there is settled one way or the other, treat a migration reaching that
+VM as a migration with no rollback material behind it, and take a dump by hand
+first if the revision does anything that
+[When a revision fails part-way](#when-a-revision-fails-part-way) would make
+expensive to unpick.
 
 The companion document is [`containers.md`](containers.md), which covers
 building and running the two service images.

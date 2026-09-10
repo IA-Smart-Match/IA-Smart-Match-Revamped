@@ -286,7 +286,7 @@ Contract-Refs: v1.1 §N.N
 | [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
 | [Local dev walkthrough](docs/operations/local-dev-walkthrough.md) | Bringing the CBA pilot appliance up by hand and clicking through it, command by command and why |
 | [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
-| [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance, its automated deployment, and the gates before production |
+| [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance: how a commit actually reaches it today, the scripted deployment design that was never bootstrapped onto it, and the gates before production |
 | [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |

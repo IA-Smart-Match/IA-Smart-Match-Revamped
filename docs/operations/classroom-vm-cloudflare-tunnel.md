@@ -305,8 +305,55 @@ click.
 
 ---
 
+## This is the guide the live pilot VM was actually built from
+
+Worth knowing if you arrived here from [`vm-deploy.md`](vm-deploy.md) and are
+wondering which of the two VM documents describes reality: it is this one.
+
+Two sessions inspected the running instance on 9 September 2026 and reported a
+`docker compose` stack running out of a clone in a user's home directory under
+`~/src/IA-Smart-Match-Revamped`, checked out on `main`, behind a named
+Cloudflare Tunnel — which is precisely the shape Part 1 step 6 and Part 2 of
+this guide build. The `/opt/smartmatch/app` layout that `vm-deploy.md`
+describes, with its `smartmatch` service user and its automated deployment on a
+push to `deploy`, was never bootstrapped onto that machine.
+
+Three details of the live instance differ from the placeholder values used
+throughout this guide, and are worth having in front of you before you copy a
+command out of it:
+
+| This guide says | The live instance is |
+|---|---|
+| `smartmatch-pilot` | `smartmatch` |
+| `--zone=us-west1-a` | `us-west2-c` |
+| `pilot.YOURDOMAIN` | `pilot.plated.blog` |
+
+The hostname is the one corroborated in-repository at
+`apps/web/legacy-frontend/vite.config.ts:39`, where it appears in Vite's
+`allowedHosts` so that the dev server accepts the `Host` header this tunnel
+forwards. The instance name and zone are observations from those two sessions;
+nothing in the repository records them, which is why the placeholders above
+survived this long.
+
+None of that makes this guide wrong — its placeholders are placeholders, and it
+says so. But a reader who runs `gcloud compute ssh smartmatch-pilot
+--zone=us-west1-a` reaches nothing, and the error does not explain why.
+
+What this guide does **not** cover, and `vm-deploy.md` now does, is the
+operational consequence of running the appliance this way: what a deployment to
+this VM actually consists of end to end, why `/api/health` cannot tell you which
+commit is serving, and what the scripted `scripts/vm/deploy.sh` path would give
+that hand-running does not — a backup before every migration, a refusal on a
+dirty tree, an automatic rollback. Whether to keep this layout or bootstrap the
+other one is an open decision recorded there for the program owner; this guide
+does not settle it either.
+
+---
+
 ## Related
 
+- The live VM's real deployment path, and the open decision about it:
+  [`vm-deploy.md`](vm-deploy.md)
 - Stakeholder vs Cloud Run: [`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md)
 - Classroom vs `dev`: [`../decisions/f5-deploy-target-note-2026-09-03.md`](../decisions/f5-deploy-target-note-2026-09-03.md)
 - Compose appliance: [`containers.md`](containers.md), `docker-compose.yml`

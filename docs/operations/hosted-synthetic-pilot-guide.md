@@ -147,6 +147,22 @@ This is **not** a GCP deployment. It is a hosted *session* of your laptop.
 compose stack, plus a **named Cloudflare Tunnel** and **Access** email
 allowlist — [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md).
 
+**That VM now exists, and it is the standing stakeholder link.** It answers at
+`https://pilot.plated.blog`, from a `docker compose` stack in a home-directory
+checkout tracking `main`, updated by hand over IAP. Two things follow for a
+reader of this guide. First, Path A above is still the right answer for a demo
+you are driving yourself from your own machine, and nothing here is superseded
+by the VM's existence. Second, if the demo you want is the one already up, you
+do not need Path A at all — you need the deployment procedure, which is in
+[`vm-deploy.md`](vm-deploy.md) along with an honest account of what that path
+does and does not guarantee. In particular: the appliance on the VM serves a
+Vite dev server behind the tunnel, `/api/health` there reports a fixed `dev`
+rather than a commit, and pushing to the `deploy` branch does **not** update it
+— the `pilot-vm` GitHub environment is empty, so the deployment workflow stops
+at its own configuration gate before it authenticates. Whether that gets closed
+by correcting the runbook or by bootstrapping the machine is an open decision
+recorded in that same file, and not one this guide settles.
+
 ---
 
 ## Path B — Google Cloud as people imagine it (not runnable from this repo yet)
