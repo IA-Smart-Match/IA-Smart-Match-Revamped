@@ -93,6 +93,11 @@ DEPLOY_BRANCH="${SMARTMATCH_DEPLOY_BRANCH:-deploy}"
 LOCK_WAIT_SECONDS="${SMARTMATCH_LOCK_WAIT_SECONDS:-1800}"
 HEALTH_TIMEOUT="${SMARTMATCH_HEALTH_TIMEOUT:-900}"
 BACKUP_RETAIN="${SMARTMATCH_BACKUP_RETAIN:-14}"
+# How long to wait for the seed-logins one-shot to finish. Nothing in the
+# compose graph depends on it, so `up -d` returns while it is still running and
+# its exit code has to be waited for rather than read. Seconds, not minutes:
+# it hashes four passwords against a local database.
+SEED_LOGINS_TIMEOUT="${SMARTMATCH_SEED_LOGINS_TIMEOUT:-120}"
 # How many 2-second polls to give a stopped database container to report
 # healthy before the deployment refuses for want of a backup.
 DB_START_ATTEMPTS="${SMARTMATCH_DB_START_ATTEMPTS:-60}"
@@ -381,10 +386,34 @@ deploy_current_checkout() {
   # only checks `migrate` can go fully green with stakeholder login broken —
   # missing or partial .env, or a fresh empty database where fixture-token
   # health still passes. So this mirrors the migrate check above exactly.
-  local seed_logins_state seed_logins_exit
+  # Unlike `migrate`, this one has to be WAITED for.
+  #
+  # `api` declares depends_on: migrate/seed/seed-principals with condition
+  # service_completed_successfully, so by the time `up -d` returns those have
+  # necessarily finished and reading their exit code straight away is sound.
+  # NOTHING depends on seed-logins, so `up -d` returns while it is still
+  # running. Reading its state immediately is a race, and the first automated
+  # deployment to run this check lost it: seed-logins was still `running`, a
+  # successful seeding was called a failure, and the release was rolled back.
+  # `docker inspect` moments later showed exit=0.
+  #
+  # So poll until it stops being a running container, then judge it. The budget
+  # is small because this is a handful of PBKDF2 hashes against a local
+  # database, not a build.
+  local seed_logins_state seed_logins_exit waited
+  waited=0
+  while [ "$waited" -lt "$SEED_LOGINS_TIMEOUT" ]; do
+    seed_logins_state="$(compose ps -a --format '{{.State}}' seed-logins | head -n1)"
+    case "$seed_logins_state" in
+      running|created|restarting|"") : ;;
+      *) break ;;
+    esac
+    sleep 2
+    waited=$((waited + 2))
+  done
   seed_logins_state="$(compose ps -a --format '{{.State}}' seed-logins | head -n1)"
   seed_logins_exit="$(compose ps -a --format '{{.ExitCode}}' seed-logins | head -n1)"
-  log "seed-logins: state=${seed_logins_state:-absent} exit=${seed_logins_exit:-unknown}"
+  log "seed-logins: state=${seed_logins_state:-absent} exit=${seed_logins_exit:-unknown} (waited ${waited}s)"
   if [ "$seed_logins_state" != "exited" ] || [ "${seed_logins_exit:-1}" != "0" ]; then
     fail_out "the seed-logins service did not exit 0. Stakeholder password login is"
     fail_out "not guaranteed to work; treating this as a deployment failure."
