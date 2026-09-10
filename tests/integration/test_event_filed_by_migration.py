@@ -51,6 +51,15 @@ REVISION_BEFORE = "0032_match_run_scoring_mode"
 #: The revision under test.
 REVISION = "0033_event_filed_by"
 
+#: The current head. ``0034_cba_meeting`` chains to :data:`REVISION` and
+#: creates the ``cba_meeting`` table; it writes nothing to ``event`` and so
+#: cannot invent a filer for a row that had none. The upgrades below run to
+#: ``head`` rather than to :data:`REVISION` on purpose — the claim this file
+#: makes is that an unrecorded filer stays unrecorded through *every* later
+#: revision, not merely through the one that added the column. Extending the
+#: chain is therefore a deliberate edit here.
+HEAD_REVISION = "0034_cba_meeting"
+
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"
 
@@ -154,7 +163,7 @@ def test_a_pre_0033_event_keeps_a_null_filer(engine: Engine):
                     for row in conn.execute(text("SELECT id, filed_by_user_id FROM event"))
                 }
 
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert stored[filed] is None, (
         "a Speaker Request filed before 0033 was given a filer. 0033 declines to "

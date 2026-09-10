@@ -126,12 +126,18 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``event.filed_by_user_id``, nullable and never backfilled, and its two
 #: constraints and one composite foreign key all reach ``event`` rather than
 #: ``speaker_profile`` — this file's surface is untouched.
-_HEAD_REVISION = "0033_event_filed_by"
+#: Moved again by OQ-CBA-066's card: ``0034_cba_meeting`` chains to
+#: ``0033_event_filed_by`` and is the head. It creates the ``cba_meeting``
+#: table — a unit's own internal meeting record, with its own
+#: ``owning_unit_id`` — and touches no existing table, so this file's
+#: ``speaker_profile`` surface is untouched by it as well.
+_HEAD_REVISION = "0034_cba_meeting"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0033_event_filed_by",
     "0032_match_run_scoring_mode",
     "0031_student_speaker_feedback",
     "0030_cba_opaque_speaker_identity",

@@ -76,6 +76,7 @@ import {
   CBA_ROLE_CATEGORIES,
   type TaxonomyOption,
 } from "../../../lib/cbaTaxonomies";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -535,19 +536,30 @@ export function CoordinatorSpeakerContacts() {
               </p>
             ) : (
               <>
-                <ul className="space-y-3">
-                  {contacts.map((contact) => (
-                    <ContactRow
-                      key={contact.professional_id}
-                      contact={contact}
-                      correcting={correctingId === contact.professional_id}
-                      onCorrect={handleCorrect}
-                    />
-                  ))}
-                </ul>
+                {/*
+                  The roster is paged here, not fetched in pages: the window is
+                  over the contacts already in hand, so the range line counts
+                  what arrived and says nothing about how many this unit has.
+                  The server's own cap is the notice underneath.
+                */}
+                <PagedList items={contacts} label="contacts" idPrefix="unit-speaker-contacts">
+                  {(visibleContacts) => (
+                    <ul className="space-y-3">
+                      {visibleContacts.map((contact) => (
+                        <ContactRow
+                          key={contact.professional_id}
+                          contact={contact}
+                          correcting={correctingId === contact.professional_id}
+                          onCorrect={handleCorrect}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
                 {truncated ? (
                   <p className="text-xs text-muted-foreground">
-                    This unit has more contacts than are shown here.
+                    The server stopped sending before the end of this unit&rsquo;s contacts, so
+                    more exist than were loaded here.
                   </p>
                 ) : null}
               </>
