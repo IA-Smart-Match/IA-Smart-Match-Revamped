@@ -56,6 +56,7 @@ from smartmatch_api.routers import (
     events,
     imports,
     jobs,
+    manual_events,
     match_runs,
     matching_weights,
     me,
@@ -488,6 +489,12 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # and attaching it to that flag would place it inside a funnel it stands
     # outside of.
     (meetings.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # Manually filed events (migration 0035) and their per-event feedback QR.
+    # Classified with `events`/`calendar` above: a manual event is a row in
+    # the same `event` table those routes read, gated behind the same flag
+    # a deployment already uses to decide whether it shows events at all.
+    (manual_events.router, Capability.EVENT_READS),
+    (manual_events.public_router, Capability.EVENT_READS),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
