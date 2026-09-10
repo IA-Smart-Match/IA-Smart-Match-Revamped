@@ -78,6 +78,13 @@ def test_layout_nav_gained_one_events_entry_without_disturbing_pinned_structure(
     text = LAYOUT.read_text(encoding="utf-8")
     assert "offeredSections.map(" in text
     assert "requires:" in text
-    for href in ("/dashboard", "/volunteers", "/pipeline", "/calendar", "/opportunities", "/ai-matching"):
+    for href in (
+        "/dashboard",
+        "/volunteers",
+        "/pipeline",
+        "/calendar",
+        "/opportunities",
+        "/ai-matching",
+    ):
         assert f'href: "{href}"' in text
     assert '{ name: "Events", href: "/events"' in text
