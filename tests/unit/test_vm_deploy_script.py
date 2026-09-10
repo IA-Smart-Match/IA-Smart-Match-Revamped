@@ -557,9 +557,7 @@ def test_down_v_never_appears_in_the_deploy_script_source() -> None:
     """Static guarantee, independent of any run: the discard-the-database
     command must never appear in the script at all, on any path."""
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
-    code = "\n".join(
-        line for line in source.splitlines() if not line.lstrip().startswith("#")
-    )
+    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
     assert "down -v" not in code
     assert "compose down" not in code
 
@@ -574,9 +572,7 @@ def test_the_script_asserts_seed_logins_succeeded() -> None:
 def test_the_unit_and_the_script_share_the_same_lock_path() -> None:
     """The boot unit's flock and the script's own flock must guard one file."""
     deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
-    unit_source = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(
-        encoding="utf-8"
-    )
+    unit_source = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(encoding="utf-8")
 
     # The script's default: ${SMARTMATCH_STATE_DIR:-/opt/smartmatch}/deploy.lock
     assert 'LOCK_FILE="${SMARTMATCH_LOCK_FILE:-${STATE_DIR}/deploy.lock}"' in deploy_source
@@ -584,9 +580,7 @@ def test_the_unit_and_the_script_share_the_same_lock_path() -> None:
 
     # The unit hardcodes the same resolved default path and wraps its
     # ExecStart in flock over it.
-    exec_start = next(
-        line for line in unit_source.splitlines() if line.startswith("ExecStart=")
-    )
+    exec_start = next(line for line in unit_source.splitlines() if line.startswith("ExecStart="))
     assert "/usr/bin/flock" in exec_start
     assert "/opt/smartmatch/deploy.lock" in exec_start
 
