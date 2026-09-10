@@ -231,8 +231,8 @@ a Stage 2 ADR candidate, not a migration increment.
 | Persistence concerns in domain logic | **No** | Contract 1 forbids `sqlalchemy` in domain; domain modules are pure dataclasses + functions |
 | Storage layer making network calls | **No** | Contract 4 forbids `httpx`/`requests` in persistence |
 | Inline provider IO from an HTTP handler | **No** | `scan_forbidden.py:136` regex-matches route decorators followed within 600 chars by `resend.` / `smtplib` / `sendgrid` / `.send_email(` / `genai.` / `openai.` / `requests.get(http`; CI-gated |
-| Caller-selected identity | **No** | `scan_forbidden.py:61` forbids `mock[-_]login`, `caller[-_]selected[-_]role`, `role = request.json` |
-| Tenant/user id taken from a request body | **No** | `scan_forbidden.py:166` forbids `(tenant_id\|user_id\|student_id\|professional_id) = (payload\|body\|request.json\|data)[` |
+| Caller-selected identity | **No** | `scan_forbidden.py:60`, the caller-selected-identity rule — forbids the archived login-as-anyone route, a caller-chosen role parameter, and reading a role off the request body |
+| Tenant/user id taken from a request body | **No** | `scan_forbidden.py:165`, rule `client-supplied-identity` — forbids assigning a tenant, user, student, or professional id from a request payload or body |
 | Module-level mutable global state | **No** | `scan_forbidden.py:99` forbids `_?[A-Z_]*(QUEUE\|STATE\|CACHE\|REGISTRY\|STORE\|BUS\|RESULTS?) = {} \| [] \| deque()` |
 
 **This is unusually good.** The classic leakages this audit exists to find are
