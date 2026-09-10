@@ -41,11 +41,11 @@ RESET_SCRIPT = REPO_ROOT / "scripts" / "reset_pilot_dataset.sh"
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
+from pilot_dataset_plan import feedback_dev_principals  # noqa: E402
 from seed_pilot_principals import (  # noqa: E402
     COMPOSE_DEV_PRINCIPALS,
     SEEDED_BY_THIS_TOOL,
 )
-from pilot_dataset_plan import feedback_dev_principals  # noqa: E402
 
 #: The step-0b command, captured whole: the ``PYTHONPATH`` it runs under and the
 #: heredoc body it feeds to the interpreter. Anchored to ``DEV_PRINCIPALS=`` so
@@ -111,8 +111,7 @@ def _rebuild_dev_principals() -> dict[str, str]:
         env=environment,
     )
     assert completed.returncode == 0, (
-        "the rebuild script's dev-principal snippet failed to run:\n"
-        f"{completed.stderr}"
+        f"the rebuild script's dev-principal snippet failed to run:\n{completed.stderr}"
     )
     parsed = json.loads(completed.stdout)
     assert isinstance(parsed, dict)
@@ -181,9 +180,7 @@ def test_no_token_in_the_rebuild_map_resolves_to_an_unseeded_subject() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "principal", COMPOSE_DEV_PRINCIPALS, ids=lambda principal: principal.role
-)
+@pytest.mark.parametrize("principal", COMPOSE_DEV_PRINCIPALS, ids=lambda principal: principal.role)
 def test_the_rebuild_seeds_a_row_for_every_portal_principal(principal) -> None:
     """A token is only half of a login; the row it resolves to is the other."""
     source = _script_source()
