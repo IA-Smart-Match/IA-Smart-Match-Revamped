@@ -17,6 +17,23 @@
  * the progress numbers come with a `progress_state` saying whether they are
  * numbers at all, and the request is `POST /v1/units/{unit_id}/redemptions`
  * whose response is a durable ticket in state `requested`.
+ *
+ * ## Which unit's catalog this is
+ *
+ * The unit the server granted this account — `default_unit_id` off
+ * `grantedPortal(portalAccess, "student")`, which is `GET /v1/me/portals`'
+ * answer — and never the `VITE_SMARTMATCH_UNIT_ID` build variable.
+ * `CoordinatorEvents.tsx` states that rule; this page follows it because
+ * `useRewards` now takes the unit as an argument rather than looking the
+ * variable up. On a deployment built without the variable — the classroom VM —
+ * the old lookup returned `null` and this page rendered its error panel over a
+ * catalog the server was in a position to list.
+ *
+ * That gives three distinct states below, and they are three different facts:
+ * the mapping or the catalog is still resolving (skeletons), the grant carries
+ * no unit so there is no catalog to have (`REWARDS_NO_UNIT_REASON`), and the
+ * read failed (`loadError`). None of them is an empty shelf, which would be the
+ * ADR-0011 mistake this page was built to stop.
  */
 import { Link } from "react-router";
 import { AlertTriangle, ArrowLeft, Check, Lock } from "lucide-react";
@@ -26,7 +43,9 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { AppIcon } from "../../../components/AppIcon";
 import { Button } from "../../components/ui/button";
 import { Progress } from "../../components/ui/progress";
-import { useRewards } from "../../hooks/useRewards";
+import { grantedPortal } from "../../components/PortalGate";
+import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { REWARDS_NO_UNIT_REASON, useRewards } from "../../hooks/useRewards";
 import type { Redemption, RewardCatalogItem } from "../../../lib/api";
 import { ROLE_PRESENTATION } from "../../../lib/roleLabels";
 
@@ -171,8 +190,32 @@ function RewardCard({
 }
 
 export function StudentRewards() {
+  // `GET /v1/me/portals` — the only source of the unit whose catalog this is.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "student");
+  const unitId = grant?.default_unit_id ?? null;
   const { status, catalog, redemptions, loadError, pendingItemIds, requestError, requestItem } =
-    useRewards();
+    useRewards(unitId);
+
+  // The grant resolved and carries no unit. Said in its own words rather than
+  // folded into the error panel below: nothing failed, and rather than an empty
+  // catalog there is no catalog to be empty. `grant === null` is deliberately
+  // not this branch — the mapping is still in flight there, and the skeletons
+  // are the honest thing to show.
+  if (grant !== null && unitId === null) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-8 text-center">
+        <p className="text-sm text-muted-foreground">{REWARDS_NO_UNIT_REASON}</p>
+        <Link
+          to="/student-portal"
+          className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back to home
+        </Link>
+      </div>
+    );
+  }
 
   if (status === "loading" || status === "idle") {
     return (

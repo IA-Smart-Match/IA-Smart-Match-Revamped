@@ -28,6 +28,37 @@
  * consumer that cannot tell "we have not heard" from "we heard nothing
  * happened" will eventually render one as the other.
  *
+ * ## The unit this reads, and why it is a parameter
+ *
+ * `unitId` is an argument, not a lookup. It is the unit the **server** granted
+ * the account — `PortalDescriptor.default_unit_id` out of `GET /v1/me/portals`
+ * — and the caller passes it because the caller is what holds the grant.
+ *
+ * This hook used to call `getConfiguredUnitId()` and scope itself by the
+ * `VITE_SMARTMATCH_UNIT_ID` build variable. That is the defect this parameter
+ * closes. On a deployment where the variable is unset — the classroom VM, where
+ * the bundle is built without it — the hook short-circuited to `"unavailable"`
+ * before issuing a single request, so a coordinator whose unit held drafts was
+ * told outreach was unavailable. Where the variable *is* set it is worse than
+ * useless on a multi-unit pilot: it would show one unit's drafts under another
+ * unit's name. `CoordinatorEvents.tsx` states the rule this now follows.
+ *
+ * Taking the unit as an argument rather than calling `usePortalAccess()` here
+ * is deliberate. Which portal a unit is granted through is a fact about the
+ * *page*: this hook's caller sits in the coordinator portal and
+ * {@link useRewards}' caller sits in the student one, so a `PortalKind` baked
+ * in here would only be a second wrong constant in place of the first. It also
+ * keeps this hook outside `PortalAccessProvider`'s context, which
+ * `usePortalAccess()` throws without.
+ *
+ * ## `"idle"` is not `"unavailable"`
+ *
+ * `unitId === null` puts this hook in `"idle"` with no `loadError`. With no
+ * unit there is nothing to ask for, and nothing to report either. Whether that
+ * null means "the portal mapping is still in flight" or "the grant carries no
+ * unit" is a fact the caller holds and this hook does not, so the caller is the
+ * one that says which — see {@link OUTREACH_NO_UNIT_REASON}.
+ *
  * ## No polling
  *
  * `refreshSend` is called by the page, not by a timer. A send that has been
@@ -42,7 +73,6 @@ import {
   createOutreachDraft,
   fetchOutreachDrafts,
   fetchOutreachSend,
-  getConfiguredUnitId,
   hasSmartmatchAuth,
   submitOutreachSend,
   type OutreachDraft,
@@ -54,8 +84,30 @@ export type OutreachStatus = "idle" | "loading" | "ready" | "unavailable";
 /** How far a submitted send has got, as the browser is entitled to say. */
 export type SendState = "idle" | "submitting" | "queued" | "failed";
 
+/**
+ * Why outreach could not be read at all: this browser holds no API credential.
+ *
+ * The only remaining half of the old two-part condition. It names a state a
+ * reader can act on — sign in again — rather than the build variable the copy
+ * this replaced named, which a coordinator cannot set and cannot rebuild a
+ * bundle around. `hasSmartmatchAuth()` is satisfied by the session token
+ * `LoginPage` stores, so a signed-in coordinator does not see this.
+ */
 export const OUTREACH_UNAVAILABLE_REASON =
-  "Outreach requires VITE_SMARTMATCH_UNIT_ID and a bearer token (VITE_SMARTMATCH_BEARER_TOKEN or session storage).";
+  "Outreach could not be read: this browser is not holding a credential for the API. Sign in again.";
+
+/**
+ * Why there is nothing to read even though everything is working.
+ *
+ * Distinct from {@link OUTREACH_UNAVAILABLE_REASON}, which is a credential
+ * failure, and distinct again from the caller rendering nothing while
+ * `GET /v1/me/portals` is still in flight. This is the resolved, honest,
+ * act-on-able case: the server answered, and the portal it granted carries no
+ * unit. Exported so the drafts section and the sends listing say it in the same
+ * words rather than two slightly different ones.
+ */
+export const OUTREACH_NO_UNIT_REASON =
+  "The portal the server granted this account carries no unit, so there are no outreach drafts to read. Ask your program administrator to attach a unit to your membership.";
 
 export interface QueuedSend {
   draftId: string;
@@ -90,14 +142,23 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The request failed.";
 }
 
-export function useOutreach(): UseOutreachResult {
-  const unitId = getConfiguredUnitId();
-  const enabled = Boolean(unitId) && hasSmartmatchAuth();
+/**
+ * @param unitId The unit the server granted this account
+ *   (`grantedPortal(...)?.default_unit_id ?? null`), or `null` while the
+ *   mapping is unresolved or the grant carries none. Never a browser-composed
+ *   identifier and never a build variable — see the module docstring.
+ */
+export function useOutreach(unitId: string | null): UseOutreachResult {
+  // No unit is not a failure, so it does not start in `"unavailable"`.
+  const unresolved = unitId === null;
+  const enabled = !unresolved && hasSmartmatchAuth();
 
-  const [status, setStatus] = useState<OutreachStatus>(enabled ? "loading" : "unavailable");
+  const [status, setStatus] = useState<OutreachStatus>(
+    enabled ? "loading" : unresolved ? "idle" : "unavailable",
+  );
   const [drafts, setDrafts] = useState<OutreachDraft[]>([]);
   const [loadError, setLoadError] = useState<string | null>(
-    enabled ? null : OUTREACH_UNAVAILABLE_REASON,
+    enabled || unresolved ? null : OUTREACH_UNAVAILABLE_REASON,
   );
   const [sendState, setSendState] = useState<SendState>("idle");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -105,7 +166,14 @@ export function useOutreach(): UseOutreachResult {
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    if (!enabled || !unitId) {
+    if (unitId === null) {
+      // Nothing to ask for, and no claim to make about what exists. The caller
+      // owns the difference between "still resolving" and "no unit granted".
+      setStatus("idle");
+      setLoadError(null);
+      return;
+    }
+    if (!enabled) {
       setStatus("unavailable");
       setLoadError(OUTREACH_UNAVAILABLE_REASON);
       return;
