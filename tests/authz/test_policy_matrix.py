@@ -7147,15 +7147,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_owning_unit": deny(
             "no_grant",
-            why="manual event writes are admin-only; a unit coordinator does not file events on this surface",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="wrong role and wrong department; no `tenant_wide_roles` is passed for this operation",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
-            why="the role is right and the department is not; a manual event carries its own `host_org_unit_id`",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -7201,7 +7210,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="a sibling department's coordinator has no business reading this unit's events; no `tenant_wide_roles` is passed",
+            why=(
+                "a sibling department's coordinator has no business reading "
+                "this unit's events; no `tenant_wide_roles` is passed"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
@@ -7248,15 +7260,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_owning_unit": deny(
             "no_grant",
-            why="manual event writes are admin-only; a unit coordinator does not file events on this surface",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="wrong role and wrong department; no `tenant_wide_roles` is passed for this operation",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
-            why="the role is right and the department is not; a manual event carries its own `host_org_unit_id`",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -7299,15 +7320,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_owning_unit": deny(
             "no_grant",
-            why="manual event writes are admin-only; a unit coordinator does not file events on this surface",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="wrong role and wrong department; no `tenant_wide_roles` is passed for this operation",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
-            why="the role is right and the department is not; a manual event carries its own `host_org_unit_id`",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -7350,15 +7380,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_owning_unit": deny(
             "no_grant",
-            why="manual event writes are admin-only; a unit coordinator does not file events on this surface",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="wrong role and wrong department; no `tenant_wide_roles` is passed for this operation",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
-            why="the role is right and the department is not; a manual event carries its own `host_org_unit_id`",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
@@ -7401,15 +7440,24 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
         "coordinator_at_owning_unit": deny(
             "no_grant",
-            why="manual event writes are admin-only; a unit coordinator does not file events on this surface",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
         ),
         "coordinator_at_sibling_unit": deny(
             "no_grant",
-            why="wrong role and wrong department; no `tenant_wide_roles` is passed for this operation",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
         ),
         "admin_at_sibling_unit": deny(
             "no_grant",
-            why="the role is right and the department is not; a manual event carries its own `host_org_unit_id`",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
         ),
         "student_at_owning_unit": deny(
             "no_grant",
