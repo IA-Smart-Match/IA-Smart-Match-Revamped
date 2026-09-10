@@ -410,15 +410,36 @@ recorded in that file's header rather than duplicated here.
 
 ## The synthetic pilot VM
 
-The same compose appliance also runs on one GCE instance, updated automatically
-on every push to a protected `deploy` branch. It is the same images, the same
-compose file plus a small override, the same health suite, and the same
-synthetic data — no identity provider, no real user, no live provider
-credential, and `ALLOW_CLOUD_DEPLOY=false` unchanged. Its every published port
-stays on `127.0.0.1`; the only externally reachable surface is a Cloudflare
-Tunnel to `127.0.0.1:5173` behind Cloudflare Access.
+The same compose appliance also runs on one GCE instance. It is the same
+images, the same compose file, the same health suite, and the same synthetic
+data — no identity provider, no real user, no live provider credential, and
+`ALLOW_CLOUD_DEPLOY=false` unchanged. Its every published port stays on
+`127.0.0.1`; the only externally reachable surface is a Cloudflare Tunnel to
+`127.0.0.1:5173` behind Cloudflare Access, and the four bindings tabulated
+above are the bindings the instance has.
 
-[`vm-deploy.md`](vm-deploy.md) is the runbook: standing the VM up, what a
-deployment does and refuses to do, the branch protection and GitHub environment
-it requires, and the gates that must close before any of it becomes a
-production deployment.
+**On "updated automatically on every push to a protected `deploy` branch" —
+which this section used to say, and which is not what happens today.** The
+mechanism for that exists in the repository and was never bootstrapped onto the
+machine: the `pilot-vm` GitHub environment is empty, so
+`.github/workflows/deploy.yml` stops at its own configuration gate before it
+authenticates, and a push to `deploy` therefore deploys nothing. The instance is
+updated by hand over IAP, from a checkout in a home directory tracking `main`.
+[`vm-deploy.md`](vm-deploy.md) documents that in full, and it should be read
+before anyone relies on a `deploy` push to move this appliance.
+
+One consequence belongs here rather than there, because it is a fact about the
+containers. The `web` service has no `build:` stanza — it runs Vite's dev server
+against a bind-mounted checkout, which is the same fact the "Deliberately
+absent" table above records as "A production build of the frontend". So `docker
+compose build web` correctly reports it has nothing to build, a frontend change
+reaches the instance on a restart, and a backend change does not reach it at all
+until the `api` and `worker` images are rebuilt.
+
+[`vm-deploy.md`](vm-deploy.md) remains the runbook, and now carries both paths:
+what the machine actually does today and how to deploy to it, alongside the
+scripted design — standing the VM up, what a deployment does and refuses to do,
+the branch protection and GitHub environment it requires, and the gates that
+must close before any of it becomes a production deployment. Which of the two
+paths the program should settle on is an open decision recorded there, and not
+one this document takes a position on.
