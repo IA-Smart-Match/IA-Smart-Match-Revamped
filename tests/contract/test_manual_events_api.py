@@ -71,7 +71,12 @@ def _register_principal(
                 "INSERT INTO user_account (id, tenant_id, external_subject, email) "
                 "VALUES (:id, :tid, :subject, :email)"
             ),
-            {"id": user_id, "tid": tenant_id, "subject": subject, "email": f"{subject}@example.edu"},
+            {
+                "id": user_id,
+                "tid": tenant_id,
+                "subject": subject,
+                "email": f"{subject}@example.edu",
+            },
         )
         if role is not None:
             conn.execute(
@@ -79,7 +84,13 @@ def _register_principal(
                     "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
                     "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role)"
                 ),
-                {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": membership_path, "role": role},
+                {
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "uid": user_id,
+                    "path": membership_path,
+                    "role": role,
+                },
             )
 
     verifier.register(token, subject)
@@ -191,7 +202,9 @@ def _create(context: dict[str, object], idempotency_key: str | None = None, **ov
     )
 
 
-def test_admin_can_create_a_draft_and_a_coordinator_cannot_read_it(context: dict[str, object]) -> None:
+def test_admin_can_create_a_draft_and_a_coordinator_cannot_read_it(
+    context: dict[str, object],
+) -> None:
     response = _create(context)
     assert response.status_code == 201
     body = response.json()

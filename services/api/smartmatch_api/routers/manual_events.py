@@ -244,7 +244,9 @@ class EventWrite(BaseModel):
         """This body's schedule as an ``EventTime`` for ``EventRepository``."""
         if self.time_precision == "exact":
             assert self.starts_at is not None and self.time_zone is not None
-            return ExactTime(starts_at=self.starts_at, time_zone=self.time_zone, ends_at=self.ends_at)
+            return ExactTime(
+                starts_at=self.starts_at, time_zone=self.time_zone, ends_at=self.ends_at
+            )
         if self.time_precision == "date_only":
             assert self.on_date is not None and self.time_zone is not None
             return DateOnlyTime(on_date=self.on_date, time_zone=self.time_zone)
@@ -410,7 +412,9 @@ def _authorize_read(session: Session, principal: CurrentPrincipal, unit_id: uuid
 
 
 def _not_found() -> ApiError:
-    return ApiError(status_code=status.HTTP_404_NOT_FOUND, code="event_not_found", message="No such event.")
+    return ApiError(
+        status_code=status.HTTP_404_NOT_FOUND, code="event_not_found", message="No such event."
+    )
 
 
 def _load_event_and_detail(
@@ -422,14 +426,18 @@ def _load_event_and_detail(
     back the events it (or another manual-entry caller) wrote; an extracted
     event has no detail row to join and is not this router's concern.
     """
-    event_row = session.execute(
-        sa.select(schema.event).where(
-            schema.event.c.tenant_id == tenant_id,
-            schema.event.c.host_org_unit_id == unit_id,
-            schema.event.c.id == event_id,
-            schema.event.c.origin == ORIGIN_COORDINATOR_ENTRY,
+    event_row = (
+        session.execute(
+            sa.select(schema.event).where(
+                schema.event.c.tenant_id == tenant_id,
+                schema.event.c.host_org_unit_id == unit_id,
+                schema.event.c.id == event_id,
+                schema.event.c.origin == ORIGIN_COORDINATOR_ENTRY,
+            )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if event_row is None:
         return None
     detail_row = _details.get_detail(session, tenant_id=tenant_id, event_id=event_id)
@@ -479,7 +487,9 @@ def _qr_response(row: Any, request: Request) -> FeedbackQrResponse:
 
 def _fingerprint(body: BaseModel) -> str:
     payload = body.model_dump(mode="json")
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def _detail_values(values: dict[str, Any]) -> dict[str, Any]:
@@ -540,7 +550,10 @@ def create_event(
                 message="That request key was already used for different event details.",
             )
         loaded = _load_event_and_detail(
-            session, tenant_id=principal.tenant_id, unit_id=unit_id, event_id=existing_detail["event_id"]
+            session,
+            tenant_id=principal.tenant_id,
+            unit_id=unit_id,
+            event_id=existing_detail["event_id"],
         )
         assert loaded is not None
         return _response(*loaded)
@@ -574,11 +587,16 @@ def create_event(
             message="An event with this title and date already exists for the unit.",
         ) from exc
 
-    event_row = session.execute(
-        sa.select(schema.event).where(
-            schema.event.c.tenant_id == principal.tenant_id, schema.event.c.id == outcome.event_id
+    event_row = (
+        session.execute(
+            sa.select(schema.event).where(
+                schema.event.c.tenant_id == principal.tenant_id,
+                schema.event.c.id == outcome.event_id,
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     return _response(event_row, detail_row)
 
 
@@ -649,7 +667,9 @@ def update_event(
         )
         if detail_row is None:
             raise ApiError(
-                status_code=409, code="stale_event", message="This event changed. Refresh and try again."
+                status_code=409,
+                code="stale_event",
+                message="This event changed. Refresh and try again.",
             )
         session.execute(
             sa.update(schema.event)
@@ -672,11 +692,15 @@ def update_event(
             message="The event details conflict with an existing event or schedule.",
         ) from exc
 
-    event_row = session.execute(
-        sa.select(schema.event).where(
-            schema.event.c.tenant_id == principal.tenant_id, schema.event.c.id == event_id
+    event_row = (
+        session.execute(
+            sa.select(schema.event).where(
+                schema.event.c.tenant_id == principal.tenant_id, schema.event.c.id == event_id
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     return _response(event_row, detail_row)
 
 

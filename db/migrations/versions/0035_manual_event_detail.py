@@ -82,10 +82,16 @@ def upgrade() -> None:
         sa.Column("request_fingerprint", sa.Text, nullable=True),
         sa.Column("version", sa.Integer, nullable=False, server_default="1"),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
         ),
         sa.PrimaryKeyConstraint("event_id", name="event_manual_detail_pkey"),
         sa.ForeignKeyConstraint(
@@ -130,10 +136,16 @@ def upgrade() -> None:
         sa.Column("destination_url", sa.Text, nullable=False),
         sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
         ),
         sa.PrimaryKeyConstraint("id", name="event_feedback_qr_pkey"),
         sa.ForeignKeyConstraint(

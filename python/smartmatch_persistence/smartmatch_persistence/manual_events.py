@@ -53,13 +53,17 @@ class ManualEventDetailRepository:
         idempotency_key: str,
     ) -> RowMapping | None:
         """The detail row already stored under this idempotency key, if any."""
-        return session.execute(
-            sa.select(schema.event_manual_detail).where(
-                schema.event_manual_detail.c.tenant_id == tenant_id,
-                schema.event_manual_detail.c.owning_unit_id == unit_id,
-                schema.event_manual_detail.c.idempotency_key == idempotency_key,
+        return (
+            session.execute(
+                sa.select(schema.event_manual_detail).where(
+                    schema.event_manual_detail.c.tenant_id == tenant_id,
+                    schema.event_manual_detail.c.owning_unit_id == unit_id,
+                    schema.event_manual_detail.c.idempotency_key == idempotency_key,
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
     def create_detail(
         self,
@@ -73,29 +77,37 @@ class ManualEventDetailRepository:
         values: Mapping[str, Any],
     ) -> RowMapping:
         """Insert the side-table row for a freshly created manual event."""
-        row = session.execute(
-            sa.insert(schema.event_manual_detail)
-            .values(
-                event_id=event_id,
-                tenant_id=tenant_id,
-                owning_unit_id=unit_id,
-                idempotency_key=idempotency_key,
-                request_fingerprint=request_fingerprint,
-                **values,
+        row = (
+            session.execute(
+                sa.insert(schema.event_manual_detail)
+                .values(
+                    event_id=event_id,
+                    tenant_id=tenant_id,
+                    owning_unit_id=unit_id,
+                    idempotency_key=idempotency_key,
+                    request_fingerprint=request_fingerprint,
+                    **values,
+                )
+                .returning(*schema.event_manual_detail.c)
             )
-            .returning(*schema.event_manual_detail.c)
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         return row
 
     def get_detail(
         self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID
     ) -> RowMapping | None:
-        return session.execute(
-            sa.select(schema.event_manual_detail).where(
-                schema.event_manual_detail.c.tenant_id == tenant_id,
-                schema.event_manual_detail.c.event_id == event_id,
+        return (
+            session.execute(
+                sa.select(schema.event_manual_detail).where(
+                    schema.event_manual_detail.c.tenant_id == tenant_id,
+                    schema.event_manual_detail.c.event_id == event_id,
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
     def update_detail(
         self,
@@ -107,16 +119,20 @@ class ManualEventDetailRepository:
         values: Mapping[str, Any],
     ) -> RowMapping | None:
         """Update the detail row, or return ``None`` on a version mismatch."""
-        return session.execute(
-            sa.update(schema.event_manual_detail)
-            .where(
-                schema.event_manual_detail.c.tenant_id == tenant_id,
-                schema.event_manual_detail.c.event_id == event_id,
-                schema.event_manual_detail.c.version == expected_version,
+        return (
+            session.execute(
+                sa.update(schema.event_manual_detail)
+                .where(
+                    schema.event_manual_detail.c.tenant_id == tenant_id,
+                    schema.event_manual_detail.c.event_id == event_id,
+                    schema.event_manual_detail.c.version == expected_version,
+                )
+                .values(**values, version=expected_version + 1, updated_at=sa.func.now())
+                .returning(*schema.event_manual_detail.c)
             )
-            .values(**values, version=expected_version + 1, updated_at=sa.func.now())
-            .returning(*schema.event_manual_detail.c)
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
     # -- feedback QR ----------------------------------------------------------
 
@@ -125,19 +141,23 @@ class ManualEventDetailRepository:
     ) -> RowMapping | None:
         qr = schema.event_feedback_qr
         opens = schema.event_feedback_qr_open
-        return session.execute(
-            sa.select(
-                *qr.c,
-                sa.func.count(opens.c.id).label("open_count"),
-                sa.func.max(opens.c.opened_at).label("last_opened_at"),
+        return (
+            session.execute(
+                sa.select(
+                    *qr.c,
+                    sa.func.count(opens.c.id).label("open_count"),
+                    sa.func.max(opens.c.opened_at).label("last_opened_at"),
+                )
+                .outerjoin(
+                    opens,
+                    sa.and_(opens.c.tenant_id == qr.c.tenant_id, opens.c.qr_id == qr.c.id),
+                )
+                .where(qr.c.tenant_id == tenant_id, qr.c.event_id == event_id)
+                .group_by(*qr.c)
             )
-            .outerjoin(
-                opens,
-                sa.and_(opens.c.tenant_id == qr.c.tenant_id, opens.c.qr_id == qr.c.id),
-            )
-            .where(qr.c.tenant_id == tenant_id, qr.c.event_id == event_id)
-            .group_by(*qr.c)
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
     def upsert_qr(
         self,

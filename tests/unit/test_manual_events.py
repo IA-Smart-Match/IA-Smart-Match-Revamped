@@ -83,7 +83,9 @@ def test_date_only_event_rejects_a_clock_time() -> None:
 
 def test_unresolved_event_rejects_a_date() -> None:
     with pytest.raises(ValidationError):
-        manual_events.EventWrite(title="Hackathon", time_precision="unresolved", on_date=date(2026, 10, 2))
+        manual_events.EventWrite(
+            title="Hackathon", time_precision="unresolved", on_date=date(2026, 10, 2)
+        )
 
 
 def test_volunteer_openings_cannot_exceed_capacity() -> None:
@@ -99,12 +101,8 @@ def test_category_must_be_approved() -> None:
 
 
 def test_manual_event_side_tables_are_unit_scoped_and_qr_opens_store_no_visitor_data() -> None:
-    assert {"tenant_id", "owning_unit_id", "event_id"} <= set(
-        schema.event_manual_detail.c.keys()
-    )
-    assert {"id", "tenant_id", "qr_id", "opened_at"} == set(
-        schema.event_feedback_qr_open.c.keys()
-    )
+    assert {"tenant_id", "owning_unit_id", "event_id"} <= set(schema.event_manual_detail.c.keys())
+    assert {"id", "tenant_id", "qr_id", "opened_at"} == set(schema.event_feedback_qr_open.c.keys())
     assert {"ip", "user_agent", "referrer", "cookie"}.isdisjoint(
         schema.event_feedback_qr_open.c.keys()
     )
