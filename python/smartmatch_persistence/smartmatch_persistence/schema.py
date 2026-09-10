@@ -2888,6 +2888,9 @@ event_feedback_qr = sa.Table(
     # One feedback QR per event (decision doc: "Each event may have one
     # feedback QR code"). Named because manual_events.py's upsert passes it
     # to ON CONFLICT ON CONSTRAINT.
+    # ``event_feedback_qr_open`` references (tenant_id, id); the composite FK
+    # needs a matching unique constraint here.
+    sa.UniqueConstraint("tenant_id", "id", name="uq_event_feedback_qr_tenant_id"),
     sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
     sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
     sa.CheckConstraint(

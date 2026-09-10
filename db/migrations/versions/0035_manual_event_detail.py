@@ -165,6 +165,10 @@ def upgrade() -> None:
             ondelete="RESTRICT",
             name="fk_event_feedback_qr_created_by",
         ),
+        # ``event_feedback_qr_open`` carries a tenant-scoped composite FK to this
+        # table, so PostgreSQL needs a unique constraint on exactly (tenant_id, id)
+        # to reference. Same convention as uq_event_tenant_id, uq_match_run_tenant_id.
+        sa.UniqueConstraint("tenant_id", "id", name="uq_event_feedback_qr_tenant_id"),
         sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
         sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
         sa.CheckConstraint(
