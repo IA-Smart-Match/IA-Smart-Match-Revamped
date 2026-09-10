@@ -446,13 +446,28 @@ async function requestJson<T>(
   init?: RequestInit,
   options?: { authenticated?: boolean },
 ): Promise<T> {
+  // `init` is destructured rather than spread after `headers`, and that ordering
+  // is the whole point of this shape.
+  //
+  // Spreading `...init` *after* a `headers` property does not merge the two:
+  // `init.headers` replaces the assembled object wholesale, taking the
+  // `Authorization` header with it. The result was a split personality — a
+  // request that passed no headers of its own authenticated correctly, while
+  // every caller that added one silently sent an anonymous request and got
+  // `401 unauthenticated` back from a route it was in fact authorized for.
+  // That was all three writes carrying an `Idempotency-Key`: `createMatchRun`,
+  // `createSpeakerInvitationBatch` and `submitOutreachSend`.
+  //
+  // Destructuring makes the ordering impossible to reintroduce: `headers` is no
+  // longer a key of `rest`, so no later spread can overwrite it.
+  const { headers: initHeaders, ...rest } = init ?? {};
   const response = await fetch(path, {
+    ...rest,
     headers: {
       "Content-Type": "application/json",
       ...(options?.authenticated ? smartmatchAuthHeaders() : {}),
-      ...(init?.headers ?? {}),
+      ...(initHeaders ?? {}),
     },
-    ...init,
   });
 
   if (!response.ok) {
