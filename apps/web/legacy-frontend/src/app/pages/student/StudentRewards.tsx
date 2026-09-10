@@ -21,6 +21,7 @@
 import { Link } from "react-router";
 import { AlertTriangle, ArrowLeft, Check, Lock } from "lucide-react";
 
+import { PagedList } from "../../components/PagedList";
 import { Skeleton } from "../../components/ui/skeleton";
 import { AppIcon } from "../../../components/AppIcon";
 import { Button } from "../../components/ui/button";
@@ -282,42 +283,56 @@ export function StudentRewards() {
           to show. This is the catalog being honest, not empty by accident.
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {catalog.items.map((item) => (
-            <RewardCard
-              key={item.item_id}
-              item={item}
-              openTicket={openTicketsByItem.get(item.item_id)}
-              pending={pendingItemIds.has(item.item_id)}
-              onRequest={() => void requestItem(item.item_id)}
-            />
-          ))}
-        </div>
+        /* The catalog, a page at a time. The pager windows the rewards this
+           browser already fetched; it asks the server for nothing and its
+           count is of the rows in hand, not of the catalog's size. */
+        <PagedList items={catalog.items} label="rewards" idPrefix="student-rewards-catalog">
+          {(visibleItems) => (
+            <div className="grid gap-4 md:grid-cols-2">
+              {visibleItems.map((item) => (
+                <RewardCard
+                  key={item.item_id}
+                  item={item}
+                  openTicket={openTicketsByItem.get(item.item_id)}
+                  pending={pendingItemIds.has(item.item_id)}
+                  onRequest={() => void requestItem(item.item_id)}
+                />
+              ))}
+            </div>
+          )}
+        </PagedList>
       )}
 
       {redemptions.length > 0 ? (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">Your redemptions</h2>
-          <ul className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card">
-            {redemptions.map((ticket) => (
-              <li
-                key={ticket.redemption_id}
-                className="flex flex-wrap items-center justify-between gap-2 px-5 py-4"
-              >
-                <div className="min-w-0">
-                  {/* The name and cost the ticket snapshotted, not today's — a
-                      reward repriced or withdrawn since still reads correctly. */}
-                  <p className="text-sm font-medium text-foreground">{ticket.item_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {ticket.points_cost.toLocaleString()} points at request
-                  </p>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {REDEMPTION_STATE_LABELS[ticket.state]}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* The tickets, a page at a time, under a prefix of their own so the
+              two lists on this page do not share an id. As above, this is a
+              window over the redemptions already returned, not a server page. */}
+          <PagedList items={redemptions} label="redemptions" idPrefix="student-rewards-redemptions">
+            {(visibleTickets) => (
+              <ul className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card">
+                {visibleTickets.map((ticket) => (
+                  <li
+                    key={ticket.redemption_id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-5 py-4"
+                  >
+                    <div className="min-w-0">
+                      {/* The name and cost the ticket snapshotted, not today's — a
+                          reward repriced or withdrawn since still reads correctly. */}
+                      <p className="text-sm font-medium text-foreground">{ticket.item_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {ticket.points_cost.toLocaleString()} points at request
+                      </p>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {REDEMPTION_STATE_LABELS[ticket.state]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </PagedList>
         </section>
       ) : null}
     </div>

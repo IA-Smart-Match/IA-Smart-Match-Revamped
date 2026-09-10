@@ -53,6 +53,7 @@ import {
   fetchMySpeakerRequests,
   type SpeakerRequest,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -220,14 +221,27 @@ export function VolunteerMyRequests() {
 
       {requests.length > 0 ? (
         <>
-          <ul className="space-y-4">
-            {requests.map((request) => (
-              <RequestCard key={request.request_id} request={request} />
-            ))}
-          </ul>
+          {/* The requests this host filed, a page at a time. The pager is a
+              window over the rows already returned — it fetches nothing, and
+              the `truncated` notice below is the separate statement about the
+              server having stopped sending. */}
+          <PagedList
+            items={requests}
+            label="Speaker Requests"
+            idPrefix="volunteer-my-speaker-requests"
+          >
+            {(visibleRequests) => (
+              <ul className="space-y-4">
+                {visibleRequests.map((request) => (
+                  <RequestCard key={request.request_id} request={request} />
+                ))}
+              </ul>
+            )}
+          </PagedList>
           {truncated ? (
             <p className="text-xs text-muted-foreground" role="status">
-              More requests exist than this page shows.
+              The server stopped sending at its own limit, so it did not return every request you
+              have filed. How many were held back is not something it reported.
             </p>
           ) : null}
         </>
