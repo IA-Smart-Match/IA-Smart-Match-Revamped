@@ -76,12 +76,14 @@ __all__ = [
     "CONTACT_CHANNEL_SHARE",
     "DEFAULT_SEED",
     "EVENT_LOCATION",
+    "EVENT_TARGETS",
     "FEEDBACK_RATING_DISTRIBUTION",
     "FEEDBACK_SPEAKER_RESPONSE_SHAPE",
     "FEEDBACK_STUDENT_COUNT",
     "FEEDBACK_WITHHELD_SHARE",
     "IN_LIST_CATEGORIES",
     "OUT_OF_LIST_CATEGORIES",
+    "VIRTUAL_EVENT_SHARE",
     "EventPlan",
     "FeedbackPlan",
     "FeedbackSummary",
@@ -272,6 +274,22 @@ UNRESOLVED_EVENT_SHARE: Final[float] = 0.08
 #: Each one lands a ``discovery_review_item`` row, so ``/tag-quarantine`` has
 #: something real in it and the event is withheld from the calendar.
 QUARANTINED_TAG_SHARE: Final[float] = 0.15
+
+#: How many §7 sectors and §8 role categories each planned event targets.
+#: Two of each, for the reason
+#: ``generate_pilot_dataset.SPEAKER_REQUEST_TARGETS`` gives about the three
+#: hand-built requests: with one target every scorable candidate lands on the
+#: same two-valued comparison and the shortlist is decided by tie-breaking,
+#: and with a dozen the targets stop discriminating at all.
+EVENT_TARGETS: Final[int] = 2
+
+#: Share of planned events held online. Customer §11 removes Proximity from the
+#: virtual model, so a virtual request is scored on three factors and a physical
+#: one on four — two genuinely different demonstrations, and a calendar with only
+#: one kind on it can only show one of them. About a third rather than half: the
+#: department's calendar is mostly in-person, and ``cba-physical-1`` is the model
+#: whose refusals are the interesting ones.
+VIRTUAL_EVENT_SHARE: Final[float] = 0.35
 
 #: Share of events filed under a category the ratified counting rule treats as
 #: out-of-list. Present on purpose: an accepted out-of-list row must NOT count
@@ -471,23 +489,42 @@ _TITLES: Final[tuple[str, ...]] = (
     "Community Programs Lead",
 )
 
-#: Metro regions and a representative coordinate for each. The regions are the
-#: ones the existing ``professionals_clean.json`` fixture already names;
-#: coordinates are coarse area centroids, which is what ``travel_burden`` needs
-#: and is not personal data. The spread matters: a pool whose members all sit at
-#: one point scores identically on the 0.30-weighted travel factor, and the
-#: shortlist would then be decided entirely by topic.
-_REGIONS: Final[tuple[tuple[str, float, float], ...]] = (
-    ("Los Angeles - Central", 34.05, -118.24),
-    ("Los Angeles - East", 34.03, -118.15),
-    ("San Gabriel Valley", 34.09, -118.03),
-    ("San Fernando Valley", 34.20, -118.53),
-    ("Long Beach", 33.77, -118.19),
-    ("Orange County", 33.72, -117.83),
-    ("Inland Empire", 34.06, -117.44),
-    ("South Bay", 33.86, -118.38),
-    ("Ventura County", 34.28, -119.29),
-    ("High Desert", 34.53, -117.29),
+#: Metro regions and, for each, a representative coordinate plus the city and
+#: ZIP a coordinator's export would actually spell. The regions are the ones the
+#: existing ``professionals_clean.json`` fixture already names; coordinates are
+#: coarse area centroids, which is what ``travel_burden`` needs and is not
+#: personal data. The spread matters: a pool whose members all sit at one point
+#: scores identically on the 0.30-weighted travel factor, and the shortlist would
+#: then be decided entirely by topic.
+#:
+#: The ZIP is the column customer §10's Proximity factor actually reads.
+#: ``metro_region`` reaches nothing in ``services/``:
+#: ``pipeline_provisioning._PROFESSIONAL_PROFILE_KEYS`` maps
+#: ``location_city``/``location_postal_code`` and not the region, and
+#: ``match_run_evidence`` resolves the **postal code** — and only the postal code
+#: — against the OQ-CBA-024 ZCTA centroid table. A coordinate this module
+#: computed and nothing ever wrote is why every physical run refused: Proximity
+#: was unknown for all 100 profiles, and ADR-0011 makes one unknown factor an
+#: unknown composite.
+#:
+#: Every ZIP below is a real California ZCTA present in
+#: ``smartmatch_domain.zcta_centroids.CA_ZCTA_CENTROIDS`` — a ZIP the table does
+#: not name resolves to no coordinate, so the column would be populated and
+#: Proximity would still be unknown, which is the failure mode that looks fixed
+#: and is not. Each is the ZCTA nearest its region's own centroid, and the set
+#: spans roughly 13 to 82 miles from the CPP campus, so the pool lands in
+#: several distance bands rather than one.
+_REGIONS: Final[tuple[tuple[str, float, float, str, str], ...]] = (
+    ("Los Angeles - Central", 34.05, -118.24, "Los Angeles", "90012"),
+    ("Los Angeles - East", 34.03, -118.15, "East Los Angeles", "90022"),
+    ("San Gabriel Valley", 34.09, -118.03, "South El Monte", "91733"),
+    ("San Fernando Valley", 34.20, -118.53, "Van Nuys", "91406"),
+    ("Long Beach", 33.77, -118.19, "Long Beach", "90802"),
+    ("Orange County", 33.72, -117.83, "Santa Ana", "92701"),
+    ("Inland Empire", 34.06, -117.44, "Fontana", "92335"),
+    ("South Bay", 33.86, -118.38, "Torrance", "90503"),
+    ("Ventura County", 34.28, -119.29, "Ventura", "93003"),
+    ("High Desert", 34.53, -117.29, "Victorville", "92392"),
 )
 
 #: The event's own coordinate — the pilot unit's campus, the one fixed point
@@ -573,8 +610,12 @@ class ProfessionalPlan:
     ``topics`` is ``None`` when this professional has **no expertise record at
     all**, which is a different claim from an empty tuple: it becomes an absent
     ``expertise_tags`` cell in the import, and therefore a NULL
-    ``speaker_profile.topic_text`` rather than an empty one. ``location`` is
-    ``None`` on the same terms.
+    ``speaker_profile.topic_text`` rather than an empty one. ``location``,
+    ``city`` and ``postal_code`` are ``None`` on the same terms and always
+    together — see :func:`build_professionals`. ``postal_code`` is the one of
+    the three the matcher reads: customer §10's Proximity factor resolves it
+    against the OQ-CBA-024 ZCTA centroid table and nothing else on this type
+    reaches ``services/``.
 
     ``industry_code`` and ``role_code`` are customer §7's and §8's codes as this
     professional's export states them, and ``None`` means the export states
@@ -591,6 +632,8 @@ class ProfessionalPlan:
     region: str
     topics: tuple[str, ...] | None
     location: tuple[float, float] | None
+    city: str | None
+    postal_code: str | None
     industry_code: str | None
     role_code: str | None
 
@@ -602,11 +645,29 @@ class ProfessionalPlan:
 
 @dataclass(frozen=True, slots=True)
 class EventPlan:
-    """One planned event.
+    """One planned event, and the Speaker Request it can be filed as.
 
     ``on_date`` is ``None`` for an ADR-0010 ``unresolved`` event: there is no
     field on this type that could hold a fabricated date for one, which is the
     same discipline ``smartmatch_domain.events.UnresolvedTime`` applies.
+
+    ``industry_codes`` and ``role_codes`` are customer §7's and §8's targets —
+    what this event is *asking for*, which is a different statement from the
+    ``industry_code`` a professional's export states about themselves. They are
+    never empty, and that is the point of them: a Speaker Request naming no
+    sector scores ``None`` on a 30%-weighted factor
+    (``factors/industry_match.py``), no role is the same branch at 25%
+    (``factors/role_match.py``), and ADR-0011 turns either into an unknown
+    composite and an all-unscorable pool. Before these fields existed the seed
+    wrote 60 events that a coordinator could select and no run could score.
+
+    ``is_virtual``, ``location_city`` and ``location_postal_code`` obey
+    ``ck_event_virtual_has_no_location`` and customer §11 in the same direction
+    ``SpeakerRequestDraft`` enforces them: a virtual event carries no place at
+    all, and a physical one carries one, because §10 measures Proximity for it.
+    Both kinds are planned so the demo reaches ``cba-virtual-1`` **and**
+    ``cba-physical-1``; a seed that only ever files virtual requests leaves the
+    largest single factor in the default model never exercised.
     """
 
     index: int
@@ -616,6 +677,11 @@ class EventPlan:
     exact_hour: int | None
     tags: tuple[str, ...]
     off_vocabulary_tags: tuple[str, ...]
+    industry_codes: tuple[str, ...]
+    role_codes: tuple[str, ...]
+    is_virtual: bool
+    location_city: str | None
+    location_postal_code: str | None
 
     @property
     def resolved(self) -> bool:
@@ -725,7 +791,9 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
 
     planned: list[ProfessionalPlan] = []
     for index in range(count):
-        region, latitude, longitude = _REGIONS[place_rng.randrange(len(_REGIONS))]
+        region, latitude, longitude, city, postal_code = _REGIONS[
+            place_rng.randrange(len(_REGIONS))
+        ]
 
         topics: tuple[str, ...] | None
         if topic_rng.random() < UNKNOWN_TOPIC_SHARE:
@@ -743,7 +811,17 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
                     chosen.append(term)
             topics = tuple(chosen)
 
-        location = None if place_rng.random() < UNKNOWN_LOCATION_SHARE else (latitude, longitude)
+        # One draw decides all three, so a professional is either located or not
+        # located — never a coordinate with no ZIP beside it, which would be a
+        # place ``match_run_evidence`` cannot read, or a ZIP with no coordinate,
+        # which would be a place this module cannot assert against.
+        # ``UNKNOWN_LOCATION_SHARE`` stays: the honest-absence case is what
+        # ADR-0011's ``unknown`` Proximity branch exists to demonstrate, and a
+        # roster where everybody is located can never show it.
+        located = place_rng.random() >= UNKNOWN_LOCATION_SHARE
+        location = (latitude, longitude) if located else None
+        located_city = city if located else None
+        located_postal_code = postal_code if located else None
 
         # Weighted the same way the topics are, and for the same reason: a
         # uniform draw over twenty sectors would give a Speaker Request's target
@@ -770,11 +848,48 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
                 region=region,
                 topics=topics,
                 location=location,
+                city=located_city,
+                postal_code=located_postal_code,
                 industry_code=industry_code,
                 role_code=role_code,
             )
         )
     return tuple(planned)
+
+
+def _event_targets(
+    vocabulary: Sequence[str], *, index: int, rng: random.Random
+) -> tuple[str, ...]:
+    """The :data:`EVENT_TARGETS` codes one event asks for, drawn two ways on purpose.
+
+    Two draws with opposite failure modes, combined so neither one's is reached:
+
+    * a **triangular** draw over the vocabulary, weighted to the head exactly the
+      way :func:`build_professionals` weights a professional's own code. This is
+      what keeps a target overlapping the roster: a uniformly-drawn sector in a
+      list of twenty would have a handful of holders in a roster of a hundred,
+      and the §7 factor would flatten into noise for most of the calendar.
+    * a **rotation** by ``index``, which guarantees the calendar walks the whole
+      vocabulary rather than asking for the same two popular sectors sixty times.
+      A demo where every event wants the same sector is not a demo.
+
+    Deduplicated and returned in vocabulary order, so a re-plan produces the same
+    sequence and ``SpeakerRequestDraft``'s ``_require_unique`` is satisfied by
+    construction rather than by luck. Falling short of ``EVENT_TARGETS`` because
+    the two draws collided is fine and is not padded around: one target is a
+    request the matcher can still evaluate, and zero is the only count this
+    module may never produce.
+    """
+    if not vocabulary:
+        raise ValueError("vocabulary must name at least one code")
+
+    chosen = {
+        vocabulary[int(rng.triangular(0, len(vocabulary) - 1, 0))],
+        vocabulary[(index * 3) % len(vocabulary)],
+    }
+    while len(chosen) < min(EVENT_TARGETS, len(vocabulary)):
+        chosen.add(vocabulary[rng.randrange(len(vocabulary))])
+    return tuple(code for code in vocabulary if code in chosen)
 
 
 def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ...]:
@@ -787,6 +902,14 @@ def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ..
     at all — the ADR-0010 case the calendar must withhold rather than render at
     a fabricated midnight.
 
+    Every event, including an undated one, is planned with the §7 and §8 targets
+    a Speaker Request needs (:func:`_event_targets`) and with a place or the
+    deliberate absence of one. The targets are planned even where the event can
+    never be filed as a request, because an undated event that later gets a date
+    should be matchable rather than silently hollow — and because "which events
+    carry targets" should not be a second thing to reason about on top of "which
+    events have dates".
+
     Raises:
         ValueError: ``count`` is negative.
     """
@@ -795,6 +918,13 @@ def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ..
 
     shape_rng = _rng(seed, "event-shape")
     tag_rng = _rng(seed, "event-tags")
+    # Two more independent streams rather than more draws on the two above, for
+    # the reason `test_each_stream_is_independent_of_the_others_size` pins about
+    # professionals and events: a shared generator makes every later draw shift
+    # when an earlier one changes, and adding targets to this plan would then
+    # silently move which events are undated and which are quarantined.
+    target_rng = _rng(seed, "event-targets")
+    place_rng = _rng(seed, "event-places")
 
     planned: list[EventPlan] = []
     for index in range(count):
@@ -823,6 +953,15 @@ def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ..
             else IN_LIST_CATEGORIES
         )
 
+        is_virtual = place_rng.random() < VIRTUAL_EVENT_SHARE
+        if is_virtual:
+            location_city: str | None = None
+            location_postal_code: str | None = None
+        else:
+            _, _, _, location_city, location_postal_code = _REGIONS[
+                place_rng.randrange(len(_REGIONS))
+            ]
+
         planned.append(
             EventPlan(
                 index=index,
@@ -832,6 +971,11 @@ def build_events(count: int, *, seed: int = DEFAULT_SEED) -> tuple[EventPlan, ..
                 exact_hour=exact_hour,
                 tags=tags,
                 off_vocabulary_tags=off_vocabulary,
+                industry_codes=_event_targets(SECTOR_CODES, index=index, rng=target_rng),
+                role_codes=_event_targets(ROLE_CATEGORY_CODES, index=index, rng=target_rng),
+                is_virtual=is_virtual,
+                location_city=location_city,
+                location_postal_code=location_postal_code,
             )
         )
     return tuple(planned)

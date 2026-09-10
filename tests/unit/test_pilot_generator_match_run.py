@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from datetime import date
 from pathlib import Path
 from types import ModuleType
 
@@ -60,7 +61,9 @@ from smartmatch_domain.factors.cba_semantic_topic import (
     TopicEvidenceState,
     score_cba_semantic_topic,
 )
+from smartmatch_domain.events import DateOnlyTime
 from smartmatch_domain.naics_sectors import SECTOR_CODES
+from smartmatch_domain.speaker_requests import SpeakerRequestDraft, classifications_of
 from smartmatch_providers.base import Edition
 from smartmatch_providers.topic_semantics import build_semantic_topic_provider
 
@@ -441,3 +444,154 @@ def test_a_candidate_with_expertise_text_is_the_one_that_drops_out() -> None:
     )
     assert _topic_state(None, description) is TopicEvidenceState.POLICY_NEUTRAL
     assert silent.topics is None
+
+
+# ---------------------------------------------------------------------------
+# The seeded calendar's own requests: 60 rows that used to be unscorable
+# ---------------------------------------------------------------------------
+
+
+def test_every_dated_seeded_event_files_as_a_request_the_route_accepts() -> None:
+    """The whole calendar, against the model FastAPI validates the real body with.
+
+    ``SpeakerRequestCreate.model_validate`` is the same call the route makes
+    before its body runs, so a body that survives it is a body that reaches the
+    route rather than one that answers ``422`` — the same standard
+    :func:`test_the_speaker_request_body_validates_against_the_real_create_model`
+    holds the three hand-built requests to, applied to the sixty that used to be
+    filed as nothing at all.
+    """
+    generator = _generator()
+
+    for event in plan.build_events(120):
+        if not event.resolved:
+            continue
+        validated = SpeakerRequestCreate.model_validate(generator.event_speaker_request_body(event))
+
+        assert validated.industry_codes, f"{event.title} names no §7 sector"
+        assert validated.role_codes, f"{event.title} names no §8 role category"
+        assert set(validated.industry_codes) <= set(SECTOR_CODES)
+        assert set(validated.role_codes) <= set(ROLE_CATEGORY_CODES)
+        assert validated.description, "a request with no description gives §9 nothing to compare"
+
+
+def test_every_dated_seeded_event_survives_the_draft_the_route_builds() -> None:
+    """The rules the *model* does not carry, asserted where they actually live.
+
+    ``SpeakerRequestCreate`` is a shape; ``SpeakerRequestDraft`` is the decision.
+    It is what raises ``ClassificationRequiredError`` on an empty target list,
+    ``VirtualRequestLocationError`` on a virtual request carrying a place,
+    ``LocationRequiredError`` on a physical one carrying none, and
+    ``UnknownNaicsSector`` / ``UnknownCbaRoleCategory`` on an unreleased code.
+    Seeding a row this refuses is seeding a row the API itself would have
+    rejected, which is the defect this change exists to remove rather than to
+    reproduce one layer down.
+    """
+    generator = _generator()
+
+    for event in plan.build_events(120):
+        if not event.resolved:
+            continue
+        body = generator.event_speaker_request_body(event)
+        draft = SpeakerRequestDraft(
+            title=body["title"],
+            event_time=DateOnlyTime(
+                on_date=date.fromisoformat(body["on_date"]), time_zone=body["time_zone"]
+            ),
+            is_virtual=body["is_virtual"],
+            industry_codes=tuple(body["industry_codes"]),
+            role_codes=tuple(body["role_codes"]),
+            description=body["description"],
+            location_city=body.get("location_city"),
+            location_postal_code=body.get("location_postal_code"),
+        )
+        assert classifications_of(draft), f"{event.title} implies no classification rows"
+
+
+def test_an_undated_seeded_event_is_refused_rather_than_given_a_date() -> None:
+    """ADR-0010 rule 2, kept where it would be cheapest to break.
+
+    An undated event has no identity key and cannot be filed. The generator skips
+    and counts it; what it must never do is invent a date so the ``POST``
+    succeeds.
+    """
+    generator = _generator()
+    undated = next(event for event in plan.build_events(120) if not event.resolved)
+
+    with pytest.raises(generator.GeneratorError, match="no resolvable date"):
+        generator.event_speaker_request_body(undated)
+
+
+def test_a_seeded_request_restates_the_calendar_rows_own_title_date_and_text() -> None:
+    """Filing must land *on* the seeded event, not beside it.
+
+    ADR-0012's identity key is host unit, folded title and resolved date. If the
+    body drifted from the calendar row on any of the three, the filing would
+    insert a second event and leave the original one in the coordinator's queue
+    exactly as unscorable as before — the failure this change would appear to
+    have fixed while fixing nothing.
+    """
+    generator = _generator()
+    event = next(event for event in plan.build_events(120) if event.resolved)
+
+    body = generator.event_speaker_request_body(event)
+
+    assert body["title"] == event.title
+    assert body["on_date"] == event.on_date.isoformat()
+    assert body["description"] == generator.event_description(event)
+
+
+def test_a_seeded_virtual_request_names_no_place_and_a_physical_one_names_one() -> None:
+    """Customer §11 and ``ck_event_virtual_has_no_location``, at the seam that writes them."""
+    generator = _generator()
+
+    for event in plan.build_events(120):
+        if not event.resolved:
+            continue
+        body = generator.event_speaker_request_body(event)
+        if event.is_virtual:
+            assert "location_city" not in body
+            assert "location_postal_code" not in body
+        else:
+            assert body["location_postal_code"]
+
+
+def test_the_professionals_row_states_the_location_columns_the_contract_declares() -> None:
+    """Proximity reads ``location_postal_code``; ``metro_region`` reaches nothing.
+
+    ``pipeline_provisioning._PROFESSIONAL_PROFILE_KEYS`` maps ``location_city``
+    and ``location_postal_code`` onto ``speaker_profile`` and does not map
+    ``metro_region``, so a row carrying only the region leaves the ZIP column
+    NULL — which is how all 100 seeded profiles came to be unlocatable while a
+    coordinate for each of them was being computed and discarded.
+    """
+    generator = _generator()
+    roster = _planned(120)
+    rows = generator.professionals_rows(roster)
+
+    located = [
+        (person, row) for person, row in zip(roster, rows, strict=True) if person.location
+    ]
+    assert located, "the plan located nobody at all"
+    for person, row in located:
+        assert row["location_postal_code"] == person.postal_code
+        assert row["location_city"] == person.city
+
+
+def test_an_unlocated_professional_contributes_no_location_cell() -> None:
+    """An absent column is an absent record; a blank one is a record that says nothing.
+
+    ``UNKNOWN_LOCATION_SHARE`` exists so ADR-0011's ``unknown`` Proximity branch
+    stays reachable, and a blank cell would store an empty string that
+    ``ck_speaker_profile_text_present`` refuses rather than the NULL that branch
+    reads.
+    """
+    generator = _generator()
+    roster = _planned(120)
+    rows = generator.professionals_rows(roster)
+
+    unlocated = [row for person, row in zip(roster, rows, strict=True) if person.location is None]
+    assert unlocated, "the plan left nobody unlocated, so the unknown branch is unreachable"
+    for row in unlocated:
+        assert "location_postal_code" not in row
+        assert "location_city" not in row
