@@ -179,7 +179,7 @@ export function VolunteerMyRequests() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Your Speaker Requests</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Your speaker requests</h1>
         <p className="text-sm text-muted-foreground">
           What you have filed for your unit, soonest event first. A Speaker Connector reviews and
           matches these; nothing here reports who was invited or declined.

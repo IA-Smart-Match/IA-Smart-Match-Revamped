@@ -81,7 +81,7 @@ export function MetricDrilldownSheet({
           ) : null}
 
           {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}
@@ -89,7 +89,7 @@ export function MetricDrilldownSheet({
           {!loading && drilldown && !error && !reconciles ? (
             <div
               role="alert"
-              className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
             >
               <p className="font-semibold">
                 This drill-down does not reconcile with its aggregate
