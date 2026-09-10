@@ -131,12 +131,18 @@ _PARENT_REVISION = "0024_cba_classification"
 #: table — a unit's own internal meeting record, with its own
 #: ``owning_unit_id`` — and touches no existing table, so this file's
 #: ``speaker_profile`` surface is untouched by it as well.
-_HEAD_REVISION = "0034_cba_meeting"
+#: Moved again by the manual-events card: ``0035_manual_event_detail`` chains
+#: to ``0034_cba_meeting`` and is the head. Its upgrade only CREATEs three new
+#: tables (``event_manual_detail``, ``event_feedback_qr``,
+#: ``event_feedback_qr_open``) and two indexes; it ALTERs no existing table and
+#: writes no rows, so this file's ``speaker_profile`` surface is untouched by it.
+_HEAD_REVISION = "0035_manual_event_detail"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0034_cba_meeting",
     "0033_event_filed_by",
     "0032_match_run_scoring_mode",
     "0031_student_speaker_feedback",

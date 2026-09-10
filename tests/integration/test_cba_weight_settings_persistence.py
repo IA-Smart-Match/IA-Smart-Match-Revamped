@@ -170,7 +170,12 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``cba_meeting`` table and alters nothing that already existed, so
 #: nothing here about a unit's weights, its revision log, or who last
 #: changed them is affected.
-_HEAD_REVISION = "0034_cba_meeting"
+#: Moved again by the manual-events card: ``0035_manual_event_detail`` chains
+#: to ``0034_cba_meeting`` and is now the head. It only creates the three
+#: manual-event side tables and alters nothing that already existed, so
+#: nothing here about a unit's weights, its revision log, or who last changed
+#: them is affected.
+_HEAD_REVISION = "0035_manual_event_detail"
 
 NEED = "need-weight-settings-1"
 

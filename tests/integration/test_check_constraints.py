@@ -666,6 +666,23 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK (((location_or_link IS NULL) OR ((length(btrim(location_or_link)) > 0) AND "
         "(length(location_or_link) <= 500))))"
     ),
+    # --- The manual-event side tables (migration 0035) -------------------
+    #
+    # All five are exercised in test_manual_event_detail_migration.py, the
+    # revision's own integration file, rather than duplicated here.
+    ("event_manual_detail", "ck_event_manual_detail_capacity"): (
+        "CHECK (((capacity IS NULL) OR (capacity >= 0)))"
+    ),
+    ("event_manual_detail", "ck_event_manual_detail_volunteer_openings"): (
+        "CHECK (((volunteer_openings IS NULL) OR (volunteer_openings >= 0)))"
+    ),
+    ("event_manual_detail", "ck_event_manual_detail_version"): "CHECK ((version >= 1))",
+    ("event_feedback_qr", "ck_event_feedback_qr_token_shape"): (
+        "CHECK (((length(btrim(public_token)) >= 20) AND (length(public_token) <= 100)))"
+    ),
+    ("event_feedback_qr", "ck_event_feedback_qr_destination_shape"): (
+        "CHECK (((length(btrim(destination_url)) > 0) AND (length(destination_url) <= 2048)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -1163,6 +1180,51 @@ BEHAVIOURAL_COVERAGE = {
         "half is the load-bearing one here — a test attempting only the refusal would pass "
         "against a column somebody had made NOT NULL, which would refuse to record a "
         "meeting whose room is still being settled"
+    ),
+    # --- The manual-event side tables (migration 0035) -------------------
+    #
+    # All five are exercised in test_manual_event_detail_migration.py, the
+    # revision's own integration file, following the arrangement the outreach,
+    # weight-settings, invitation, feedback and meeting constraints already use.
+    ("event_manual_detail", "ck_event_manual_detail_capacity"): (
+        "0035 added, test_manual_event_detail_migration.py"
+        "::test_a_negative_headcount_is_refused[capacity], which inserts -1. The permitted "
+        "halves are both load-bearing and both present: "
+        "::test_detail_that_names_no_headcount_at_all_is_stored covers NULL (an event filed "
+        "before the room is booked), and ::test_a_zero_headcount_is_stored covers the "
+        ">= 0 boundary — an online event seats nobody, and a constraint tightened to > 0 "
+        "would pass the refusal test unchanged"
+    ),
+    ("event_manual_detail", "ck_event_manual_detail_volunteer_openings"): (
+        "0035 added, test_manual_event_detail_migration.py"
+        "::test_a_negative_headcount_is_refused[volunteer_openings], which inserts -1 — a "
+        "negative count would also subtract from any total a coordinator view sums. Same "
+        "two permitted halves as the capacity entry above: NULL (no help needed) and 0 (the "
+        "call has closed)"
+    ),
+    ("event_manual_detail", "ck_event_manual_detail_version"): (
+        "0035 added, test_manual_event_detail_migration.py"
+        "::test_a_version_below_one_is_refused, which inserts 0. This is the "
+        "optimistic-concurrency counter the update path compares against, so a row sorting "
+        "below the first write is what would make a stale edit look fresh. The permitted "
+        "half is ::test_detail_that_names_no_headcount_at_all_is_stored, which asserts the "
+        "server default lands on exactly 1"
+    ),
+    ("event_feedback_qr", "ck_event_feedback_qr_token_shape"): (
+        "0035 added, test_manual_event_detail_migration.py"
+        "::test_a_short_public_token_is_refused. GET /q/{public_token} is unauthenticated by "
+        "design — the printed code has to work for a visitor with no account — so the "
+        "token's length is the only thing making the redirect unguessable. "
+        "::test_a_token_padded_to_length_with_blanks_is_refused is the counterexample that "
+        "pins the floor to btrim rather than length: 30 spaces carry no secret. The "
+        "permitted half is ::test_a_well_formed_qr_is_stored"
+    ),
+    ("event_feedback_qr", "ck_event_feedback_qr_destination_shape"): (
+        "0035 added, test_manual_event_detail_migration.py"
+        "::test_a_blank_destination_is_refused, which inserts '   '. The column is NOT NULL, "
+        "so a blank is the only way a destinationless QR could be stored — it would print "
+        "and scan perfectly and then redirect a visitor to nothing. The permitted half is "
+        "::test_a_well_formed_qr_is_stored"
     ),
 }
 
