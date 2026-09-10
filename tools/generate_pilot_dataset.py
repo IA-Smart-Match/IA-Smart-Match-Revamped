@@ -132,8 +132,12 @@ through the product's own routes, in customer §19's own order:
 What the shortlist actually looks like, stated in advance
 ----------------------------------------------------------
 Most of the named pool drops out, and not because of anything in this file.
-This tool calls ``build_semantic_topic_provider`` with no
-``use_local_embedding`` keyword, so it gets the fixture semantic-topic
+This tool builds no topic provider at all — the name
+``build_semantic_topic_provider`` appears nowhere in it as a call. The **API
+process this tool submits its match run to** makes that call, in
+``smartmatch_api.routers.match_runs._topic_provider``, which passes
+``use_local_embedding=settings.cba_topic_local_embedding_enabled``. Left
+unset that is ``False``, so the API gets the fixture semantic-topic
 provider, which holds no recordings: a speaker carrying ``topic_text`` scores
 ``unknown`` on customer §9, ADR-0011 rule 1 makes their composite ``None``,
 and they are reported as *unscorable* rather than shortlisted — while a
@@ -144,8 +148,10 @@ minority. This was tracked as OQ-CBA-061; ADR-0017 dissolved it on 7
 September 2026 by approving an offline, in-process embedding model
 (`docs/plans/open-questions/cba-phase-deferred.md`), removing the cause
 rather than answering it as a separate question. That model is reached only
-by passing ``use_local_embedding=True``, which this generator does not do, so
-the fixture path and the counts described above are unchanged.
+when the API is started with ``SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED``
+set — nothing this generator passes can reach it, and nothing it passes can
+prevent it either. The counts described above are the ones an API running
+without that variable produces.
 
 Every one of those counts is printed at the end of a run rather than smoothed
 over. Stripping the seed's topic text would make the demo look fuller and is
