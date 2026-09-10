@@ -81,7 +81,14 @@ WEB_BASE="${SMARTMATCH_WEB_BASE:-http://127.0.0.1:5173}"
 # The compose file's own x-compose-dev-identity literal, the same one
 # scripts/compose_smoke.sh and tests/e2e/conftest.py carry. It authenticates
 # nothing outside the compose network.
-API_BEARER="${SMARTMATCH_API_BEARER:-compose-api}"
+# Note the `-` rather than `:-`. An explicitly empty SMARTMATCH_API_BEARER must
+# survive as empty, because that is how a deployment says "this appliance ships
+# no fixture credential, so do not try to authenticate with one". With `:-` an
+# empty value is indistinguishable from an unset one and would silently fall
+# back to `compose-api`, reintroducing the very dependency this drops.
+# scripts/vm/deploy.sh passes it empty; a developer who sets nothing still gets
+# the compose default.
+API_BEARER="${SMARTMATCH_API_BEARER-compose-api}"
 PILOT_EMAIL="${SMARTMATCH_PILOT_SUBJECT_EMAIL:-compose-pilot-coordinator@example.invalid}"
 
 # The release the API must report. Resolved exactly the way compose itself
@@ -387,16 +394,56 @@ check_frontend_spa_route() {
 }
 
 check_frontend_api_proxy() {
-  local body email
-  http_get -H "Authorization: Bearer ${API_BEARER}" "${WEB_BASE}/v1/me"
+  # This check proves a NEGATIVE, deliberately.
+  #
+  # It used to authenticate with the `compose-api` fixture token and assert that
+  # /v1/me came back as the seeded coordinator. The deployed appliance no longer
+  # ships that token (see docker-compose.vm.yml), so there is no credential left
+  # to prove the positive with — and a check that authenticated with a fixture
+  # token would fail the deployment gate on exactly the release that removed it,
+  # which deploy.sh answers by rolling back to the release that still had it.
+  #
+  # An unauthenticated 401 proves both things that matter:
+  #   * the Vite /v1 proxy reached the API — a broken proxy answers with SPA
+  #     HTML, 404, 502 or a timeout, not with the API's own error envelope;
+  #   * authentication is fail-closed — no credential, no identity.
+  #
+  # Distinguishing those two 401s is the point of asserting the body shape.
+  # errors.py renders every ApiError as {"error":{"code":...,"message":...}},
+  # and dependencies.py raises code "unauthenticated" here. A dev server that
+  # refused the request itself could not produce that envelope.
+  local body code
+  http_get "${WEB_BASE}/v1/me"
   body="$HTTP_BODY"
-  if [ "$HTTP_CODE" != "200" ]; then
-    fail frontend-api-proxy "GET ${WEB_BASE}/v1/me -> ${HTTP_CODE}: the dev server's /v1 proxy is not reaching the API"
+  if [ "$HTTP_CODE" != "401" ]; then
+    fail frontend-api-proxy "unauthenticated GET ${WEB_BASE}/v1/me -> ${HTTP_CODE}, expected 401: either the /v1 proxy is not reaching the API, or the API is answering without credentials"
     return
   fi
-  email="$(json_field "$body" email)"
+  code="$(json_field "$body" error.code)"
+  if [ "$code" != "unauthenticated" ]; then
+    fail frontend-api-proxy "unauthenticated GET ${WEB_BASE}/v1/me -> 401 but the body is not the API's error envelope (error.code='${code:-none}'); something other than the API answered"
+    return
+  fi
+
+  # Only when this appliance still carries a fixture credential (local compose,
+  # where SMARTMATCH_API_BEARER is unset and defaults to compose-api) is the
+  # positive direction still checkable. On the VM the bearer is explicitly empty
+  # and this half is skipped — the negative assertion above is the whole check.
+  if [ -z "$API_BEARER" ]; then
+    pass frontend-api-proxy "proxied /v1/me -> 401 unauthenticated from the API (proxy reachable, auth fail-closed, no fixture credential deployed)"
+    return
+  fi
+
+  local authed_body email
+  http_get -H "Authorization: Bearer ${API_BEARER}" "${WEB_BASE}/v1/me"
+  authed_body="$HTTP_BODY"
+  if [ "$HTTP_CODE" != "200" ]; then
+    fail frontend-api-proxy "proxied /v1/me with the configured bearer -> ${HTTP_CODE}: the dev server's /v1 proxy is not carrying credentials to the API"
+    return
+  fi
+  email="$(json_field "$authed_body" email)"
   if [ "$email" = "$PILOT_EMAIL" ]; then
-    pass frontend-api-proxy "proxied /v1/me authenticated as ${email}"
+    pass frontend-api-proxy "proxied /v1/me -> 401 unauthenticated, and authenticated as ${email}"
   else
     fail frontend-api-proxy "proxied /v1/me authenticated as '${email:-nobody}', not the seeded principal"
   fi

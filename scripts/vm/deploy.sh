@@ -429,7 +429,14 @@ rollback() {
     return
   fi
 
+  # Empty here too, and it is correct in BOTH directions. After the rollback
+  # checkout this is the PREVIOUS release's own compose_health.sh: an older one
+  # reads `${VAR:-default}`, so an empty value falls back to `compose-api` and
+  # it still checks the fixture identity that release genuinely shipped; a newer
+  # one honours the empty value and runs the unauthenticated check instead.
+  # Either way the suite matches the release it is actually testing.
   if SMARTMATCH_RELEASE="$PREVIOUS_SHA" \
+     SMARTMATCH_API_BEARER="" \
      scripts/compose_health.sh --wait --timeout "$HEALTH_TIMEOUT"; then
     record_running_release "$PREVIOUS_SHA"
     fail_out "rolled back to ${PREVIOUS_SHA} and it is healthy."
@@ -451,7 +458,15 @@ fi
 
 FAILURE_STAGE="health"
 log "running the bounded health suite (up to ${HEALTH_TIMEOUT}s)"
+# SMARTMATCH_API_BEARER is passed EXPLICITLY EMPTY. This appliance deploys with
+# SMARTMATCH_DEV_PRINCIPALS="{}" (docker-compose.vm.yml), so no fixture bearer
+# token authenticates here and the health suite must not try to use one: it
+# would get a 401, fail the gate, and roll the deployment back to the release
+# that still accepted that token. compose_health.sh reads this with
+# `${VAR-default}` rather than `${VAR:-default}` precisely so an explicit empty
+# value survives instead of falling back to the compose default.
 if SMARTMATCH_RELEASE="$DEPLOYED_SHA" \
+   SMARTMATCH_API_BEARER="" \
    scripts/compose_health.sh --wait --timeout "$HEALTH_TIMEOUT"; then
   log "health: every check passed against ${DEPLOYED_SHA}"
 else
