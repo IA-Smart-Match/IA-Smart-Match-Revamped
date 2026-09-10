@@ -252,21 +252,36 @@ jobs:
         # A service token is used rather than a bypass rule. Making the probe
         # work by punching a hole in the Access policy would test a policy
         # nobody actually runs.
+        #
+        # KNOWN GAP (tracked separately, not fixed by this workflow): there is
+        # currently NO Cloudflare Access wall in front of SMARTMATCH_PUBLIC_URL
+        # — an unauthenticated GET already returns 200. Because of that, the
+        # CF-Access-Client-Id / CF-Access-Client-Secret headers below are sent
+        # CONDITIONALLY: only when both secrets are actually configured. That
+        # keeps this probe working today (no secrets, no Access) and requires
+        # no workflow change on the day Access is put back in front of the
+        # tunnel (add the two secrets to the 'pilot-vm' environment and the
+        # headers start flowing automatically).
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
 
-          if [ -z "${CF_ACCESS_CLIENT_ID}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
-            echo "::error::the Cloudflare Access service-token secrets are not configured on the 'pilot-vm' environment"
-            exit 1
+          access_headers=()
+          if [ -n "${CF_ACCESS_CLIENT_ID}" ] && [ -n "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "Cloudflare Access secrets are configured — sending CF-Access headers"
+            access_headers=(
+              -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
+              -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+            )
+          else
+            echo "::notice::Cloudflare Access service-token secrets are not configured — probing without CF-Access headers (there is currently no Access wall in front of SMARTMATCH_PUBLIC_URL; this is a known, separately tracked gap)"
           fi
 
           probe() {
             curl -sS -o /tmp/probe.body -w '%{http_code}' --max-time 30 \
-              -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
-              -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+              "${access_headers[@]}" \
               "$1"
           }
 
