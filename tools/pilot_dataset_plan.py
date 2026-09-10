@@ -857,9 +857,7 @@ def build_professionals(count: int, *, seed: int = DEFAULT_SEED) -> tuple[Profes
     return tuple(planned)
 
 
-def _event_targets(
-    vocabulary: Sequence[str], *, index: int, rng: random.Random
-) -> tuple[str, ...]:
+def _event_targets(vocabulary: Sequence[str], *, index: int, rng: random.Random) -> tuple[str, ...]:
     """The :data:`EVENT_TARGETS` codes one event asks for, drawn two ways on purpose.
 
     Two draws with opposite failure modes, combined so neither one's is reached:

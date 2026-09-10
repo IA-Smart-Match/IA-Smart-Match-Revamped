@@ -543,9 +543,7 @@ def test_every_planned_postal_code_is_in_the_released_centroid_table():
 
 def test_the_roster_is_spread_across_the_distance_bands():
     """A pool sitting at one distance decides the shortlist by tie-breaking."""
-    located = [
-        person for person in plan.build_professionals(100) if person.postal_code is not None
-    ]
+    located = [person for person in plan.build_professionals(100) if person.postal_code is not None]
     distances = {
         resolve_distance_from_campus(person.postal_code).miles  # type: ignore[union-attr]
         for person in located

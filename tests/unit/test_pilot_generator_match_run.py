@@ -55,13 +55,13 @@ import pytest
 from smartmatch_api.routers.match_runs import MAX_CANDIDATES, MatchRunRequest
 from smartmatch_api.routers.speaker_requests import SpeakerRequestCreate
 from smartmatch_domain.cba_role_categories import ROLE_CATEGORY_CODES
+from smartmatch_domain.events import DateOnlyTime
 from smartmatch_domain.explanation import MAX_SHORTLIST_SIZE, MIN_SHORTLIST_SIZE
 from smartmatch_domain.factors.cba_semantic_topic import (
     SpeakerTopicEvidence,
     TopicEvidenceState,
     score_cba_semantic_topic,
 )
-from smartmatch_domain.events import DateOnlyTime
 from smartmatch_domain.naics_sectors import SECTOR_CODES
 from smartmatch_domain.speaker_requests import SpeakerRequestDraft, classifications_of
 from smartmatch_providers.base import Edition
@@ -569,9 +569,7 @@ def test_the_professionals_row_states_the_location_columns_the_contract_declares
     roster = _planned(120)
     rows = generator.professionals_rows(roster)
 
-    located = [
-        (person, row) for person, row in zip(roster, rows, strict=True) if person.location
-    ]
+    located = [(person, row) for person, row in zip(roster, rows, strict=True) if person.location]
     assert located, "the plan located nobody at all"
     for person, row in located:
         assert row["location_postal_code"] == person.postal_code
