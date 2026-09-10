@@ -15,25 +15,78 @@ this file.
 What the VM *is* for: a URL a stakeholder can open, that always reflects the
 `deploy` branch, without anyone installing Docker.
 
-> **Before you follow any of this: the machine serving the pilot today does not
-> have the layout described below.** `/opt/smartmatch/app` is not on it, the
-> `pilot-vm` GitHub environment is empty, and a push to `deploy` consequently
-> deploys nothing. What the rest of this document describes is a design that was
-> specified, reviewed and merged but **never bootstrapped onto a machine**. It is
-> not wrong, and nothing in it has been retracted; it is unbuilt. The instance
-> actually answering `https://pilot.plated.blog` is described in
-> [What is actually on the VM today](#what-is-actually-on-the-vm-today), and the
-> procedure that works today is
-> [Deploying a merged commit today](#deploying-a-merged-commit-today-end-to-end).
-> Whether the runbook should be corrected to match the machine, or the machine
-> bootstrapped to match the runbook, is
-> [an open decision](#the-gap-and-the-decision-it-needs) for the program owner.
-> This document does not make that decision, and neither should a reader who
-> lands here in a hurry.
+> **The gap this document used to describe is closed.** Earlier revisions
+> recorded that the machine serving the pilot did not have the layout described
+> below, and flagged an open "Option A vs Option B" decision between correcting
+> this runbook to match the machine or bootstrapping the machine to match this
+> runbook. That decision has been made and executed: **Option B**. The VM now
+> has the `/opt/smartmatch` layout, `origin/deploy` was fast-forwarded to
+> `origin/main`, and a push through
+> [`promote.yml`](../../.github/workflows/promote.yml) now results in a real
+> deployment. What follows is the current, single procedure — not a
+> specification of an unbuilt design. The home-directory checkout this
+> document used to point at as "what is actually on the VM" still exists as a
+> disabled fallback; it is marked superseded in
+> [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md),
+> which remains the only record of how the Cloudflare Tunnel itself was built.
 
 ---
 
-## What is actually on the VM today
+## What is on the VM today
+
+The VM was bootstrapped to the canonical `/opt/smartmatch` layout described in
+this document. The section below, "What was on the VM before the cutover", is
+kept as a historical record of the gap this document used to describe — the two
+machines it compares no longer disagree, because the machine was moved onto the
+layout this document specifies. Read it if you want the history; skip to
+[Deploying a commit today](#deploying-a-commit-today) for the procedure that
+now applies.
+
+Current state, verified facts:
+
+* `/opt/smartmatch/app` is a clone tracking only the `deploy` branch, owned by
+  the dedicated `smartmatch` system user, created by
+  `scripts/vm/bootstrap_vm.sh`.
+* `origin/deploy` was fast-forwarded to `origin/main` at commit `793678b0`; no
+  force-push occurred, and `deploy` is the deployment source of truth.
+* `smartmatch.service` is installed and enabled for boot recovery, and shares
+  one `flock` at `/opt/smartmatch/deploy.lock` with `deploy.sh`, so a boot
+  cannot race a deployment.
+* `/api/health` reports the deployed git SHA
+  (`793678b06dcf61f68f08de3e3f6fcea3bddb28bb`), not `dev` — verified publicly
+  at `https://pilot.plated.blog/api/health`.
+* GCP Workload Identity Federation exists (pool `github-pool`, provider
+  `github-provider`, service account `smartmatch-deploy@...`, bound to this
+  repository by immutable numeric repository and owner IDs). The GitHub
+  environment `pilot-vm` has all six required variables set, so
+  [`deploy.yml`](../../.github/workflows/deploy.yml) is no longer inert.
+* The cron job that previously ran every five minutes doing
+  `git reset --hard origin/production-VM` plus a rebuild has been **removed**.
+  Its script is disabled at
+  `/usr/local/bin/smartmatch-deploy-check.sh.disabled`, and the
+  `production-VM` branch no longer exists upstream. **This mechanism raced any
+  other deploy and must not be recreated.**
+* All four stakeholder password logins were verified working after the
+  cutover, and the database volume `smartmatch_db-data` was preserved (not
+  recreated) — the compose project name is pinned to `smartmatch` in
+  `docker-compose.yml`, independent of the checkout directory.
+* There are no Cloudflare Access credentials configured, and no Access wall in
+  front of the host. `deploy.yml`'s public health probe sends Access headers
+  only when both `CLOUDFLARE_ACCESS_CLIENT_ID` and
+  `CLOUDFLARE_ACCESS_CLIENT_SECRET` are present.
+
+**One mapping that cannot be recreated from git.** The Cloudflare Tunnel's
+hostname-to-origin mapping (`pilot.plated.blog` → `http://127.0.0.1:5173`) is
+dashboard-managed in Cloudflare Zero Trust. Only a bare token exists on the VM,
+at `/etc/cloudflared/token` — there is no `config.yml` checked in anywhere,
+because there is no `config.yml` on the VM at all. If that mapping were lost,
+an operator would have to rebuild it by hand in the Zero Trust dashboard:
+recreate the named tunnel, re-add the public hostname rule pointing at
+`http://127.0.0.1:5173`, reinstall the token on the VM with
+`sudo cloudflared service install <token>`, and reattach the Cloudflare Access
+policy. None of that is stored in this repository, and none of it can be.
+
+## What was on the VM before the cutover
 
 Two sessions independently inspected the running instance on 9 September 2026
 and reported the same machine. This section records what they reported, set
@@ -360,7 +413,7 @@ To find out what the VM is running today, ask git on the VM (`git -C
 ~/src/IA-Smart-Match-Revamped rev-parse HEAD`), and treat the answer as
 describing the checkout rather than the containers, since a checkout can be
 ahead of the images built from it. The
-[decision section](#the-gap-and-the-decision-it-needs) below returns to this:
+[decision section](#the-decision-that-was-made) below returns to this:
 recording the deployed SHA is one of the properties the scripted path has and
 the hand-run path does not.
 
@@ -390,13 +443,51 @@ it in the Zero Trust dashboard rather than infer it from these documents.
 
 ---
 
-## Deploying a merged commit today, end to end
+## Deploying a commit today
 
-This is the procedure that works against the machine as it stands. It is a
-hand-run procedure with none of the safety properties of
-[`scripts/vm/deploy.sh`](../../scripts/vm/deploy.sh); those are inventoried in
-[the next section](#the-gap-and-the-decision-it-needs), and a reader should know
-what they are giving up before using this.
+There is one procedure now: **promote, then let CI deploy.**
+
+1. **Merge to `main`** as usual, through a reviewed pull request.
+2. **Promote `main` to `deploy`.** Run
+   [`promote.yml`](../../.github/workflows/promote.yml) via
+   `workflow_dispatch` (GitHub UI → Actions → `promote` → Run workflow, or
+   `gh workflow run promote.yml -f source_ref=main`). This is a deliberate,
+   manual, human-triggered step by design — merging to `main` and deploying to
+   the VM are two distinct events, decided at two distinct moments, not the
+   same commit.
+3. `promote.yml` fast-forwards `deploy` to the chosen ref (refusing loudly on
+   anything that is not a fast-forward) and then explicitly dispatches
+   [`deploy.yml`](../../.github/workflows/deploy.yml) — a push made with the
+   built-in `GITHUB_TOKEN` does not itself trigger another workflow's `push`
+   event, so `promote.yml` starts `deploy.yml` itself via the GitHub CLI
+   rather than relying on that push to do it.
+4. `deploy.yml` exchanges a GitHub OIDC token against the Workload Identity
+   Federation provider, reaches the VM over IAP, and runs
+   `scripts/vm/deploy.sh` as the `smartmatch` user. That script is
+   [the one authoritative deploy path](#what-a-deployment-does) — everything
+   in that section (dirty-tree refusal, fast-forward-only, pre-migration
+   backup, health-gated cutover, automatic application rollback) applies to
+   every deployment made this way.
+5. **Confirm.** `curl -sS https://pilot.plated.blog/api/health` should report
+   the SHA just promoted.
+
+**Manual fallback.** If GitHub Actions is not the right tool — CI is down, or
+someone needs to force a specific state by hand — the same script that CI runs
+can be run directly on the VM over IAP:
+
+```bash
+gcloud compute ssh smartmatch --zone us-west2-c --tunnel-through-iap
+sudo -u smartmatch /opt/smartmatch/app/scripts/vm/deploy.sh
+```
+
+This is identical to what `deploy.yml` invokes; there is no separate "manual"
+code path, only a manual trigger for the same one.
+
+The rest of this section is retained as the record of the hand-run procedure
+that was necessary before the VM was bootstrapped to the canonical layout. It
+is no longer the recommended path — `scripts/vm/deploy.sh` now runs
+successfully on this machine, and gives every safety property below that this
+procedure lacks.
 
 **1. Merge to `main`.** `main` is what the VM tracks, as observed. Pushing to
 `deploy` is not part of this path and accomplishes nothing towards it; see
@@ -517,7 +608,7 @@ above to pick the restart policies up, which is what the scripted path composes
 project is composed of, so compose will recreate services on the next `up`, and
 that it is a change to how the VM is operated rather than a step in this
 procedure — which is why it is not folded into step 4 above. It belongs in the
-decision recorded [below](#the-gap-and-the-decision-it-needs), not in a command
+decision recorded [below](#the-decision-that-was-made), not in a command
 someone runs without reading.
 
 **5. Confirm what is serving.**
@@ -548,14 +639,16 @@ in this repository.
 
 ---
 
-## The gap, and the decision it needs
+## What the scripted path has, now that it is what runs
 
-There are two coherent end states here, and this repository currently describes
-one while operating the other. **Choosing between them is the program owner's
-call, and this document deliberately does not make it.** What follows is the
-material needed to decide.
+This section used to compare a scripted path against a hand-run path and hand
+the choice between them to the program owner. That decision has been made —
+Option B, the scripted path, is what the VM runs — so what follows is now a
+description of the guarantees every deployment actually has, kept in this
+form because each is still worth being able to check against the script
+rather than take on faith.
 
-### What the scripted path has that the hand-run path does not
+### What the scripted path has that the hand-run path did not
 
 Every item is a concrete behavior of
 [`scripts/vm/deploy.sh`](../../scripts/vm/deploy.sh), cited so the claim can be
@@ -567,7 +660,7 @@ that is the whole of the trade-off.
 | **One deployment at a time** | `deploy.sh:142-150` re-execs the script under `flock` on `${STATE_DIR}/deploy.lock`, waiting up to 1800s | Two operators, or an operator and a reboot, can interleave a checkout and a migration |
 | **Refuses a dirty tree** | `deploy.sh:228-235` exits `2` and prints the modified files | The recorded SHA stops describing what is running, silently |
 | **Refuses a non-fast-forward** | `deploy.sh:258-265`, an explicit `git merge-base --is-ancestor` check, named separately from `git pull --ff-only` so the message says the protected branch was rewritten | A rewritten branch quietly rewrites the VM's history to match |
-| **The stack survives a reboot** | The scripted path composes `docker-compose.vm.yml` (`deploy.sh:95`), whose lines 41, 44, 52, 57 and 67 give `db`, `api`, `worker`, `scheduler` and `web` `restart: unless-stopped`; `scripts/vm/smartmatch.service` re-converges the stack on boot as well, deliberate belt and braces per its lines 6-12 | **Confirmed absent on the VM.** Containers run with `RestartPolicy.Name = "no"`, so a reboot, a host maintenance event or an OOM kill takes the stakeholder link down until a human ssh's in. Unattended and externally triggered — see [the finding above](#nothing-restarts-the-stack-after-a-reboot-confirmed) |
+| **The stack survives a reboot** | The scripted path composes `docker-compose.vm.yml` (`deploy.sh:95`), whose lines 41, 44, 52, 57 and 67 give `db`, `api`, `worker`, `scheduler` and `web` `restart: unless-stopped`; `scripts/vm/smartmatch.service` is installed and enabled, and re-converges the stack on boot as well, deliberate belt and braces per its lines 6-12 | **Now present on the VM.** `smartmatch.service` is installed and enabled, and shares a `flock` at `/opt/smartmatch/deploy.lock` with `deploy.sh` so a boot cannot race a deployment |
 | **A backup before every migration** | `deploy.sh:267-321` starts the database if it is stopped, waits for it to report healthy, then `pg_dump --clean --if-exists` piped through `gzip`; a failed dump exits `2` and nothing migrates | A destructive revision leaves nothing to work from. Attended, though: it only runs when someone chooses to deploy, and they can take a dump by hand first |
 | **Bounded backup retention** | `deploy.sh:449-462` keeps the most recent 14 dumps | Either no dumps at all, or a 30 GB disk that fills and takes the appliance down |
 | **Build before replace** | `deploy.sh:345-346` builds images as a separate step before `up`, so a failed build leaves the previous release serving | A broken build can stop a working service |
@@ -575,7 +668,7 @@ that is the whole of the trade-off.
 | **No volume is ever removed** | `deploy.sh:32-34` states it and `tests/unit/test_vm_deploy_script.py` asserts it: `docker compose down -v` cannot appear in the file | Nothing structural stops the one command that discards the database |
 | **A bounded health suite gates success** | `deploy.sh:430-441` runs `scripts/compose_health.sh --wait --timeout` with `SMARTMATCH_RELEASE` set to the deployed SHA | "It came up" replaces "it is serving the code we deployed" |
 | **Automatic application rollback** | `deploy.sh:375-419` checks out the previous SHA, rebuilds, re-runs health, records the result — and still exits non-zero so the job fails even though the VM recovered | A failed deployment leaves the failure serving until a human notices |
-| **The deployed SHA is recorded** | `deploy.sh:215-222` writes `SMARTMATCH_RELEASE=<sha>` to `${STATE_DIR}/release.env`, which `scripts/vm/smartmatch.service:36` reads on boot and `docker-compose.vm.yml:46-54` feeds to the API | `/api/health` cannot answer "which commit is this", which is the situation the VM is in today |
+| **The deployed SHA is recorded** | `deploy.sh:215-222` writes `SMARTMATCH_RELEASE=<sha>` to `${STATE_DIR}/release.env`, which `scripts/vm/smartmatch.service:36` reads on boot and `docker-compose.vm.yml:46-54` feeds to the API | `/api/health` now reports the deployed SHA (`793678b06dcf61f68f08de3e3f6fcea3bddb28bb`, verified at `https://pilot.plated.blog/api/health`). One caveat: `web` is a Vite dev server with the checkout bind-mounted, not a production build, so a `git pull` changes the served frontend immediately, before build/migrate/health finish — `/api/health` proves the **API's** SHA, not the frontend's |
 | **A redacted log and machine-readable metadata per deployment** | `deploy.sh:107-115` filters anything credential-shaped out of everything printed; `deploy.sh:194-209` writes a JSON file recording outcome, failure stage, previous and deployed SHA, backup file, and whether it rolled back | No deployment history beyond shell scrollback |
 
 Two properties are *not* on that list and should not be claimed for either path.
@@ -584,70 +677,48 @@ The script never downgrades a migration and never restores the backup it takes
 already-migrated schema. And nothing in either path reaches the VM from the
 public internet; both go through IAP.
 
-### The two options
+### The decision that was made
 
-**Option A — correct the runbook to match the machine.** Accept the
-home-directory checkout on `main`, hand-run deployments over IAP, and no
-automatic gate. Demote the `/opt/smartmatch` design in this document to a
-recorded intent, make `classroom-vm-cloudflare-tunnel.md` the layout of record,
-and treat the properties in the table above as knowingly absent for a synthetic
-pilot carrying no real data. Cheapest, and it leaves two things standing on a
-machine a stakeholder is looking at: an unbacked-up migration path, and a stack
-that does not come back after a reboot.
+There were two coherent end states here, and this repository used to describe
+one while the machine ran the other. **The decision is made: Option B.** The
+machine was bootstrapped to match this document, rather than this document
+being corrected to match the machine. Concretely, `scripts/vm/bootstrap_vm.sh`
+was run on the instance to create `/opt/smartmatch`, its `smartmatch` service
+user, and its `backups/`, `logs/` and `deployments/` directories; the deploy
+key was installed read-only; the existing database volume was preserved (not
+recreated — `docker-compose.yml` pins the compose project name to
+`smartmatch`, so the volume is independent of the checkout directory);
+`scripts/vm/smartmatch.service` was installed and enabled; the Workload
+Identity pool, provider and deployment service account were created; and the
+six `pilot-vm` variables and two Cloudflare Access secrets were filled in.
+Every property in the table above now applies to every deployment, and pushing
+through `promote.yml` means something.
 
-The second of those does not have to wait for the decision, and should not.
-Reboot survivability is separable from everything else in Option B, and costs
-one of two small changes: compose the VM override so the containers carry
-`restart: unless-stopped`, or install and enable a boot-time unit that runs
-`docker compose up -d` in the checkout directory — the shape
-`classroom-vm-cloudflare-tunnel.md:160-179` already documents. Either one closes
-the highest-exposure row in the table above without committing the program to
-`/opt/smartmatch` or to Workload Identity Federation. Doing both is what the
-scripted design does, and it calls the redundancy deliberate at
-`scripts/vm/smartmatch.service:6-12`: the restart policy brings back containers
-that already exist, and `up -d` is the command that converges a stack left
-partly assembled.
+Nothing in this repository was deleted or disabled to make this happen.
+`scripts/vm/deploy.sh`, the `deploy` branch, and
+`.github/workflows/deploy.yml` were all already correct code for the machine
+they describe — the gap was never a defect in any of those three artifacts,
+it was a bootstrap step that had not yet been performed. It has now been
+performed.
 
-**Option B — bootstrap the machine to match the runbook.** Run
-`scripts/vm/bootstrap_vm.sh` on the instance to create `/opt/smartmatch`, its
-`smartmatch` service user, and its `backups/`, `logs/` and `deployments/`
-directories; install the deploy key read-only; move the existing database volume
-onto that layout; install `scripts/vm/smartmatch.service`; create the Workload
-Identity pool, provider and deployment service account; and fill the six
-`pilot-vm` variables and two Cloudflare Access secrets. Every property in the
-table then applies to every deployment, and pushing to `deploy` means something.
-Costs real setup work in GCP, plus a database move between two locations on the
-same disk — itself an operation that wants a backup first.
-
-Some of the work is shared either way: naming the instance and zone correctly in
-these documents, and deciding whether `/api/health` should report a commit SHA
-on this machine, are worth doing under Option A too.
-
-**What must not happen is a third state where the documents describe Option B
-and the machine runs Option A without saying so.** That is the state this
-section exists to end, and it is the one that produced a green-looking workflow
-badge over a deployment that deployed nothing.
-
-Nothing in this repository has been deleted or disabled to write this.
-`scripts/vm/deploy.sh`, the `deploy` branch, and `.github/workflows/deploy.yml`
-are all intact and are all correct code for the machine they describe.
-`origin/deploy` exists and is an ancestor of `origin/main`, five commits behind
-it as of this writing, so the branch is real and merely stale rather than
-abandoned. The gap is not a defect in any of those three artifacts; it is a
-bootstrap step that was never performed.
+One thing was actively removed, deliberately: the cron job that ran
+`git reset --hard origin/production-VM` plus a rebuild every five minutes
+against the home-directory checkout. It is disabled at
+`/usr/local/bin/smartmatch-deploy-check.sh.disabled`, and the
+`production-VM` branch no longer exists upstream. It raced any other deploy
+mechanism by design, and nothing should ever recreate it.
 
 ---
 
-## The intended design (not bootstrapped)
+## The design that is now bootstrapped
 
 Everything from here to the end of this document describes the `/opt/smartmatch`
-design under Option B. It is accurate as a specification of what
+design that the VM now runs. It is accurate both as a specification of what
 `scripts/vm/bootstrap_vm.sh`, `scripts/vm/deploy.sh`,
-`scripts/vm/smartmatch.service` and `.github/workflows/deploy.yml` do, and it is
-what a reader should follow if the decision above lands on Option B. It is
-**not** a description of the machine currently serving `pilot.plated.blog` — for
-that, see
-[What is actually on the VM today](#what-is-actually-on-the-vm-today).
+`scripts/vm/smartmatch.service` and `.github/workflows/deploy.yml` do, and as a
+description of the machine currently serving `pilot.plated.blog` — see
+[What is on the VM today](#what-is-on-the-vm-today) for the verified facts
+behind that claim.
 
 ## The pieces
 
