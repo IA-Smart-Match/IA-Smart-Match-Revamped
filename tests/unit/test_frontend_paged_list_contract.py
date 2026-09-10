@@ -52,6 +52,14 @@ PAGED_SURFACES: dict[str, tuple[str, ...]] = {
     "coordinator/CoordinatorSpeakerContacts.tsx": ("contacts",),
     "coordinator/CoordinatorSpeakerFeedback.tsx": ("rows",),
     "coordinator/CoordinatorInvitations.tsx": ("recipients",),
+    # The three coordinator pages authored in parallel worktrees before this
+    # component existed. Each left a `TODO(integrator)` asking to be wired up
+    # once it landed, and each rendered a plain unpaged list until it was — so
+    # they are pinned here, where a page that stops paging fails a test rather
+    # than going unnoticed for a release.
+    "coordinator/CoordinatorEvents.tsx": ("listing.events",),
+    "coordinator/CoordinatorMeetings.tsx": ("meetings",),
+    "coordinator/CoordinatorReviewQueue.tsx": ("items",),
     "volunteer/VolunteerMyRequests.tsx": ("requests",),
     "volunteer/VolunteerConfirmedSpeaker.tsx": ("speakers",),
 }
@@ -289,6 +297,71 @@ def test_the_month_calendar_is_not_paged() -> None:
     assert "<PagedList" not in calendar[1].split("byDay.get", 1)[0], (
         "the month calendar must not be paged; its cells are days, not rows"
     )
+
+
+#: The three coordinator pages wired to the pager after the fact, as
+#: (path relative to `pages/`, the array handed over, the render prop's
+#: parameter). Each was authored in its own worktree before `PagedList`
+#: existed and rendered its whole array directly.
+LATE_WIRED_SURFACES: tuple[tuple[str, str, str], ...] = (
+    ("coordinator/CoordinatorEvents.tsx", "listing.events", "visibleEvents"),
+    ("coordinator/CoordinatorMeetings.tsx", "meetings", "visibleMeetings"),
+    ("coordinator/CoordinatorReviewQueue.tsx", "items", "visibleItems"),
+)
+
+
+def test_the_late_wired_coordinator_pages_draw_the_visible_slice() -> None:
+    """Two facts, pinned together, because either alone is satisfiable wrongly.
+
+    Handing the whole array to `PagedList` and then mapping that same whole
+    array inside the render prop compiles, typechecks, and renders every row
+    with a set of controls sitting uselessly above them — which is the original
+    defect wearing the fix's clothes. So this asserts both halves:
+
+    1. the *whole* array the server sent reaches the pager (`items={…}`), so the
+       range line counts everything in hand and no filtering happens on the way
+       in; and
+    2. the render prop draws the *slice* the pager handed back, and the page's
+       own array name does not appear in a `.map(` anywhere in its code.
+
+    The three pages here are the ones that spent a release rendering unpaged
+    lists behind a satisfied-looking `TODO(integrator)`, so they get the
+    stronger check rather than the inventory membership alone.
+    """
+    for relative_path, array, visible in LATE_WIRED_SURFACES:
+        code = _page_code(relative_path)
+
+        assert f"items={{{array}}}" in code, (
+            f"{relative_path} must hand the whole `{array}` array to PagedList"
+        )
+        assert f"{visible}.map(" in code, (
+            f"{relative_path} must render the slice PagedList hands back, not its own array"
+        )
+        assert f"{array}.map(" not in code, (
+            f"{relative_path} still maps `{array}` directly; the pager's controls would then sit "
+            "above a list that draws every row anyway"
+        )
+
+
+def test_the_late_wired_pages_keep_the_servers_notice_distinct() -> None:
+    """The pager's range line may not absorb a server-side truncation.
+
+    All three of these pages read a route that stops sending at a cap, and each
+    says so in its own words. That notice is about rows this browser never
+    received; the pager's range line is about how much of what *did* arrive is
+    currently drawn. A reader shown only the second would conclude the list is
+    complete, which is the ADR-0011 rule 1 failure in list form — so the notice
+    must still name the server as the thing that stopped.
+    """
+    for relative_path, _array, _visible in LATE_WIRED_SURFACES:
+        text = (FRONTEND_SRC / "app" / "pages" / Path(relative_path)).read_text(encoding="utf-8")
+        code = _code_only(text)
+
+        assert "truncated" in code, f"{relative_path} no longer renders the server's cap notice"
+        assert "stopped sending" in text.lower(), (
+            f"{relative_path}'s truncation notice must say that the *server* stopped sending, so "
+            "it cannot be read as the pager describing its own window"
+        )
 
 
 def test_the_servers_truncation_notices_stay_and_stay_distinct() -> None:
