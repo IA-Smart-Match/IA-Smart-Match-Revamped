@@ -6,7 +6,7 @@ import { StudentLayout } from "./components/StudentLayout";
 import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
 import { VolunteerPortalLayout } from "./components/VolunteerPortalLayout";
 import { RouteFallback } from "./components/RouteFallback";
-import { LandingPage } from "./pages/LandingPage";
+import { Home } from "./pages/Home";
 import { LoginPage } from "./pages/LoginPage";
 
 // Portal/admin pages are code-split per route so the initial bundle only
@@ -191,7 +191,7 @@ export const router = createBrowserRouter([
   // Public routes (no sidebar) — kept static: this is the first code an
   // unauthenticated visitor needs, and lazy-loading it would add a fetch
   // round trip before anything can render at all.
-  { path: "/", Component: LandingPage },
+  { path: "/", Component: Home },
   { path: "/login", Component: LoginPage },
 
   // Student portal routes
