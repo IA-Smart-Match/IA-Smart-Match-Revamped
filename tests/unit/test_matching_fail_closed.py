@@ -116,7 +116,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smartmatch_api.routers import calendar, engagement, events, match_runs, rewards
+from smartmatch_api.routers import calendar, engagement, events, manual_events, match_runs, rewards
 from smartmatch_domain.factor_registry import (
     REGISTRY_STATUS,
     assert_registry_approved,
@@ -208,6 +208,31 @@ G3_AUTHORIZED_EVENT_PATHS = frozenset(
     {
         "/v1/units/{unit_id}/events",
         "/v1/units/{unit_id}/tag-quarantine",
+    }
+)
+
+
+# Manually filed events + feedback QR (docs/decisions/manual-events-and-
+# feedback-qr-2026-09-07.md), a *separate* by-name exception from G3's above.
+# These paths also carry the `events` segment the rule at the end of
+# `_forbidden_gate_for_path` refuses, but they gate nothing G3 gates: G3 is
+# the crawler/discovery event catalog, and `routers/manual_events.py` makes no
+# network call, imports no crawler client, and writes only rows an
+# administrator typed in — the decision doc: "This authorization is
+# independent of the crawler. It does not authorize crawler routes, provider
+# calls, scheduled discovery, or a bypass of the existing crawler security
+# gate." A literal set, for the reason every other allowlist in this file is
+# one: a route added to `routers/manual_events.py` outside this list fails
+# here whether or not anyone regenerated the contract.
+# `test_the_manual_events_router_declares_exactly_the_authorized_routes` holds
+# the router to this same list from the other side.
+MANUAL_EVENTS_AUTHORIZED_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/events",
+        "/v1/units/{unit_id}/events/{event_id}",
+        "/v1/units/{unit_id}/events/{event_id}/publish",
+        "/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        "/q/{public_token}",
     }
 )
 
@@ -342,6 +367,13 @@ def _forbidden_gate_for_path(path: str) -> str | None:
     if path in G5_AUTHORIZED_CALENDAR_PATHS:
         return None
 
+    # Manual events' exception, in the same position and for the same
+    # reason: these paths carry the `events` segment the G3 rule below
+    # refuses, and only this list admits them — see the constant's own
+    # comment for why that refusal does not apply to them.
+    if path in MANUAL_EVENTS_AUTHORIZED_PATHS:
+        return None
+
     for segment in segments:
         if segment in _G1_FORBIDDEN_SEGMENTS:
             return "G1"
@@ -445,6 +477,26 @@ def test_the_events_router_declares_exactly_the_authorized_routes():
     assert declared == G3_AUTHORIZED_EVENT_PATHS, (
         "G3: the events router declares routes outside the P-EVENTS-API "
         f"allowlist: {sorted(declared - G3_AUTHORIZED_EVENT_PATHS)}"
+    )
+
+
+def test_the_manual_events_router_declares_exactly_the_authorized_routes():
+    """The manual-events by-name exception is bounded by a list too.
+
+    Same shape as :func:`test_the_events_router_declares_exactly_the_authorized_routes`:
+    an exact equality against :data:`MANUAL_EVENTS_AUTHORIZED_PATHS`, checked
+    against both routers this module declares. A route added to either one
+    outside this list fails here whether or not anyone regenerated the
+    contract.
+    """
+    declared = {str(route.path) for route in manual_events.router.routes} | {  # type: ignore[attr-defined]
+        str(route.path)
+        for route in manual_events.public_router.routes  # type: ignore[attr-defined]
+    }
+
+    assert declared == MANUAL_EVENTS_AUTHORIZED_PATHS, (
+        "manual events: the router declares routes outside the decision-doc "
+        f"allowlist: {sorted(declared - MANUAL_EVENTS_AUTHORIZED_PATHS)}"
     )
 
 
