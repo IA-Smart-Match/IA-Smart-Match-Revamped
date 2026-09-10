@@ -214,7 +214,15 @@ export function Layout() {
                 <p className="truncate text-sm font-medium text-sidebar-foreground">
                   Speaker Connector
                 </p>
-                <p className="truncate text-xs text-muted-foreground">admin@ia.org</p>
+                {/* The address on the verified token, as `GET /v1/me` reported
+                    it — the same source the Event Host, Volunteer, and Student
+                    shells read. This line used to be the literal string
+                    `admin@ia.org`, which told every signed-in admin they were
+                    somebody else. There is no fallback: the shell is gated
+                    above on `session.status === "signed-in"`, so a principal
+                    always exists by the time this renders, and a placeholder
+                    would only ever stand in for a real identity. */}
+                <p className="truncate text-xs text-muted-foreground">{session.me.email}</p>
               </div>
             </div>
           </div>
