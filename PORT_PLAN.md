@@ -128,11 +128,11 @@ Per-track ledger (SHAs filled as they land):
 | Track | Agent | Commits | Status |
 |---|---|---|---|
 | A | sonnet | b1ab8765, a0eed51a, d884a93d, 3a83cad1 | done — verified by orchestrator (99 contract tests pass, build ok, npm test 55/2 = baseline) |
-| B | | | pending |
+| B | sonnet | 80782134, 2863358c, 03d0b615, c7a86539, f88ab5d4 (+ resume: fail-closed gate allowlist, router split) | endpoints verified by orchestrator: POST/GET/PATCH/publish/feedback-qr on canonical `event` + `/q/{token}`; migration 0035_manual_event_detail ← 0034_cba_meeting; openapi-check current (63 paths, +4); targeted pytest exit 0. Full `make check` pending on resume |
 | C | | | pending |
 | D1 | | | pending |
-| D2 | | | pending |
-| D3 | | | pending |
+| D2 | sonnet | 2ec171be, f79254af, 0f2f6ea2 | done — diff verified: coordinator pages were already token-based, so Track A's palette restyled them; D2 added 44px targets + focus rings only (16 lines) |
+| D3 | sonnet | 15907c4e | done — diff verified: student/volunteer/PagedList/provenance already token-based; 2 files, 3 lines (destructive tokens in MetricDrilldownSheet, sentence-case h1) |
 
 ## 2. Validation gates
 
