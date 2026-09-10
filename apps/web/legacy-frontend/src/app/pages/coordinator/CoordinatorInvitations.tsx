@@ -631,7 +631,7 @@ export function CoordinatorInvitations() {
                   <button
                     type="submit"
                     disabled={submitting || blockingReason !== null}
-                    className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                    className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     {submitting ? "Composing…" : "Compose invitations"}
                   </button>

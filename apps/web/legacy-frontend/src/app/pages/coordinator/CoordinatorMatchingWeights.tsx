@@ -323,7 +323,7 @@ export function CoordinatorMatchingWeights() {
             <button
               type="submit"
               disabled={saving || blockingReason !== null}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               {saving ? "Saving…" : "Save weights"}
             </button>
@@ -347,7 +347,7 @@ export function CoordinatorMatchingWeights() {
                   <button
                     type="button"
                     onClick={() => void load()}
-                    className="rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground"
+                    className="min-h-11 rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     Read the current weights (replaces what you typed)
                   </button>
