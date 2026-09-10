@@ -129,8 +129,8 @@ Per-track ledger (SHAs filled as they land):
 |---|---|---|---|
 | A | sonnet | b1ab8765, a0eed51a, d884a93d, 3a83cad1 | done — verified by orchestrator (99 contract tests pass, build ok, npm test 55/2 = baseline) |
 | B | sonnet | 80782134, 2863358c, 03d0b615, c7a86539, f88ab5d4 (+ resume: fail-closed gate allowlist, router split) | endpoints verified by orchestrator: POST/GET/PATCH/publish/feedback-qr on canonical `event` + `/q/{token}`; migration 0035_manual_event_detail ← 0034_cba_meeting; openapi-check current (63 paths, +4); targeted pytest exit 0. Full `make check` pending on resume |
-| C | | | pending |
-| D1 | | | pending |
+| C | sonnet | 7ae4687e, de6aadfe, ca777cf2 (+0052f12d ruff fix) | done — verified: 6 additive api.ts adapters, no main export removed, Events page 350+352 lines, no raw fetch, `/events` route + nav added, all 32 main route literals intact |
+| D1 | sonnet | eb1f75f1, 4b68e89, d02553e, 286ef276, a9f077a9 (salvaged WIP: chart/badge tokens — reviewed, correct) | done — Dashboard/Calendar/Volunteers split into *Sections.tsx; one `text-gray-900` kept in Opportunities.tsx because test_frontend_opportunities_contract.py:338 pins it verbatim |
 | D2 | sonnet | 2ec171be, f79254af, 0f2f6ea2 | done — diff verified: coordinator pages were already token-based, so Track A's palette restyled them; D2 added 44px targets + focus rings only (16 lines) |
 | D3 | sonnet | 15907c4e | done — diff verified: student/volunteer/PagedList/provenance already token-based; 2 files, 3 lines (destructive tokens in MetricDrilldownSheet, sentence-case h1) |
 
@@ -142,9 +142,45 @@ Per-track ledger (SHAs filled as they land):
 - `make scan` (CBA terminology), `make openapi-check`.
 - Route-by-route parity table (§3).
 
-## 3. Results
+## 3. Results (HEAD a9f077a9)
 
-(filled in as tracks land)
+### 3.1 Gates [F]
+| Gate | Result |
+|---|---|
+| `npm run build` (tsc + vite) | exit 0 |
+| `npm test` | 60 pass / 2 fail — both pre-existing on `origin/main` (`tests/productScope.test.ts`: "every capability carries an explicit decision", "enabledCapabilities returns exactly the preserved set" — 13 != 12); identical on untouched main baseline |
+| `make check VENV=…` (at 0052f12d, before the tsx-only WIP commit) | exit 0 — 5047 passed, 2 skipped (baseline main: 4885 passed) |
+| frontend/CBA contract pytest subset at a9f077a9 (`-k "frontend or cba_surface or cba_terminology or shortlist_fanout or manual_events"`) | exit 0 |
+| `make scan` | clean (150 CBA-visible files) |
+| `make openapi-check` | current (63 paths; main had 59; +`POST/GET/PATCH …/events[/{id}]`, `/publish`, `/feedback-qr`, `/q/{public_token}`) |
+| `make migrate-check` | NOT run (needs PostgreSQL; prohibited from running migrations) |
+| Files deleted vs main | none |
+| main `api.ts` exports missing on branch | none |
+| The 3 `.env`-caused failures | did not occur — this worktree has no `.env` |
+
+### 3.2 Route parity (routes.tsx, `path:` literals, main vs branch) [F]
+`diff` of sorted route literals: the ONLY difference is `+ path: "events"` (admin layout). Every main route below is present and mounted to the same page implementation (restyled, behaviour retained):
+
+| Route | main | branch | Page behaviour source |
+|---|---|---|---|
+| `/` | Home → LandingPage | same | main (Home portal redirect) + #125 landing copy/visuals |
+| `/login` | LoginPage | same | main |
+| `/student-portal` + events/history/connect/rewards/speaker-feedback | 6 | 6 | main |
+| `/coordinator-portal` + events/outreach/speaker-contacts/speaker-feedback/match-runs/invitations/matching-weights/meetings/review-queue | 10 | 10 | main |
+| `/volunteer-portal` + speaker-request/confirmed-speaker/my-requests/assignments/profile | 6 | 6 | main |
+| `/dashboard` `/opportunities` `/volunteers` `/ai-matching` `/pipeline` `/calendar` `/outreach`(gated) | 7 | 7 | main |
+| `/events` (admin) | — | **new** | #125 concept rebuilt on Track B backend |
+
+### 3.3 #125 surfaces → disposition
+| #125 surface | Disposition |
+|---|---|
+| CPP tokens, fonts, logo, shells, landing, DESIGN.md/AGENTS.md, branding test | **preserved** (Track A) |
+| Admin Events page + feedback QR (manual events) | **preserved**, rebuilt on canonical `event` table (B + C) |
+| `useAuthorizedUnit.ts`, `breakNeed.ts` | ported (breakNeed currently unused — kept because DESIGN.md names it) |
+| `/opportunities`→`/events`, `/ai-matching`→`/events` redirects | **rejected** — would drop main routes pinned by tests |
+| Speakers roster page (replacing Volunteers) | **superseded** by main's `/coordinator-portal/speaker-contacts` (§13 roster) — human decision §4.1 |
+| `SpeakerEventsBoard` (11 manual statuses) | **superseded** by main's invitation batches / outcomes / handoff / confirmed-speakers — human decision §4.1 |
+| Backend `speakers.py`, `speaker_workflow.py`, `0035_speaker_workflow`, outreach/email removal, capability flip | **not ported** (§0.5 Codex finding 1–2; §4.1) |
 
 ## 4. Deferred / human decisions
 
@@ -156,5 +192,7 @@ Per-track ledger (SHAs filled as they land):
    reworded to describe what actually ships.
 2. Migration renumbering and path renames in §0.3 are orchestrator choices, not customer
    decisions; review before merge.
-3. `VITE_ADOBE_FONTS_URL` is unset in the repo — Proxima Sera/Usual fall back to
+3. Draft manual events are not listed by main's `GET /v1/units/{u}/events` (presentable-only); the Events page keeps a session-local "recent" list seeded from create/patch/publish responses [A, Track C]. A drafts-list endpoint is a follow-up if wanted.
+4. Codex reviews ran on the codex plugin's default model: `sol-5.6` and `gpt-5.4` were both rejected by the backend at the time; the coordinator later said `gpt-5.6-sol` is available — no further Codex gate was triggered (no critical/ambiguous bug arose after the plan gate).
+5. `VITE_ADOBE_FONTS_URL` is unset in the repo — Proxima Sera/Usual fall back to
    Georgia/Inter until an ops owner supplies the Adobe project URL.
