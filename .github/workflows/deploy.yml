@@ -313,6 +313,36 @@ jobs:
             fi
           done
 
+          # No fixture bearer token may authenticate against the public URL.
+          #
+          # This is a security regression test, not a health check. The
+          # appliance used to map four committed fixture tokens to the seeded
+          # coordinator, student, host and admin, while the public hostname sat
+          # in front of them with no Access wall and this repository was public.
+          # docker-compose.vm.yml withdrew that map; this proves it stays
+          # withdrawn, from the outside, on every deployment.
+          #
+          # 401 is required. A 200 means the bypass is back. Any other code is
+          # also a failure: it means this assertion is no longer testing what it
+          # claims to, and a security test that silently stops testing is worse
+          # than no test at all.
+          for fixture_token in compose-api compose-student compose-host compose-admin; do
+            fixture_code="$(curl -sS -o /tmp/fixture.body -w '%{http_code}' --max-time 30 \
+              "${access_headers[@]}" \
+              -H "Authorization: Bearer ${fixture_token}" \
+              "${SMARTMATCH_PUBLIC_URL}/v1/me")"
+            echo "GET /v1/me with the ${fixture_token} fixture token -> ${fixture_code}"
+            if [ "$fixture_code" = "200" ]; then
+              echo "::error::the ${fixture_token} fixture token authenticated against ${SMARTMATCH_PUBLIC_URL}. The deployed appliance is accepting a credential committed to a public repository."
+              exit 1
+            fi
+            if [ "$fixture_code" != "401" ]; then
+              echo "::error::/v1/me answered ${fixture_code} for the ${fixture_token} fixture token, expected 401. This assertion can no longer prove the fixture path is closed."
+              exit 1
+            fi
+          done
+          echo "no fixture token authenticates: every one was refused with 401"
+
           # The API, through the frontend's own proxy — one request that
           # crosses Cloudflare, the tunnel, the frontend, and the API.
           code="$(probe "${SMARTMATCH_PUBLIC_URL}/api/health")"
