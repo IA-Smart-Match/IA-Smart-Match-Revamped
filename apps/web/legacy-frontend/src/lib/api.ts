@@ -1,3 +1,5 @@
+import { resolveBearerToken } from "./bearerToken.ts";
+
 export interface Specialist {
   name: string;
   board_role: string;
@@ -361,13 +363,15 @@ export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
  * The bearer token `/v1` requests are sent with, or `null` when none is
  * configured.
  *
- * Two sources, in order: the build-time `VITE_SMARTMATCH_BEARER_TOKEN` (the
- * fixture token a compose/dev build is started with) and
- * `sessionStorage["smartmatch_bearer_token"]`. Both are *credentials* — the
- * server decides what they mean. Nothing here, and nothing downstream of
- * here, lets the browser assert a tenant, user, or role; that is the whole
- * point of Fix #7. See `src/lib/session.ts` for the identity the server
- * returns for a token.
+ * Two sources: `sessionStorage["smartmatch_bearer_token"]` (the token sign-in
+ * stored for this tab) and the build-time `VITE_SMARTMATCH_BEARER_TOKEN` (the
+ * fixture token a compose/dev build is started with). The stored one wins —
+ * see `resolveBearerToken()` in `src/lib/bearerToken.ts` for why the other
+ * order sent every signed-in principal into the coordinator portal. Both are
+ * *credentials* — the server decides what they mean. Nothing here, and nothing
+ * downstream of here, lets the browser assert a tenant, user, or role; that is
+ * the whole point of Fix #7. See `src/lib/session.ts` for the identity the
+ * server returns for a token.
  *
  * Exported so `src/lib/principalKey.ts` can derive its cache key from the
  * same lookup rather than keeping a second copy of it.
@@ -379,12 +383,7 @@ export function readSmartmatchBearerToken(): string | null {
       ? sessionStorage.getItem(SMARTMATCH_BEARER_STORAGE_KEY)
       : null;
 
-  return (
-    (typeof envToken === "string" && envToken.trim().length > 0 ? envToken.trim() : null) ??
-    (typeof sessionToken === "string" && sessionToken.trim().length > 0
-      ? sessionToken.trim()
-      : null)
-  );
+  return resolveBearerToken(envToken, sessionToken);
 }
 
 /**
