@@ -4533,3 +4533,133 @@ export async function decideReviewItem(
     { authenticated: true },
   );
 }
+
+/**
+ * One meeting a unit recorded with the CBA team (migration `0034`).
+ *
+ * **An internal record, not a booking.** Nothing in this system tells anybody
+ * outside it that this meeting exists — no invitation is composed, queued or
+ * sent, and no address is read. The row is the unit's own note. A surface that
+ * implied otherwise would be promising something the server cannot do.
+ *
+ * `scheduled_at` is **never null and never inferred.** A meeting with no
+ * resolved time cannot be stored: the column is `NOT NULL` with no default, the
+ * repository refuses a time carrying no zone, and the route answers `422` rather
+ * than choosing one. That is ADR-0010 rule 2 and migration finding F-003 — the
+ * legacy turned an unparsed date into "30 days from now" and rendered a slot
+ * nobody had chosen. The practical consequence for a caller is that this field
+ * needs no absent branch: there is no such row to render.
+ *
+ * `time_zone` is the IANA zone the time was *agreed in*, and it is a separate
+ * field because `scheduled_at` cannot recover it. Rendering the instant in the
+ * reader's own zone without saying which zone it was agreed in is how a 5pm
+ * meeting becomes an 8pm one on somebody's screen.
+ *
+ * There is deliberately **no participant field of any kind** — not a name, not
+ * an account, not free text. What a "meeting with the CBA team" is contractually
+ * (who may book, whether an external participant is a user account or free text,
+ * whether a booking ever leaves the system) is **OQ-CBA-066**, open, and a field
+ * here would be an answer to it shipped in a client.
+ */
+export interface Meeting {
+  id: string;
+  unit_id: string;
+  /** What the meeting is. Never blank — the server refuses an empty title. */
+  title: string;
+  /** When it is, ISO-8601 with an offset. Never null, never inferred. */
+  scheduled_at: string;
+  /** The IANA zone the time was agreed in, e.g. `America/Los_Angeles`. */
+  time_zone: string;
+  /** A room, a building, or a join link. `null` when nobody has said yet. */
+  location_or_link: string | null;
+  /** `scheduled` or `cancelled`. Cancelled meetings are listed, not hidden. */
+  status: string;
+  /** When the note was made, ISO-8601. */
+  recorded_at: string;
+  /** When the note last moved, ISO-8601. */
+  updated_at: string;
+}
+
+/**
+ * A bounded page of a unit's meetings, plus a measured total.
+ *
+ * `total` is counted server-side across every meeting the unit holds, not folded
+ * from `meetings`. Comparing the two is how a caller tells a full page from a
+ * truncated one — which is a question a bounded listing would otherwise leave a
+ * client to guess at, and guessing it is how a surface ends up claiming a number
+ * nobody measured (ADR-0011 rule 1).
+ */
+export interface MeetingList {
+  unit_id: string;
+  meetings: Meeting[];
+  total: number;
+  /** The bound this listing was taken under. */
+  limit: number;
+}
+
+/**
+ * What a coordinator supplies to record a meeting.
+ *
+ * No `status` and no recorder: every meeting starts `scheduled`, and the author
+ * is the verified principal behind the bearer token. Neither is a field the
+ * client can set, which is what keeps caller-selected identity out of the write.
+ */
+export interface NewMeeting {
+  title: string;
+  /**
+   * ISO-8601 **with an offset**. A value with no offset is a wall-clock reading
+   * rather than an instant and is refused with `422 meeting_time_unresolved`;
+   * `new Date(...).toISOString()` produces an acceptable value.
+   */
+  scheduled_at: string;
+  /** The IANA zone the time was agreed in. Required. */
+  time_zone: string;
+  /** Optional. Omit or send `null` when nobody has said where yet. */
+  location_or_link?: string | null;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/meetings` — the meetings this unit has recorded.
+ *
+ * Soonest first, bounded by the server, with cancelled meetings **included**: a
+ * surface has to render "this was called off" differently from "this was never
+ * arranged", and a route that dropped them would take that distinction away from
+ * the only caller who needs it.
+ *
+ * Authorization runs before any meeting row is read, against the unit the list
+ * is scoped to. `admin` and `coordinator` only, with no tenant-wide widening: a
+ * caller the server refuses gets {@link ApiRequestError} with status `403`, and
+ * a unit in another tenant is a `404` rather than a `403` that would confirm the
+ * id names something real.
+ */
+export async function fetchMeetings(unitId: string, limit?: number): Promise<MeetingList> {
+  const query = limit === undefined ? "" : `?limit=${encodeURIComponent(String(limit))}`;
+  return requestJson<MeetingList>(
+    `/v1/units/${encodeURIComponent(unitId)}/meetings${query}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/meetings` — record one meeting.
+ *
+ * Returns the meeting as stored, read back out of the table rather than echoed:
+ * the two provenance instants are server-written, so an echo would be this
+ * client's guess at what was saved.
+ *
+ * **Sends nothing to anybody.** This writes a row. If a future caller needs an
+ * invitation delivered, that is a different capability with a different consent
+ * story, and it does not exist.
+ *
+ * A `422` with code `meeting_time_unresolved` means the time carried no offset.
+ * **Do not retry it by supplying one** — picking a zone on the unit's behalf is
+ * the fabrication the refusal exists to prevent. Ask the person for the zone.
+ */
+export async function createMeeting(unitId: string, input: NewMeeting): Promise<Meeting> {
+  return requestJson<Meeting>(
+    `/v1/units/${encodeURIComponent(unitId)}/meetings`,
+    { method: "POST", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}

@@ -2625,6 +2625,154 @@
         "title": "MeResponse",
         "type": "object"
       },
+      "MeetingListResponse": {
+        "description": "This unit's meetings, bounded, with a measured total beside them.",
+        "properties": {
+          "limit": {
+            "description": "The bound this listing was taken under.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "meetings": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingView"
+            },
+            "title": "Meetings",
+            "type": "array"
+          },
+          "total": {
+            "description": "How many meetings this unit holds, all statuses \u2014 counted in the database, not folded from the rows above. A caller comparing it to the length of `meetings` can tell a full page from a truncated one, which is the question a bounded listing otherwise leaves a client to guess at.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "meetings",
+          "total",
+          "limit"
+        ],
+        "title": "MeetingListResponse",
+        "type": "object"
+      },
+      "MeetingSubmission": {
+        "description": "What a coordinator says about one meeting.\n\nFour fields, and the absent ones are the design. There is no ``status``: a\nmeeting recorded as already cancelled is a meeting that was never arranged,\nand migration ``0034`` keeps those two distinguishable. There is no\n``created_by``: that comes from the verified principal, and no route here\naccepts one, so there is no request field for MM-A01's caller-selected\nidentity to enter through. And there are no participants \u2014 **OQ-CBA-066**.",
+        "properties": {
+          "location_or_link": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A room, a building, or a join URL. Optional in the honest sense: absent means nobody has said yet, and a blank or whitespace-only value is normalized to absent rather than stored, so there is no third state between 'no location' and 'a location'.",
+            "title": "Location Or Link"
+          },
+          "scheduled_at": {
+            "description": "When the meeting is, ISO-8601 **with an offset**. Required, and there is no default: a meeting with no resolved time is refused rather than given one (ADR-0010 rule 2, finding F-003). A value with no offset is a wall-clock reading rather than an instant and is refused for the same reason.",
+            "format": "date-time",
+            "title": "Scheduled At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "The IANA zone the time was agreed in, e.g. 'America/Los_Angeles'. Required, because it is the half of a wall-clock appointment the instant above cannot recover \u2014 a surface that wants to say '5pm' has to know 5pm where, and guessing is the defect one column over.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "description": "What the meeting is. Required and non-blank.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "scheduled_at",
+          "time_zone"
+        ],
+        "title": "MeetingSubmission",
+        "type": "object"
+      },
+      "MeetingView": {
+        "description": "One meeting as its own unit sees it.\n\nCarries no participant field of any kind, for the module docstring's reason.\nA model with no such field cannot grow one by a later copy-paste onto a\nsurface that should not have it.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location_or_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where, or how to join. Null when nobody has said yet.",
+            "title": "Location Or Link"
+          },
+          "recorded_at": {
+            "description": "When this note was made, ISO-8601.",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "scheduled_at": {
+            "description": "When the meeting is, ISO-8601 with an offset. Never null and never inferred \u2014 a meeting with no time cannot be stored.",
+            "title": "Scheduled At",
+            "type": "string"
+          },
+          "status": {
+            "description": "'scheduled' or 'cancelled'. A cancelled meeting is listed rather than hidden: 'called off' and 'never arranged' are different facts.",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "The IANA zone the time was agreed in.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When this note last moved, ISO-8601.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit_id",
+          "title",
+          "scheduled_at",
+          "time_zone",
+          "status",
+          "recorded_at",
+          "updated_at"
+        ],
+        "title": "MeetingView",
+        "type": "object"
+      },
       "MembershipResponse": {
         "description": "One server-assigned membership, exactly as ``membership`` recorded it.",
         "properties": {
@@ -9341,6 +9489,279 @@
         "summary": "Change a unit's matching weights",
         "tags": [
           "matching-weights"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/meetings": {
+      "get": {
+        "description": "This unit's meetings, soonest first, with a measured total.\n\nCancelled meetings are **listed, not hidden**. A surface has to render \"this\nwas called off\" differently from \"this was never arranged\", and a route that\ndropped the cancelled rows would take that distinction away from the only\ncaller who needs it.\n\n``total`` is counted in the database rather than folded from the rows\nreturned, so a client can tell a full page from a truncated one instead of\ninferring a number nobody measured.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator over\n        this unit.\n    404: ``unit_not_found`` for a unit outside the caller's tenant.",
+        "operationId": "list_meetings_v1_units__unit_id__meetings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the meetings this unit has recorded",
+        "tags": [
+          "meetings"
+        ]
+      },
+      "post": {
+        "description": "Store one meeting note for this unit, and return it as stored.\n\nEvery meeting is recorded as ``scheduled``; the body cannot choose a status,\nfor :class:`MeetingSubmission`'s reason. ``created_by_user_id`` comes from the\nverified principal and never from the request.\n\nNothing is sent. This route writes a row and returns it \u2014 no invitation, no\nmessage, no calendar entry anywhere but this database.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator over\n        this unit.\n    404: ``unit_not_found`` for a unit outside the caller's tenant.\n    422: ``invalid_request`` for a missing or malformed field;\n        ``meeting_time_unresolved`` when the time carries no offset.\n    429: over the write quota.",
+        "operationId": "record_meeting_v1_units__unit_id__meetings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "description": "The request states no usable meeting time: an absent `scheduled_at`, or one carrying no UTC offset. No meeting is recorded and no time is inferred (finding F-003)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record a meeting this unit is holding with the CBA team",
+        "tags": [
+          "meetings"
         ]
       }
     },
