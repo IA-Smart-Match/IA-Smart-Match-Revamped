@@ -74,11 +74,13 @@ const FUNNEL_GRID_CLASS: Record<number, string> = {
 
 export interface PipelineFunnelTilesProps {
   reloadToken?: number;
+  unitId?: string | null;
   className?: string;
 }
 
 export function PipelineFunnelTiles({
   reloadToken = 0,
+  unitId,
   className,
 }: PipelineFunnelTilesProps) {
   const {
@@ -92,7 +94,7 @@ export function PipelineFunnelTiles({
     drilldownError,
     drilldown,
     openDrilldown,
-  } = useUnitMetrics(reloadToken);
+  } = useUnitMetrics(reloadToken, unitId);
 
   function metricForStage(metricName: PipelineFunnelMetricName) {
     const summary = metricsByName[metricName];

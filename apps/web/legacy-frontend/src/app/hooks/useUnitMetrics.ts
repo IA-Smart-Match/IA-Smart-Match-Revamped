@@ -3,8 +3,8 @@
  * (plan P4, lane F1 -- see `src/lib/queryClient.ts` for the cache-key
  * scoping + identity-clear rules this hook relies on for correctness).
  *
- * PUBLIC SHAPE CONTRACT: `Dashboard.tsx` and `PipelineFunnelTiles.tsx` are
- * owned by other lanes and must not need any edit. The object this hook
+ * PUBLIC SHAPE CONTRACT: `Dashboard.tsx` and `PipelineFunnelTiles.tsx` consume
+ * this hook's stable return object. The object this hook
  * returns -- every property name, type, and observable state machine
  * (`status: "idle" | "loading" | "ready" | "unavailable"`, `loadError`,
  * `metricsUnavailableReason`, the `drilldown*` family, `openDrilldown`, and
@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   fetchMetricDrillDown,
-  fetchUnitMetrics,
+  fetchCbaUnitMetrics,
   getConfiguredUnitId,
   hasSmartmatchAuth,
   type MetricDrillDownResponse,
@@ -31,7 +31,7 @@ import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
 export type UnitMetricsStatus = "idle" | "loading" | "ready" | "unavailable";
 
 const METRICS_UNAVAILABLE_REASON =
-  "Registered metrics require VITE_SMARTMATCH_UNIT_ID and a bearer token (VITE_SMARTMATCH_BEARER_TOKEN or session storage).";
+  "Registered metrics require an authenticated session and an authorized unit.";
 
 /**
  * Placeholder first key segment used only while the principal is still
@@ -42,8 +42,8 @@ const METRICS_UNAVAILABLE_REASON =
  */
 const UNRESOLVED_PRINCIPAL = "unresolved-principal";
 
-export function useUnitMetrics(reloadToken = 0) {
-  const unitId = getConfiguredUnitId();
+export function useUnitMetrics(reloadToken = 0, authorizedUnitId?: string | null) {
+  const unitId = authorizedUnitId ?? getConfiguredUnitId();
   const authConfigured = hasSmartmatchAuth();
   const principalKey = usePrincipalKey();
 
@@ -51,7 +51,7 @@ export function useUnitMetrics(reloadToken = 0) {
 
   const metricsQuery = useQuery({
     queryKey: metricsQueryKey(principalKey ?? UNRESOLVED_PRINCIPAL, unitId ?? "unscoped"),
-    queryFn: () => fetchUnitMetrics(unitId as string),
+    queryFn: () => fetchCbaUnitMetrics(unitId as string),
     enabled: metricsEnabled,
   });
 

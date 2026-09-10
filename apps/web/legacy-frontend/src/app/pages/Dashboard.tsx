@@ -1,62 +1,21 @@
-/**
- * IA admin dashboard (P8 card O4b).
- *
- * Opportunity and pipeline numbers are registered metrics read from
- * `GET /v1/units/{unit_id}/metrics`; clicking one opens the drill-down of the
- * same owning query (`GET …/metrics/{name}/drill-down`), so an aggregate and
- * the rows behind it cannot drift apart (ADR-0011 rules 3 and 4). That is what
- * O4b fences: the registered metric name and its drill-down, in place of the
- * old "active opportunities" prose and `href`-only KPI navigation (B41).
- *
- * What this card removes is the client-side *merge*, not the product surface:
- *
- * - `fetchPipeline()` + `fetchSpecialists()` and the counts derived by joining
- *   them (volunteer utilization, stage counts, match volume by event, and the
- *   per-region member-inquiry attribution built from `event_name::speaker_name`
- *   string keys). Those numbers had no owning server query and let this page
- *   disagree with Pipeline and Opportunities (B41/B42, Fix #5).
- * - the crawler live feed (B38/B39 — explicitly not to be ported).
- *
- * Calendar coverage, recovery overlays, matcher-feedback telemetry and the
- * regional pulse each read one endpoint and report what it returned; they stay.
- * Every value in them is routed through `AccountableValue` (or an explicit
- * unknown) so a measurement nobody took renders as unknown, never as zero.
- */
+/** Administrator dashboard backed only by the authenticated unit APIs. */
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import {
-  AlertTriangle,
-  Briefcase,
-  CalendarDays,
-  MapPinned,
-  MessageSquareHeart,
-  RefreshCw,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  TrendingUp,
-} from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { AlertTriangle, CalendarDays, ClipboardCheck, RefreshCw, Users } from "lucide-react";
 
 import {
-  emptyFeedbackStatsSummary,
-  fetchCalendarAssignments,
-  fetchCalendarEvents,
-  fetchFeedbackStats,
+  fetchAttendanceSummary,
   fetchManualEvents,
-  type CalendarAssignmentSummary,
-  type CalendarEventSummary,
-  type FeedbackStatsSummary,
+  fetchReviewItems,
+  fetchSpeakers,
+  fetchSpeakerEvents,
+  fetchUnitSpeakerFeedbackSummary,
+  type AttendanceSummary,
   type ManualEvent,
-  type MetricSummary,
+  type ReviewItem,
+  type SpeakerEventRecord,
+  type SpeakerProfile,
+  type UnitFeedbackSummary,
 } from "@/lib/api";
 import { useAuthorizedUnitId } from "@/app/hooks/useAuthorizedUnit";
 import {
@@ -65,195 +24,18 @@ import {
   MATCHING_UNAVAILABLE_REASON,
   OPPORTUNITIES_METRIC_NAME,
   unavailableOpportunitiesMetric,
-  unavailablePipelineMetric,
 } from "@/lib/metrics";
 import { MetricCard } from "@/app/components/MetricCard";
 import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
-import {
-  AccountableValue,
-  MetricValueDisplay,
-  unknownValue,
-  type AccountableMetric,
-} from "@/app/components/provenance";
+import { AccountableValue, type AccountableMetric } from "@/app/components/provenance";
 import { MetricDrilldownSheet } from "@/app/components/provenance/MetricDrilldownSheet";
 import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
-import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
 
-const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
+type Loadable<T> = { data: T | null; error: string | null };
 
-/**
- * Why a per-region member-inquiry count is not shown.
- *
- * The old tile counted it in the browser by joining calendar assignments to
- * legacy pipeline rows on `event_name::speaker_name`. The registered
- * `pipeline_member_inquiry` metric is unit-scoped, not region-scoped, so there
- * is no server query that answers this question yet.
- */
-const REGION_MEMBER_INQUIRY_UNKNOWN_REASON =
-  "No region-scoped registered metric exists: `pipeline_member_inquiry` is scoped to the organizational unit, and this page no longer attributes pipeline rows to regions in the browser.";
-
-/**
- * Reads a human message off a thrown value without assuming a specific error
- * shape. Tolerates plain Error instances, the API layer's ApiRequestError,
- * and anything else that merely looks like an error.
- */
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (err && typeof err === "object") {
-    const maybeMessage = (err as { message?: unknown }).message;
-    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
-      return maybeMessage;
-    }
-  }
-  if (typeof err === "string" && err.trim().length > 0) {
-    return err;
-  }
-  return fallback;
-}
-
-function FailureState({
-  title = "We couldn't load this data",
-  message,
-  onRetry,
-}: {
-  title?: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-        <AlertTriangle className="h-5 w-5 text-red-600" />
-      </div>
-      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
-      <p className="mt-1 text-sm text-red-700">{message}</p>
-      {onRetry ? (
-        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" />
-          Retry
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-function monthLabel(dateString: string): string {
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date =
-    [year, month, day].every((part) => Number.isFinite(part) && !Number.isNaN(part))
-      ? new Date(year, month - 1, day)
-      : new Date(dateString);
-  if (Number.isNaN(date.getTime())) {
-    return dateString;
-  }
-  return date.toLocaleDateString("en-US", { month: "short" });
-}
-
-type RegionalPulseRow = {
-  region: string;
-  eventCount: number;
-  coveredCount: number;
-  openCount: number;
-  assignmentCount: number;
-  uniqueVolunteers: number;
-  coveragePercent: number | null;
-  workloadPercent: number;
-  detail: string;
-};
-
-function calendarReach(records: CalendarEventSummary[]) {
-  const byMonth = new Map<string, { windows: number; covered: number }>();
-  for (const record of records) {
-    const label = monthLabel(record.event_date);
-    const current = byMonth.get(label) ?? { windows: 0, covered: 0 };
-    byMonth.set(label, {
-      windows: current.windows + 1,
-      covered: current.covered + (record.coverage_status === "covered" ? 1 : 0),
-    });
-  }
-  return Array.from(byMonth.entries()).map(([month, value]) => ({
-    month,
-    windows: value.windows,
-    covered: value.covered,
-  }));
-}
-
-/**
- * Rolls calendar windows and assignment overlays up by region.
- *
- * Both inputs come from the same calendar feed, so every count here is a count
- * of rows that feed actually returned — no cross-source join. `coveragePercent`
- * is `null` (not 0) for a region with no scheduled windows, because a coverage
- * ratio with no denominator is unknown, not zero percent.
- */
-function buildRegionalPulse(
-  calendarEvents: CalendarEventSummary[],
-  calendarAssignments: CalendarAssignmentSummary[],
-): RegionalPulseRow[] {
-  const regions = Array.from(
-    new Set(
-      [
-        ...calendarEvents.map((event) => event.region),
-        ...calendarAssignments.map((assignment) => assignment.region),
-      ]
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  );
-
-  return regions
-    .map((region) => {
-      const eventsInRegion = calendarEvents.filter((event) => event.region === region);
-      const assignmentsInRegion = calendarAssignments.filter(
-        (assignment) => assignment.region === region,
-      );
-      const coveredCount = eventsInRegion.filter(
-        (event) => event.coverage_status === "covered",
-      ).length;
-      const eventCount = eventsInRegion.length;
-      const openCount = eventsInRegion.filter(
-        (event) => event.coverage_status !== "covered",
-      ).length;
-      const assignmentCount = assignmentsInRegion.length;
-      const uniqueVolunteers = new Set(
-        assignmentsInRegion.map((assignment) => assignment.volunteer_name),
-      ).size;
-      const coveragePercent = eventCount ? Math.round((coveredCount / eventCount) * 100) : null;
-      const workloadPercent = Math.max(
-        0,
-        Math.min(Math.round((assignmentCount / Math.max(eventCount * 3, 1)) * 100), 100),
-      );
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.`;
-
-      return {
-        region,
-        eventCount,
-        coveredCount,
-        openCount,
-        assignmentCount,
-        uniqueVolunteers,
-        coveragePercent,
-        workloadPercent,
-        detail,
-      };
-    })
-    .sort((left, right) => {
-      if (right.eventCount !== left.eventCount) {
-        return right.eventCount - left.eventCount;
-      }
-      if (right.assignmentCount !== left.assignmentCount) {
-        return right.assignmentCount - left.assignmentCount;
-      }
-      return left.region.localeCompare(right.region);
-    })
-    .slice(0, 6);
-}
-
-function formatFactorName(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+function failureMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 function formatEventWhen(event: ManualEvent): string {
@@ -270,865 +52,96 @@ function formatEventWhen(event: ManualEvent): string {
   return "Schedule not set";
 }
 
+function UnknownPanel({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-6 text-sm text-gray-600">
+      {message}
+    </div>
+  );
+}
+
 export function Dashboard() {
   const unitId = useAuthorizedUnitId("admin");
-
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[]>([]);
-  const [calendarAssignments, setCalendarAssignments] = useState<CalendarAssignmentSummary[]>([]);
-  const [manualEvents, setManualEvents] = useState<ManualEvent[]>([]);
-  const [feedbackStats, setFeedbackStats] = useState<FeedbackStatsSummary>(
-    emptyFeedbackStatsSummary(),
-  );
-  const [calendarAvailable, setCalendarAvailable] = useState(false);
-  const [assignmentsAvailable, setAssignmentsAvailable] = useState(false);
-  const [feedbackAvailable, setFeedbackAvailable] = useState(false);
-  const [isMockData, setIsMockData] = useState(false);
+  const [events, setEvents] = useState<Loadable<{ data: ManualEvent[]; total: number }>>({ data: null, error: null });
+  const [reviewItems, setReviewItems] = useState<Loadable<{ items: ReviewItem[]; truncated: boolean }>>({ data: null, error: null });
+  const [speakers, setSpeakers] = useState<Loadable<{ data: SpeakerProfile[]; total: number }>>({ data: null, error: null });
+  const [speakerEvents, setSpeakerEvents] = useState<Loadable<SpeakerEventRecord[]>>({ data: null, error: null });
+  const [feedback, setFeedback] = useState<Loadable<UnitFeedbackSummary>>({ data: null, error: null });
+  const [attendance, setAttendance] = useState<Loadable<AttendanceSummary>>({ data: null, error: null });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    setLoadFailed(false);
-    setError(null);
-
-    function resetToEmpty() {
-      setCalendarEvents([]);
-      setCalendarAssignments([]);
-      setManualEvents([]);
-      setFeedbackStats(emptyFeedbackStatsSummary());
-      setCalendarAvailable(false);
-      setAssignmentsAvailable(false);
-      setFeedbackAvailable(false);
-      setIsMockData(false);
+    if (!unitId) {
+      setLoading(false);
+      return;
     }
 
-    async function load() {
-      try {
-        const [calendarResult, assignmentResult, feedbackResult, eventResult] = await Promise.allSettled([
-          fetchCalendarEvents(),
-          fetchCalendarAssignments(),
-          fetchFeedbackStats(),
-          unitId ? fetchManualEvents(unitId, "published") : Promise.resolve({ data: [], total: 0 }),
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        // Calendar windows are the spine of the coverage sections. If they
-        // failed, say so rather than discarding what did succeed and
-        // substituting fixtures.
-        if (calendarResult.status !== "fulfilled") {
-          resetToEmpty();
-          setLoadFailed(true);
-          setError(getErrorMessage(calendarResult.reason, "Failed to load calendar data."));
-          return;
-        }
-
-        let anyMock = false;
-
-        setCalendarEvents(calendarResult.value.data);
-        setCalendarAvailable(true);
-        if (calendarResult.value.isMockData) anyMock = true;
-
-        if (assignmentResult.status === "fulfilled") {
-          setCalendarAssignments(assignmentResult.value.data);
-          setAssignmentsAvailable(true);
-          if (assignmentResult.value.isMockData) anyMock = true;
-        } else {
-          // Assignment overlays are supplementary — keep the page honest and
-          // surface a warning instead of fabricating overlays.
-          setCalendarAssignments([]);
-          setAssignmentsAvailable(false);
-        }
-
-        if (feedbackResult.status === "fulfilled") {
-          setFeedbackStats(feedbackResult.value.data);
-          setFeedbackAvailable(true);
-          if (feedbackResult.value.isMockData) anyMock = true;
-        } else {
-          setFeedbackStats(emptyFeedbackStatsSummary());
-          setFeedbackAvailable(false);
-        }
-
-        if (eventResult.status === "fulfilled") {
-          setManualEvents(eventResult.value.data);
-        } else {
-          setManualEvents([]);
-        }
-
-        setIsMockData(anyMock);
-
-        const warnings = [];
-        if (assignmentResult.status === "rejected") {
-          warnings.push(
-            `Assignment overlays are unavailable: ${getErrorMessage(assignmentResult.reason, "Request failed.")}`,
-          );
-        }
-        if (feedbackResult.status === "rejected") {
-          warnings.push(
-            `Feedback optimizer stats are unavailable: ${getErrorMessage(feedbackResult.reason, "Request failed.")}`,
-          );
-        }
-        if (eventResult.status === "rejected") {
-          warnings.push(
-            `Upcoming events are unavailable: ${getErrorMessage(eventResult.reason, "Request failed.")}`,
-          );
-        }
-        setError(warnings.length ? warnings.join(" ") : null);
-      } catch (err: unknown) {
-        if (active) {
-          resetToEmpty();
-          setLoadFailed(true);
-          setError(getErrorMessage(err, "Failed to load dashboard data."));
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-
-    load();
-
-    return () => {
-      active = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        fetchManualEvents(unitId, "all"),
+        fetchReviewItems(unitId, "pending"),
+        fetchSpeakers(unitId),
+        fetchSpeakerEvents(unitId),
+        fetchUnitSpeakerFeedbackSummary(unitId),
+        fetchAttendanceSummary(unitId),
+      ]);
+      if (!active) return;
+      const [eventResult, reviewResult, speakerResult, handoffResult, feedbackResult, attendanceResult] = results;
+      setEvents(eventResult.status === "fulfilled" ? { data: eventResult.value, error: null } : { data: null, error: failureMessage(eventResult.reason, "Events could not be loaded.") });
+      setReviewItems(reviewResult.status === "fulfilled" ? { data: { items: reviewResult.value.items, truncated: reviewResult.value.truncated }, error: null } : { data: null, error: failureMessage(reviewResult.reason, "Review items could not be loaded.") });
+      setSpeakers(speakerResult.status === "fulfilled" ? { data: speakerResult.value, error: null } : { data: null, error: failureMessage(speakerResult.reason, "The speaker roster could not be loaded.") });
+      setSpeakerEvents(handoffResult.status === "fulfilled" ? { data: handoffResult.value, error: null } : { data: null, error: failureMessage(handoffResult.reason, "Speaker handoffs could not be loaded.") });
+      setFeedback(feedbackResult.status === "fulfilled" ? { data: feedbackResult.value, error: null } : { data: null, error: failureMessage(feedbackResult.reason, "Feedback summary could not be loaded.") });
+      setAttendance(attendanceResult.status === "fulfilled" ? { data: attendanceResult.value, error: null } : { data: null, error: failureMessage(attendanceResult.reason, "Attendance summary could not be loaded.") });
+      setLoading(false);
     };
+    void load();
+    return () => { active = false; };
   }, [reloadToken, unitId]);
 
-  const {
-    metricsByName,
-    status: metricsStatus,
-    loadError: metricsLoadError,
-    metricsUnavailableReason,
-    openDrilldown,
-    drilldownOpen,
-    setDrilldownOpen,
-    drilldownLoading,
-    drilldownError,
-    drilldown,
-  } = useUnitMetrics(reloadToken);
-
-  const unavailableReason =
-    metricsStatus === "unavailable"
-      ? (metricsLoadError ?? metricsUnavailableReason)
-      : metricsStatus === "loading"
-        ? "Loading registered metrics…"
-        : "This metric is not present in the unit's register.";
-
-  /** Wraps one registered summary, or an explicit unknown when it is absent. */
-  function registeredMetric(
-    metricName: string,
-    fallback: (reason: string) => AccountableMetric,
-  ): { metric: AccountableMetric; summary: MetricSummary | undefined } {
+  const { metricsByName, status: metricsStatus, loadError: metricsLoadError, metricsUnavailableReason, openDrilldown, drilldownOpen, setDrilldownOpen, drilldownLoading, drilldownError, drilldown } = useUnitMetrics(reloadToken, unitId);
+  const metricFor = (metricName: string): AccountableMetric => {
     const summary = metricsByName[metricName];
-    if (!summary) {
-      return { metric: fallback(unavailableReason), summary: undefined };
-    }
-    return {
-      metric: accountableMetricFromSummary(summary, {
+    if (summary) return accountableMetricFromSummary(summary, { provenance: "observed", onOpenDrilldown: () => void openDrilldown(metricName) });
+    if (metricName !== OPPORTUNITIES_METRIC_NAME) {
+      return accountableDemoMetric(metricName, "This registered metric was not returned by the server.", null, {
         provenance: "observed",
-        onOpenDrilldown: () => {
-          void openDrilldown(metricName);
-        },
-      }),
-      summary,
-    };
-  }
-
-  const opportunities = registeredMetric(OPPORTUNITIES_METRIC_NAME, (reason) =>
-    unavailableOpportunitiesMetric(reason),
-  );
-  const memberInquiry = registeredMetric(MEMBER_INQUIRY_METRIC_NAME, (reason) =>
-    unavailablePipelineMetric(MEMBER_INQUIRY_METRIC_NAME, reason),
-  );
-
-  /** The card caption: the register's own definition, or why there is none. */
-  function caption(summary: MetricSummary | undefined, fallbackName: string): string {
-    if (!summary) {
-      return `Registered metric \`${fallbackName}\` — ${unavailableReason}`;
+        unknownReason: metricsStatus === "unavailable" ? metricsLoadError ?? metricsUnavailableReason : metricsStatus === "loading" ? "Loading registered metrics…" : `Registered metric \`${metricName}\` is not available.`,
+      });
     }
-    if (summary.value === null) {
-      return summary.unknown_reason ?? summary.definition;
-    }
-    return summary.definition;
-  }
+    return unavailableOpportunitiesMetric(metricsStatus === "unavailable" ? metricsLoadError ?? metricsUnavailableReason : metricsStatus === "loading" ? "Loading registered metrics…" : `Registered metric \`${metricName}\` is not available.`);
+  };
 
-  const demoProvenance = isMockData ? ("synthetic" as const) : ("observed" as const);
-  const calendarProvenance = calendarAvailable ? demoProvenance : ("synthetic" as const);
-  const assignmentProvenance = assignmentsAvailable ? demoProvenance : ("synthetic" as const);
-  const feedbackProvenance = feedbackAvailable ? demoProvenance : ("synthetic" as const);
+  const opportunities = metricFor(OPPORTUNITIES_METRIC_NAME);
+  const feedbackAvailable = feedback.data !== null;
+  const feedbackSummary = feedback.data;
+  const assignmentsAvailable = speakerEvents.data !== null;
+  const attendanceMetric = accountableDemoMetric("Recorded attendance", "Attendance evidence recorded for this authorized unit.", attendance.data?.total ?? null, { provenance: "observed", unknownReason: attendance.error ?? "Attendance data is unavailable." });
+  const averageFatigueMetric = accountableDemoMetric("Average speaker break need", "Recent assignment workload is not included in the speaker-event summary.", null, { provenance: "observed", unknownReason: "Not enough recent assignment data." });
+  const restRecommendedMetric = accountableDemoMetric("Break recommendations", "Break recommendations require recent assignment evidence.", null, { provenance: "observed", unknownReason: "Not enough recent assignment data." });
+  const feedbackAcceptanceMetric = accountableDemoMetric("Feedback responses", "The server provides the pooled feedback response count; it does not provide an acceptance rate.", feedbackSummary?.response_count ?? null, { provenance: "observed", unknownReason: feedback.error ?? "Feedback data is unavailable." });
 
-  const coveredCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status === "covered",
-  ).length;
-  const openCalendarCount = calendarEvents.filter(
-    (event) => event.coverage_status !== "covered",
-  ).length;
+  if (!unitId) return <UnknownPanel message="Choose an authorized unit to view the administrator dashboard." />;
+  if (loading) return <div className="mx-auto max-w-7xl space-y-6"><div className="h-10 w-48 animate-pulse rounded bg-gray-200" /><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /></div>;
 
-  const upcomingEventsMetric = accountableDemoMetric(
-    "Upcoming events",
-    "Scheduled windows returned by the calendar feed for this dataset.",
-    calendarAvailable ? calendarEvents.length : null,
-    {
-      provenance: calendarProvenance,
-      unknownReason: "The calendar feed is unavailable, so the number of windows is unknown.",
-    },
-  );
-  const coveredEventsMetric = accountableDemoMetric(
-    "Covered events",
-    "Calendar windows the feed reports as covered.",
-    calendarAvailable ? coveredCalendarCount : null,
-    {
-      provenance: calendarProvenance,
-      unknownReason: "The calendar feed is unavailable, so coverage is unknown.",
-    },
-  );
-  const openEventsMetric = accountableDemoMetric(
-    "Open events",
-    "Calendar windows the feed reports as not yet covered.",
-    calendarAvailable ? openCalendarCount : null,
-    {
-      provenance: calendarProvenance,
-      unknownReason: "The calendar feed is unavailable, so open windows are unknown.",
-    },
-  );
-  const coverageRateMetric = accountableDemoMetric(
-    "Coverage rate",
-    "Covered calendar windows divided by all calendar windows.",
-    calendarAvailable && calendarEvents.length > 0
-      ? coveredCalendarCount / calendarEvents.length
-      : null,
-    {
-      provenance: calendarProvenance,
-      unknownReason:
-        calendarAvailable && calendarEvents.length === 0
-          ? "No calendar windows yet, so there is no denominator for a coverage rate."
-          : "The calendar feed is unavailable, so the coverage rate is unknown.",
-    },
-  );
-
-  const knownFatigueAssignments = calendarAssignments
-    .map((assignment) => assignment.volunteer_fatigue)
-    .filter((value): value is number => value !== null);
-  const averageFatigueMetric = accountableDemoMetric(
-    "Average speaker break need",
-    "Average workload indicator from recent speaker assignments.",
-    assignmentsAvailable && knownFatigueAssignments.length > 0
-      ? knownFatigueAssignments.reduce((sum, value) => sum + value, 0) /
-          knownFatigueAssignments.length
-      : null,
-    {
-      provenance: assignmentProvenance,
-      unknownReason:
-        assignmentsAvailable && calendarAssignments.length === 0
-          ? "No recent speaker assignments were recorded."
-          : assignmentsAvailable
-            ? "Not enough recent assignment data."
-            : "Assignment overlays are unavailable.",
-    },
-  );
-  const restRecommendedMetric = accountableDemoMetric(
-    "Rest recommended count",
-    "Speakers who should rest before another event.",
-    assignmentsAvailable
-      ? calendarAssignments.filter(
-          (assignment) => assignment.recovery_status === "Rest Recommended",
-        ).length
-      : null,
-    {
-      provenance: assignmentProvenance,
-      unknownReason: "Assignment overlays are unavailable.",
-    },
-  );
-
-  const feedbackRowsMetric = accountableDemoMetric(
-    "Feedback rows",
-    "Event Host accept/decline submissions captured for matching review.",
-    feedbackAvailable ? feedbackStats.total_feedback : null,
-    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
-  );
-  const feedbackAcceptanceMetric = accountableDemoMetric(
-    "Feedback acceptance rate",
-    "Accepted decisions divided by all Event Host feedback rows.",
-    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
-      ? feedbackStats.acceptance_rate
-      : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason:
-        feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No Event Host feedback submitted yet, so there is no rate to report."
-          : "Feedback optimizer stats are unavailable.",
-    },
-  );
-  const feedbackPainMetric = accountableDemoMetric(
-    "Matcher pain score",
-    "How much correction pressure the matcher is under from recent feedback.",
-    feedbackAvailable ? feedbackStats.pain_score : null,
-    { provenance: feedbackProvenance, unknownReason: "Feedback optimizer stats are unavailable." },
-  );
-  const feedbackMembershipMetric = accountableDemoMetric(
-    "Membership interest rate",
-    "Follow-through information attributed to Event Host feedback.",
-    feedbackAvailable && feedbackStats.total_feedback !== null && feedbackStats.total_feedback > 0
-      ? feedbackStats.membership_interest_rate
-      : null,
-    {
-      provenance: feedbackProvenance,
-      unknownReason:
-        feedbackAvailable && feedbackStats.total_feedback === 0
-          ? "No Event Host feedback submitted yet, so there is no rate to report."
-          : "Feedback optimizer stats are unavailable.",
-    },
-  );
-
-  const reachTrend = calendarReach(calendarEvents);
-  const leadAdjustment = feedbackAvailable
-    ? (feedbackStats.recommended_adjustments[0] ?? null)
-    : null;
-  const regionalPulse = buildRegionalPulse(calendarEvents, calendarAssignments);
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="h-10 w-48 animate-pulse rounded bg-gray-200" />
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div
-              key={index}
-              className="h-36 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-sm"
-            />
-          ))}
-        </div>
-        <div className="h-80 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-sm" />
-      </div>
-    );
-  }
-
-  const header = (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold text-gray-900">
-          Dashboard{isMockData && <DemoModeBadge />}
-        </h1>
-        <p className="mt-1 text-gray-600">
-          Opportunity and pipeline numbers come from the registered metrics API; coverage and
-          feedback sections report what their own feed returned.
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button asChild size="sm">
-          <Link to="/events">Create event</Link>
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setReloadToken((token) => token + 1)}
-          aria-label="Reload dashboard data"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
-    </div>
-  );
-
-  if (loadFailed) {
-    return (
-      <div className="mx-auto max-w-7xl space-y-6">
-        {header}
-        <FailureState
-          title="The dashboard could not be loaded"
-          message={error ?? "Failed to load dashboard data."}
-          onRetry={() => setReloadToken((token) => token + 1)}
-        />
-      </div>
-    );
-  }
+  const publishedEvents = events.data?.data.filter((event) => event.status === "published") ?? [];
+  const errors = [events, reviewItems, speakers, speakerEvents, feedback, attendance].map((result) => result.error).filter((message): message is string => Boolean(message));
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {header}
-
-      {metricsStatus === "unavailable" ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <p className="text-sm font-semibold text-amber-900">
-            Registered metrics could not be read
-          </p>
-          <p className="mt-1 text-sm text-amber-800">{unavailableReason}</p>
-          <p className="mt-2 text-sm text-amber-800">
-            Opportunity and pipeline values stay unknown. Unknown is not zero, and this dashboard
-            will not fall back to a locally merged number.
-          </p>
-        </div>
-      ) : null}
-
-      {error ? (
-        <FailureState
-          title="Some dashboard data is unavailable"
-          message={error}
-          onRetry={() => setReloadToken((token) => token + 1)}
-        />
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard
-          title="Opportunities"
-          value={
-            <AccountableValue
-              metric={opportunities.metric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
-          changeType="neutral"
-          icon={Briefcase}
-          iconColor="bg-[#e8f2d8] text-[#005030]"
-        />
-        <MetricCard
-          title="Member Inquiry"
-          value={
-            <AccountableValue
-              metric={memberInquiry.metric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
-          changeType="neutral"
-          icon={TrendingUp}
-          iconColor="bg-[#e8f2d8] text-[#005030]"
-        />
-        <MetricCard
-          title="Upcoming Events"
-          value={
-            <AccountableValue
-              metric={upcomingEventsMetric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change="Calendar dataset"
-          changeType="neutral"
-          icon={CalendarDays}
-          iconColor="bg-[#e8f2d8] text-[#005030]"
-          href="/calendar"
-        />
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Pipeline funnel</h2>
-        <PipelineFunnelTiles reloadToken={reloadToken} />
-        <p className="mt-3 text-sm text-gray-600">
-          These are the same registered names the Pipeline page subscribes to, so the two surfaces
-          cannot show different numbers for the same metric.
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-[#005030]" />
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Speaker breaks and event coverage</h3>
-              <p className="text-sm text-gray-600">
-                A compact view of event coverage and volunteers needing to recover.
-              </p>
-            </div>
-          </div>
-          <Link
-            to="/calendar"
-            className="shrink-0 text-xs font-medium text-[#005030] hover:underline"
-          >
-            View calendar →
-          </Link>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Covered Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={coveredEventsMetric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              <AccountableValue
-                metric={coverageRateMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}% covered`}
-              />
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Open Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={openEventsMetric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">Still need speaker coverage</p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Average break need</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={averageFatigueMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue metric={restRecommendedMetric} />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">Speakers who may need a break</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <MessageSquareHeart className="h-5 w-5 text-[#005030]" />
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Event Host feedback on matches</h3>
-              <p className="text-sm text-gray-600">
-                Coordinator feedback drives a bounded weight snapshot and pain-score trend.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="rounded-full border border-[#d9cbc4] bg-[#f8f6f1] px-3 py-1 text-xs font-medium text-[#005030]">
-              <AccountableValue
-                metric={feedbackRowsMetric}
-                formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
-              />
-            </div>
-            <Link to="/ai-matching" className="text-xs font-medium text-[#005030] hover:underline">
-              View matches →
-            </Link>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackAcceptanceMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable &&
-              feedbackStats.accepted !== null &&
-              feedbackStats.declined !== null
-                ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
-                : "Event Host feedback breakdown unavailable."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackPainMetric}
-                formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              A lower score indicates a healthier matching loop.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackMembershipMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable && feedbackStats.membership_interest_count !== null
-                ? `${feedbackStats.membership_interest_count} people showed interest in membership afterward.`
-                : "Membership interest information is unavailable."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
-            <p className="mt-2 text-lg font-semibold text-gray-900">
-              {leadAdjustment
-                ? formatFactorName(leadAdjustment.factor)
-                : feedbackAvailable
-                  ? "No adjustment yet"
-                  : "Unknown"}
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {leadAdjustment
-                ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
-                : feedbackAvailable
-                  ? "Collect more Event Host outcomes to support recommendations."
-                  : "Feedback optimizer stats are unavailable."}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_0.95fr]">
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
-            {feedbackStats.trend.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
-                {feedbackAvailable
-                  ? "Trend data will appear once Event Hosts submit feedback."
-                  : "Feedback optimizer stats are unavailable."}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart
-                  data={feedbackStats.trend.map((point) => ({
-                    ...point,
-                    acceptance_percent: Math.round(point.acceptance_rate * 100),
-                  }))}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-                  <XAxis dataKey="date" tick={{ fill: "#59665f", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="acceptance_percent"
-                    stroke="#005030"
-                    strokeWidth={3}
-                    name="Acceptance %"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-[#005030]" />
-              <h4 className="font-semibold text-gray-900">Recommended weight shifts</h4>
-            </div>
-            <div className="space-y-3">
-              {feedbackStats.recommended_adjustments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-white p-6 text-sm text-gray-600">
-                  {feedbackAvailable
-                    ? "No weight changes yet. More Event Host feedback is needed."
-                    : "Feedback optimizer stats are unavailable."}
-                </div>
-              ) : (
-                feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
-                  <div
-                    key={adjustment.factor}
-                    className="rounded-2xl border border-[#d9cbc4] bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-semibold text-gray-900">
-                        {formatFactorName(adjustment.factor)}
-                      </p>
-                      <span className="text-sm font-semibold text-[#005030]">
-                        {adjustment.delta > 0 ? "+" : ""}
-                        {(adjustment.delta * 100).toFixed(1)} pts
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-gray-600">{adjustment.rationale}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <MapPinned className="h-5 w-5 text-[#005030]" />
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005030]/70">
-                  Regional coverage pulse
-                </p>
-              </div>
-              <h3 className="mt-2 text-xl font-semibold text-gray-900">
-                Coordinator coverage pulse
-              </h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Calendar coverage and volunteer assignments, grouped by region.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {regionalPulse.length ? (
-              regionalPulse.map((region) => (
-                <div
-                  key={region.region}
-                  className="rounded-2xl border border-[#d9cbc4] bg-[linear-gradient(180deg,#fffefa_0%,#edf5f0_100%)] p-5 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold text-gray-900">{region.region}</p>
-                      <p className="mt-1 text-sm text-gray-600">{region.detail}</p>
-                    </div>
-                    <span className="rounded-full border border-[#d9cbc4] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005030]">
-                      {region.coveragePercent === null
-                        ? "Coverage unknown"
-                        : `${region.coveragePercent}% covered`}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#59665f]">
-                      <span>Coverage</span>
-                      <span>
-                        {region.coveredCount}/{region.eventCount} windows
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-white/80">
-                      <div
-                        className="h-2 rounded-full bg-[#005030]"
-                        style={{ width: `${region.coveragePercent ?? 0}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
-                        Open windows
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
-                        Workload
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.workloadPercent}%
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
-                        Overlay rows
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.assignmentCount}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#59665f]">
-                        Member inquiry
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        <MetricValueDisplay
-                          value={unknownValue(REGION_MEMBER_INQUIRY_UNKNOWN_REASON)}
-                        />
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600 lg:col-span-2">
-                Regional coverage summaries appear once live calendar and overlay data are
-                available.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900">Upcoming events</h3>
-              <p className="text-sm text-gray-600">Published events created by your team.</p>
-            </div>
-            <Link to="/events" className="text-sm font-semibold text-[#005030] hover:underline">
-              Manage events
-            </Link>
-          </div>
-          <div className="mt-6 space-y-3">
-            {manualEvents.length ? manualEvents.slice(0, 4).map((event) => (
-              <div key={event.id} className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="font-semibold text-gray-900">{event.title}</p>
-                  <span className="rounded-full bg-[#e8f2d8] px-2.5 py-1 text-xs font-semibold text-[#005030]">
-                    {event.volunteer_openings === null ? "Staffing not set" : `${event.volunteer_openings} openings`}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-gray-600">{formatEventWhen(event)}</p>
-                <p className="mt-1 text-sm text-gray-600">{event.location ?? "Location not set"}</p>
-              </div>
-            )) : (
-              <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-6 text-sm text-gray-600">
-                No published events yet. Create an event, complete its details, and publish it when it is ready for coordinators.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Calendar Reach Trend</h3>
-        {reachTrend.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-sm text-gray-600">
-            No calendar windows in the current feed, so there is no reach trend to plot.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={reachTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-              <XAxis dataKey="month" tick={{ fill: "#59665f", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#59665f", fontSize: 12 }} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="windows"
-                stroke="#005030"
-                strokeWidth={3}
-                name="IA windows"
-              />
-              <Line
-                type="monotone"
-                dataKey="covered"
-                stroke="#56a4e4"
-                strokeWidth={3}
-                name="Covered windows"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      <div className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[#005030]" />
-          <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
-        </div>
-
-        <div className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-center text-gray-600">
-          <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
-          <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
-          <p className="mt-2 text-sm leading-6">
-            Ranked recommendations and match scores stay off this dashboard until gate G1 closes.
-          </p>
-        </div>
-      </div>
-
-      <MetricDrilldownSheet
-        open={drilldownOpen}
-        onOpenChange={setDrilldownOpen}
-        loading={drilldownLoading}
-        drilldown={drilldown}
-        error={drilldownError}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1><p className="mt-1 text-gray-600">Live operational information for your authorized unit.</p></div><div className="flex items-center gap-2"><Button asChild size="sm"><Link to="/events">Create event</Link></Button><Button variant="outline" size="sm" onClick={() => setReloadToken((value) => value + 1)} aria-label="Reload dashboard data"><RefreshCw className="h-4 w-4" />Refresh</Button></div></div>
+      {errors.length ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4" />Some dashboard sections are unavailable. Values below remain unknown where the API did not provide evidence.</div> : null}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4"><MetricCard title="Speaker requests" value={<AccountableValue metric={opportunities} />} icon={ClipboardCheck} href="/events" /><MetricCard title="Events returned" value={events.data ? events.data.total.toLocaleString("en-US") : <AccountableValue metric={accountableDemoMetric("Events returned", "Events returned by the server.", null, { provenance: "observed", unknownReason: events.error ?? "Events are unavailable." })} />} icon={CalendarDays} href="/events" /><MetricCard title="Available speakers" value={speakers.data ? speakers.data.total.toLocaleString("en-US") : <AccountableValue metric={accountableDemoMetric("Available speakers", "Speaker roster total returned by the server.", null, { provenance: "observed", unknownReason: speakers.error ?? "The speaker roster is unavailable." })} />} icon={Users} href="/volunteers" /><MetricCard title="Recorded attendance" value={<AccountableValue metric={attendanceMetric} />} icon={ClipboardCheck} /></div>
+      {metricsStatus === "unavailable" ? <UnknownPanel message={metricsLoadError ?? metricsUnavailableReason} /> : null}
+      <section><h2 className="mb-3 text-lg font-semibold text-gray-900">Pipeline funnel</h2><PipelineFunnelTiles reloadToken={reloadToken} unitId={unitId} /></section>
+      <section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-xl font-semibold text-gray-900">Upcoming events</h2><p className="mt-1 text-sm text-gray-600">Published events created by your team.</p><div className="mt-5 space-y-3">{publishedEvents.length ? publishedEvents.slice(0, 5).map((event) => <div key={event.id} className="rounded-2xl border border-[#d9cbc4] bg-[#f8f6f1] p-4"><p className="font-semibold text-gray-900">{event.title}</p><p className="mt-1 text-sm text-gray-600">{formatEventWhen(event)}</p><p className="mt-1 text-sm text-gray-600">{event.location ?? "Location not set"}</p></div>) : <UnknownPanel message={events.error ?? "No published events have been returned by the server."} />}</div></section>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2"><section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-xl font-semibold text-gray-900">Speaker roster</h2><p className="mt-1 text-sm text-gray-600">Connector-managed speakers available to this unit.</p>{speakers.data?.data.length ? <div className="mt-5 space-y-2">{speakers.data.data.slice(0, 5).map((speaker) => <div key={speaker.id} className="rounded-xl border border-[#d9cbc4] bg-[#f8f6f1] p-3"><p className="font-semibold">{speaker.name}</p><p className="text-sm text-gray-600">{[speaker.title, speaker.company].filter(Boolean).join(" · ") || "Details not provided"}</p></div>)}</div> : <div className="mt-5"><UnknownPanel message={speakers.error ?? "No speaker roster rows have been returned."} /></div>}</section><section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-xl font-semibold text-gray-900">Speaker handoffs</h2><p className="mt-1 text-sm text-gray-600">Invitation tracking stays in Smart Match; email is handled outside the platform.</p>{speakerEvents.data?.length ? <div className="mt-5 space-y-2">{speakerEvents.data.slice(0, 5).map((record) => <div key={record.id} className="rounded-xl border border-[#d9cbc4] bg-[#f8f6f1] p-3"><div className="flex justify-between gap-3"><p className="font-semibold">{record.speaker_name}</p><span className="text-xs font-medium text-[#005030]">{record.status.replace(/_/g, " ")}</span></div><p className="text-sm text-gray-600">{record.event_title}</p></div>)}</div> : <div className="mt-5"><UnknownPanel message={speakerEvents.error ?? "No speaker handoffs have been returned."} /></div>}</section></div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3"><section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-lg font-semibold">Review queue</h2><p className="mt-1 text-sm text-gray-600">Pending records awaiting an administrative decision.</p><div className="mt-5"><AccountableValue metric={metricFor("pending_review_items")} />{reviewItems.data ? <p className="mt-2 text-sm text-gray-600">Review data loaded from the server{reviewItems.data.truncated ? "; more records are available." : "."}</p> : <p className="mt-2 text-sm text-gray-600">{reviewItems.error ?? "Review data is unavailable."}</p>}</div></section><section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-lg font-semibold">Student feedback</h2><p className="mt-1 text-sm text-gray-600">Feedback does not feed matching.</p><div className="mt-5"><AccountableValue metric={feedbackAcceptanceMetric} />{feedbackSummary && feedbackSummary.mean_rating !== null ? <p className="mt-2 text-sm text-gray-600">Average rating: {feedbackSummary.mean_rating}</p> : null}</div></section><section className="rounded-2xl border border-[#d9cbc4] bg-white p-6 shadow-sm"><h2 className="text-lg font-semibold">Speaker break need</h2><p className="mt-1 text-sm text-gray-600">Higher workload may mean a speaker needs a break.</p><div className="mt-5 space-y-3"><AccountableValue metric={averageFatigueMetric} /><AccountableValue metric={restRecommendedMetric} /><p className="text-xs text-gray-500">{assignmentsAvailable ? "Recent assignment evidence is not included in the speaker-event response." : "Not enough recent assignment data."}</p></div></section></div>
+      <section className="rounded-2xl border border-dashed border-[#d9cbc4] bg-[#f8f6f1] p-8 text-center text-gray-600"><p className="font-semibold text-gray-900">Matching unavailable</p><p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p></section>
+      <MetricDrilldownSheet open={drilldownOpen} onOpenChange={setDrilldownOpen} loading={drilldownLoading} drilldown={drilldown} error={drilldownError} />
     </div>
   );
 }
