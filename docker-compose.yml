@@ -422,6 +422,16 @@ services:
       dockerfile: Dockerfile.api
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      # Connection-pool sizing (smartmatch_persistence/engine.py). Passed
+      # through empty by default, which the engine reads as "unset" and answers
+      # with its own defaults (20 + 10) — the numbers this appliance is sized
+      # for. They are exposed here so the pool can be retuned on a running VM
+      # without rebuilding an image, and so the budget against `db`'s default
+      # `max_connections = 100` is visible in the file that decides how many
+      # processes share it: (20 + 10) api + (20 + 10) worker = 60.
+      SMARTMATCH_DB_POOL_SIZE: ${SMARTMATCH_DB_POOL_SIZE:-}
+      SMARTMATCH_DB_MAX_OVERFLOW: ${SMARTMATCH_DB_MAX_OVERFLOW:-}
+      SMARTMATCH_DB_POOL_TIMEOUT: ${SMARTMATCH_DB_POOL_TIMEOUT:-}
       # The release string /api/health reports. It is a variable rather than a
       # literal so that a deployment can set it to the git SHA it just checked
       # out — which is what makes "is the running container the code I
@@ -478,6 +488,11 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      # See the api service above: empty means the engine's own defaults, and
+      # the worker's share of `db`'s max_connections is counted there.
+      SMARTMATCH_DB_POOL_SIZE: ${SMARTMATCH_DB_POOL_SIZE:-}
+      SMARTMATCH_DB_MAX_OVERFLOW: ${SMARTMATCH_DB_MAX_OVERFLOW:-}
+      SMARTMATCH_DB_POOL_TIMEOUT: ${SMARTMATCH_DB_POOL_TIMEOUT:-}
       SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       PORT: "8080"
       # SMARTMATCH_COLUMN_CONTRACT_PATH is deliberately NOT set here. The image
