@@ -192,6 +192,16 @@ jobs:
           echo "CLOUDSDK_AUTH_ACCESS_TOKEN=${impersonated}" >> "$GITHUB_ENV"
           echo "CLOUDSDK_CORE_PROJECT=${GCP_PROJECT_ID}" >> "$GITHUB_ENV"
           echo "CLOUDSDK_COMPUTE_ZONE=${GCP_ZONE}" >> "$GITHUB_ENV"
+          # A bare access token says nothing about WHO it belongs to. Without
+          # core/account, `gcloud compute ssh` cannot work out which OS Login
+          # profile to use and fails with:
+          #   [None] does not have permission to access users instance [None]
+          #   ... Request for user [None] does not match the credential for
+          #   [<service account>]
+          # which reads like an IAM problem but is really a missing identity
+          # hint. This is not a secret — it is the same address already echoed
+          # below and stored as a plain environment variable.
+          echo "CLOUDSDK_CORE_ACCOUNT=${DEPLOY_SERVICE_ACCOUNT}" >> "$GITHUB_ENV"
           echo "authenticated as ${DEPLOY_SERVICE_ACCOUNT}"
 
       - name: Deploy over IAP
