@@ -180,7 +180,7 @@ function ContactRow({
         <button
           type="button"
           onClick={() => setOpen((previous) => !previous)}
-          className="rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium"
+          className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {open ? "Cancel" : "Correct classification"}
         </button>
@@ -215,7 +215,7 @@ function ContactRow({
             type="button"
             disabled={correcting || unchanged}
             onClick={() => onCorrect(contact.professional_id, industry, role)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {correcting ? "Saving…" : "Save correction"}
           </button>
@@ -491,7 +491,7 @@ export function CoordinatorSpeakerContacts() {
               <button
                 type="submit"
                 disabled={submitting || blockingReason !== null}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {submitting ? "Adding…" : "Add contact"}
               </button>

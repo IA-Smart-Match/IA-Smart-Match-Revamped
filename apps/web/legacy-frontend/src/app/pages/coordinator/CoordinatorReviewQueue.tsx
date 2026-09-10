@@ -172,7 +172,7 @@ function ReviewItemCard({
             type="button"
             disabled={busy}
             onClick={() => onDecide(item, "accepted")}
-            className="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Accept
           </button>
@@ -180,7 +180,7 @@ function ReviewItemCard({
             type="button"
             disabled={busy}
             onClick={() => onDecide(item, "rejected")}
-            className="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Reject
           </button>
@@ -305,8 +305,8 @@ export function CoordinatorReviewQueue() {
             }}
             className={
               tab.value === status
-                ? "rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground"
-                : "rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground"
+                ? "min-h-11 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                : "min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             }
           >
             {tab.label}

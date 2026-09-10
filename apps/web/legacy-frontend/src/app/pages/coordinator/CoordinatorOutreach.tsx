@@ -260,7 +260,7 @@ function InvitationOutcomeRow({
             <button
               key={verb}
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs font-medium"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onClick={() => onRecord(outcome.invitation_id, verb)}
             >
               <UserCheck className="h-3 w-3" aria-hidden />
@@ -333,7 +333,7 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium"
+                className="min-h-11 shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={() => {
                   void invitations.openBatchById(summary.batch_id);
                 }}
@@ -362,7 +362,7 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
             </div>
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               disabled={invitations.dispatchState === "submitting"}
               onClick={() => {
                 void invitations.dispatchBatch(batch.batch_id);
@@ -672,7 +672,7 @@ export function CoordinatorOutreach() {
 
                 <button
                   type="button"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                  className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   // Disabled for an unapproved draft, because the server would
                   // refuse it with a 409 — offering a button that cannot work
                   // is the shape this page exists to stop.
