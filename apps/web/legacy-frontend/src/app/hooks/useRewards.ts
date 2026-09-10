@@ -20,6 +20,30 @@
  * and the specific defect the deleted call sites had, where an unloaded profile
  * rendered as "0 points".
  *
+ * ## The unit this reads, and why it is a parameter
+ *
+ * `unitId` is an argument — `PortalDescriptor.default_unit_id` out of
+ * `GET /v1/me/portals`, passed in by the page that holds the grant — for
+ * {@link useOutreach}'s reasons, and for one extra that is specific to this
+ * hook. It used to call `getConfiguredUnitId()`, the `VITE_SMARTMATCH_UNIT_ID`
+ * build variable, which is unset on the classroom VM and so put the whole
+ * rewards page into `"unavailable"` without asking the server for a catalog
+ * that exists.
+ *
+ * The extra reason not to call `usePortalAccess()` in here instead: this hook's
+ * caller is `StudentRewards`, inside the **student** portal, while
+ * {@link useOutreach}'s caller is inside the coordinator one. A `PortalKind`
+ * resolved inside the hook would have to be one of them, and would be the wrong
+ * constant for the other — trading the build-variable coupling for a
+ * portal-kind coupling rather than removing it. The page knows which portal it
+ * is; the hook does not need to.
+ *
+ * `unitId === null` is `"idle"` — one of the four states already named above —
+ * with no `loadError`. It is not `"unavailable"`: no unit means nothing was
+ * asked for, which is not the same as something having failed. Whether the null
+ * is "still resolving" or "the grant carries no unit" is the caller's fact; see
+ * {@link REWARDS_NO_UNIT_REASON}.
+ *
  * ## No filtering happens here
  *
  * `catalog.items` is rendered as received. The unfunded and unowned items were
@@ -34,7 +58,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchOwnRedemptions,
   fetchRewardCatalog,
-  getConfiguredUnitId,
   hasSmartmatchAuth,
   requestRedemption,
   type Redemption,
@@ -43,8 +66,29 @@ import {
 
 export type RewardsStatus = "idle" | "loading" | "ready" | "unavailable";
 
+/**
+ * Why the catalog could not be read at all: no API credential in this browser.
+ *
+ * The build-variable half of the sentence this replaced is gone. A student
+ * cannot set `VITE_SMARTMATCH_UNIT_ID` and cannot rebuild the bundle, so naming
+ * it told them nothing they could use; signing in again is something they can
+ * do. `hasSmartmatchAuth()` is satisfied by the session token `LoginPage`
+ * stores, so a signed-in student does not see this.
+ */
 export const REWARDS_UNAVAILABLE_REASON =
-  "The rewards catalog requires VITE_SMARTMATCH_UNIT_ID and a bearer token (VITE_SMARTMATCH_BEARER_TOKEN or session storage).";
+  "The rewards catalog could not be read: this browser is not holding a credential for the API. Sign in again.";
+
+/**
+ * Why there is no catalog even though everything is working: the portal the
+ * server granted carries no unit.
+ *
+ * A rewards catalog is a unit's funded rows, so with no unit there is no
+ * catalog to be empty *or* full — which is why this is its own sentence and not
+ * an empty shelf. Rendering "no rewards" here would be exactly the ADR-0011
+ * mistake this hook's docstring opens with, one level up.
+ */
+export const REWARDS_NO_UNIT_REASON =
+  "The portal the server granted this account carries no unit, so there is no rewards catalog to read. Ask your program administrator to attach a unit to your membership.";
 
 export interface UseRewardsResult {
   unitId: string | null;
@@ -67,23 +111,39 @@ export interface UseRewardsResult {
  * on the same item — so guessing would sometimes render a ticket that does not
  * exist, and the balance behind it is only correct after a real read anyway.
  */
-export function useRewards(): UseRewardsResult {
-  const unitId = getConfiguredUnitId();
+/**
+ * @param unitId The unit the server granted this account
+ *   (`grantedPortal(...)?.default_unit_id ?? null`), or `null` while the
+ *   mapping is unresolved or the grant carries none. Never a browser-composed
+ *   identifier and never a build variable — see the module docstring.
+ */
+export function useRewards(unitId: string | null): UseRewardsResult {
   const authConfigured = hasSmartmatchAuth();
-  const enabled = Boolean(unitId) && authConfigured;
+  // No unit is not a failure, so it does not start in `"unavailable"`.
+  const unresolved = unitId === null;
+  const enabled = !unresolved && authConfigured;
 
-  const [status, setStatus] = useState<RewardsStatus>(enabled ? "loading" : "unavailable");
+  const [status, setStatus] = useState<RewardsStatus>(
+    enabled ? "loading" : unresolved ? "idle" : "unavailable",
+  );
   const [catalog, setCatalog] = useState<RewardCatalogResponse | null>(null);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [loadError, setLoadError] = useState<string | null>(
-    enabled ? null : REWARDS_UNAVAILABLE_REASON,
+    enabled || unresolved ? null : REWARDS_UNAVAILABLE_REASON,
   );
   const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(() => new Set());
   const [requestError, setRequestError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    if (!enabled || !unitId) {
+    if (unitId === null) {
+      // Nothing to ask for, and no claim to make about what is funded. The
+      // caller owns the difference between "still resolving" and "no unit".
+      setStatus("idle");
+      setLoadError(null);
+      return;
+    }
+    if (!enabled) {
       setStatus("unavailable");
       setLoadError(REWARDS_UNAVAILABLE_REASON);
       return;

@@ -23,10 +23,10 @@
  *    `CoordinatorEvents.tsx` is the page for it; the panel below summarises
  *    only what that response says about its own completeness and links there;
  *  - **outreach** is `GET /v1/units/{unit_id}/outreach/drafts` and
- *    `.../outreach/sends`. Both are read here against the *granted* unit —
- *    `useOutreach` scopes itself by the build variable, which is the wrong unit
- *    for a Connector for the reason the next section gives about
- *    `Dashboard.tsx`.
+ *    `.../outreach/sends`. Both are read here against the *granted* unit,
+ *    which is now the only unit any outreach surface reads — `useOutreach`
+ *    takes it as an argument rather than looking up the build variable, so the
+ *    divergence this note used to warn about is closed at its source.
  *
  * Two labels did not survive being wired up, and that is the point rather than
  * a casualty of it.
@@ -668,11 +668,12 @@ function describeSendState(send: OutreachSendSummary): string {
  *
  * Two reads, `GET /v1/units/{unit_id}/outreach/drafts` and
  * `.../outreach/sends`, both scoped to the unit the server *granted this
- * account* rather than to `VITE_SMARTMATCH_UNIT_ID`. `useOutreach` reads the
- * build variable, which is why this panel calls the helpers directly: on a
- * multi-unit pilot the two are different units, and a Connector's dashboard
- * showing another unit's outreach would be attributing one unit's messages to
- * another.
+ * account* rather than to `VITE_SMARTMATCH_UNIT_ID`. This panel calls the
+ * helpers directly because it composes them with the rest of the dashboard's
+ * `Loaded<T>` reads, not because `useOutreach` would answer about a different
+ * unit: that hook now takes the granted unit as an argument, and
+ * `CoordinatorOutreach.tsx` passes it the same `default_unit_id` this page
+ * uses.
  *
  * No count is rendered. Neither response carries a total — `limit` and `offset`
  * are what was asked for, not what exists — so a number here would be a count

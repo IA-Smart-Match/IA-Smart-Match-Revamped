@@ -30,6 +30,19 @@
  * consumer that cannot tell "we have not heard" from "we heard nothing happened"
  * will eventually render one as the other (ADR-0011).
  *
+ * ## The unit this reads, and why it is a parameter
+ *
+ * `unitId` is an argument, exactly as in {@link useOutreach}, and for that
+ * hook's reasons in full: it is `PortalDescriptor.default_unit_id` out of
+ * `GET /v1/me/portals`, passed in by the page that holds the grant. It used to
+ * be `getConfiguredUnitId()` — the `VITE_SMARTMATCH_UNIT_ID` build variable —
+ * which on the classroom VM is unset, so this hook reported "unavailable"
+ * without asking the server about batches that exist.
+ *
+ * `unitId === null` is `"idle"` with no `loadError`, not `"unavailable"`.
+ * Whether the null is "the mapping is still in flight" or "the grant carries no
+ * unit" is the caller's fact — see {@link INVITATIONS_NO_UNIT_REASON}.
+ *
  * ## No polling
  *
  * `openBatchById` is called by the page, not by a timer — {@link useOutreach}'s
@@ -42,7 +55,6 @@ import {
   dispatchSpeakerInvitationBatch,
   fetchSpeakerInvitationBatch,
   fetchSpeakerInvitationBatches,
-  getConfiguredUnitId,
   hasSmartmatchAuth,
   recordSpeakerInvitationResponse,
   type SpeakerInvitationBatch,
@@ -55,8 +67,27 @@ export type InvitationsStatus = "idle" | "loading" | "ready" | "unavailable";
 /** How far a dispatch has got, as the browser is entitled to say. */
 export type DispatchState = "idle" | "submitting" | "submitted" | "failed";
 
+/**
+ * Why the batches could not be read at all: no API credential in this browser.
+ *
+ * {@link useOutreach}'s `OUTREACH_UNAVAILABLE_REASON`, in this hook's subject.
+ * The build-variable half of the condition this replaced is gone, because a
+ * Connector cannot act on the name of a variable baked into a bundle.
+ */
 export const INVITATIONS_UNAVAILABLE_REASON =
-  "Speaker invitations require VITE_SMARTMATCH_UNIT_ID and a bearer token (VITE_SMARTMATCH_BEARER_TOKEN or session storage).";
+  "Speaker invitations could not be read: this browser is not holding a credential for the API. Sign in again.";
+
+/**
+ * Why there are no batches to read even though everything is working: the
+ * portal the server granted carries no unit.
+ *
+ * A resolved, honest state a Connector can act on, and deliberately not the
+ * same sentence as {@link INVITATIONS_UNAVAILABLE_REASON} — a credential
+ * failure and an unattached membership are different facts with different
+ * remedies.
+ */
+export const INVITATIONS_NO_UNIT_REASON =
+  "The portal the server granted this account carries no unit, so there are no invitation batches to read. Ask your program administrator to attach a unit to your membership.";
 
 export interface UseSpeakerInvitationsResult {
   unitId: string | null;
@@ -86,14 +117,23 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The request failed.";
 }
 
-export function useSpeakerInvitations(): UseSpeakerInvitationsResult {
-  const unitId = getConfiguredUnitId();
-  const enabled = Boolean(unitId) && hasSmartmatchAuth();
+/**
+ * @param unitId The unit the server granted this account
+ *   (`grantedPortal(...)?.default_unit_id ?? null`), or `null` while the
+ *   mapping is unresolved or the grant carries none. Never a browser-composed
+ *   identifier and never a build variable — see the module docstring.
+ */
+export function useSpeakerInvitations(unitId: string | null): UseSpeakerInvitationsResult {
+  // No unit is not a failure, so it does not start in `"unavailable"`.
+  const unresolved = unitId === null;
+  const enabled = !unresolved && hasSmartmatchAuth();
 
-  const [status, setStatus] = useState<InvitationsStatus>(enabled ? "loading" : "unavailable");
+  const [status, setStatus] = useState<InvitationsStatus>(
+    enabled ? "loading" : unresolved ? "idle" : "unavailable",
+  );
   const [batches, setBatches] = useState<SpeakerInvitationBatchSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(
-    enabled ? null : INVITATIONS_UNAVAILABLE_REASON,
+    enabled || unresolved ? null : INVITATIONS_UNAVAILABLE_REASON,
   );
   const [openBatch, setOpenBatch] = useState<SpeakerInvitationBatch | null>(null);
   const [openBatchError, setOpenBatchError] = useState<string | null>(null);
@@ -102,7 +142,14 @@ export function useSpeakerInvitations(): UseSpeakerInvitationsResult {
   const [lastDispatch, setLastDispatch] = useState<SpeakerInvitationDispatchResponse | null>(null);
 
   useEffect(() => {
-    if (!enabled || !unitId) {
+    if (unitId === null) {
+      // Nothing to ask for, and no claim to make about what exists. The caller
+      // owns the difference between "still resolving" and "no unit granted".
+      setStatus("idle");
+      setLoadError(null);
+      return;
+    }
+    if (!enabled) {
       setStatus("unavailable");
       setLoadError(INVITATIONS_UNAVAILABLE_REASON);
       return;

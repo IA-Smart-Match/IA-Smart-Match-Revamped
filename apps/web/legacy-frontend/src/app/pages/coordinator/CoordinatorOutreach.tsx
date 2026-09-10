@@ -64,9 +64,16 @@ import {
   type SpeakerInvitationOutcome,
 } from "../../../lib/api";
 import { grantedPortal } from "../../components/PortalGate";
-import { OUTREACH_UNAVAILABLE_REASON, useOutreach, type QueuedSend } from "../../hooks/useOutreach";
+import {
+  OUTREACH_NO_UNIT_REASON,
+  useOutreach,
+  type QueuedSend,
+} from "../../hooks/useOutreach";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
-import { useSpeakerInvitations } from "../../hooks/useSpeakerInvitations";
+import {
+  INVITATIONS_NO_UNIT_REASON,
+  useSpeakerInvitations,
+} from "../../hooks/useSpeakerInvitations";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 
 /**
@@ -276,9 +283,13 @@ function InvitationOutcomeRow({
  * Connector picked off a shortlist, which is the match-run screen's output
  * rather than something to retype. So this renders the batches the server has,
  * dispatches them, and tracks what came back.
+ *
+ * The unit arrives as a prop for the reason {@link UnitSends} gives: it is the
+ * one the server granted, resolved once by {@link CoordinatorOutreach}, so this
+ * section cannot end up describing a different unit from the drafts above it.
  */
-function InvitationBatches() {
-  const invitations = useSpeakerInvitations();
+function InvitationBatches({ unitId }: { unitId: string | null }) {
+  const invitations = useSpeakerInvitations(unitId);
   const batch = invitations.openBatch;
 
   return (
@@ -287,6 +298,14 @@ function InvitationBatches() {
 
       {invitations.status === "loading" && (
         <p className="text-sm text-muted-foreground">Loading invitation batches…</p>
+      )}
+
+      {invitations.status === "idle" && (
+        // A third state, and the honest one on an account whose granted portal
+        // carries no unit: nothing was asked for, so nothing failed and nothing
+        // is empty. Reached only after the grant resolved — the page renders
+        // nothing at all while it is still in flight.
+        <p className="text-sm text-muted-foreground">{INVITATIONS_NO_UNIT_REASON}</p>
       )}
 
       {invitations.status === "unavailable" && (
@@ -442,14 +461,22 @@ function InvitationBatches() {
  *
  * ## The unit this reads
  *
- * `outreach.unitId` — the same unit the drafts above came from, so the two
- * lists on this screen are one unit's. That is `getConfiguredUnitId()`, the
- * `VITE_SMARTMATCH_UNIT_ID` build variable, because both hooks on this page
- * scope themselves that way. The Connector dashboard's copy of this panel reads
- * the unit the server *granted the account* instead, which on a multi-unit
- * pilot is a different unit. That divergence is real and is named here rather
- * than papered over; closing it means changing `useOutreach` and
- * `useSpeakerInvitations`, which own that decision for every caller.
+ * The unit the server granted the account — `default_unit_id` off
+ * `grantedPortal(...)`, resolved once in {@link CoordinatorOutreach} and handed
+ * to every read on the screen, so all three lists are one unit's.
+ *
+ * This used to be `getConfiguredUnitId()`, the `VITE_SMARTMATCH_UNIT_ID` build
+ * variable, and this docstring named the resulting divergence from the
+ * Connector dashboard rather than papering over it. That divergence is now
+ * closed at its source: `useOutreach` and `useSpeakerInvitations` take the unit
+ * as an argument, so there is no longer a second answer to which unit this
+ * screen is about. On the classroom VM, where the variable is unset, the old
+ * lookup returned `null` and every panel here reported "unavailable" while the
+ * unit's drafts, batches and sends sat in the database.
+ *
+ * `null` here is rendered as {@link OUTREACH_NO_UNIT_REASON} and not as an
+ * empty listing: "this unit has attempted no sends" is a claim about a unit,
+ * and there is no unit to make it about.
  */
 function UnitSends({ unitId }: { unitId: string | null }) {
   const [sends, setSends] = useState<OutreachSendSummary[] | null>(null);
@@ -493,7 +520,7 @@ function UnitSends({ unitId }: { unitId: string | null }) {
       </p>
 
       {unitId === null ? (
-        <p className="text-sm text-muted-foreground">{OUTREACH_UNAVAILABLE_REASON}</p>
+        <p className="text-sm text-muted-foreground">{OUTREACH_NO_UNIT_REASON}</p>
       ) : error !== null ? (
         <p className="flex items-start gap-2 text-sm text-muted-foreground">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -560,7 +587,13 @@ export function CoordinatorOutreach() {
   // `GET /v1/me/portals` — the only source of what the server granted them.
   const portalAccess = usePortalAccess();
   const grant = grantedPortal(portalAccess, "coordinator");
-  const outreach = useOutreach();
+  // The unit is the one the grant carries, never the `VITE_SMARTMATCH_UNIT_ID`
+  // build variable — the rule `CoordinatorEvents.tsx` states, now held by every
+  // read on this page. Resolved once here and passed down, so the drafts, the
+  // invitation batches and the sends listing cannot disagree about which unit
+  // this screen is about.
+  const unitId = grant?.default_unit_id ?? null;
+  const outreach = useOutreach(unitId);
 
   // `CoordinatorPortalLayout` already renders `PortalGate` when the server granted
   // no such portal, so reaching here without a grant means the mapping is
@@ -585,6 +618,14 @@ export function CoordinatorOutreach() {
 
         {outreach.status === "loading" && (
           <p className="text-sm text-muted-foreground">Loading drafts…</p>
+        )}
+
+        {outreach.status === "idle" && (
+          // Distinct from both neighbours. Nothing was asked for, so this is
+          // neither a failure nor an empty unit — and it is not "loading"
+          // either, because the mapping has already answered by the time this
+          // renders (the grant guard above returns null while it has not).
+          <p className="text-sm text-muted-foreground">{OUTREACH_NO_UNIT_REASON}</p>
         )}
 
         {outreach.status === "unavailable" && (
@@ -662,9 +703,9 @@ export function CoordinatorOutreach() {
         {outreach.queued !== null && <QueuedSendPanel queued={outreach.queued} />}
       </section>
 
-      <InvitationBatches />
+      <InvitationBatches unitId={unitId} />
 
-      <UnitSends unitId={outreach.unitId} />
+      <UnitSends unitId={unitId} />
     </div>
   );
 }
