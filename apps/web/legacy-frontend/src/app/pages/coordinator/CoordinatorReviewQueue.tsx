@@ -25,6 +25,25 @@
  * they were all of them is the silent-zero failure ADR-0011 rule 1 forbids —
  * the reader would have no way to know they were looking at a fragment.
  *
+ * ## Paged, and still a decision surface
+ *
+ * The rows render through the shared `PagedList`, so a queue of thirty-eight
+ * pending items no longer has to be scrolled end to end. What that changes is
+ * only what is *drawn*. Every card is still built from a `ReviewItem` the
+ * server sent, keyed by `item.id`, and `handleDecide` receives that same object
+ * — so Accept and Reject act on the row under the button whichever page it was
+ * reached from, and no index into a visible slice exists anywhere on this path
+ * that could drift from it. `busyId` is likewise an id held in this page's own
+ * state rather than a property of a drawn row: the pager owns no selection and
+ * has no code path that could clear one. After a decision this page re-reads
+ * the list exactly as it did before.
+ *
+ * The `truncated` notice and the pager's range line are two different
+ * statements and both stay on screen. The notice says the server stopped
+ * sending at its cap; the range line says how much of what arrived is currently
+ * drawn. A queue can be showing page one of everything it holds while still
+ * holding less than the unit has.
+ *
  * A `409` is surfaced as what it is. The decision route's `UPDATE` is guarded
  * by `status = 'pending'`, so deciding a row someone else already decided
  * refuses cleanly instead of double-applying. That is a disagreement about the
@@ -51,19 +70,10 @@ import {
   type ReviewItem,
   type ReviewItemStatus,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-
-/*
- * TODO(integrator): track T1 is building a shared
- * `components/PagedList.tsx`. It did not exist in this worktree, so the list
- * below is a plain bounded render — deliberately *not* a second paging
- * component competing with T1's. When PagedList lands, swap the `<ul>` in
- * `CoordinatorReviewQueue` for it and hand it `items` and `truncated`; nothing
- * else on this page needs to change, and no paging state is kept here to
- * migrate. Do not generalise this file into a reusable list in the meantime.
- */
 
 /** The three tabs, in the order a coordinator works them. */
 const STATUS_TABS: readonly { value: ReviewItemStatus; label: string }[] = [
@@ -324,8 +334,9 @@ export function CoordinatorReviewQueue() {
 
       {truncated ? (
         <p className="rounded-xl border border-border/70 p-4 text-xs text-muted-foreground">
-          More items exist at this status than are shown. Decide some of these and reload to see the
-          rest — this is a page of the queue, not the whole of it.
+          The server stopped sending at its cap, so more items exist at this status than were
+          loaded here. Decide some of these and reload to see the rest. This is a separate
+          shortfall from the pager below, which windows only the items that did arrive.
         </p>
       ) : null}
 
@@ -338,16 +349,23 @@ export function CoordinatorReviewQueue() {
           {!loaded ? "Loading…" : `This unit has no ${status} review items.`}
         </p>
       ) : (
-        <ul className="space-y-3">
-          {items.map((item) => (
-            <ReviewItemCard
-              key={item.id}
-              item={item}
-              busy={busyId === item.id}
-              onDecide={handleDecide}
-            />
-          ))}
-        </ul>
+        // A window over the rows this read returned. The card is handed the
+        // `ReviewItem` itself, so a decision is addressed by the server's id
+        // and not by a position within whichever page is drawn.
+        <PagedList items={items} label="review items" idPrefix="unit-review-queue">
+          {(visibleItems) => (
+            <ul className="space-y-3">
+              {visibleItems.map((item) => (
+                <ReviewItemCard
+                  key={item.id}
+                  item={item}
+                  busy={busyId === item.id}
+                  onDecide={handleDecide}
+                />
+              ))}
+            </ul>
+          )}
+        </PagedList>
       )}
     </div>
   );
