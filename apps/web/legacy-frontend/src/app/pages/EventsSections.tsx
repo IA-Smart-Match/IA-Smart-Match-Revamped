@@ -153,21 +153,10 @@ export function inputFromEventForm(form: EventFormState): Partial<ManualEventInp
   };
 }
 
-export function eventWhen(event: ManualEvent): string {
-  if (event.time_precision === "date_only" && event.on_date) {
-    return `${event.on_date} · All day · ${event.time_zone}`;
-  }
-  if (event.time_precision === "exact" && event.starts_at) {
-    return (
-      new Intl.DateTimeFormat("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-        timeZone: event.time_zone ?? undefined,
-      }).format(new Date(event.starts_at)) + ` · ${event.time_zone}`
-    );
-  }
-  return "Schedule not set";
-}
+// `eventWhen` used to live here. It moved to `./eventListings.ts`, beside the
+// merge that decides *which* events are shown, because the unit catalog's
+// summaries need the same formatting and are not `ManualEvent`s — and because
+// that module carries no JSX, so the merge rules can be unit-tested directly.
 
 const inputClass = "mt-1 w-full rounded-xl border bg-input-background px-3 py-2";
 

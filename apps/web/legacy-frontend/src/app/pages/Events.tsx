@@ -22,11 +22,11 @@ import {
   blankEventForm,
   categoryOptions,
   EventFormFields,
-  eventWhen,
   formFromManualEvent,
   inputFromEventForm,
   type EventFormState,
 } from "./EventsSections";
+import { mergeEventListings, type EventListing } from "./eventListings";
 
 /**
  * The Speaker Connector's "Events" surface — create, edit, and publish a
@@ -53,6 +53,12 @@ import {
  * it is only ever populated by this browser tab's own successful writes, is
  * lost on reload, and is merged with (never replaces) the unit's actual
  * catalog for display.
+ *
+ * That merge is `mergeEventListings` in `./eventListings.ts`, which owns the
+ * de-duplication and the draft/published bucketing and is unit-tested there.
+ * The list below renders its output and nothing else: filtering `recent` on
+ * its own would show a reader only their own writes and hide every event the
+ * server already holds.
  */
 export function Events() {
   const unitId = useAuthorizedUnitId("admin");
@@ -63,6 +69,10 @@ export function Events() {
   const [form, setForm] = useState<EventFormState>(blankEventForm);
   const [notice, setNotice] = useState("");
   const [recent, setRecent] = useState<ManualEvent[]>([]);
+  // A failure to *open* an event, which is neither a list failure nor a save
+  // failure and so has nowhere else to be reported. Never swallowed: a click
+  // that silently does nothing is indistinguishable from a broken button.
+  const [openError, setOpenError] = useState("");
   const createKey = useRef(crypto.randomUUID());
 
   const listKey = [principalKey, "unit-events", unitId] as const;
@@ -135,25 +145,49 @@ export function Events() {
 
   const refreshSelected = async (eventId: string) => {
     if (!unitId) return;
-    const event = await fetchManualEvent(unitId, eventId);
-    setSelected(event);
-    rememberRecent(event);
+    try {
+      const event = await fetchManualEvent(unitId, eventId);
+      setOpenError("");
+      setSelected(event);
+      rememberRecent(event);
+    } catch (error) {
+      setOpenError(
+        error instanceof Error ? error.message : "That event could not be opened.",
+      );
+    }
   };
 
-  const listedEvents = listQuery.data?.events ?? [];
-  const listedManualIds = useMemo(
-    () =>
-      new Set(
-        listedEvents
-          .filter((event) => event.provenance.origin === "coordinator_entry")
-          .map((event) => event.id),
-      ),
-    [listedEvents],
+  /**
+   * Open a row from the merged list.
+   *
+   * A row backed by this tab's own write already *is* the full record, so it
+   * opens with no round trip. A row that came only from the unit's catalog is
+   * a summary — it has no version token and no form fields — so the manual
+   * record is fetched before the editor is shown rather than the summary being
+   * cast into a shape it does not have.
+   */
+  const openListing = (listing: EventListing) => {
+    setNotice("");
+    if (listing.manual) {
+      setOpenError("");
+      setSelected(listing.manual);
+      return;
+    }
+    void refreshSelected(listing.id);
+  };
+
+  const listedEvents = listQuery.data?.events;
+  const listings = useMemo(
+    () => mergeEventListings(listedEvents ?? [], recent),
+    [listedEvents, recent],
   );
-  const drafts = useMemo(() => recent.filter((event) => event.status === "draft"), [recent]);
+  const drafts = useMemo(
+    () => listings.filter((listing) => listing.status === "draft"),
+    [listings],
+  );
   const published = useMemo(
-    () => recent.filter((event) => event.status === "published" || listedManualIds.has(event.id)),
-    [recent, listedManualIds],
+    () => listings.filter((listing) => listing.status === "published"),
+    [listings],
   );
 
   const mutationError = saveMutation.error ?? publishMutation.error;
@@ -198,9 +232,18 @@ export function Events() {
 
       {listQuery.error ? (
         <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-destructive">
+          {/* Named as a partial view rather than an empty one: anything this
+              tab wrote is still listed below, and reading the short list as
+              "the unit has two events" would be the silent-omission failure
+              ADR-0011 forbids. */}
           {listQuery.error instanceof Error
-            ? listQuery.error.message
-            : "The unit's event list could not be loaded."}
+            ? `The unit's event list could not be loaded, so only this session's own events are shown: ${listQuery.error.message}`
+            : "The unit's event list could not be loaded, so only this session's own events are shown."}
+        </p>
+      ) : null}
+      {openError ? (
+        <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-destructive">
+          {openError}
         </p>
       ) : null}
 
@@ -211,10 +254,11 @@ export function Events() {
               Loading events…
             </p>
           ) : null}
-          {!listQuery.isLoading && drafts.length === 0 && published.length === 0 ? (
+          {!listQuery.isLoading && !listQuery.error && drafts.length === 0 && published.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-              No events yet. A saved draft is not listed here from the unit's catalog until it
-              is published — created or edited events from this session stay listed below.
+              No events yet. This list is the unit's own catalog merged with anything created
+              or edited in this session, so a draft the catalog cannot surface yet still
+              appears here the moment it is saved.
             </div>
           ) : null}
           {[
@@ -225,22 +269,19 @@ export function Events() {
               <h2 className="text-lg font-semibold">{group.title}</h2>
               <div className="mt-3 space-y-2">
                 {group.items.length ? (
-                  group.items.map((event) => (
+                  group.items.map((listing) => (
                     <button
-                      key={event.id}
+                      key={listing.id}
                       type="button"
-                      onClick={() => {
-                        setSelected(event);
-                        setNotice("");
-                      }}
+                      onClick={() => openListing(listing)}
                       className={`w-full rounded-xl border p-4 text-left ${
-                        selected?.id === event.id
+                        selected?.id === listing.id
                           ? "border-primary bg-primary/5"
                           : "border-border hover:bg-muted/50"
                       }`}
                     >
-                      <p className="font-semibold text-foreground">{event.title}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{eventWhen(event)}</p>
+                      <p className="font-semibold text-foreground">{listing.title}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{listing.when}</p>
                     </button>
                   ))
                 ) : (
