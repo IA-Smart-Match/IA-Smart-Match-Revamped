@@ -239,4 +239,12 @@ planning:
   provider, no real user and no production data. Plan the P1 items as
   **pre-go-live hardening, not live incident response** — and do not soften them
   on that basis. The same document reports its own runbook was never bootstrapped
-  onto the serving machine, which is live evidence for R-18.
+  onto the serving machine. **That gap is now closed** (PR #153, `13ebaf2`):
+  the VM was bootstrapped and a promotion produces a real deployment.
+
+- **A limit on this audit you should not inherit.** Deployment configuration was
+  outside its evidence base, and a live authentication bypass sat there — public
+  fixture bearer tokens on an internet-reachable appliance with no Access wall
+  (`ee277ba`, now fixed). Recorded as **R-21**. When you write the target
+  architecture's trust boundaries, put `docker-compose.yml`, the compose
+  environment, and the tunnel/Access posture *inside* them.

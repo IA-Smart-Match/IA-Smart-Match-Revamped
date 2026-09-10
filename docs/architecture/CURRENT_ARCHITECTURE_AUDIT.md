@@ -54,14 +54,44 @@ routers, and OpenAPI surface — so the drift table still holds. Two findings mo
   incident risk to pre-go-live hardening**, and it does not lower any of them:
   R-09's cross-principal cache isolation is cheap to fix while there are no real
   principals and expensive to discover once there are.
-* **R-18 is partly addressed, and gains a sharper edge.** The repository now
-  states which topology is real. But the same document reports that its own
-  runbook describes a layout *"specified, reviewed and merged but never
-  bootstrapped onto a machine"*, that `/opt/smartmatch/app` is not on the serving
-  instance, and that a push to `deploy` therefore deploys nothing — with the
-  choice between correcting the runbook and bootstrapping the machine left open
-  for the program owner. That is the documented-but-absent pattern this audit
-  names in `capability-inventory.md` §4, now recorded by the repository itself.
+* **R-18 is largely addressed.** The repository now states which topology is
+  real. At `793678b` the same document still reported its own runbook as a layout
+  *"specified, reviewed and merged but never bootstrapped onto a machine"* — the
+  documented-but-absent pattern this audit names in `capability-inventory.md` §4.
+  **That gap has since been closed** (PR #153, at `13ebaf2`): the decision was
+  taken and executed, the VM now carries the `/opt/smartmatch` layout, and a
+  promotion through `.github/workflows/promote.yml` produces a real deployment.
+  The earlier sentence in this section is superseded and is left here only so the
+  sequence is legible.
+
+**Third move, `793678b` → `13ebaf2`** (PRs #153 and its branch, 2026-09-10).
+Counted facts unchanged again. One finding, and one miss of this audit's own:
+
+* **A live exposure existed on the pilot VM, and this report walked past it.**
+  Commit `ee277ba` records that the VM published its compose network to the
+  internet through a Cloudflare Tunnel *with no Access wall*, while
+  `docker-compose.yml` mapped four fixture bearer tokens to the coordinator,
+  student, host and admin subjects — **in a public repository**, with one of them
+  also shipped in the web bundle. Anyone who read the file could be answered as a
+  seeded principal without ever reaching `/login`. It is fixed: the deployed
+  configuration now sets `SMARTMATCH_DEV_PRINCIPALS` to `{}` and the web bundle
+  carries no token, with a CI assertion from outside that no fixture token
+  authenticates.
+
+  **This audit had the fact and read it as benign.** §0's U6 note quoted
+  `vm-deploy.md` saying the frontend *"authenticates with the same fixture bearer
+  token the `curl` steps in INSTALL.md use"*, and treated it as evidence the
+  deployment was synthetic rather than as an exposure. "The data is synthetic" is
+  not a control: a world-readable credential on an internet-reachable host is a
+  live authentication bypass whatever sits behind it.
+
+  The structural lesson is a real limit on this report's evidence base, and is
+  recorded as **R-21** in `risk-register.md`: §8 audits authentication *as
+  written in the repository*, and `docker-compose.yml` plus the deployed
+  environment are configuration this audit did not treat as part of the trust
+  boundary. The code's identity handling was and is sound — `FixtureTokenVerifier`
+  did exactly what it says — and the hole was entirely in what the deployment
+  handed it.
 
 **One correction to this report.** Earlier revisions of these documents said
 "43 tables" throughout. The count at `c72dced` was **44** — the error was a

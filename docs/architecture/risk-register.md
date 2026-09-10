@@ -37,6 +37,9 @@ repository fact.
 | **R-19** | **`utils.py`: 18 lines, one function, 25 consumers.** Content and rationale are correct (one clock, one patch point, motivated by defect F-003). The *name* is the seed of a dumping ground — the next homeless helper lands here because the import is already everywhere. | `services/api/smartmatch_api/utils.py`; fan-in count | Medium (over time) | Low | **P3** | Rename to `clock.py`. Purely preventive. |
 | **R-20** | **`schema.py` is 2,691 lines and every persistence change touches it** — a permanent merge-conflict surface in an agent-parallel workflow, and the reason "who owns this data" has no answer. | `wc -l schema.py`; 26 repository modules import it | Medium | Low-Medium | **P3** | **Do not split for aesthetics.** Split only after table ownership is declared per context (see `domain-model.md` §6), so the split follows a boundary that already means something. |
 
+| **R-21** | **Deployment configuration was outside this audit's evidence base, and a live authentication bypass sat in it.** §8 audits authentication as written in the repository — verifier, principal assembly, scanner rules — and treats `docker-compose.yml` and the deployed environment as operational detail rather than as part of the trust boundary. Commit `ee277ba` shows the cost: the pilot VM published its compose network to the internet with no Access wall while four fixture bearer tokens mapped to real seeded principals sat in a **public** repository, one of them also shipped in the web bundle. The specific hole is fixed; the coverage gap is structural. | `ee277ba` (fix and its account of the exposure); `17b1fb1` (CI now asserts from outside that no fixture token authenticates); this audit's own §0, which quoted the fixture-token arrangement as evidence of a synthetic deployment rather than flagging it | High (it happened) | **High** — authentication bypass on an internet-reachable host. Mitigated only by the data behind it being synthetic, and "the data is synthetic" is not a control | **P1** | Treat deployed configuration as in-scope for security review, not as operations. Concretely: assert from outside the appliance that no credential in a committed file authenticates (`17b1fb1` is the pattern), and extend §8's trust-boundary map to name `docker-compose.yml`, the compose environment, and the tunnel/Access posture as boundary-bearing artifacts. |
+
+
 ---
 
 ## Priority summary
@@ -44,7 +47,7 @@ repository fact.
 | Priority | IDs | Theme |
 |---|---|---|
 | **P0** | R-09 | A security-relevant test suite that everyone believes runs, and does not |
-| **P1** | R-02, R-03, R-04, R-05, R-06, R-08, R-01 | Boundaries that are documented but not enforced; wiring that was written but not attached; the system's blindness in production |
+| **P1** | R-02, R-03, R-04, R-05, R-06, R-08, R-01, **R-21** | Boundaries that are documented but not enforced; wiring that was written but not attached; the system's blindness in production; and one boundary this audit did not look at |
 | **P2** | R-07, R-10, R-11, R-12, R-15, R-16, R-17, R-06b, R-18 | Guards with gaps, and documentation that has drifted from a codebase where documentation is load-bearing |
 | **P3** | R-13, R-14, R-19, R-20 | Deliberate deferrals and preventive hygiene |
 
