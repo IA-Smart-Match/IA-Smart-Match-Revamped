@@ -81,7 +81,14 @@ WEB_BASE="${SMARTMATCH_WEB_BASE:-http://127.0.0.1:5173}"
 # The compose file's own x-compose-dev-identity literal, the same one
 # scripts/compose_smoke.sh and tests/e2e/conftest.py carry. It authenticates
 # nothing outside the compose network.
-API_BEARER="${SMARTMATCH_API_BEARER:-compose-api}"
+# Note the `-` rather than `:-`. An explicitly empty SMARTMATCH_API_BEARER must
+# survive as empty, because that is how a deployment says "this appliance ships
+# no fixture credential, so do not try to authenticate with one". With `:-` an
+# empty value is indistinguishable from an unset one and would silently fall
+# back to `compose-api`, reintroducing the very dependency this drops.
+# scripts/vm/deploy.sh passes it empty; a developer who sets nothing still gets
+# the compose default.
+API_BEARER="${SMARTMATCH_API_BEARER-compose-api}"
 PILOT_EMAIL="${SMARTMATCH_PILOT_SUBJECT_EMAIL:-compose-pilot-coordinator@example.invalid}"
 
 # The release the API must report. Resolved exactly the way compose itself
@@ -178,6 +185,22 @@ psql_scalar() {
   docker compose exec -T db \
     psql "postgresql://smartmatch:smartmatch@localhost:5432/smartmatch" \
     -tAc "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+deployed_dev_principals() {
+  # The fixture identity map the RUNNING api container was actually given, which
+  # is the only trustworthy answer to "should a fixture token work here?".
+  #
+  # Deliberately read from the container rather than from a variable or from the
+  # compose files: the variable can be stale (see check_frontend_api_proxy), and
+  # the files on disk are not necessarily the ones the running container was
+  # created from. `printenv` exits non-zero when the name is unset, which the
+  # `|| true` turns into the empty string the caller treats as "none deployed".
+  #
+  # This prints a non-secret configuration value. It is a map of fixture tokens
+  # that the deployed appliance is expected NOT to honour, and it is committed
+  # in docker-compose.yml — but it is only ever compared here, never logged.
+  docker compose exec -T api printenv SMARTMATCH_DEV_PRINCIPALS 2>/dev/null | tr -d '[:space:]' || true
 }
 
 http_status() {
@@ -387,16 +410,82 @@ check_frontend_spa_route() {
 }
 
 check_frontend_api_proxy() {
-  local body email
-  http_get -H "Authorization: Bearer ${API_BEARER}" "${WEB_BASE}/v1/me"
+  # This check proves a NEGATIVE, deliberately.
+  #
+  # It used to authenticate with the `compose-api` fixture token and assert that
+  # /v1/me came back as the seeded coordinator. The deployed appliance no longer
+  # ships that token (see docker-compose.vm.yml), so there is no credential left
+  # to prove the positive with — and a check that authenticated with a fixture
+  # token would fail the deployment gate on exactly the release that removed it,
+  # which deploy.sh answers by rolling back to the release that still had it.
+  #
+  # An unauthenticated 401 proves both things that matter:
+  #   * the Vite /v1 proxy reached the API — a broken proxy answers with SPA
+  #     HTML, 404, 502 or a timeout, not with the API's own error envelope;
+  #   * authentication is fail-closed — no credential, no identity.
+  #
+  # Distinguishing those two 401s is the point of asserting the body shape.
+  # errors.py renders every ApiError as {"error":{"code":...,"message":...}},
+  # and dependencies.py raises code "unauthenticated" here. A dev server that
+  # refused the request itself could not produce that envelope.
+  local body code
+  http_get "${WEB_BASE}/v1/me"
   body="$HTTP_BODY"
-  if [ "$HTTP_CODE" != "200" ]; then
-    fail frontend-api-proxy "GET ${WEB_BASE}/v1/me -> ${HTTP_CODE}: the dev server's /v1 proxy is not reaching the API"
+  if [ "$HTTP_CODE" != "401" ]; then
+    fail frontend-api-proxy "unauthenticated GET ${WEB_BASE}/v1/me -> ${HTTP_CODE}, expected 401: either the /v1 proxy is not reaching the API, or the API is answering without credentials"
     return
   fi
-  email="$(json_field "$body" email)"
+  code="$(json_field "$body" error.code)"
+  if [ "$code" != "unauthenticated" ]; then
+    fail frontend-api-proxy "unauthenticated GET ${WEB_BASE}/v1/me -> 401 but the body is not the API's error envelope (error.code='${code:-none}'); something other than the API answered"
+    return
+  fi
+
+  # What the second half asserts depends on whether THIS appliance deploys a
+  # fixture identity map, and the only honest source for that is the running
+  # container — not an environment variable the caller remembered to pass.
+  #
+  # That distinction is not academic. The first attempt at this check took the
+  # mode from SMARTMATCH_DEV_PRINCIPALS being exported by scripts/vm/deploy.sh,
+  # and the deployment that introduced it failed: `git pull` replaces deploy.sh
+  # on disk, but the deploy.sh already executing is the PREVIOUS revision and
+  # never learned to export it. So a new health script ran under an old deploy
+  # script, took the wrong branch, and rolled the release back. Asking the
+  # container removes the coupling entirely: whatever is actually deployed is
+  # what gets asserted, on the first deploy as well as every later one.
+  local principals
+  principals="$(deployed_dev_principals)"
+
+  if [ -z "$principals" ] || [ "$principals" = "{}" ]; then
+    # No fixture identities are deployed, so a fixture token must be REFUSED.
+    # This is stronger than skipping: it proves the bypass is closed rather than
+    # merely declining to look.
+    http_get -H "Authorization: Bearer ${API_BEARER:-compose-api}" "${WEB_BASE}/v1/me"
+    if [ "$HTTP_CODE" = "200" ]; then
+      fail frontend-api-proxy "a fixture bearer token still authenticates against ${WEB_BASE}/v1/me even though no dev principals are deployed"
+      return
+    fi
+    if [ "$HTTP_CODE" != "401" ]; then
+      fail frontend-api-proxy "a fixture bearer token got ${HTTP_CODE} from ${WEB_BASE}/v1/me, expected 401; this check can no longer prove the fixture path is closed"
+      return
+    fi
+    pass frontend-api-proxy "proxied /v1/me -> 401 unauthenticated and 401 for a fixture token (proxy reachable, auth fail-closed, no fixture identity deployed)"
+    return
+  fi
+
+  # A fixture identity map IS deployed (local compose), so the positive
+  # direction is checkable and worth checking: it proves the proxy forwards an
+  # Authorization header and that the API resolves it to the seeded principal.
+  local authed_body email
+  http_get -H "Authorization: Bearer ${API_BEARER}" "${WEB_BASE}/v1/me"
+  authed_body="$HTTP_BODY"
+  if [ "$HTTP_CODE" != "200" ]; then
+    fail frontend-api-proxy "proxied /v1/me with the configured bearer -> ${HTTP_CODE}: the dev server's /v1 proxy is not carrying credentials to the API"
+    return
+  fi
+  email="$(json_field "$authed_body" email)"
   if [ "$email" = "$PILOT_EMAIL" ]; then
-    pass frontend-api-proxy "proxied /v1/me authenticated as ${email}"
+    pass frontend-api-proxy "proxied /v1/me -> 401 unauthenticated, and authenticated as ${email}"
   else
     fail frontend-api-proxy "proxied /v1/me authenticated as '${email:-nobody}', not the seeded principal"
   fi

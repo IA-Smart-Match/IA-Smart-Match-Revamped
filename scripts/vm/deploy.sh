@@ -82,12 +82,22 @@ APP_DIR="${SMARTMATCH_APP_DIR:-${STATE_DIR}/app}"
 BACKUP_DIR="${SMARTMATCH_BACKUP_DIR:-${STATE_DIR}/backups}"
 LOG_DIR="${SMARTMATCH_LOG_DIR:-${STATE_DIR}/logs}"
 META_DIR="${SMARTMATCH_META_DIR:-${STATE_DIR}/deployments}"
+# SHARED LOCK: scripts/vm/smartmatch.service's ExecStart also takes this same
+# flock (hardcoded there as /opt/smartmatch/deploy.lock, since a systemd unit
+# cannot expand this shell variable) before it runs `docker compose up -d` on
+# boot. That is what stops a boot from racing an in-flight deployment. If this
+# default ever changes, update the unit file to match.
 LOCK_FILE="${SMARTMATCH_LOCK_FILE:-${STATE_DIR}/deploy.lock}"
 SSH_KEY="${SMARTMATCH_SSH_KEY:-${STATE_DIR}/.ssh/id_ed25519}"
 DEPLOY_BRANCH="${SMARTMATCH_DEPLOY_BRANCH:-deploy}"
 LOCK_WAIT_SECONDS="${SMARTMATCH_LOCK_WAIT_SECONDS:-1800}"
 HEALTH_TIMEOUT="${SMARTMATCH_HEALTH_TIMEOUT:-900}"
 BACKUP_RETAIN="${SMARTMATCH_BACKUP_RETAIN:-14}"
+# How long to wait for the seed-logins one-shot to finish. Nothing in the
+# compose graph depends on it, so `up -d` returns while it is still running and
+# its exit code has to be waited for rather than read. Seconds, not minutes:
+# it hashes four passwords against a local database.
+SEED_LOGINS_TIMEOUT="${SMARTMATCH_SEED_LOGINS_TIMEOUT:-120}"
 # How many 2-second polls to give a stopped database container to report
 # healthy before the deployment refuses for want of a backup.
 DB_START_ATTEMPTS="${SMARTMATCH_DB_START_ATTEMPTS:-60}"
@@ -369,6 +379,47 @@ deploy_current_checkout() {
     compose logs --no-color --tail=200 migrate || true
     return 1
   fi
+
+  # Password login for the pilot stakeholders is outside `migrate`'s reach: it
+  # depends on the `seed-logins` one-shot creating one `pilot_credential` row
+  # per role from .env's SMARTMATCH_PILOT_*_EMAIL/PASSWORD pairs. A deploy that
+  # only checks `migrate` can go fully green with stakeholder login broken —
+  # missing or partial .env, or a fresh empty database where fixture-token
+  # health still passes. So this mirrors the migrate check above exactly.
+  # Unlike `migrate`, this one has to be WAITED for.
+  #
+  # `api` declares depends_on: migrate/seed/seed-principals with condition
+  # service_completed_successfully, so by the time `up -d` returns those have
+  # necessarily finished and reading their exit code straight away is sound.
+  # NOTHING depends on seed-logins, so `up -d` returns while it is still
+  # running. Reading its state immediately is a race, and the first automated
+  # deployment to run this check lost it: seed-logins was still `running`, a
+  # successful seeding was called a failure, and the release was rolled back.
+  # `docker inspect` moments later showed exit=0.
+  #
+  # So poll until it stops being a running container, then judge it. The budget
+  # is small because this is a handful of PBKDF2 hashes against a local
+  # database, not a build.
+  local seed_logins_state seed_logins_exit waited
+  waited=0
+  while [ "$waited" -lt "$SEED_LOGINS_TIMEOUT" ]; do
+    seed_logins_state="$(compose ps -a --format '{{.State}}' seed-logins | head -n1)"
+    case "$seed_logins_state" in
+      running|created|restarting|"") : ;;
+      *) break ;;
+    esac
+    sleep 2
+    waited=$((waited + 2))
+  done
+  seed_logins_state="$(compose ps -a --format '{{.State}}' seed-logins | head -n1)"
+  seed_logins_exit="$(compose ps -a --format '{{.ExitCode}}' seed-logins | head -n1)"
+  log "seed-logins: state=${seed_logins_state:-absent} exit=${seed_logins_exit:-unknown} (waited ${waited}s)"
+  if [ "$seed_logins_state" != "exited" ] || [ "${seed_logins_exit:-1}" != "0" ]; then
+    fail_out "the seed-logins service did not exit 0. Stakeholder password login is"
+    fail_out "not guaranteed to work; treating this as a deployment failure."
+    compose logs --no-color --tail=200 seed-logins || true
+    return 1
+  fi
   return 0
 }
 
@@ -407,7 +458,14 @@ rollback() {
     return
   fi
 
+  # Empty here too, and it is correct in BOTH directions. After the rollback
+  # checkout this is the PREVIOUS release's own compose_health.sh: an older one
+  # reads `${VAR:-default}`, so an empty value falls back to `compose-api` and
+  # it still checks the fixture identity that release genuinely shipped; a newer
+  # one honours the empty value and runs the unauthenticated check instead.
+  # Either way the suite matches the release it is actually testing.
   if SMARTMATCH_RELEASE="$PREVIOUS_SHA" \
+     SMARTMATCH_API_BEARER="" \
      scripts/compose_health.sh --wait --timeout "$HEALTH_TIMEOUT"; then
     record_running_release "$PREVIOUS_SHA"
     fail_out "rolled back to ${PREVIOUS_SHA} and it is healthy."
@@ -429,7 +487,15 @@ fi
 
 FAILURE_STAGE="health"
 log "running the bounded health suite (up to ${HEALTH_TIMEOUT}s)"
+# SMARTMATCH_API_BEARER is passed EXPLICITLY EMPTY. This appliance deploys with
+# SMARTMATCH_DEV_PRINCIPALS="{}" (docker-compose.vm.yml), so no fixture bearer
+# token authenticates here and the health suite must not try to use one: it
+# would get a 401, fail the gate, and roll the deployment back to the release
+# that still accepted that token. compose_health.sh reads this with
+# `${VAR-default}` rather than `${VAR:-default}` precisely so an explicit empty
+# value survives instead of falling back to the compose default.
 if SMARTMATCH_RELEASE="$DEPLOYED_SHA" \
+   SMARTMATCH_API_BEARER="" \
    scripts/compose_health.sh --wait --timeout "$HEALTH_TIMEOUT"; then
   log "health: every check passed against ${DEPLOYED_SHA}"
 else
