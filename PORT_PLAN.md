@@ -92,17 +92,34 @@ Main-only backend since divergence: `meetings.py` router/persistence + migration
 | test deletions/gutting | conflicting | not ported; main's tests stay |
 | ADR/decision docs (`manual-events-and-feedback-qr-2026-09-07.md`, `decisions/README.md`) | additive | port the decision doc; ADR-0018 file is referenced in the stat but absent from the tree [F] |
 
+## 0.5 Codex plan-gate review (external peer review)
+
+Requested model `sol-5.6` → rejected by the Codex backend ("not supported when using
+Codex with a ChatGPT account"); fallback `gpt-5.4` → also rejected; the review ran on
+the codex plugin's **default model** [F: `codex-companion.mjs status` shows both 400s].
+
+Asked: is the additive backend port sound, what does the parity table miss, are track
+boundaries disjoint, which contract tests will break, what silently drops a feature.
+
+| # | Codex finding | Disposition |
+|---|---|---|
+| 1 MUST-FIX | Renaming #125's speaker-workflow backend to `/managed-events` + `/speaker-match-runs` still ships a second speaker pipeline beside main's speaker-contacts / match-runs / invitation batches / handoff / confirmed-speakers. Rebuild the UI on main's pipeline; port only what main genuinely lacks. | **Accepted.** Track B is cut to *manual event creation + per-event feedback QR* (the 2026-09-07 decision doc's scope), which main has no write path for. `speakers.py`, `speaker_workflow.py`, `0035_speaker_workflow`, domain `speaker_*` modules and `SpeakerEventsBoard` are **not ported**; their user-facing intents map onto main's existing surfaces (§3 parity table). |
+| 2 MUST-FIX | A separate `managed_event` table is invisible to main's catalog (`GET /events`, `CoordinatorEvents`, `StudentEvents`) and stores speaker PII main withholds. Settle the canonical event/contact mapping first. | **Accepted.** Manual events are written into the canonical `event` table (`origin="manual"`, `filed_by_user_id`, ADR-0010 temporal columns) through `EventRepository`, so main's reads list them with provenance. Event-level extra fields go in a side table added by migration `0035_manual_event_detail`. No speaker contact table is added. |
+| 3 MUST-FIX | Parity table hides behavioural loss: `/volunteers` (−923 lines in #125), `/coordinator-portal/meetings` (real CRUD on main vs placeholder in #125), `CoordinatorEvents` (withheld counts/paging). | **Accepted.** Rule for every main page: **main's implementation is retained and restyled**; #125's versions are design reference only. §3 table now has a "behaviour source" column. |
+| 4 SHOULD | Ownership overlaps: `QRCodeCard.tsx` in C and D1; `LoginPage.tsx`, `main.tsx` unowned. | **Accepted.** Explicit owner list per track below; every path appears in exactly one track per wave. |
+| 5 MUST-FIX | Gates omit the Python contract tests most likely to break under restyle; do not pre-accept `.env` failures. | **Accepted.** Baseline `make check` in this worktree is green (4885 passed, exit 0) so the gate is fully green; each track prompt names the contract tests it must keep passing. |
+
 ## 1. Tracks (disjoint file ownership)
 
 Wave 1 (parallel, disjoint trees):
-- **Track A — design system, shells, landing, docs** (frontend foundation).
-- **Track B — backend speaker-workflow subsystem** (python/, services/, db/, tests/, contracts/).
+- **Track A — design system, shells, landing, docs.** Owns (all under `apps/web/`): `DESIGN.md`, `AGENTS.md`, `README.md`, `legacy-frontend/package.json`, `package-lock.json`, `index.html`, `public/**`, `src/main.tsx`, `src/styles/**`, `src/app/components/{BrandLogo,Layout,CoordinatorPortalLayout,StudentLayout,VolunteerPortalLayout,MetricCard,CaliforniaCampusHeatmap,PipelineFunnelTiles,RouteFallback,SessionGate,PortalGate,PortalContent}.tsx`, `src/app/components/ui/**`, `src/app/pages/{LandingPage,LoginPage,Home}.tsx`, `tests/branding.test.ts`.
+- **Track B — backend manual events + feedback QR** on the canonical `event` table. Owns: `services/api/smartmatch_api/routers/manual_events.py` (new), `services/api/smartmatch_api/main.py`, `python/smartmatch_persistence/smartmatch_persistence/{schema.py,manual_events.py}`, `db/migrations/versions/0035_*`, `contracts/openapi/smartmatch.json`, `tests/authz/test_policy_matrix.py`, `tests/unit/test_manual_events.py`, `tests/contract/test_manual_events_api.py`, `docs/decisions/manual-events-and-feedback-qr-2026-09-07.md`.
 
 Wave 2 (after A and B; parallel, disjoint files):
-- **Track C — api.ts + speaker-workflow surfaces + routes** (Events, Speakers roster, board, QR, hooks, routes.tsx).
-- **Track D1 — admin pages restyle** (Dashboard, Pipeline, Calendar, Opportunities, AIMatching, Outreach + `src/components/*` legacy panels).
-- **Track D2 — coordinator portal pages restyle**.
-- **Track D3 — student + volunteer portal pages restyle + PagedList/provenance components**.
+- **Track C — api.ts + Events page + routes.** Owns: `src/lib/{api.ts,breakNeed.ts}`, `src/app/hooks/useAuthorizedUnit.ts`, `src/app/pages/Events.tsx` (new), `src/components/QRCodeCard.tsx`, `src/app/routes.tsx`, `src/app/components/Layout.tsx` (nav entry only), `tests/manual-events.test.ts`, `tests/unit/test_frontend_manual_events_contract.py`.
+- **Track D1 — admin pages restyle.** Owns: `src/app/pages/{Dashboard,Pipeline,Calendar,Opportunities,AIMatching,Volunteers,Outreach}.tsx`, `src/components/{AgenticOutreachPanel,OutreachWorkflowModal,CrawlerFeed,FeedbackForm,AppIcon}.tsx`, `src/app/components/{DiscoveryFeed,CrawlerContext}.tsx`.
+- **Track D2 — coordinator portal pages restyle.** Owns: `src/app/pages/coordinator/**`.
+- **Track D3 — student + volunteer portal pages restyle.** Owns: `src/app/pages/student/**`, `src/app/pages/volunteer/**`, `src/app/components/PagedList.tsx`, `src/app/components/provenance/**`.
 
 Wave 3 — orchestrator integration: full gates, parity table, PR.
 
