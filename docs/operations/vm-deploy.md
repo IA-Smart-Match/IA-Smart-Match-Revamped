@@ -82,13 +82,102 @@ this one, and the entire discrepancy follows from that single fact. Two
 operations documents describe two different machines; only one of them was
 built.
 
-**Unknown:** which boot-time unit, if any, is installed on the instance now.
-Neither session reported a unit file, and no artifact in this repository can
-answer it. If the machine survives a reboot it has something; whether that
-something is `smartmatch-compose.service` from the classroom guide, a hand-rolled
-variant, or nothing at all is not established here. Someone with IAP access can
-settle it in one command (`systemctl list-units 'smartmatch*'`), and this
-paragraph should be replaced with the answer rather than a guess.
+**Settled: there is no application systemd unit on the instance at all.** An
+earlier revision of this document left this open. It has since been checked on
+the live VM, and the four commands below are recorded with their outcomes so
+nobody has to take the conclusion on trust:
+
+```
+sudo systemctl list-unit-files | grep -i smartmatch
+  -> no matching unit files
+
+sudo systemctl list-unit-files | grep -iE "compose|smartmatch|pilot"
+  -> none
+
+sudo systemctl list-units --all | grep -i smartmatch
+  -> only GCE PersistentDisk device units; no application unit
+
+sudo systemctl is-enabled docker
+  -> enabled
+```
+
+The unit documented at `classroom-vm-cloudflare-tunnel.md:160-179` was never
+installed. The Docker daemon itself starts at boot, so the machine comes back
+with a working container runtime and an empty stack: nothing runs `docker
+compose up`, and nothing is watching to notice.
+
+This matters because that unit is the only mechanism that could have
+compensated for the containers' own restart policies, and those are missing too
+— see
+[Reboot survivability](#reboot-survivability-confirmed-absent-and-recently-regressed)
+below, which is the same question asked from the container side and reaches the
+same place. Neither layer is present. There is no belt and no braces.
+
+For whoever eventually installs a unit, one detail of the documented one is
+worth knowing in advance. Its `ExecStop` is `/usr/bin/docker compose down`,
+whereas the scripted design's unit uses `stop` and says why at
+`scripts/vm/smartmatch.service:40-43`: `down` removes the containers. Without
+`-v` it does not touch the named volumes, so the database survives either way —
+but the two units differ here, and a reader comparing them should not assume
+they are equivalent. Its `ExecStart` is also a bare `docker compose up -d` with
+no `-f` flags (`classroom-vm-cloudflare-tunnel.md:170`), which as installed
+would compose the base file alone and so would *not* restore the restart
+policies discussed below.
+
+### Nothing restarts the stack after a reboot (confirmed)
+
+This was recorded as an open question in an earlier revision of this document —
+whether the `docker compose` invocation in use on the VM includes `-f
+docker-compose.vm.yml`. It has since been settled on the running machine, and
+the answer is the worse of the two.
+
+**Observed on the live VM** (both values read from Docker on the instance, not
+derived from anything in this repository):
+
+```
+com.docker.compose.project.config_files
+  = /home/dannybrook02_gmail_com/src/IA-Smart-Match-Revamped/docker-compose.yml
+
+smartmatch-api-1  HostConfig.RestartPolicy.Name = "no"
+```
+
+The first says the project was composed from the base file **alone** — the VM
+override is not in play. The second is the consequence, read back off a running
+container rather than inferred: the restart policy is `no`.
+
+**What the repository says.** `docker-compose.vm.yml` exists precisely to supply
+that policy. Its header at lines 8-13 states its first of three changes:
+long-running services get `restart: unless-stopped`, "so Docker brings them back
+after a reboot or a crash", while the one-shot services keep `restart: "no"`
+from the base file. The stanzas themselves are at `docker-compose.vm.yml:41`,
+`:44`, `:52`, `:57` and `:67` — `db`, `api`, `worker`, `scheduler`, `web`. None
+of them is applied on the VM. Nothing in the base `docker-compose.yml` sets a
+restart policy for any service, which is why the observed value is Docker's
+default of `no` rather than something else.
+
+**The consequence, stated plainly.** If that VM reboots — GCE host maintenance,
+an OOM kill, a `sudo reboot` — Docker will not bring any of it back. The stack
+stays down until a human opens an IAP session and runs compose by hand. There is
+no alert: nothing in this repository watches the instance, and the absence
+alerting designed in [`deploy-runbook.md`](deploy-runbook.md) §J8 is explicitly
+unbuilt for want of a monitoring stack. The stakeholder link simply stops
+answering, and the way anyone finds out is by opening it.
+
+The one thing that could still make a reboot survivable is a systemd unit, and
+whether one is installed is
+[the open question above](#the-checkout-lives-in-a-home-directory-not-optsmartmatchapp).
+The documented unit would do the job if it is enabled. Until someone runs the
+one-line check, assume it is not.
+
+**Why this ranks above the missing backup.** Both are properties the scripted
+path has and this one does not, but they are not equally exposed. A reboot is
+routine and externally triggered — GCE decides when to do host maintenance, and
+the kernel decides when to kill something for memory. It needs no one to be at a
+keyboard, and it can happen at any hour. The migration path, by contrast, only
+runs when a person chooses to deploy; its risk is real but it is scheduled by
+the person who bears it, who can take a dump by hand first. An unattended
+failure mode that fires on someone else's schedule outranks an attended one that
+fires on yours.
 
 ### The `pilot-vm` environment is empty, so pushing to `deploy` deploys nothing
 
@@ -342,23 +431,63 @@ nothing refuses for you, so look before you move.
 **4. Bring the stack up.**
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --build
 ```
 
-Two things about this command deserve attention, because neither is obvious and
-both change what "deploying" means on this path.
+Both halves of that command carry their own weight, and omitting either fails
+differently — which is why the short forms circulating in this repository and in
+operator memory are all wrong in one direction or the other.
 
-*It does not rebuild the backend.* `docker compose up -d` reuses whatever images
-already exist. `api`, `worker`, `scheduler` and the five one-shot services all
-build from `Dockerfile.api` or `Dockerfile.worker` (`docker-compose.yml:227`,
-`263`, `317`, `372`, `420`, `476`, `554`, `603`), so a merged commit touching
-`services/` or `python/` is checked out but **not running** until the images are
-rebuilt. Add `--build`, or run `docker compose build api worker` first, whenever
-the change is not purely frontend. A frontend change is the case where a plain
-`up -d` genuinely suffices, for the bind-mount-and-dev-server reason
-[given above](#the-web-service-has-no-build-stage-so-the-vm-serves-a-dev-server) —
-and `docker compose build web` printing "No services to build" is that same fact
-reported correctly, not a failure.
+**`-f docker-compose.vm.yml` is not optional, because the restart policies live
+only there.** The base `docker-compose.yml` declares `restart: "no"` on exactly
+the five one-shot services and says nothing at all for the long-running ones,
+which therefore default to `no`. `restart: unless-stopped` appears only in the
+override, on `db`, `api`, `worker`, `scheduler` and `web`. Compose without the
+override does not merely skip a nicety: it recreates those containers *stripped
+of the policy they had*, which is exactly how three of the five lost it on this
+machine (recorded above). The release SHA also lives in the override, so a
+deployment made without it cannot report which commit it is.
+
+**`--build` is not optional either, and leaving it off is the other trap.**
+Eight services build from `Dockerfile.api` or `Dockerfile.worker` —
+`migrate`, `seed`, `seed-principals`, `seed-logins`, `api`, `worker`,
+`scheduler` and `seed-review`, at `docker-compose.yml:227`, `263`, `317`, `372`,
+`420`, `476`, `554` and `603`. A bare `docker compose up -d` reuses whatever
+images already exist, so it recreates every one of those services from **stale**
+images. The checkout moves; the running processes do not.
+
+Make the consequence concrete, because it is the failure that is hardest to
+notice: merge a backend fix, run `up -d` without `--build`, and that fix is
+present in git and absent from the running process — and **nothing on
+`/api/health` will say so**, because its `release` field reports the fixed
+string `dev` on this machine no matter which commit is checked out
+([above](#apihealth-reports-dev-so-it-cannot-tell-you-which-commit-is-deployed)).
+The endpoint answers `ok`, the containers are up, `git log` shows your commit,
+and the bug is still there. `docker compose build api worker` before `up -d` is
+the equivalent; `--build` is one word and is harder to forget.
+
+**This command is deliberately not being run at the time of writing.** A change
+to the connection-pool sizing is in review and has not merged; recreating `api`
+would destroy a live in-container adjustment made as a stopgap, so the machine
+is waiting on that merge decision rather than on anything technical. The
+procedure above is what to run once it lands — not a description of what was
+last done here.
+
+That wait has a cost worth naming, because it compounds rather than holds
+steady: the stopgap lives inside a container whose restart policy is `no`, on a
+machine with no boot-time unit. It does not survive `compose up -d`, and it does
+not survive a reboot either. Nothing will restore it, and nothing will announce
+its loss.
+
+A frontend-only change is the single case where the bare form genuinely
+suffices, for the bind-mount-and-dev-server reason
+[given above](#the-web-service-has-no-build-stage-so-the-vm-serves-a-dev-server)
+— and `docker compose build web` printing "No services to build" is that same
+fact reported correctly, not a failure. Passing `--build` anyway costs nothing
+and removes the need to judge which case you are in.
+
+One other thing about this command deserves attention, because it is not obvious
+and it changes what "deploying" means on this path.
 
 *It runs migrations.* The `migrate` one-shot runs as part of `up`, and
 `docker-compose.yml`'s `service_completed_successfully` conditions hold `api`
@@ -371,19 +500,25 @@ no dump. Migrations in this repository are forward-only by policy — see
 what to do when a revision fails part-way — so a migration that does real damage
 on this path leaves nothing to work from.
 
-**Unknown:** whether the observed command includes `-f docker-compose.yml -f
-docker-compose.vm.yml`. The reported command was a plain `docker compose up -d`,
-which uses the base file alone; the scripted path composes both
-(`scripts/vm/deploy.sh:95`), as does the systemd unit
-(`scripts/vm/smartmatch.service:38`). The release value cannot settle it, because
-`.env` overrides both files' defaults
-[as described above](#apihealth-reports-dev-so-it-cannot-tell-you-which-commit-is-deployed).
-The difference that matters if the override is absent is
-`docker-compose.vm.yml:39-67`: without it, no long-running service carries
-`restart: unless-stopped`, so the stack does not come back by itself after a
-reboot or a crash unless a systemd unit brings it back. `docker inspect -f
-'{{.HostConfig.RestartPolicy.Name}}' <container>` answers this on the VM in one
-command, and the answer belongs in this document.
+**The VM override is not in play, and this is now confirmed rather than
+assumed.** An earlier revision of this document left it open whether the
+invocation on the VM includes `-f docker-compose.yml -f docker-compose.vm.yml`.
+It does not: the project's own compose label names `docker-compose.yml` and
+nothing else, and a running container reports `RestartPolicy.Name = "no"`. The
+evidence and what follows from it are in
+[Nothing restarts the stack after a reboot](#nothing-restarts-the-stack-after-a-reboot-confirmed).
+The short version for anyone standing at this step: what you bring up here will
+not come back on its own if the machine reboots.
+
+You may add `-f docker-compose.yml -f docker-compose.vm.yml` to the command
+above to pick the restart policies up, which is what the scripted path composes
+(`scripts/vm/deploy.sh:95`) and what the scripted design's systemd unit runs
+(`scripts/vm/smartmatch.service:38`). Be aware that doing so changes what the
+project is composed of, so compose will recreate services on the next `up`, and
+that it is a change to how the VM is operated rather than a step in this
+procedure — which is why it is not folded into step 4 above. It belongs in the
+decision recorded [below](#the-gap-and-the-decision-it-needs), not in a command
+someone runs without reading.
 
 **5. Confirm what is serving.**
 
@@ -432,7 +567,8 @@ that is the whole of the trade-off.
 | **One deployment at a time** | `deploy.sh:142-150` re-execs the script under `flock` on `${STATE_DIR}/deploy.lock`, waiting up to 1800s | Two operators, or an operator and a reboot, can interleave a checkout and a migration |
 | **Refuses a dirty tree** | `deploy.sh:228-235` exits `2` and prints the modified files | The recorded SHA stops describing what is running, silently |
 | **Refuses a non-fast-forward** | `deploy.sh:258-265`, an explicit `git merge-base --is-ancestor` check, named separately from `git pull --ff-only` so the message says the protected branch was rewritten | A rewritten branch quietly rewrites the VM's history to match |
-| **A backup before every migration** | `deploy.sh:267-321` starts the database if it is stopped, waits for it to report healthy, then `pg_dump --clean --if-exists` piped through `gzip`; a failed dump exits `2` and nothing migrates | A destructive revision leaves nothing to work from. This is the single largest difference |
+| **The stack survives a reboot** | The scripted path composes `docker-compose.vm.yml` (`deploy.sh:95`), whose lines 41, 44, 52, 57 and 67 give `db`, `api`, `worker`, `scheduler` and `web` `restart: unless-stopped`; `scripts/vm/smartmatch.service` re-converges the stack on boot as well, deliberate belt and braces per its lines 6-12 | **Confirmed absent on the VM.** Containers run with `RestartPolicy.Name = "no"`, so a reboot, a host maintenance event or an OOM kill takes the stakeholder link down until a human ssh's in. Unattended and externally triggered — see [the finding above](#nothing-restarts-the-stack-after-a-reboot-confirmed) |
+| **A backup before every migration** | `deploy.sh:267-321` starts the database if it is stopped, waits for it to report healthy, then `pg_dump --clean --if-exists` piped through `gzip`; a failed dump exits `2` and nothing migrates | A destructive revision leaves nothing to work from. Attended, though: it only runs when someone chooses to deploy, and they can take a dump by hand first |
 | **Bounded backup retention** | `deploy.sh:449-462` keeps the most recent 14 dumps | Either no dumps at all, or a 30 GB disk that fills and takes the appliance down |
 | **Build before replace** | `deploy.sh:345-346` builds images as a separate step before `up`, so a failed build leaves the previous release serving | A broken build can stop a working service |
 | **Migrate exactly once, and verified** | `deploy.sh:358-372` runs `up -d --remove-orphans` and then asserts `migrate` is `exited` with exit code `0`, dumping its last 200 log lines otherwise | A migration failure is discoverable only by reading `docker compose ps` by hand |
@@ -455,8 +591,22 @@ home-directory checkout on `main`, hand-run deployments over IAP, and no
 automatic gate. Demote the `/opt/smartmatch` design in this document to a
 recorded intent, make `classroom-vm-cloudflare-tunnel.md` the layout of record,
 and treat the properties in the table above as knowingly absent for a synthetic
-pilot carrying no real data. Cheapest, and it leaves an unbacked-up migration
-path on a machine a stakeholder is looking at.
+pilot carrying no real data. Cheapest, and it leaves two things standing on a
+machine a stakeholder is looking at: an unbacked-up migration path, and a stack
+that does not come back after a reboot.
+
+The second of those does not have to wait for the decision, and should not.
+Reboot survivability is separable from everything else in Option B, and costs
+one of two small changes: compose the VM override so the containers carry
+`restart: unless-stopped`, or install and enable a boot-time unit that runs
+`docker compose up -d` in the checkout directory — the shape
+`classroom-vm-cloudflare-tunnel.md:160-179` already documents. Either one closes
+the highest-exposure row in the table above without committing the program to
+`/opt/smartmatch` or to Workload Identity Federation. Doing both is what the
+scripted design does, and it calls the redundancy deliberate at
+`scripts/vm/smartmatch.service:6-12`: the restart policy brings back containers
+that already exist, and `up -d` is the command that converges a stack left
+partly assembled.
 
 **Option B — bootstrap the machine to match the runbook.** Run
 `scripts/vm/bootstrap_vm.sh` on the instance to create `/opt/smartmatch`, its
