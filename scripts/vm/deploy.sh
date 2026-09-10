@@ -374,6 +374,23 @@ deploy_current_checkout() {
     compose logs --no-color --tail=200 migrate || true
     return 1
   fi
+
+  # Password login for the pilot stakeholders is outside `migrate`'s reach: it
+  # depends on the `seed-logins` one-shot creating one `pilot_credential` row
+  # per role from .env's SMARTMATCH_PILOT_*_EMAIL/PASSWORD pairs. A deploy that
+  # only checks `migrate` can go fully green with stakeholder login broken —
+  # missing or partial .env, or a fresh empty database where fixture-token
+  # health still passes. So this mirrors the migrate check above exactly.
+  local seed_logins_state seed_logins_exit
+  seed_logins_state="$(compose ps -a --format '{{.State}}' seed-logins | head -n1)"
+  seed_logins_exit="$(compose ps -a --format '{{.ExitCode}}' seed-logins | head -n1)"
+  log "seed-logins: state=${seed_logins_state:-absent} exit=${seed_logins_exit:-unknown}"
+  if [ "$seed_logins_state" != "exited" ] || [ "${seed_logins_exit:-1}" != "0" ]; then
+    fail_out "the seed-logins service did not exit 0. Stakeholder password login is"
+    fail_out "not guaranteed to work; treating this as a deployment failure."
+    compose logs --no-color --tail=200 seed-logins || true
+    return 1
+  fi
   return 0
 }
 
