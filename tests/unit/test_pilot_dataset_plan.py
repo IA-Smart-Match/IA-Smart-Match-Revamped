@@ -12,8 +12,12 @@ import uuid
 from datetime import date
 
 import pytest
+from smartmatch_api.zip_proximity import resolve_distance_from_campus
 from smartmatch_domain import student_speaker_feedback as feedback
+from smartmatch_domain.cba_role_categories import role_category_for_code
 from smartmatch_domain.metrics import OpportunityCategoryShape, shape_opportunity_category
+from smartmatch_domain.naics_sectors import sector_for_code
+from smartmatch_domain.zcta_centroids import CA_ZCTA_CENTROIDS
 
 from tools import pilot_dataset_plan as plan
 
@@ -413,3 +417,136 @@ def test_which_roster_members_are_reachable_is_a_function_of_the_index_alone():
 def test_a_negative_roster_index_is_refused():
     with pytest.raises(ValueError):
         plan.records_contact_channel(-1)
+
+
+# ---------------------------------------------------------------------------
+# The Speaker Request evidence every seeded event has to carry
+# ---------------------------------------------------------------------------
+
+
+def test_every_planned_event_carries_at_least_one_industry_and_one_role_target():
+    """The gap this file exists to keep closed: a seeded event with no targets.
+
+    ``score_industry_match`` returns ``None`` with basis "speaker request names
+    no industry sectors" when the request names none
+    (``factors/industry_match.py``), ``score_role_match`` does the same, and
+    ADR-0011 makes one unknown factor an unknown composite — so a match run
+    against such an event can only answer
+    ``match_run_insufficient_scorable_candidates``. Every seeded event sits in
+    the coordinator's queue looking selectable, so every seeded event has to be
+    one a run can actually score.
+
+    Asserted over the *whole* calendar rather than a sample, and including the
+    undated ones: an event with no resolvable date cannot be filed as a Speaker
+    Request at all, but its targets are still planned, so the day it gets a date
+    it is matchable rather than silently hollow.
+    """
+    for event in plan.build_events(120):
+        assert event.industry_codes, f"event {event.index} ({event.title}) names no §7 sector"
+        assert event.role_codes, f"event {event.index} ({event.title}) names no §8 role category"
+
+
+def test_planned_event_targets_are_codes_the_released_taxonomies_name():
+    """An unreleased code is a ``LookupError`` out of ``SpeakerRequestDraft``, not a row."""
+    for event in plan.build_events(120):
+        for code in event.industry_codes:
+            sector_for_code(code)
+        for code in event.role_codes:
+            role_category_for_code(code)
+
+
+def test_planned_event_targets_are_stated_once_each():
+    """``SpeakerRequestDraft`` refuses a repeated selection; a seed may not write one."""
+    for event in plan.build_events(120):
+        assert len(set(event.industry_codes)) == len(event.industry_codes)
+        assert len(set(event.role_codes)) == len(event.role_codes)
+
+
+def test_the_calendar_does_not_target_one_sector_over_and_over():
+    """A demo where every event wants the same sector is not a demo.
+
+    Pinned as a floor on distinct target *sets* rather than on any particular
+    assignment, so re-tuning the draw does not have to re-tune this test.
+    """
+    events = plan.build_events(60)
+    industry_sets = {event.industry_codes for event in events}
+    role_sets = {event.role_codes for event in events}
+    assert len(industry_sets) >= 8
+    assert len(role_sets) >= 5
+
+
+def test_a_planned_events_targets_overlap_the_roster_the_run_would_score():
+    """Targets nobody holds score every candidate the same defensible zero."""
+    roster = plan.build_professionals(100)
+    held_industries = {person.industry_code for person in roster}
+    held_roles = {person.role_code for person in roster}
+
+    matched = [
+        event
+        for event in plan.build_events(60)
+        if set(event.industry_codes) & held_industries and set(event.role_codes) & held_roles
+    ]
+    assert len(matched) >= 30
+
+
+def test_a_planned_physical_event_names_a_place_and_a_virtual_one_names_none():
+    """``ck_event_virtual_has_no_location`` and §11, restated where the seed is built."""
+    for event in plan.build_events(120):
+        if event.is_virtual:
+            assert event.location_city is None
+            assert event.location_postal_code is None
+        else:
+            assert event.location_city or event.location_postal_code
+
+
+def test_the_calendar_exercises_both_scoring_modes():
+    """One mode seeded is one mode demonstrated; ``cba-physical-1`` is the one with Proximity."""
+    events = plan.build_events(60)
+    assert any(event.is_virtual for event in events)
+    assert any(not event.is_virtual for event in events)
+
+
+# ---------------------------------------------------------------------------
+# Proximity: a located professional the centroid table can actually resolve
+# ---------------------------------------------------------------------------
+
+
+def test_every_located_professional_carries_a_postal_code():
+    """Proximity is 30% of the physical model and reads exactly one column.
+
+    ``match_run_evidence`` resolves ``speaker_profile.location_postal_code``
+    against the OQ-CBA-024 centroid table; a profile without one is an
+    ``unknown`` distance, an unknown composite (ADR-0011) and an unscorable
+    candidate. ``location`` being present and the postal code being absent would
+    be a coordinate nothing reads.
+    """
+    for person in plan.build_professionals(150):
+        if person.location is None:
+            assert person.postal_code is None
+            assert person.city is None
+        else:
+            assert person.postal_code
+            assert person.city
+
+
+def test_every_planned_postal_code_is_in_the_released_centroid_table():
+    """A ZIP the table does not name resolves to no coordinate, so Proximity stays unknown.
+
+    This is the failure mode that looks fixed and is not: the column is
+    populated, the factor still returns ``None``, and nothing about the refusal
+    changes.
+    """
+    for person in plan.build_professionals(150):
+        if person.postal_code is not None:
+            assert person.postal_code in CA_ZCTA_CENTROIDS
+
+
+def test_the_roster_is_spread_across_the_distance_bands():
+    """A pool sitting at one distance decides the shortlist by tie-breaking."""
+    located = [person for person in plan.build_professionals(100) if person.postal_code is not None]
+    distances = {
+        resolve_distance_from_campus(person.postal_code).miles  # type: ignore[union-attr]
+        for person in located
+    }
+    assert len(distances) >= 5
+    assert max(distances) - min(distances) > 20.0
