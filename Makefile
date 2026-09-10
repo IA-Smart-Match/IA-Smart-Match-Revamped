@@ -193,6 +193,23 @@ seed-pilot-rewards: ## Seed one funded reward item; every value is required — 
 	# docstring.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_rewards.py $(SEED_PILOT_REWARD_ARGS)
 
+.PHONY: seed-pilot-engagement
+seed-pilot-engagement: ## Seed rewards, redemptions, registrations and meetings under the demo logins
+	# Fills the three tables no phase of the dataset generator writes --
+	# event_registration, cba_meeting and redemption -- and credits the student
+	# surfaces to the account `compose-student` actually resolves to. The
+	# appliance had 187 point_ledger_entry rows and a blank student rewards
+	# screen at the same time, because all 187 belonged to synthetic-student:*
+	# accounts nobody can sign in as; see that module's docstring.
+	#
+	# The catalog rows it seeds are the ones an owner has written into
+	# docs/pilot-data/rewards-catalog-worksheet.md, seeded through
+	# seed_pilot_rewards.seed_reward_item so there is one catalog writer and not
+	# two. --items-from-worksheet is required and has no default, which is how
+	# the operator states that those rows are the ones they mean.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_engagement.py \
+		--items-from-worksheet $(SEED_PILOT_ENGAGEMENT_ARGS)
+
 .PHONY: verify-pilot-dataset
 verify-pilot-dataset: ## Fail if any table a pilot demo reads from is empty for the pilot tenant
 	# Read-only, and the counterpart to the seeds above rather than another one.
