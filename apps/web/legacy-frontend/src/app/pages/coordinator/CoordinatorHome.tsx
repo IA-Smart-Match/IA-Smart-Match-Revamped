@@ -1,18 +1,57 @@
 /**
  * Coordinator home — coordinator portal, and the Connector's pilot statistics.
  *
- * This page used to load your coordinator profile, hosted events and staffing, outreach threads, meeting bookings from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
+ * This page used to load your coordinator profile, hosted events and staffing,
+ * outreach threads and meeting bookings from the legacy `/api/portals/*`
+ * backend. That backend is not part of this repository, so each of the four was
+ * a `PortalDatasetUnavailable` panel naming the dataset and the route that
+ * would have served it, rather than a red failure banner blaming an outage for
+ * a capability that was never present.
+ *
+ * Three of those four have had a `/v1` answer all along and were simply
+ * unwired, and the panels above them were therefore saying something false
+ * about *this* deployment while saying something true about the legacy one:
+ *
+ *  - **your coordinator profile** is `GET /v1/me` and `GET /v1/me/portals`,
+ *    which this page already called for its own scoping. `PortalIdentityCard`
+ *    at the top of the page is that profile — who the server says you are, the
+ *    role that granted your portal, the org unit it covers, and the units that
+ *    grant reaches. There was never anything to fetch that was not already
+ *    fetched;
+ *  - **hosted events** is `GET /v1/units/{unit_id}/events`
+ *    (`routers/events.py`), which no portal page was calling.
+ *    `CoordinatorEvents.tsx` is the page for it; the panel below summarises
+ *    only what that response says about its own completeness and links there;
+ *  - **outreach** is `GET /v1/units/{unit_id}/outreach/drafts` and
+ *    `.../outreach/sends`. Both are read here against the *granted* unit —
+ *    `useOutreach` scopes itself by the build variable, which is the wrong unit
+ *    for a Connector for the reason the next section gives about
+ *    `Dashboard.tsx`.
+ *
+ * Two labels did not survive being wired up, and that is the point rather than
+ * a casualty of it.
+ *
+ * The old panel said "hosted events **and staffing**". The `/v1` listing
+ * carries no staffing of any kind, so the label went rather than being kept
+ * over a response that does not answer it — see `CoordinatorEvents.tsx`.
+ *
+ * The old panel said "outreach **threads**". `/v1` outreach stores drafts and
+ * sends — a composed message and one attempt to deliver it — and there is no
+ * inbound leg in this API for a thread to be made of (OQ-008). The section
+ * below says drafts and sends in its heading, its copy and its labels.
+ * Renaming a surface to match the old word would be the fabricated-equivalence
+ * defect these placeholders exist to prevent: a reader told they are looking at
+ * threads goes looking for replies that are not withheld but absent.
+ *
+ * **Meeting bookings** still has no `/v1` answer and keeps its panel. Deleting
+ * it alongside the others would turn a named absence into an unnamed one, which
+ * is the direction this page is built to refuse.
  *
  * What *is* real on this page comes from `/v1` routes and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
- * server granted them and the role and unit behind it, and the three reads the
- * statistics are drawn from. Neither identity route is derived in the browser,
- * and no identifier on this page is chosen by it.
+ * server granted them and the role and unit behind it, and the six unit-scoped
+ * reads below. Neither identity route is derived in the browser, and no
+ * identifier on this page is chosen by it.
  *
  * ## Why the statistics are here and not on `Dashboard.tsx` (TRACK 14)
  *
@@ -36,19 +75,26 @@
  *
  * ## Every number here has one owning server query (ADR-0011)
  *
- * Two reads, both of which count server-side:
+ * Two reads count server-side:
  * `GET /v1/units/{unit_id}/metrics?surface=cba` for the registered metrics —
  * the review queue's size, Speaker Requests, and the four funnel counts as the
  * CBA product labels them — and
  * `GET /v1/units/{unit_id}/engagement/attendance-summary` for how much
  * attendance evidence the unit holds.
  *
+ * The event listing added below contributes two more server-owned figures and
+ * no computed one: `withheld_unresolved_date` and `withheld_quarantined_tags`
+ * are counted by the same query the listing is partitioned out of. The count
+ * this page pointedly does **not** show is a count of the events themselves —
+ * `events.length` is arithmetic the browser did, and it would sit among figures
+ * whose whole claim is that a server query owns each of them.
+ *
  * Nothing on this page is folded, averaged, totalled or rounded. That is not
  * fastidiousness: a browser-side total is a second calculation of a published
  * number, it looks exactly as authoritative as the measured one, and it can be
- * drilled into by nothing. Where the two responses each carry a total, it is
- * the server's own — `AttendanceSummaryResponse.total` is documented as the
- * fold of `by_method`, computed from the same query that produced the parts.
+ * drilled into by nothing. Where a response carries a total, it is the server's
+ * own — `AttendanceSummaryResponse.total` is documented as the fold of
+ * `by_method`, computed from the same query that produced the parts.
  *
  * A `null` metric value is rendered as unknown *with the server's reason*, and
  * never as `0`. A measured `0` is rendered as `0`, because the query ran and
@@ -101,18 +147,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BarChart3, Info, MessageSquareHeart } from "lucide-react";
+import { BarChart3, CalendarDays, Info, Mail, MessageSquareHeart } from "lucide-react";
 
 import {
   ApiRequestError,
   fetchAttendanceSummary,
   fetchCbaUnitMetrics,
+  fetchOutreachDrafts,
+  fetchOutreachSends,
+  fetchUnitEvents,
   fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
   type MetricSummary,
+  type OutreachDraft,
+  type OutreachSendSummary,
+  type UnitEventList,
   type UnitFeedbackSummary,
 } from "../../../lib/api";
 import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -145,23 +198,75 @@ function describeFailure(cause: unknown, subject: string): string {
  * measured number, a measured zero (which prints as `0` and means the query ran
  * and found none), and an unknown carrying the server's `unknown_reason`. There
  * is no fourth branch in which a missing value becomes a zero.
+ *
+ * ## Why the definition is behind an affordance and the reason is not
+ *
+ * The card face carries the display name and the value, and nothing else. The
+ * `definition` is the register's own sentence about how a metric is counted —
+ * `smartmatch_domain/metrics.py` writes it for a reader who has stopped to ask,
+ * and the longest of the six runs to about ninety words. Six of those printed
+ * on the face pushed the grid past the fold, so the first thing a Connector had
+ * to do with their unit's numbers was scroll away from them.
+ *
+ * It moves behind an info control that opens on **hover and on keyboard
+ * focus** — a real `<button>`, not a `<span>` with a mouse handler, because the
+ * two are the same control to a mouse and only one of them exists to a keyboard
+ * or a screen reader. Radix's `Tooltip` (`components/ui/tooltip.tsx`, already a
+ * dependency of this app) gives both from the one trigger, which is why no new
+ * component and no new package appears here.
+ *
+ * The tooltip prints `metric.definition` **verbatim**. Nothing is sliced,
+ * clamped or elided: the register is the author of a registered definition, and
+ * a browser that shortened one would be publishing a second, shorter definition
+ * that no server owns and that nothing can drill into. A definition that is too
+ * long is a sentence to rewrite in `metrics.py`, where every surface reading the
+ * register gets the rewrite.
+ *
+ * `unknown_reason` stays on the face. It is not a footnote and it is not
+ * optional reading: it is the entire content of an unmeasured metric, and
+ * ADR-0011 rule 1 is about exactly this — the reason a number is missing has to
+ * arrive with the missing number, not behind a gesture a reader has to guess to
+ * make. A definition explains a figure that is on the screen; a reason explains
+ * why one is not, and only the first of those can wait for a hover.
  */
 function RegisteredMetricCard({ metric }: { metric: MetricSummary }) {
   const measured = metric.value !== null;
 
   return (
     <li className="rounded-xl border border-border/70 p-4">
-      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {metric.display_name}
-      </h3>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {metric.display_name}
+        </h3>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              // Labelled with the metric it belongs to: six controls all
+              // reading "info" are six identical, unusable stops in a screen
+              // reader's list of a page's buttons.
+              aria-label={`How ${metric.display_name} is counted`}
+              className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Info className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-left leading-5">
+            {/* The register's sentence, exactly as it was written — no slice,
+                no clamp, no ellipsis. See this component's docstring. */}
+            {metric.definition}
+          </TooltipContent>
+        </Tooltip>
+      </div>
       {measured ? (
         <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{metric.value}</p>
       ) : (
-        <p className="mt-1 text-sm font-medium text-foreground">Not measured</p>
-      )}
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{metric.definition}</p>
-      {measured ? null : (
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">{metric.unknown_reason}</p>
+        <>
+          <p className="mt-1 text-sm font-medium text-foreground">Not measured</p>
+          {/* Inline, never inside the tooltip above: ADR-0011 rule 1, and the
+              reason a number is missing is not a footnote. */}
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">{metric.unknown_reason}</p>
+        </>
       )}
     </li>
   );
@@ -424,6 +529,272 @@ function StudentFeedbackPointer({ state }: { state: Loaded<UnitFeedbackSummary> 
 }
 
 /**
+ * Hosted events, summarised — the panel, and the page it defers to.
+ *
+ * This section used to be a `PortalDatasetUnavailable` for "Hosted events and
+ * staffing", which said something true about the legacy `/api/portals/*`
+ * backend and something false about this deployment:
+ * `GET /v1/units/{unit_id}/events` exists and no portal page was calling it.
+ *
+ * What it renders here is deliberately not the listing. `CoordinatorEvents.tsx`
+ * is the page for that, and duplicating rows onto a statistics surface would
+ * put two renderings of one response on two screens, to disagree the first time
+ * one of them is changed. This panel carries only what the *response itself*
+ * says about its own completeness — the two withheld counts and `truncated` —
+ * and hands the reader the page.
+ *
+ * There is deliberately **no count of listed events here**. `events.length`
+ * would be a figure this browser computed, sitting in a section whose whole
+ * claim is that every number on it has one owning server query; the register
+ * above is where a count of anything belongs, and it has no metric for this.
+ *
+ * The withheld counts are not decoration. Without them "no events" and "seven
+ * events the pipeline could not finish" are the same silence, which is
+ * ADR-0011's rule about zeros applied to an omission.
+ *
+ * Staffing is not summarised because the route carries none — see
+ * `CoordinatorEvents.tsx`'s docstring. The old panel's label is gone rather
+ * than kept over a response that does not answer it.
+ */
+function HostedEventsSummary({ state }: { state: Loaded<UnitEventList> }) {
+  const listing = state.data;
+
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="Hosted events">
+      <div className="flex items-start gap-2">
+        <CalendarDays
+          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="w-full space-y-2">
+          <h2 className="font-semibold text-foreground">Events your unit hosts</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            The server lists this unit&apos;s presentable events. Two kinds are held back — an
+            event with no resolved date, and one whose tag value is still awaiting human review —
+            and the response counts both rather than dropping them quietly.
+          </p>
+
+          {state.error !== null ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+            >
+              {state.error}
+            </p>
+          ) : listing === null ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              {state.settled ? "The listing returned nothing." : "Loading the event listing…"}
+            </p>
+          ) : (
+            <>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border/70 p-3">
+                  <dt className="text-xs text-muted-foreground">Not listed — no resolved date</dt>
+                  <dd className="text-sm tabular-nums text-foreground">
+                    {listing.withheld_unresolved_date}
+                  </dd>
+                </div>
+                <div className="rounded-xl border border-border/70 p-3">
+                  <dt className="text-xs text-muted-foreground">
+                    Not listed — tag awaiting review
+                  </dt>
+                  <dd className="text-sm tabular-nums text-foreground">
+                    {listing.withheld_quarantined_tags}
+                  </dd>
+                </div>
+              </dl>
+              {listing.truncated && (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  This unit holds more presentable events than one response returns.
+                </p>
+              )}
+            </>
+          )}
+
+          <p className="text-sm leading-6">
+            <Link
+              className="font-medium text-foreground underline underline-offset-4"
+              to="/coordinator-portal/events"
+            >
+              Open my events
+            </Link>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * How one send attempt reads, from the server's own field and no further.
+ *
+ * Deliberately not shared with `CoordinatorOutreach.tsx`'s `describeDisposition`
+ * and deliberately weaker than it. That page reads a single send with its whole
+ * delivery stream beside it and can afford a sentence; this panel has a row in
+ * a listing, and the listing carries no stream — the route omits it on purpose,
+ * because folding a send's events into one word is a choice about which fact to
+ * forget when a provider reports `delivered` and then `complained`.
+ *
+ * So this reports the server's value and stops. `null` is the third state and
+ * reads as in flight — never as a failure, and never as the word this whole
+ * surface refuses. **Nothing here says "sent" or "delivered".** B17's defect was
+ * a button that announced a message had been sent having issued no request; a
+ * dashboard that announced delivery from a disposition would be the same claim
+ * one layer further from the evidence.
+ */
+function describeSendState(send: OutreachSendSummary): string {
+  return send.disposition === null
+    ? "In flight — the worker has not reported an outcome."
+    : `The server reported "${send.disposition}".`;
+}
+
+/**
+ * Outreach drafts and sends — and why this section is not called threads.
+ *
+ * This was a `PortalDatasetUnavailable` for "Outreach threads". The legacy
+ * `/api/portals/event-coordinators/{id}/threads` really is gone, and what
+ * replaced it is **not the same shape**: `/v1` outreach stores an
+ * `outreach_draft` and an `outreach_send`, which are a composed message and one
+ * attempt to deliver it. OQ-008 records that decision. Nothing in either
+ * response implies a reply exists, no row belongs to an exchange, and there is
+ * no inbound leg anywhere in this API.
+ *
+ * That is why the heading, the copy and the field labels below all say drafts
+ * and sends. Rendering these rows under the old word would be the
+ * fabricated-equivalence defect the unavailable panels exist to prevent: a
+ * reader who saw "threads" would reasonably believe they were looking at
+ * conversations, and would go looking for replies that are not withheld but
+ * absent.
+ *
+ * Two reads, `GET /v1/units/{unit_id}/outreach/drafts` and
+ * `.../outreach/sends`, both scoped to the unit the server *granted this
+ * account* rather than to `VITE_SMARTMATCH_UNIT_ID`. `useOutreach` reads the
+ * build variable, which is why this panel calls the helpers directly: on a
+ * multi-unit pilot the two are different units, and a Connector's dashboard
+ * showing another unit's outreach would be attributing one unit's messages to
+ * another.
+ *
+ * No count is rendered. Neither response carries a total — `limit` and `offset`
+ * are what was asked for, not what exists — so a number here would be a count
+ * of one page, computed in the browser, presented beside figures that each have
+ * an owning query.
+ */
+function OutreachDraftsAndSends({
+  drafts,
+  sends,
+}: {
+  drafts: Loaded<OutreachDraft[]>;
+  sends: Loaded<OutreachSendSummary[]>;
+}) {
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="Outreach drafts and sends">
+      <div className="flex items-start gap-2">
+        <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="w-full space-y-3">
+          <h2 className="font-semibold text-foreground">Outreach drafts and sends</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            A draft is a message composed from a registered template; a send is one attempt to
+            deliver one. They are not conversations — this API has no inbound leg, so nothing
+            below implies anyone replied.
+          </p>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Drafts
+            </h3>
+            {drafts.error !== null ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+              >
+                {drafts.error}
+              </p>
+            ) : drafts.data === null ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {drafts.settled ? "The draft listing returned nothing." : "Loading drafts…"}
+              </p>
+            ) : drafts.data.length === 0 ? (
+              // Safe to say here, and only here: the server answered, and its
+              // answer was none. A failed read above says nothing at all about
+              // how many drafts exist (ADR-0011).
+              <p className="text-sm text-muted-foreground">No drafts in this unit.</p>
+            ) : (
+              <ul className="space-y-2">
+                {drafts.data.map((draft) => (
+                  <li key={draft.draft_id} className="rounded-xl border border-border/70 p-3">
+                    <p className="text-sm font-medium text-foreground">{draft.subject}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      To {draft.recipient_address} · {draft.status}
+                    </p>
+                    {draft.content_status === "synthetic" && (
+                      // Surfaced rather than hidden: this is the fact that
+                      // decides whether the message could go to a real person.
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Pilot copy — not through institutional review.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Sends
+            </h3>
+            {sends.error !== null ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+              >
+                {sends.error}
+              </p>
+            ) : sends.data === null ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {sends.settled ? "The send listing returned nothing." : "Loading sends…"}
+              </p>
+            ) : sends.data.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This unit has attempted no sends.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {sends.data.map((send) => (
+                  <li key={send.send_id} className="rounded-xl border border-border/70 p-3">
+                    <p className="text-sm font-medium text-foreground">{send.recipient_address}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {describeSendState(send)}
+                    </p>
+                    {send.failure_reason !== null && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{send.failure_reason}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs leading-5 text-muted-foreground">
+              The server decides how many rows one page carries, and the response reports no
+              total — so this is a page of sends rather than all of them, and no number here
+              claims otherwise.
+            </p>
+          </div>
+
+          <p className="text-sm leading-6">
+            <Link
+              className="font-medium text-foreground underline underline-offset-4"
+              to="/coordinator-portal/outreach"
+            >
+              Open CBA contact
+            </Link>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * The review queue, and why it is empty rather than absent.
  *
  * This is a *different* gap from the `/api/portals/*` panels above, and it is
@@ -492,11 +863,14 @@ export function CoordinatorHome() {
   const [metrics, setMetrics] = useState<Loaded<MetricSummary[]>>(PENDING);
   const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
   const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
+  const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
+  const [drafts, setDrafts] = useState<Loaded<OutreachDraft[]>>(PENDING);
+  const [sends, setSends] = useState<Loaded<OutreachSendSummary[]>>(PENDING);
 
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Three independent reads, settled independently. Letting one refusal
+    // Six independent reads, settled independently. Letting one refusal
     // decide what another section shows would misreport which capability the
     // server actually withheld.
     try {
@@ -528,6 +902,42 @@ export function CoordinatorHome() {
       setFeedback({
         data: null,
         error: describeFailure(cause, "The unit feedback summary"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchUnitEvents(unitId);
+      setEvents({ data: listing, error: null, settled: true });
+    } catch (cause) {
+      setEvents({
+        data: null,
+        error: describeFailure(cause, "The unit's event listing"),
+        settled: true,
+      });
+    }
+
+    // The two outreach reads are settled apart from each other as well as from
+    // everything above: a unit can hold drafts it has never sent, and a refusal
+    // on one of these routes says nothing about the other.
+    try {
+      const listing = await fetchOutreachDrafts(unitId);
+      setDrafts({ data: listing.drafts, error: null, settled: true });
+    } catch (cause) {
+      setDrafts({
+        data: null,
+        error: describeFailure(cause, "The outreach drafts"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchOutreachSends(unitId);
+      setSends({ data: listing.sends, error: null, settled: true });
+    } catch (cause) {
+      setSends({
+        data: null,
+        error: describeFailure(cause, "The outreach sends"),
         settled: true,
       });
     }
@@ -568,22 +978,15 @@ export function CoordinatorHome() {
           <RegisteredMetrics state={metrics} />
           <AttendanceEvidence state={attendance} />
           <StudentFeedbackPointer state={feedback} />
+          <HostedEventsSummary state={events} />
+          <OutreachDraftsAndSends drafts={drafts} sends={sends} />
         </>
       )}
 
       <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Your coordinator profile"
-          endpoints={["/api/portals/event-coordinators/{id}"]}
-        />
-        <PortalDatasetUnavailable
-          dataset="Hosted events and staffing"
-          endpoints={["/api/portals/event-coordinators/{id}/events"]}
-        />
-        <PortalDatasetUnavailable
-          dataset="Outreach threads"
-          endpoints={["/api/portals/event-coordinators/{id}/threads"]}
-        />
+        {/* Meeting bookings has no `/v1` answer today, so it stays a named
+            absence rather than being quietly dropped now that the panels
+            around it have landed. */}
         <PortalDatasetUnavailable
           dataset="Meeting bookings"
           endpoints={["/api/portals/event-coordinators/{id}/meetings"]}

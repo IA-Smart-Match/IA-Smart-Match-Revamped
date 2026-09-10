@@ -95,6 +95,11 @@ const CoordinatorSpeakerFeedback = lazy(() =>
     default: m.CoordinatorSpeakerFeedback,
   })),
 );
+const CoordinatorReviewQueue = lazy(() =>
+  import("./pages/coordinator/CoordinatorReviewQueue").then((m) => ({
+    default: m.CoordinatorReviewQueue,
+  })),
+);
 
 const VolunteerHome = lazy(() =>
   import("./pages/volunteer/VolunteerHome").then((m) => ({ default: m.VolunteerHome })),
@@ -257,7 +262,41 @@ export const router = createBrowserRouter([
       // tenant-scoped — whatever this router renders. The page shows the
       // server's refusal rather than hiding the control.
       { path: "matching-weights", element: withSuspense(<CoordinatorMatchingWeights />) },
+      // The internal CBA meeting record (migration `0034`). This route already
+      // existed, pointing at a `PortalDatasetUnavailable` placeholder for the
+      // legacy `/api/portals/event-coordinators/{id}/meetings` dataset; what
+      // changed is that the page behind it now reads and writes a real `/v1`
+      // surface, `GET`/`POST /v1/units/{unit_id}/meetings`.
+      //
+      // Mounted unconditionally for the reason its siblings above are: a route
+      // is a claim about what exists rather than a permission. Both routes are
+      // `admin`/`coordinator` server-side, authorized per request against the
+      // loaded unit, whatever this router renders.
+      //
+      // The page is a *record*, not a booking — nothing behind it sends an
+      // invitation or writes to anybody's calendar, and G5 stays deferred. The
+      // page says so on screen, because a coordinator who believed otherwise
+      // would stop arranging the meeting themselves.
       { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
+      // The queue behind the dashboard's `pending_review_items` badge. Until
+      // `GET /v1/units/{unit_id}/review-items` existed the count had no route
+      // to click through to, so the coordinator home screen showed a number it
+      // could not explain.
+      //
+      // Appended at the end of this list rather than placed beside a related
+      // entry, for a merge reason rather than a taxonomic one: several tracks
+      // add children here at once, and an insertion in the middle conflicts
+      // with every one of them.
+      //
+      // Mounted unconditionally, for the reason every route above it is: a
+      // route is a claim about what exists rather than a permission. Both
+      // `GET /v1/units/{unit_id}/review-items` and
+      // `POST /v1/review-items/{id}/decision` are authorized server-side per
+      // request — `admin`/`coordinator`, deny-by-default, tenant-scoped, with
+      // another tenant's unit answering `404` rather than `403` — whatever
+      // this router renders. The page shows the server's refusal instead of
+      // hiding the controls and implying the capability is absent.
+      { path: "review-queue", element: withSuspense(<CoordinatorReviewQueue />) },
     ],
   },
 

@@ -639,6 +639,33 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("student_speaker_feedback", "ck_student_speaker_feedback_withdrawn_is_silent"): (
         "CHECK (((status <> 'withdrawn'::text) OR (comment IS NULL)))"
     ),
+    # --- The internal CBA meeting record (migration 0034) ----------------
+    #
+    # Note what is *not* in this block, and cannot be: the invariant migration
+    # 0034 exists for — a meeting with no resolved time is refused, never
+    # defaulted — is `scheduled_at NOT NULL` with no server default, and a
+    # nullability is not a CHECK. It is pinned instead by
+    # test_cba_meeting_migration.py::test_the_column_carries_no_default, which
+    # reads the catalog, because a default would make the refusal test pass by
+    # fabricating an instant rather than refusing the row (finding F-003).
+    #
+    # The four below are the shape constraints around it. `time_zone` is the one
+    # worth reading twice: it is the half of a wall-clock appointment a
+    # `timestamptz` cannot recover, so a blank zone is the same fabrication one
+    # column over.
+    ("cba_meeting", "ck_cba_meeting_status"): (
+        "CHECK ((status = ANY (ARRAY['scheduled'::text, 'cancelled'::text])))"
+    ),
+    ("cba_meeting", "ck_cba_meeting_title_shape"): (
+        "CHECK (((length(btrim(title)) > 0) AND (length(title) <= 200)))"
+    ),
+    ("cba_meeting", "ck_cba_meeting_time_zone"): (
+        "CHECK (((length(btrim(time_zone)) > 0) AND (length(time_zone) <= 64)))"
+    ),
+    ("cba_meeting", "ck_cba_meeting_location_shape"): (
+        "CHECK (((location_or_link IS NULL) OR ((length(btrim(location_or_link)) > 0) AND "
+        "(length(location_or_link) <= 500))))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -1101,6 +1128,41 @@ BEHAVIOURAL_COVERAGE = {
         "text, which is the part that names people, would survive it. The permitted half "
         "is ::test_a_withdrawn_rating_keeps_its_row_and_its_student, which stores a "
         "withdrawn row with no comment"
+    ),
+    # --- The internal CBA meeting record (migration 0034) ----------------
+    #
+    # All four are exercised in test_cba_meeting_migration.py, the revision's own
+    # integration file, rather than duplicated here — the arrangement the
+    # outreach, weight-settings, invitation and feedback constraints already use.
+    # That file is also where the invariant that is *not* a CHECK lives; see the
+    # note beside these four in PINNED.
+    ("cba_meeting", "ck_cba_meeting_status"): (
+        "0034 added, test_cba_meeting_migration.py::test_an_unknown_status_is_refused, which "
+        "inserts 'postponed' — a word a reader would expect to work and which the two-state "
+        "vocabulary does not admit, because a cancellation is a transition and never a "
+        "DELETE (OQ-CBA-018's shape). The permitted half is "
+        "::test_a_meeting_with_a_time_is_stored, which stores 'scheduled'"
+    ),
+    ("cba_meeting", "ck_cba_meeting_title_shape"): (
+        "0034 added, test_cba_meeting_migration.py::test_a_blank_title_is_refused, which "
+        "inserts '   '. The column is NOT NULL, so the empty string is the only way a "
+        "titleless meeting could be stored, and it would render as a blank row rather than "
+        "as the absence it is. The permitted half is every other insert in the file"
+    ),
+    ("cba_meeting", "ck_cba_meeting_time_zone"): (
+        "0034 added, test_cba_meeting_migration.py::test_a_blank_time_zone_is_refused. This "
+        "is the constraint nearest the revision's reason for existing: the zone is the half "
+        "of a wall-clock appointment a timestamptz cannot recover, so a blank one leaves "
+        "every rendering to pick a zone on the unit's behalf. The permitted half is every "
+        "other insert, all of which name 'America/Los_Angeles'"
+    ),
+    ("cba_meeting", "ck_cba_meeting_location_shape"): (
+        "0034 added, test_cba_meeting_migration.py"
+        "::test_a_blank_location_is_refused_but_an_absent_one_is_not, which carries both "
+        "halves in one body on purpose: '' is refused, and NULL is stored. The permitted "
+        "half is the load-bearing one here — a test attempting only the refusal would pass "
+        "against a column somebody had made NOT NULL, which would refuse to record a "
+        "meeting whose room is still being settled"
     ),
 }
 

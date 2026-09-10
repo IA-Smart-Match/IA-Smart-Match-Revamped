@@ -35,6 +35,7 @@ funnel count reads as an input to it unless a reader is told otherwise.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -43,6 +44,8 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 STATS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.tsx"
+TOOLTIP_PRIMITIVE = FRONTEND_SRC / "app" / "components" / "ui" / "tooltip.tsx"
+WEB_PACKAGE_JSON = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "package.json"
 
 
 def _code_only(source: str) -> str:
@@ -63,6 +66,22 @@ def _helper_body(source: str, name: str) -> str:
     marker = f"export async function {name}"
     assert marker in source, f"api.ts is missing {name}"
     return source.split(marker, 1)[1].split("\n}", 1)[0]
+
+
+def _jsx_element(source: str, tag: str) -> str:
+    """Everything between the opening and closing tag of one JSX element.
+
+    Crude on purpose, and sufficient because the element it is asked about is
+    written once on this page. It is what lets a check say *where* a string is
+    rendered rather than merely that it appears somewhere in the file — the
+    difference between "the reason is on the page" and "the reason is on the
+    card face and not inside a tooltip".
+    """
+    opening = f"<{tag}"
+    closing = f"</{tag}>"
+    assert opening in source, f"the statistics surface renders no <{tag}>"
+    assert closing in source, f"<{tag}> is never closed on the statistics surface"
+    return source.split(opening, 1)[1].split(closing, 1)[0]
 
 
 def _interface_body(source: str, name: str) -> str:
@@ -201,6 +220,135 @@ def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# The metric card — a definition is the register's sentence, shown on demand
+# ---------------------------------------------------------------------------
+
+
+def test_a_metric_definition_opens_from_a_real_focusable_button() -> None:
+    """The definition is behind hover *and* focus, from one real control.
+
+    Six registered definitions printed on the card faces ran to the length of a
+    paragraph each and pushed the grid past the fold, so the first thing a
+    Connector could do with their unit's numbers was scroll away from them. The
+    fix is an affordance, and the affordance has to be a ``<button>``: a
+    ``<span>`` with a mouse handler is the same control to a mouse and no
+    control at all to a keyboard or a screen reader. Radix's ``Tooltip`` opens
+    on both from a single trigger, which is why this needs no new component.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "TooltipTrigger" in code and "TooltipContent" in code, (
+        "the definition must be rendered through the tooltip primitive this app already has"
+    )
+
+    trigger = _jsx_element(code, "TooltipTrigger")
+    assert "<button" in trigger, (
+        "the info affordance must be a real <button>; a span with a hover handler does not "
+        "exist to a keyboard"
+    )
+    assert 'type="button"' in trigger, (
+        "an unqualified <button> inside a form submits it; the affordance opens a tooltip"
+    )
+    assert "aria-label" in trigger, (
+        "six controls all announcing themselves as 'info' are six identical stops in a "
+        "screen reader's list; each one names its metric"
+    )
+
+
+def test_the_card_face_carries_the_name_and_the_value_and_no_definition() -> None:
+    """``definition`` is rendered once, and only inside the tooltip.
+
+    A definition left on the face *as well* would defeat the whole change while
+    passing a check that only asked whether a tooltip existed.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert code.count("metric.definition") == 1, (
+        "the registered definition is rendered exactly once — inside the tooltip"
+    )
+    assert "metric.definition" in _jsx_element(code, "TooltipContent"), (
+        "the definition must render inside the tooltip content, not on the card face"
+    )
+    assert "metric.display_name" in code and "metric.value" in code, (
+        "the card face still carries the metric's name and its value"
+    )
+
+
+def test_the_definition_is_rendered_verbatim() -> None:
+    """The register is the author of a registered definition.
+
+    A browser that sliced, clamped or ellipsised one would be publishing a
+    second, shorter definition that no server owns, that no other surface
+    agrees with, and that nothing can drill into. A definition that is too long
+    is a sentence to rewrite in ``metrics.py``, where every reader of the
+    register gets the rewrite.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    for forbidden in (
+        "definition.slice",
+        "definition.substring",
+        "definition.substr",
+        "definition.split",
+        "definition.replace",
+        "line-clamp",
+    ):
+        assert forbidden not in code, (
+            f"the statistics surface applies {forbidden!r} to a server-owned string; a "
+            "registered definition is rendered exactly as the register wrote it"
+        )
+
+    # `\b` on both sides, and the reason is a real collision rather than
+    # fastidiousness: the event listing carries a server field named
+    # ``truncated``, which a substring check would flag while the CSS class
+    # ``truncate`` — the one that actually clips text — went on being the thing
+    # this test meant. A rule that cannot tell the server's word from the
+    # browser's would have to be deleted the first time it fired wrongly.
+    assert re.search(r"\btruncate\b", code) is None, (
+        "the statistics surface clips text with the `truncate` class; a registered "
+        "definition is rendered exactly as the register wrote it"
+    )
+
+
+def test_an_unmeasured_metric_states_its_reason_on_the_card_face() -> None:
+    """ADR-0011: the reason a number is missing is not a footnote.
+
+    A ``definition`` explains a figure that is on the screen and can wait for a
+    hover. An ``unknown_reason`` *is* the content of an unmeasured metric —
+    there is no number beside it to be read instead — and putting it behind a
+    gesture a reader has to guess to make would leave "Not measured" standing
+    alone, which is the bare dash this register exists to prevent.
+    """
+    source = STATS_PAGE.read_text(encoding="utf-8")
+    code = _code_only(source)
+
+    assert "metric.unknown_reason" in code
+    assert "unknown_reason" not in _jsx_element(code, "TooltipContent"), (
+        "the server's reason for an unmeasured metric must render inline, never inside a tooltip"
+    )
+
+
+def test_the_hover_affordance_adds_no_dependency() -> None:
+    """The primitive is the one already in this app.
+
+    ``components/ui/tooltip.tsx`` wraps ``@radix-ui/react-tooltip``, which is
+    already a declared dependency. A second tooltip library — or a hand-rolled
+    one — would be a new supply-chain entry and a second set of focus and
+    dismissal behaviours to keep correct, bought for a card header.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    manifest = json.loads(WEB_PACKAGE_JSON.read_text(encoding="utf-8"))
+
+    assert "components/ui/tooltip" in code, (
+        "the page must import the app's existing tooltip primitive"
+    )
+    assert "@radix-ui/react-tooltip" in TOOLTIP_PRIMITIVE.read_text(encoding="utf-8")
+    assert "@radix-ui/react-tooltip" in manifest["dependencies"], (
+        "the tooltip primitive's package must already be declared; this change adds none"
+    )
+
+
 def test_the_statistics_surface_renders_no_percentage() -> None:
     """OQ-CBA-005 keeps percentages off CBA surfaces.
 
@@ -299,6 +447,111 @@ def test_the_statistics_surface_names_the_statistics_the_api_cannot_answer() -> 
     )
     assert "GET /v1/units/{unit_id}/speaker-feedback-summary" in text, (
         "the surface must name the route the unit aggregate comes from"
+    )
+
+
+def test_the_statistics_surface_summarises_events_without_counting_them() -> None:
+    """The hosted-events panel reads ``/v1`` and computes nothing.
+
+    ``GET /v1/units/{unit_id}/events`` has existed since the discovery slice
+    and no portal page was calling it, so this surface rendered an "unavailable"
+    panel over a route that worked — a true statement about the legacy backend
+    and a false one about this deployment.
+
+    What it may render is what the *response* says about its own completeness:
+    the two withheld counts, which the route counts from the same rows the
+    listing is partitioned out of. What it may not render is ``events.length``.
+    That is a figure this browser computed, and it would sit among figures whose
+    whole claim is that one server query owns each of them — the register above
+    is where a count belongs, and it has no metric for this one.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchUnitEvents" in code, (
+        "the hosted-events panel must read the unit's event listing through its own helper"
+    )
+    for field in ("withheld_unresolved_date", "withheld_quarantined_tags"):
+        assert field in code, (
+            f"the panel must render {field!r}; without the withheld counts, 'this unit has no "
+            "events' and 'this unit has seven the pipeline could not finish' are one silence"
+        )
+
+    for forbidden in ("events.length", "listing.events.length"):
+        assert forbidden not in code, (
+            f"the statistics surface counts events with {forbidden!r}; every figure it shows "
+            "must be one a server query owns"
+        )
+
+
+def test_the_outreach_panel_says_drafts_and_sends_and_never_threads() -> None:
+    """OQ-008, held as a naming rule on the surface that reads the routes.
+
+    ``/v1`` outreach stores an ``outreach_draft`` — a composed message — and an
+    ``outreach_send`` — one attempt to deliver it. It has no inbound leg, so a
+    thread is not a dataset this deployment withholds; it is a shape the data
+    does not have. Rendering these rows under the legacy word would be the
+    fabricated equivalence the unavailable panels exist to prevent, and a reader
+    shown "threads" would go looking for replies that do not exist.
+
+    The rule is enforced on rendered copy rather than on prose, because the
+    page's own docstring has to be free to explain *why* it does not say
+    threads. A guard that failed on a file's explanation of why it passes trains
+    the next person to delete the explanation.
+    """
+    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchOutreachDrafts" in code and "fetchOutreachSends" in code, (
+        "the panel must read both outreach routes rather than one of them"
+    )
+    assert re.search(r"\bthreads?\b", code, flags=re.IGNORECASE) is None, (
+        "the outreach panel calls something a thread; /v1 outreach returns drafts and sends, "
+        "and this API has no inbound leg for a thread to be made of"
+    )
+    # `\s*` because a heading long enough to be prettier-wrapped sits on its own
+    # line between its tags, and a check that only matched `>Drafts<` would pass
+    # or fail on formatting rather than on what the heading says.
+    for heading in ("Drafts", "Sends"):
+        assert re.search(rf">\s*{heading}\s*<", code) is not None, (
+            f"the panel has no {heading!r} heading; its own headings must name what the routes "
+            "return"
+        )
+
+    for forbidden in (
+        "drafts.length",
+        "sends.length",
+        "drafts.data.length +",
+        "sends.data.length +",
+    ):
+        assert forbidden not in code, (
+            f"the outreach panel computes {forbidden!r}; neither response carries a total, so "
+            "a count here would be a number of one page presented as a number of attempts"
+        )
+
+
+def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
+    """An unavailable panel is a claim, and it must come down when it stops being true.
+
+    ``PortalDatasetUnavailable`` says a dataset is not carried by this
+    deployment. Left standing beside a working ``/v1`` read it is the same
+    fabricated-equivalence defect it was written to prevent, pointed the other
+    way: the reader is told a capability is absent while the page holds its
+    answer.
+
+    Meeting bookings is the one coordinator dataset with no ``/v1`` route today,
+    so it keeps its panel. Deleting that one alongside the others would turn a
+    named absence into an unnamed one.
+    """
+    text = STATS_PAGE.read_text(encoding="utf-8")
+    code = _code_only(text)
+
+    for retired in ("Your coordinator profile", "Hosted events and staffing", "Outreach threads"):
+        assert f'dataset="{retired}"' not in code, (
+            f"the surface still renders an unavailable panel for {retired!r}, which it now "
+            "reads from /v1"
+        )
+
+    assert 'dataset="Meeting bookings"' in code, (
+        "meeting bookings has no /v1 answer yet; its absence stays named rather than silent"
     )
 
 
