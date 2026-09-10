@@ -233,5 +233,10 @@ planning:
 
 - **U1 — the command-type → handler map.** Resolve it with the R-04 test before
   designing anything asynchronous.
-- **U6 — is the pilot live with real users?** This changes the risk weighting
-  of every P1 item and is a question for the owner, not for the repository.
+- **U6 — is the pilot live with real users? ANSWERED, at `793678b`.** A VM does
+  serve `https://pilot.plated.blog`, and `docs/operations/vm-deploy.md` states it
+  is synthetic: dev edition, fixture providers, seeded data, no identity
+  provider, no real user and no production data. Plan the P1 items as
+  **pre-go-live hardening, not live incident response** — and do not soften them
+  on that basis. The same document reports its own runbook was never bootstrapped
+  onto the serving machine, which is live evidence for R-18.

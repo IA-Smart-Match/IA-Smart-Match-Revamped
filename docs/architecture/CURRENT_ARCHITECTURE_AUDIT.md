@@ -41,6 +41,28 @@ not counts, and each was re-checked against `5fca118`:
   They pin specific frontend behaviours from the Python side; they are not a
   generated client, and the 42-endpoints-by-hand problem is unchanged.
 
+**Second move, `5fca118` → `793678b`** (PRs #140–#152, 2026-09-10). Every
+counted fact in the table above is **unchanged** — same migration head, tables,
+routers, and OpenAPI surface — so the drift table still holds. Two findings move:
+
+* **U6 is answered, and the answer matters.** §19 listed "is the pilot live with
+  real users?" as not answerable from the repository. `docs/operations/vm-deploy.md`
+  now answers it: a VM does serve `https://pilot.plated.blog`, and it is
+  **synthetic, not production** — `SMARTMATCH_EDITION=dev`, fixture providers,
+  seeded data, no identity provider, *"no real user, no live provider credential,
+  and no production data"*. This **re-weights every P1 in this report from live
+  incident risk to pre-go-live hardening**, and it does not lower any of them:
+  R-09's cross-principal cache isolation is cheap to fix while there are no real
+  principals and expensive to discover once there are.
+* **R-18 is partly addressed, and gains a sharper edge.** The repository now
+  states which topology is real. But the same document reports that its own
+  runbook describes a layout *"specified, reviewed and merged but never
+  bootstrapped onto a machine"*, that `/opt/smartmatch/app` is not on the serving
+  instance, and that a push to `deploy` therefore deploys nothing — with the
+  choice between correcting the runbook and bootstrapping the machine left open
+  for the program owner. That is the documented-but-absent pattern this audit
+  names in `capability-inventory.md` §4, now recorded by the repository itself.
+
 **One correction to this report.** Earlier revisions of these documents said
 "43 tables" throughout. The count at `c72dced` was **44** — the error was a
 truncated listing read in place of the count, and it is corrected here and in
@@ -596,7 +618,7 @@ In order. Earlier items make later ones cheaper.
 | U3 | Does a readiness endpoint exist anywhere? `main.py`'s docstring says one does | Deployment health checks may be probing liveness and calling it readiness | Search the worker app and the compose healthchecks |
 | U4 | Are migration `downgrade()` bodies functional? | Determines whether rollback is a real option | Run upgrade→downgrade→upgrade in the integration harness |
 | U5 | Which `docs/plans/*` documents describe landed work? | 40+ documents, git history too short to say | Ask the owner, or mark each on next touch |
-| U6 | Is the pilot VM currently live and serving real users? | Changes the risk weighting of every P1 item | Ask the owner |
+| U6 | ~~Is the pilot VM currently live and serving real users?~~ **ANSWERED at `793678b`** | Re-weights every P1 from live incident risk to pre-go-live hardening | `docs/operations/vm-deploy.md`: a VM serves `https://pilot.plated.blog`, but it is synthetic — dev edition, fixture providers, seeded data, **no real users and no production data**. See §0 |
 | U7 | What are the real data volumes? All observed data is synthetic | Determines when ADR-0006's fixed-window trade expires | Query the pilot instance |
 | U8 | Why was the git history rewritten at 2026-09-05? | Determines whether pre-2026-09-05 archaeology is recoverable at all | Ask the owner |
 
