@@ -82,6 +82,11 @@ APP_DIR="${SMARTMATCH_APP_DIR:-${STATE_DIR}/app}"
 BACKUP_DIR="${SMARTMATCH_BACKUP_DIR:-${STATE_DIR}/backups}"
 LOG_DIR="${SMARTMATCH_LOG_DIR:-${STATE_DIR}/logs}"
 META_DIR="${SMARTMATCH_META_DIR:-${STATE_DIR}/deployments}"
+# SHARED LOCK: scripts/vm/smartmatch.service's ExecStart also takes this same
+# flock (hardcoded there as /opt/smartmatch/deploy.lock, since a systemd unit
+# cannot expand this shell variable) before it runs `docker compose up -d` on
+# boot. That is what stops a boot from racing an in-flight deployment. If this
+# default ever changes, update the unit file to match.
 LOCK_FILE="${SMARTMATCH_LOCK_FILE:-${STATE_DIR}/deploy.lock}"
 SSH_KEY="${SMARTMATCH_SSH_KEY:-${STATE_DIR}/.ssh/id_ed25519}"
 DEPLOY_BRANCH="${SMARTMATCH_DEPLOY_BRANCH:-deploy}"
