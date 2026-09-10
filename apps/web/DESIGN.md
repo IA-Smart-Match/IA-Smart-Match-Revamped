@@ -325,10 +325,15 @@ model.
 
 ## Speaker roster and invitation workflow
 
-On this branch, consented outreach ships — `Capability.CONSENTED_OUTREACH` is
-`True`, and the frontend renders the pipeline the backend actually offers
-rather than the "not yet" placeholder an earlier draft of this document
-described:
+Consented outreach is in scope for Smart Match: `Capability.CONSENTED_OUTREACH`
+is `True` on this branch, and the frontend renders the pipeline the backend
+offers, rather than the "not yet" placeholder an earlier draft of this
+document described. Its rollout to users is expected to trail the initial
+stakeholder showcase — this section describes the capability as it exists in
+the codebase, not a claim about launch-day availability. The underlying
+use cases are also being carried forward for a possible future agentic
+service offering; no such service exists yet, and this document does not
+define one.
 
 - Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`; display them as Speaker Connector, Event Host, Speaker, and Student.
 - Speaker Connectors maintain private contact details in `speaker_contacts` and read/write them from `CoordinatorSpeakerContacts`. Event Hosts and Speakers never see raw email or phone; they see only the fields the granting endpoint publishes.
