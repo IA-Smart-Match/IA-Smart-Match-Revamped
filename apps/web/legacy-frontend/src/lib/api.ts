@@ -4677,3 +4677,213 @@ export async function createMeeting(unitId: string, input: NewMeeting): Promise<
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Manual events (`/v1/units/{unit_id}/events/*`) and feedback QR
+// ---------------------------------------------------------------------------
+//
+// These adapters cover the Speaker Connector's manually-filed events —
+// `services/api/smartmatch_api/routers/manual_events.py` — which are `admin`
+// writes on top of the same `event` table `fetchUnitEvents` above reads back
+// (origin `coordinator_entry`). They are additive to `fetchUnitEvents`: that
+// route stays the unit's canonical, presentable event list; these routes let
+// an admin create, edit, and publish the rows behind it, and manage the
+// per-event feedback QR redirect. Never infer request/response shape here from
+// a mockup — see `contracts/openapi/smartmatch.json` and the router itself.
+
+/** Mirrors the router's `TimePrecision` literal. */
+export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
+
+/** Mirrors the router's `EventStatus` literal. */
+export type ManualEventStatus = "draft" | "published";
+
+/**
+ * The body for `createManualEvent` / the full merged shape `updateManualEvent`
+ * validates against server-side (`EventWrite` in the router). A `null` here is
+ * "not set", never an empty string or a fabricated default — the router itself
+ * rejects a schedule that mixes precision with the wrong fields.
+ */
+export interface ManualEventInput {
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
+}
+
+/** `EventResponse` from the manual-events router. */
+export interface ManualEvent {
+  id: string;
+  unit_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
+  status: ManualEventStatus;
+  provenance: "observed";
+  created_at: string;
+  updated_at: string;
+  /** Optimistic-concurrency token; `updateManualEvent` must echo it back. */
+  version: number;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/events` — file one draft event.
+ *
+ * Carries an `Idempotency-Key` the same way {@link createMatchRun} does: a
+ * caller-generated key with `crypto.randomUUID()` unless the caller supplies
+ * its own (for a retry of one prior attempt, per the router's fingerprint
+ * check — a repeat of the same key with different details is a `409`).
+ */
+export async function createManualEvent(
+  unitId: string,
+  input: ManualEventInput,
+  idempotencyKey?: string,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey ?? crypto.randomUUID() },
+      body: JSON.stringify(input),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events/{event_id}` — one manual event.
+ *
+ * A draft is `admin`-only server-side regardless of the caller's role; a
+ * `coordinator` reading a draft here gets {@link ApiRequestError} with status
+ * `403`.
+ */
+export async function fetchManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/events/{event_id}` — edit a manual event.
+ *
+ * `version` must be the event's current `version` (from the last
+ * {@link ManualEvent} the caller read); a stale value is a `409` with code
+ * `stale_event`, never a silent overwrite. Only the fields present in `input`
+ * are changed — the router merges the patch over the stored row and
+ * re-validates the whole schedule, so a patch that only touches one field
+ * still gets checked against the others.
+ */
+export async function updateManualEvent(
+  unitId: string,
+  eventId: string,
+  version: number,
+  input: Partial<ManualEventInput>,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ version, ...input }),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/events/{event_id}/publish` — publish a draft.
+ *
+ * A `409` with code `event_not_publishable` carries `details.fields`, the
+ * list of missing required fields (plus `"schedule"` for an unresolved time);
+ * surface it without discarding the caller's in-progress form.
+ */
+export async function publishManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/publish`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/** `FeedbackQrResponse` from the manual-events router. */
+export interface FeedbackQrAsset {
+  id: string;
+  event_id: string;
+  destination_url: string;
+  /** The `/q/{public_token}` link this event's QR code encodes. */
+  redirect_url: string;
+  open_count: number;
+  last_opened_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events/{event_id}/feedback-qr` — the event's
+ * feedback QR redirect, if one has been configured.
+ *
+ * Throws {@link ApiRequestError} with status `404` and code
+ * `feedback_qr_not_found` when none has been saved yet — that is the normal,
+ * expected state for a new event, not a fetch failure; callers should treat
+ * it as "no QR configured" rather than surface it as an error banner.
+ */
+export async function fetchFeedbackQr(unitId: string, eventId: string): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PUT /v1/units/{unit_id}/events/{event_id}/feedback-qr` — create or replace
+ * the event's feedback QR destination.
+ *
+ * `destinationUrl` must be an absolute `https://` URL on a public DNS
+ * hostname (the router rejects `localhost`, bare IPs, embedded credentials,
+ * and control characters). The response's `redirect_url` is what the QR code
+ * itself must encode — `/q/{public_token}`, a stable link this router
+ * 302-redirects to `destinationUrl` and never a link this client renders as
+ * the destination.
+ */
+export async function saveFeedbackQr(
+  unitId: string,
+  eventId: string,
+  destinationUrl: string,
+): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ destination_url: destinationUrl }),
+    },
+    { authenticated: true },
+  );
+}
