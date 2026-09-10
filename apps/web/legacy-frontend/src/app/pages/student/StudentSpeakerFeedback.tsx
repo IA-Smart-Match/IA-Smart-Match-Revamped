@@ -45,6 +45,27 @@
  * words, and hiding the control would tell a student the capability does not
  * exist rather than that it has expired.
  *
+ * ## Why this page fans out, and why it is bounded
+ *
+ * The agenda read names the events; the stored ratings live behind a second,
+ * per-event route (`GET .../student/events/{event_id}/speaker-feedback`), and
+ * there is no student-scoped bulk form of it. So one read per event is the
+ * shape of the data, not a choice — what *was* wrong was doing them all at
+ * once. `Promise.all` over `agenda.events` opens one request per event
+ * simultaneously, and nobody in the browser picks that number: the agenda route
+ * takes no page-size parameter and returns every event this student is recorded
+ * at, up to its own `MAX_ROWS` safety cap of 200. The deployed pilot unit holds
+ * 63. Each request holds a connection out of a SQLAlchemy pool of 5 base plus 5
+ * overflow for the length of its authentication dependency alone, so the
+ * eleventh queues for `pool_timeout` and the page fails with
+ * `QueuePool limit of size 5 overflow 5 reached`. A student with a full agenda
+ * did not get a slow page; they got a hung one.
+ *
+ * `mapWithConcurrency` keeps the same reads, the same per-event error handling
+ * and the same input order, with at most `DEFAULT_READ_CONCURRENCY` in flight.
+ * It is the same bound the Connector roster page uses, and it is shared rather
+ * than copied so that resizing the pool moves both.
+ *
  * ## B07 discipline
  *
  * Nothing here reports a result it did not observe. The write returns the
@@ -73,6 +94,7 @@ import {
   type StudentEvent,
   type StudentSpeakerFeedback as StoredFeedback,
 } from "../../../lib/api";
+import { DEFAULT_READ_CONCURRENCY, mapWithConcurrency } from "../../../lib/concurrency";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
@@ -348,7 +370,14 @@ function EventFeedback({
         </p>
       )}
 
-      {rows.length === 0 ? (
+      {/*
+        ADR-0011 rule 1: the empty state is a claim about what this student did,
+        and it may only be made when the read that would have shown otherwise
+        actually succeeded. When `readError` is set there are no rows *because
+        nothing was read* — saying "you have not rated a speaker at this event"
+        there would render an unknown as a zero, on top of the alert above.
+      */}
+      {readError !== null ? null : rows.length === 0 ? (
         <p className="flex items-start gap-2 rounded-lg border border-border/70 p-3 text-xs leading-5 text-muted-foreground">
           <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
           <span>
@@ -397,11 +426,19 @@ export function StudentSpeakerFeedback() {
       setEvents(agenda.events);
       setLoadError(null);
 
-      // One read per event. Each is allowed to fail on its own — an event whose
-      // feedback could not be read is reported against that event rather than
-      // collapsing the whole page into a single banner.
-      const results = await Promise.all(
-        agenda.events.map(async (event) => {
+      // One read per event, at most DEFAULT_READ_CONCURRENCY of them in flight.
+      // See "Why this page fans out, and why it is bounded" above for why the
+      // length of this list is not the browser's to open sockets for.
+      //
+      // Each read is still allowed to fail on its own — an event whose feedback
+      // could not be read is reported against that event rather than collapsing
+      // the whole page into a single banner. That is what the `catch` inside the
+      // worker is for: it turns a rejection into a value, so one refused event
+      // never discards the ratings that did come back.
+      const results = await mapWithConcurrency(
+        agenda.events,
+        DEFAULT_READ_CONCURRENCY,
+        async (event) => {
           try {
             const list = await fetchMySpeakerFeedback(unitId, event.id);
             return { id: event.id, rows: list.feedback, error: null as string | null };
@@ -415,7 +452,7 @@ export function StudentSpeakerFeedback() {
                   : "Your feedback for this event could not be read and the server gave no reason.",
             };
           }
-        }),
+        },
       );
 
       setByEvent(Object.fromEntries(results.map((result) => [result.id, result.rows])));
