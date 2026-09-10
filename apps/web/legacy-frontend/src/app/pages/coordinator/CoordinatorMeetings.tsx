@@ -50,6 +50,21 @@
  * "Called off" and "never arranged" are different facts and the server returns
  * both, so this page renders the distinction rather than filtering it away.
  *
+ * ## One page at a time, over the meetings that arrived
+ *
+ * The list renders through the shared `PagedList`, which windows the array this
+ * browser already holds. Two different shortfalls are reported on this screen
+ * and neither stands for the other: the pager's range line counts the rows in
+ * hand ("of N loaded"), while the server's notice below the list says the
+ * server stopped sending — it compares the measured `total` the response
+ * carried against how many rows came with it, and appears only when they
+ * differ. Nothing here computes either figure. The total is the server's, and
+ * the loaded count is the length of the array.
+ *
+ * A unit with fewer meetings than the pager's own minimum gets its rows back
+ * whole with no control chrome; that is `PagedList`'s decision, not re-made
+ * here with a length test of this page's own.
+ *
  * ## Not authorization
  *
  * Both routes are `admin`/`coordinator`, decided per request against the loaded
@@ -67,21 +82,10 @@ import {
   type Meeting,
   type MeetingList,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-
-/*
- * TODO(integrator, track T1): a shared `src/app/components/PagedList.tsx` is
- * being built in another track and is not present in this worktree. When it
- * lands, replace the plain bounded `<ul>` below with it — the data this page
- * holds already fits: `MeetingList` carries the server's `limit` beside a
- * measured `total`, so a pager needs no number this file would have to invent.
- *
- * Deliberately NOT solved here with a second paging component. Two pagers with
- * different truncation behaviour is a worse outcome than one page that renders a
- * bounded list and says how much it is not showing, which is what this does.
- */
 
 /** The server's own bound, asked for explicitly so the page states what it requested. */
 const PAGE_LIMIT = 50;
@@ -389,20 +393,30 @@ export function CoordinatorMeetings() {
             </p>
           ) : (
             <div className="space-y-2">
-              <ul className="space-y-3">
-                {meetings.map((meeting) => (
-                  <MeetingRow key={meeting.id} meeting={meeting} />
-                ))}
-              </ul>
+              {/* A window over the meetings this response carried. The read is
+                  bounded once, above, by `PAGE_LIMIT`; turning a page here asks
+                  the server for nothing. */}
+              <PagedList items={meetings} label="meetings" idPrefix="unit-meetings">
+                {(visibleMeetings) => (
+                  <ul className="space-y-3">
+                    {visibleMeetings.map((meeting) => (
+                      <MeetingRow key={meeting.id} meeting={meeting} />
+                    ))}
+                  </ul>
+                )}
+              </PagedList>
               {/*
-                The server's measured total against what is on screen. Stated
-                only when they differ, and never computed: a page that inferred
-                "there are probably more" would be claiming a number nobody
-                counted.
+                The server's measured total against how many rows it sent.
+                Stated only when they differ, and never computed: a page that
+                inferred "there are probably more" would be claiming a number
+                nobody counted. This is not the pager's range line above —
+                that one is about how much of what arrived is currently drawn,
+                and this one is about rows that never arrived at all.
               */}
               {truncated ? (
                 <p className="text-xs text-muted-foreground">
-                  Showing {meetings.length} of {total} meetings this unit has recorded.
+                  The server stopped sending at its limit: this unit has recorded {total} meetings
+                  and {meetings.length} of them were loaded here.
                 </p>
               ) : null}
             </div>
