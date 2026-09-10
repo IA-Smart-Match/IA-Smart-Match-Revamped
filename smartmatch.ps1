@@ -444,11 +444,26 @@ function Test-FrontendApiProxy {
         return New-CheckResult 'frontend-api-proxy' $false "unauthenticated GET $script:WebBase/v1/me -> 401 but the body is not the API error envelope [error.code=$seen]; something other than the API answered"
     }
 
-    # The positive direction is only checkable where a fixture credential still
-    # exists. An explicitly empty SMARTMATCH_API_BEARER means this appliance
-    # deploys without one, and the negative assertion above is the whole check.
-    if ([string]::IsNullOrEmpty($script:ApiBearer)) {
-        return New-CheckResult 'frontend-api-proxy' $true 'proxied /v1/me -> 401 unauthenticated from the API (proxy reachable, auth fail-closed, no fixture credential deployed)'
+    # What the second half asserts depends on whether THIS appliance deploys a
+    # fixture identity map, read from the running container rather than from a
+    # variable the caller had to remember to set. See the long comment in
+    # scripts/compose_health.sh for why: a stale variable took the wrong branch
+    # once and rolled a release back.
+    $principals = (docker compose exec -T api printenv SMARTMATCH_DEV_PRINCIPALS 2>$null) -join ''
+    $principals = $principals.Trim()
+
+    if ([string]::IsNullOrEmpty($principals) -or $principals -eq '{}') {
+        # No fixture identities deployed, so a fixture token must be REFUSED.
+        # Proving the refusal is stronger than declining to look.
+        $bearer = if ([string]::IsNullOrEmpty($script:ApiBearer)) { 'compose-api' } else { $script:ApiBearer }
+        $fixture = Invoke-HttpGet -Url "$script:WebBase/v1/me" -Headers @("Authorization: Bearer $bearer")
+        if ($fixture.Code -eq '200') {
+            return New-CheckResult 'frontend-api-proxy' $false "a fixture bearer token still authenticates against $script:WebBase/v1/me even though no dev principals are deployed"
+        }
+        if ($fixture.Code -ne '401') {
+            return New-CheckResult 'frontend-api-proxy' $false "a fixture bearer token got $($fixture.Code) from $script:WebBase/v1/me, expected 401; this check can no longer prove the fixture path is closed"
+        }
+        return New-CheckResult 'frontend-api-proxy' $true 'proxied /v1/me -> 401 unauthenticated and 401 for a fixture token (proxy reachable, auth fail-closed, no fixture identity deployed)'
     }
 
     $response = Invoke-HttpGet -Url "$script:WebBase/v1/me" -Headers @("Authorization: Bearer $script:ApiBearer")
