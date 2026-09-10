@@ -27,7 +27,7 @@ same instance as everything else. See §7.
 
 | Metric | Count |
 |---|---:|
-| Tables | **43** |
+| Tables | **44** |
 | `nullable=False` columns | 283 |
 | `CheckConstraint` | **119** |
 | `UniqueConstraint` | 49 |
@@ -42,7 +42,7 @@ same instance as everything else. See §7.
 | Alembic revisions | 33 (`0001` → `0033`), linear |
 
 **OBSERVED — the constraint density is the story.** 119 check constraints across
-43 tables, with 68 of 81 foreign keys set to `RESTRICT`, is a schema that
+44 tables, with 68 of 81 foreign keys set to `RESTRICT`, is a schema that
 refuses bad states at the database rather than trusting application code. Zero
 `SET NULL` means no relationship is silently severed. Two dedicated integration
 suites test this directly: `test_check_constraints.py` (43 tests) and
@@ -167,7 +167,7 @@ rather than an oversight. → `risk-register.md` R-13.
 
 ## 8. Ownership ambiguity — the structural finding
 
-**OBSERVED.** All 43 tables are defined in one 2,691-line module. Nothing in
+**OBSERVED.** All 44 tables are defined in one 2,691-line module. Nothing in
 the repository states which context or service owns which table.
 
 The consequence is concrete and already visible:

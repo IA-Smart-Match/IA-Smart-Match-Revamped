@@ -218,7 +218,7 @@ flowchart TB
         PR[base · identity · jwks · tasks · resend · paid · registry · topic_semantics]
     end
     subgraph L4["(4) Persistence — SQLAlchemy Core"]
-        PS[schema.py · 43 tables]
+        PS[schema.py · 44 tables]
         RP[26 repository modules]
     end
     L4 --> L1

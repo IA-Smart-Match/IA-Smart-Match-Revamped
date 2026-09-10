@@ -194,7 +194,7 @@ by decision (ADR-0006). Healthy.
 
 ---
 
-## 5. `schema.py` — 2,691 lines, 43 tables, one module
+## 5. `schema.py` — 2,691 lines, 44 tables, one module
 
 **OBSERVED.** Every table in the system is defined in a single file. Every one
 of the 26 repository modules imports it.
@@ -212,7 +212,7 @@ is dense with `CheckConstraint`s that are individually tested
 *Why it is nevertheless debt:* it is the one file that every persistence
 change touches, which makes it a permanent merge-conflict surface in an
 agent-parallel workflow, and it defeats the "who owns this data" question —
-`schema.py` owns all 43 tables, so nothing else can be said to.
+`schema.py` owns all 44 tables, so nothing else can be said to.
 
 **RECOMMENDATION.** Do **not** split it for aesthetics. Split it only if and
 when data ownership is assigned per bounded context (see `domain-model.md` §6),

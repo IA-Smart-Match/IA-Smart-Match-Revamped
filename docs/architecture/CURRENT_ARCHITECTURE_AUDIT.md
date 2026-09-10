@@ -13,6 +13,45 @@ Companion documents (evidence lives there; this report summarises and links):
 
 ---
 
+## 0. Baseline, and what has moved since
+
+**This report is a snapshot pinned to `c72dced`.** Every count and line reference
+below was read at that commit. `main` has since advanced to `5fca118`
+(~12,000 insertions across 57 files, PRs #126–#139), so the following counted
+facts are stale *as statements about `main`* while remaining correct as
+statements about the audited baseline:
+
+| Fact | At `c72dced` (this report) | On `main` at `5fca118` |
+|---|---|---|
+| Alembic revisions | 33 (head `0033_match_run_scoring_mode`) | **34** (head `0034_cba_meeting`) |
+| Tables in `schema.py` | 44 | **45** (`cba_meeting`) |
+| API router modules | 26 | **27** (`routers/meetings.py`, 518 lines) |
+| OpenAPI paths / schemas | 57 / 120 | **59 / 125** |
+
+**What the drift does *not* change.** The structural findings are about shape,
+not counts, and each was re-checked against `5fca118`:
+
+* **R-09 still stands, unchanged and still P0.** The `web` job on `main` still
+  runs only `npm ci`, `npm run build` and `npm audit`. `npm test` is still
+  invoked by no workflow.
+* **R-05 / R-06** — the service manifests and `root_packages` are untouched.
+* The new work *narrows* R-02 without closing it: `main` adds five Python-side
+  frontend contract tests (`tests/unit/test_frontend_{auth,granted_unit,
+  paged_list,dashboard_stats,speaker_requests}_contract.py`) which do run in CI.
+  They pin specific frontend behaviours from the Python side; they are not a
+  generated client, and the 42-endpoints-by-hand problem is unchanged.
+
+**One correction to this report.** Earlier revisions of these documents said
+"43 tables" throughout. The count at `c72dced` was **44** — the error was a
+truncated listing read in place of the count, and it is corrected here and in
+every companion document. It is recorded rather than silently fixed because an
+audit that quietly revises its own numbers is worth less than one that says
+where it was wrong.
+
+---
+
+---
+
 ## 1. Executive summary
 
 **What we actually have.** SmartMatch is a **mature, deliberately-layered
@@ -20,7 +59,7 @@ Python monorepo** implementing a speaker/event matching platform for Cal Poly
 Pomona's College of Business Administration. It is not a prototype and not a
 scaffold, despite calling itself "Foundation scaffold" in its own manifest:
 9 product capabilities and 12 infrastructure capabilities are implemented,
-57 API paths are published under a CI-gated OpenAPI contract, 43 tables carry
+57 API paths are published under a CI-gated OpenAPI contract, 44 tables carry
 119 check constraints, and 3,807 test functions run against it — including a
 26-step end-to-end walk of the real product journey against a live appliance.
 
@@ -74,7 +113,7 @@ code, which is why §12 exists.
 python/smartmatch_domain       pure domain            54 modules
 python/smartmatch_authz        pure policy             2 modules
 python/smartmatch_providers    ports + fixtures       12 modules
-python/smartmatch_persistence  PostgreSQL             26 modules, 43 tables
+python/smartmatch_persistence  PostgreSQL             26 modules, 44 tables
 services/api                   FastAPI                26 routers, 14k lines
 services/worker                private task service    7k lines
 tools/                         15 operator scripts    NOT a workspace member
@@ -233,7 +272,7 @@ fingerprinted weights and inputs. Attendance is the *only* input to points
   live in migrations; the parity test explicitly does not compare them.
   Dropping `ix_outbox_claimable` would pass every CI gate and silently degrade
   the dispatcher to a sequential scan.
-- **No table has a declared owner.** All 43 are in one 2,691-line module, and
+- **No table has a declared owner.** All 44 are in one 2,691-line module, and
   the consequence is already visible: match-run rows are written by both the
   API router and the worker handler, with nothing saying which should.
 
@@ -435,7 +474,7 @@ The first five are unblocked and cheap. Detail and safest-next-step for each:
    submitting routers, and no assertion tying them together.
 5. **Written-but-unattached code.** The spend sweeper and the frontend test
    suite both exist, both are tested or testable, and neither runs.
-6. **No declared data ownership.** 43 tables, one module, no owner statement —
+6. **No declared data ownership.** 44 tables, one module, no owner statement —
    which is why match-run rows have two writers.
 7. **Indexes sit outside the parity guard.**
 8. **Documentation drift in a repository where documentation is load-bearing.**
@@ -588,7 +627,7 @@ which is the security property"; `create_app`) ·
 **Authz** — `policy.py:110-405` · `services/api/smartmatch_api/job_authz.py` ·
 `dependencies.py:63-245` · `units.py`
 
-**Persistence** — `schema.py` (43 `sa.Table` definitions at lines 106–2593) ·
+**Persistence** — `schema.py` (44 `sa.Table` definitions at lines 106–2593) ·
 `spend_sweeper.py:1-40,97,107` · `outbox.py` · `jobs.py:22-65` ·
 `smartmatch_persistence/__init__.py`
 

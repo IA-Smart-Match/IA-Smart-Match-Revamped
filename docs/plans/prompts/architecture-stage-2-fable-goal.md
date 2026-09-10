@@ -45,10 +45,19 @@ Branch: docs/architecture-target-stage-2
 PR base: main
 Stage 1 commit: b19ca4b
 
-Baseline facts to verify in tree, not to trust from this card:
-  migration head 0033 · OpenAPI 57 paths / 120 schemas · 43 tables · 26 API routers
+Baseline facts to verify in tree, not to trust from this card. The audit is
+pinned to c72dced; main has since moved to 5fca118 (PRs #126-#139), so BOTH
+columns are given and NEITHER is authoritative -- read the tree:
+                        audit (c72dced)   main (5fca118)
+  alembic head               0033             0034_cba_meeting
+  tables in schema.py          44               45  (cba_meeting)
+  API router modules           26               27  (routers/meetings.py)
+  OpenAPI paths / schemas   57 / 120         59 / 125
   3,807 test functions · 17 ADRs (next number is ADR-0018)
-  import-linter root_packages = 4 (the python/ packages only)
+  import-linter root_packages = 4 (the python/ packages only) -- unchanged
+The structural findings were re-checked against 5fca118 and hold; R-09 (the
+frontend suite no workflow runs) is unchanged and still P0. See
+CURRENT_ARCHITECTURE_AUDIT.md section 0 for the full drift table.
 
 This is a RUNNING SYSTEM with a pilot VM deployment, not a greenfield design.
 It calls itself "Foundation scaffold" in its own manifest. It is not one.
@@ -70,7 +79,7 @@ It calls itself "Foundation scaffold" in its own manifest. It is not one.
 4.  docs/architecture/dependency-analysis.md         ← which boundaries are real, which are folders
 5.  docs/architecture/wip-analysis.md                ← unfinished work; §0 explains why grep TODO finds nothing
 6.  docs/architecture/domain-model.md                ← domain as implemented; bounded contexts; terminology
-7.  docs/architecture/data-architecture.md           ← 43 tables, ownership ambiguity, index gap
+7.  docs/architecture/data-architecture.md           ← 44 tables, ownership ambiguity, index gap
 8.  docs/architecture/capability-inventory.md        ← per-capability status; §4 = five doc/code contradictions
 9.  docs/architecture/current-system-topology.md     ← two deployment topologies, one executable
 10. docs/architecture/repository-inventory.md        ← toolchain, CI gates, git-history caveat
