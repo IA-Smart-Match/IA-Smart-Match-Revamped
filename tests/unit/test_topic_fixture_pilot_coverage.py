@@ -6,9 +6,28 @@ against the *real* pilot inputs rather than invented ones — pinned against the
 fixture path, which is what this generator still exercises. ADR-0017 approved
 an offline embedding model that reaches a measured score instead of
 ``unknown``, but only for a caller that passes ``use_local_embedding=True``;
-this generator does not, so the assertions below remain true of the tree as it
-stands, and would fail loudly and say which of them is now wrong the day that
-changes.
+this generator does not, so the fixture assertions below remain true of the tree
+as it stands.
+
+**Corrected 9 September 2026, and the correction is the point.**
+
+Until that date this paragraph also claimed the assertions "would fail loudly
+and say which of them is now wrong the day that changes". They would not have.
+Every fixture assertion here holds because ``FixtureSemanticTopicProvider``
+holds no recordings and therefore raises for *any* input — so none of them can
+tell a right pair from a wrong one, and turning
+``SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED`` on changes nothing about them
+either, because they construct their provider directly rather than reading the
+setting. A guard that cannot fail is not a guard, and this one had in fact been
+guarding the wrong pair: the text it restated was the seeded *calendar event*'s
+description, not the *Speaker Request*'s, which is the string §9 compares
+against. See :data:`PILOT_REQUEST_DESCRIPTION` for the mechanism and
+:func:`test_the_generator_still_spells_the_pair_section_9_compares` for the
+replacement.
+
+Two tests near the foot of this file now exercise the real pair through
+ADR-0017's provider, so the file holds assertions that a drifted pair set can
+actually fail.
 
 Nothing here changes behaviour. Every assertion below is a statement about the
 tree as it stands today:
@@ -36,15 +55,16 @@ done, for reasons stated here rather than left in a commit message:
 1. The comparison the pilot asks for has no semantic content to record a
    judgement about. Both sides are drawn from one twelve-term vocabulary — the
    speaker's evidence is a comma-joined list of
-   ``tools.pilot_dataset_plan._TOPICS`` terms and the request's description is
-   ``f"Synthetic pilot {category.lower()} session."`` — so any defensible value
-   for a pair is a function of term overlap between them. That is the lexical
-   comparison ``topic_semantics``'s module docstring refuses by name.
+   ``tools.pilot_dataset_plan._TOPICS`` terms, and the request's description —
+   see :data:`PILOT_REQUEST_DESCRIPTION` — is deliberately written *not* to
+   recite that vocabulary, precisely so the comparison cannot be satisfied by
+   term overlap. Either way, any value a human recorded for such a pair would
+   be a judgement about term overlap. That is the lexical comparison
+   ``topic_semantics``'s module docstring refuses by name.
 2. There is no small set of pairs. At the generator's defaults the seed alone
-   yields 165 distinct topic strings against 7 category descriptions, and every
-   one of ``--seed``, ``--professionals`` and ``--events`` changes the set. A
-   corpus that covers one invocation silently reverts to this defect on the
-   next.
+   yields 165 distinct topic strings, and both ``--seed`` and
+   ``--professionals`` change the set. A corpus that covers one invocation
+   silently reverts to this defect on the next.
 3. Coverage for the synthetic dataset would fix the demo and nothing else. A
    real CBA import carries real topic text, which no recorded corpus reaches, so
    the defect would survive exactly where it matters while looking answered.
@@ -80,7 +100,6 @@ done, for reasons stated here rather than left in a commit message:
 
 from __future__ import annotations
 
-import re
 import sys
 import uuid
 from pathlib import Path
@@ -103,19 +122,41 @@ from smartmatch_providers.topic_semantics import (
 
 from tools import pilot_dataset_plan as plan
 
-#: The generator's ``--professionals`` and ``--events`` defaults, so the plan
-#: this file reasons about is the one a demo actually runs.
+#: The generator's ``--professionals`` default, so the roster this file reasons
+#: about is the one a demo actually runs.
+#:
+#: There is deliberately no ``--events`` counterpart. One was here until 9
+#: September 2026, building the request side of the pairs out of the seeded
+#: calendar events; that was the wrong source. §9 compares a *Speaker Request*'s
+#: description, and the generator files :data:`SPEAKER_REQUEST_COUNT` of those
+#: regardless of how many calendar events the seed carries. See
+#: :data:`PILOT_REQUEST_DESCRIPTION`.
 PILOT_PROFESSIONALS: int = 250
-PILOT_EVENTS: int = 60
 
-#: How ``tools/generate_pilot_dataset.py::write_events`` spells a Speaker
-#: Request's description, and how ``professionals_rows`` spells the
-#: ``expertise_tags`` cell. Restated here rather than imported because that
-#: module needs ``tools/`` itself on ``sys.path`` to import (it does a bare
-#: ``from pilot_dataset_plan import ...``) and pytest only puts the repository
-#: root there. The drift guard at the foot of this file is what keeps the
-#: restatement honest.
-PILOT_DESCRIPTION_TEMPLATE: str = "Synthetic pilot {category} session."
+#: The §9 request side, verbatim.
+#: ``generate_pilot_dataset.speaker_request_body`` builds the Speaker Request
+#: every pilot match run is filed against, and its ``description`` is the text
+#: :func:`score_cba_semantic_topic` compares a speaker's topic evidence against.
+#:
+#: **Not** ``f"Synthetic pilot {category.lower()} session."``. That literal is
+#: the *calendar event* row's description
+#: (``generate_pilot_dataset.write_events``), and §9 never reads it: filing a
+#: Speaker Request writes its own ``event`` row from the body above — the route's
+#: ``description`` field is documented as "customer §12's event topic/description,
+#: and the text §9 compares" — and
+#: ``match_run_evidence.SpeakerRequestEvidence.description`` is read off *that*
+#: row. Until 9 September 2026 this file restated the event literal and its drift
+#: guard pinned the event literal too, so every pair reasoned about below was
+#: built from text no comparison ever sees.
+PILOT_REQUEST_DESCRIPTION: str = (
+    "A virtual panel for students weighing a first role: how professionals in "
+    "these sectors and functions evaluate offers, build a first year, and decide "
+    "what to specialise in."
+)
+
+#: How ``professionals_rows`` spells the ``expertise_tags`` cell that
+#: ``pipeline_provisioning`` maps onto ``speaker_profile.topic_text`` — the §9
+#: speaker side, and the only side of the pair the pilot varies.
 PILOT_TOPIC_JOIN: str = ", "
 
 
@@ -128,11 +169,21 @@ def _pilot_topic_strings() -> list[str]:
 
 
 def _pilot_descriptions() -> list[str]:
-    """Every distinct Speaker Request description the default seed produces."""
-    planned = plan.build_events(PILOT_EVENTS, seed=plan.DEFAULT_SEED)
-    return sorted(
-        {PILOT_DESCRIPTION_TEMPLATE.format(category=event.category.lower()) for event in planned}
-    )
+    """Every distinct Speaker Request description a generated pilot files.
+
+    There is exactly one. ``speaker_request_body`` files
+    ``SPEAKER_REQUEST_COUNT`` sibling requests that differ in title, date and
+    §7/§8 targets, and every one carries the same hard-coded ``description``: it
+    is not templated on the request's category, and the generator's own docstring
+    says why — a description assembled out of the same twelve terms the speakers'
+    expertise cells are drawn from "would make the comparison a lexical overlap
+    wearing a semantic factor's clothes".
+
+    A list of one rather than a bare string, so the callers below read unchanged
+    and a seed that ever does vary the description needs no edit here beyond the
+    guard.
+    """
+    return [PILOT_REQUEST_DESCRIPTION]
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +220,21 @@ def test_the_import_column_the_pilot_writes_lands_in_topic_text():
 
 
 def test_the_pilot_exercises_many_pairs_and_not_a_recordable_few():
-    """The reason a recorded corpus is not the remedy, stated as a number."""
+    """The reason a recorded corpus is not the remedy, stated as a number.
+
+    **Corrected 9 September 2026.** This asserted ``len(descriptions) >= 5``,
+    which held only because the descriptions were being built from the *event*
+    literal — seven engagement categories, seven strings. §9 reads the Speaker
+    Request's description and there is one of those, so the real pair set is
+    N x 1 rather than N x 7. That is the one assertion in this file the
+    wrong-literal defect made false rather than merely irrelevant, and it is
+    stated here rather than quietly relaxed.
+
+    The claim under test survives the correction intact. The breadth was never
+    on the request side: one seed still puts more distinct speaker strings on
+    file than anybody would hand-record a judgement for, and each of the sibling
+    requests scores against all of them.
+    """
     topics = _pilot_topic_strings()
     descriptions = _pilot_descriptions()
 
@@ -177,7 +242,11 @@ def test_the_pilot_exercises_many_pairs_and_not_a_recordable_few():
         "one seed alone yields more distinct speaker topic strings than anybody "
         f"would hand-record a judgement for; got {len(topics)}"
     )
-    assert len(descriptions) >= 5
+    assert len(descriptions) == 1, (
+        "every sibling Speaker Request the generator files carries the same "
+        f"description, so §9 has one request-side string; got {len(descriptions)}"
+    )
+    assert len(topics) * len(descriptions) > 100
 
 
 # ---------------------------------------------------------------------------
@@ -386,25 +455,124 @@ def test_a_recorded_comparison_never_claims_to_be_a_semantic_model():
 
 
 # ---------------------------------------------------------------------------
-# Drift guard for the two literals this file restates
+# The same pairs with ADR-0017's model active, rather than the empty fixture
 # ---------------------------------------------------------------------------
 
 
-def test_the_generator_still_spells_these_the_way_this_file_assumes():
+def test_the_local_embedding_provider_measures_the_pilots_real_pairs():
+    """What ``SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true`` changes here.
+
+    Every assertion above the fold holds because the fixture answers *nothing*:
+    it raises for any input, so it raises for a wrong pair exactly as readily as
+    for a right one. That is what let the drift guard below pin the wrong
+    literal for as long as it did, and it is why this file needs at least one
+    assertion a wrong pair could actually fail.
+
+    This is that assertion. It runs the real §9 pair — the Speaker Request's
+    description against the ``expertise_tags`` cells — through the provider the
+    flag selects, which computes rather than replays. If either side moves to
+    text ADR-0017's vendored vocabulary cannot reach, this goes red instead of
+    staying vacuously green.
+
+    The flag itself is not read here. ``routers.match_runs._topic_provider``
+    reads ``settings.cba_topic_local_embedding_enabled`` and passes it as
+    ``use_local_embedding``; this constructs the same provider directly, so the
+    pins hold whichever way an appliance is configured.
+    """
+    provider = build_semantic_topic_provider(Edition.DEV, use_local_embedding=True)
+    description = _pilot_descriptions()[0]
+    topics = _pilot_topic_strings()
+
+    measured = 0
+    unavailable: list[str] = []
+    for topic_text in topics:
+        try:
+            comparison = provider.compare(description, topic_text)
+        except TopicComparisonUnavailable:
+            unavailable.append(topic_text)
+            continue
+        measured += 1
+        assert 0.0 <= comparison.score <= 1.0
+        assert comparison.is_semantic_model is True
+
+    assert measured == len(topics) - len(unavailable)
+    assert measured > 100, (
+        "the flag is supposed to turn nearly every pilot pair from unknown into a "
+        f"measurement; only {measured} of {len(topics)} were reached"
+    )
+    # Not zero, and named rather than tolerated. Both terms of this one cell sit
+    # outside the vendored vocabulary — neither ``hackathon`` nor ``panelist``
+    # appears in ``data/glove_vocab.txt`` — so nothing on the speaker's side can
+    # be embedded and the pair is a genuine absence: the residue ADR-0017
+    # accepts, not a missing recording. Pinned so it stays a *stated* residue; a
+    # second entry appearing here is the seed drifting away from the vocabulary.
+    assert unavailable == ["hackathon, panelist"], (
+        "the set of pilot pairs the vendored vocabulary cannot reach has changed; "
+        f"got {unavailable}"
+    )
+
+
+def test_a_seeded_pilot_speaker_with_topic_text_is_scorable_under_the_flag():
+    """The perverse ordering above is the fixture's, and the flag ends it.
+
+    Same speaker, same request, same scorer as
+    :func:`test_a_seeded_pilot_speaker_with_topic_text_scores_unknown`; only the
+    provider differs. Documented evidence becomes a measurement, and the
+    candidate stays in the pool instead of leaving it.
+    """
+    score = score_cba_semantic_topic(
+        _pilot_descriptions()[0],
+        SpeakerTopicEvidence.from_profile(topic_text=_pilot_topic_strings()[0]),
+        build_semantic_topic_provider(Edition.DEV, use_local_embedding=True),
+    )
+
+    assert score.state is TopicEvidenceState.MEASURED
+    assert score.is_scorable
+    assert score.value is not None
+
+
+# ---------------------------------------------------------------------------
+# Drift guard for the pair §9 actually compares
+# ---------------------------------------------------------------------------
+
+
+def test_the_generator_still_spells_the_pair_section_9_compares():
     """Catch the generator changing under the pairs reasoned about above.
 
-    ``tools/generate_pilot_dataset.py`` cannot be imported from here — it does a
-    bare ``from pilot_dataset_plan import ...`` and so needs ``tools/`` on
-    ``sys.path``, which pytest does not put there — so the two literals this
-    file restates are checked against the source text instead of guessed at.
-    """
-    generator = Path(__file__).resolve().parents[2] / "tools" / "generate_pilot_dataset.py"
-    source = generator.read_text(encoding="utf-8")
+    **Rewritten 9 September 2026, because its predecessor guarded the wrong
+    pair.** It asserted that ``f"Synthetic pilot {event.category.lower()} session."``
+    was still present in the generator's source — a true statement about the
+    source and an irrelevant one about §9, since that literal is the calendar
+    event row's description while the comparison reads the Speaker Request's.
+    The guard therefore could not have detected drift in the one string that
+    matters, and nothing downstream noticed, because the fixture answers no pair
+    at all.
 
-    assert 'f"Synthetic pilot {event.category.lower()} session."' in source, (
-        "the Speaker Request description this file builds its pairs from has moved; "
-        "update PILOT_DESCRIPTION_TEMPLATE"
-    )
-    assert re.search(r'"\s*,\s*"\.join\(person\.topics\)', source), (
-        "the expertise_tags cell this file builds its pairs from has moved; update PILOT_TOPIC_JOIN"
+    It is also no longer a source-text search. The predecessor's docstring said
+    ``generate_pilot_dataset`` "cannot be imported from here";
+    :func:`_generator_module` imports it, and has done since TRACK 17. Both
+    sides are pinned against the generator functions' own output, which a
+    rename, a reflow or a moved literal cannot slip past.
+    """
+    generator = _generator_module()
+    roster = plan.build_professionals(PILOT_PROFESSIONALS, seed=plan.DEFAULT_SEED)
+
+    # The request side: every sibling request a generated pilot files, because
+    # §9 scores against each of them and they are only *assumed* to agree.
+    for variant in range(generator.SPEAKER_REQUEST_COUNT):
+        body = generator.speaker_request_body(roster, seed=plan.DEFAULT_SEED, variant=variant)
+        assert body["description"] == PILOT_REQUEST_DESCRIPTION, (
+            "the Speaker Request description §9 compares against has moved; update "
+            "PILOT_REQUEST_DESCRIPTION"
+        )
+
+    # The speaker side: the expertise_tags cell that becomes topic_text.
+    cells = {
+        row["expertise_tags"]
+        for row in generator.professionals_rows(roster)
+        if "expertise_tags" in row
+    }
+    assert cells == set(_pilot_topic_strings()), (
+        "the expertise_tags cell this file builds its pairs from has moved; update "
+        "PILOT_TOPIC_JOIN"
     )
