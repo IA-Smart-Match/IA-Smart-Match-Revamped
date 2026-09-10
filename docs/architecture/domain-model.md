@@ -327,7 +327,7 @@ under a name the audit's search did not associate. → `risk-register.md` R-11.
 
 ## 6. Data ownership — the unanswered question
 
-**OBSERVED.** All 43 tables are defined in one module and there is no statement
+**OBSERVED.** All 44 tables are defined in one module and there is no statement
 anywhere of which context owns which table. In practice ownership is inferable
 (§2's clustering), but it is inferred, not declared.
 

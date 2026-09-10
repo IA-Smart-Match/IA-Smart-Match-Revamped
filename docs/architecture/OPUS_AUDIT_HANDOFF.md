@@ -4,6 +4,13 @@
 **To:** the Stage 2 architecture planner (Fable 5.1).
 **From:** Claude Opus, Stage 1 audit.
 
+> **Baseline caveat.** This audit is pinned to `c72dced`. `main` has since moved
+> to `5fca118` (PRs #126–#139): migration head `0033`→`0034`, tables 44→45,
+> routers 26→27, OpenAPI 57/120→59/125. The structural findings were re-checked
+> against `5fca118` and hold — **R-09 in particular is unchanged and still P0**.
+> See `CURRENT_ARCHITECTURE_AUDIT.md` §0. Verify counts in tree, never from a
+> document.
+
 ---
 
 ## 0. Completion gate — status
@@ -25,7 +32,7 @@
 ## 1. Read this first — the three things that will surprise you
 
 **1. This is not a scaffold.** It calls itself "Foundation scaffold" in its own
-manifest. It has 21 implemented capabilities, 57 published API paths, 43 tables
+manifest. It has 21 implemented capabilities, 57 published API paths, 44 tables
 with 119 check constraints, 3,807 test functions, 17 ADRs, and a 26-step e2e
 walk against a live appliance. **Do not plan as though you are designing a
 system. Plan as though you are strengthening a running one.**
@@ -54,7 +61,7 @@ A Python `uv` monorepo: four pure/inner packages (`smartmatch_domain` —
 functional core, 85 frozen value objects, 5 state machines, no IO;
 `smartmatch_authz` — deny-by-default `ltree`-scoped policy;
 `smartmatch_providers` — ports plus fixture adapters; `smartmatch_persistence`
-— 43 PostgreSQL tables and 26 repositories), two FastAPI services
+— 44 PostgreSQL tables and 26 repositories), two FastAPI services
 (`services/api`, 26 routers behind an OpenAPI contract; `services/worker`, a
 private OIDC-gated task executor), and a React SPA. Writes that must reach a
 provider go through a transactional outbox: the API records intent in one
@@ -118,7 +125,7 @@ Ordered by how much they constrain your design.
 3. **The command registry is not a map** (R-04, U1). Three registered handlers,
    eight submitting routers, no assertion tying them. A future agent cannot
    answer "what executes my command?" from the code.
-4. **No data ownership is declared** (R-20). 43 tables in one 2,691-line
+4. **No data ownership is declared** (R-20). 44 tables in one 2,691-line
    module; match-run rows have two writers. Ownership is the prerequisite for
    any structural change to `schema.py` — **do not propose splitting the file
    before declaring ownership**.
