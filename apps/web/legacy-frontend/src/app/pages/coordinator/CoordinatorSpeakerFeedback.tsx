@@ -49,6 +49,36 @@
  * The route is `admin`/`coordinator`, decided per request against the loaded
  * unit. This page renders its controls and shows the server's `403` as the
  * answer it is, rather than hiding them and implying the capability is absent.
+ *
+ * ## Why this page fans out, and why it is bounded
+ *
+ * This page reads one aggregate per speaker, and a reader who has seen
+ * `CoordinatorHome.tsx` will reasonably ask why it does not call
+ * `GET /v1/units/{unit_id}/speaker-feedback-summary` once instead. That route
+ * exists, but it is not a bulk form of this one: it returns a *single pooled
+ * mean and count for the whole unit* — `unit_id`, `suppressed`,
+ * `response_count`, `mean_rating`, `display_text`, `minimum_responses` — and
+ * carries no speaker id, no per-speaker breakdown and not even a count of how
+ * many speakers were rated.
+ *
+ * That absence is the privacy rule, not an oversight. The server's own
+ * docstring refuses a `speakers: [...]` list explicitly: the per-speaker route
+ * is public to the same reader, so any extra number on the pooled response is
+ * a handle to *difference* against. With one speaker published at `n=3` and
+ * the unit at `n=5`, `5 - 3 = 2` recovers a mean over two students — the exact
+ * statement `minimum_responses` exists to withhold. So the unit route is one
+ * number for the dashboard, and a per-speaker roster genuinely cannot be
+ * served by a single call. Adding a bulk per-speaker route would re-open the
+ * residual leak that rule closes, which is why this page does not ask for one.
+ *
+ * What *was* wrong here was the fan-out being unbounded. `Promise.all` over the
+ * whole roster opened one request per speaker at once — ~116 on the pilot unit
+ * — and each one holds a connection from a pool of 5 + 5 overflow for the
+ * length of its auth dependency alone, so the roster exhausted the pool,
+ * queued for `pool_timeout`, and failed with `QueuePool limit of size 5
+ * overflow 5 reached`. The page did not load slowly; it hung and refused to
+ * navigate. `mapWithConcurrency` keeps the same reads and the same per-speaker
+ * error handling, with at most `DEFAULT_READ_CONCURRENCY` in flight.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -61,6 +91,7 @@ import {
   type SpeakerContact,
   type SpeakerFeedbackSummary,
 } from "../../../lib/api";
+import { DEFAULT_READ_CONCURRENCY, mapWithConcurrency } from "../../../lib/concurrency";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
@@ -165,14 +196,22 @@ export function CoordinatorSpeakerFeedback() {
       const roster = await fetchSpeakerContacts(unitId);
       setLoadError(null);
 
-      // One aggregate read per speaker. Each may fail on its own — a speaker
-      // whose summary the server refused is reported on that speaker's card
-      // rather than replacing the whole roster with a banner.
-      const resolved = await Promise.all(
-        roster.contacts.map(async (contact) => {
+      // One aggregate read per speaker, at most DEFAULT_READ_CONCURRENCY of
+      // them in flight. See "Why this page fans out, and why it is bounded"
+      // above for why there is no single call to make instead.
+      //
+      // Each read may still fail on its own — a speaker whose summary the
+      // server refused is reported on that speaker's card rather than
+      // replacing the whole roster with a banner. That is what the `catch`
+      // inside the worker is for: it turns a rejection into a value, so one
+      // refused speaker never discards the summaries that did come back.
+      const resolved = await mapWithConcurrency(
+        roster.contacts,
+        DEFAULT_READ_CONCURRENCY,
+        async (contact): Promise<RosterRow> => {
           try {
             const summary = await fetchSpeakerFeedbackSummary(unitId, contact.professional_id);
-            return { contact, summary, error: null as string | null };
+            return { contact, summary, error: null };
           } catch (cause) {
             return {
               contact,
@@ -183,7 +222,7 @@ export function CoordinatorSpeakerFeedback() {
                   : "This summary could not be read and the server gave no reason.",
             };
           }
-        }),
+        },
       );
       setRows(resolved);
     } catch (cause) {
