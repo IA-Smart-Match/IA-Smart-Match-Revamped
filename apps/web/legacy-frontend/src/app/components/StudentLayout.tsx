@@ -5,7 +5,6 @@ import {
   ClipboardCheck,
   MessageSquare,
   Users,
-  GraduationCap,
   Menu,
   X,
   Gift,
@@ -17,6 +16,7 @@ import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
+import { BrandLogo } from "./BrandLogo";
 
 const navigation = [
   { name: "Home", href: "/student-portal", icon: House, exact: true },
@@ -92,18 +92,8 @@ export function StudentLayout() {
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <GraduationCap className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  {grant.display_name}
-                </p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label={grant.display_name} />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -172,12 +162,7 @@ export function StudentLayout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <GraduationCap className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" />
           </div>
         </header>

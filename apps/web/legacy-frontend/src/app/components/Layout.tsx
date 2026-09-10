@@ -17,6 +17,7 @@ import { SessionGate } from "./SessionGate";
 import { useSession } from "../hooks/useSession";
 import { SyntheticDataBanner } from "./provenance";
 import { isCapabilityEnabled, type Capability } from "@/lib/productScope";
+import { BrandLogo } from "./BrandLogo";
 import {
   Tooltip,
   TooltipTrigger,
@@ -146,19 +147,11 @@ export function Layout() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs text-[#5a6472]">CBA</p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            <BrandLogo label="Speaker Connector" />
             <button
               onClick={() => setSidebarOpen(false)}
-              className="rounded-md p-2 text-[#5a6472] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
               aria-label="Close sidebar"
             >
               <X className="w-5 h-5" />
@@ -172,7 +165,7 @@ export function Layout() {
                 {sectionIndex > 0 && (
                   <div className="mb-3 mt-1 border-t border-sidebar-border" />
                 )}
-                <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.2em] text-[#5a6472]">
+                <p className="px-3 pb-1 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
                   {section.label}
                 </p>
                 <div className="space-y-1">
@@ -191,8 +184,8 @@ export function Layout() {
                             onClick={() => setSidebarOpen(false)}
                             className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                               isActive
-                                ? "border border-[#c9d9ee] bg-[#eef4ff] text-[#005394] shadow-sm"
-                                : "text-[#394454] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                ? "border border-primary/20 bg-accent text-primary shadow-sm"
+                                : "text-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             }`}
                           >
                             <Icon className="w-5 h-5" />
@@ -214,13 +207,13 @@ export function Layout() {
           <div className="border-t border-sidebar-border p-4">
             <div className="flex items-center gap-3 px-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-                IA
+                SC
               </div>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">
-                  IA Admin
+                  Speaker Connector
                 </p>
-                <p className="truncate text-xs text-[#5a6472]">admin@ia.org</p>
+                <p className="truncate text-xs text-muted-foreground">admin@ia.org</p>
               </div>
             </div>
           </div>
@@ -234,26 +227,21 @@ export function Layout() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-md p-2 text-[#5a6472] transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               aria-label="Open sidebar menu"
             >
               <Menu className="w-6 h-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">Smart Match</span>
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" /> {/* Spacer for centering */}
           </div>
         </header>
 
         {/* Page title strip (desktop only) */}
         {currentPage && (
-          <div className="hidden lg:flex items-center gap-2.5 border-b border-sidebar-border bg-white px-8 py-3">
-            <currentPage.icon className="h-4 w-4 text-[#005394]" />
-            <span className="text-sm font-medium text-[#394454]">{currentPage.name}</span>
+          <div className="hidden lg:flex items-center gap-2.5 border-b border-sidebar-border bg-card px-8 py-3">
+            <currentPage.icon className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-foreground/80">{currentPage.name}</span>
           </div>
         )}
 
