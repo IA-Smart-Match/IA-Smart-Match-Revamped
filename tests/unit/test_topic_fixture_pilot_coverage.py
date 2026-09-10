@@ -573,6 +573,5 @@ def test_the_generator_still_spells_the_pair_section_9_compares():
         if "expertise_tags" in row
     }
     assert cells == set(_pilot_topic_strings()), (
-        "the expertise_tags cell this file builds its pairs from has moved; update "
-        "PILOT_TOPIC_JOIN"
+        "the expertise_tags cell this file builds its pairs from has moved; update PILOT_TOPIC_JOIN"
     )
