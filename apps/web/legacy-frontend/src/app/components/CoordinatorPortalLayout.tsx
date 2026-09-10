@@ -123,7 +123,7 @@ export function CoordinatorPortalLayout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-6">
+          <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-6" aria-label="Event Host portal navigation">
             {navigation.map((item) => {
               const Icon = item.icon;
               const isActive = item.exact
