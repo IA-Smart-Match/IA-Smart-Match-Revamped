@@ -127,7 +127,7 @@ Per-track ledger (SHAs filled as they land):
 
 | Track | Agent | Commits | Status |
 |---|---|---|---|
-| A | | | pending |
+| A | sonnet | b1ab8765, a0eed51a, d884a93d, 3a83cad1 | done — verified by orchestrator (99 contract tests pass, build ok, npm test 55/2 = baseline) |
 | B | | | pending |
 | C | | | pending |
 | D1 | | | pending |
