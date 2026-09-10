@@ -69,6 +69,7 @@ import {
   type UnitEventList,
   type UnitEventSummary,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -177,17 +178,31 @@ function EventRow({ event }: { event: UnitEventSummary }) {
 /**
  * The unit's presentable events, and an honest account of what is not listed.
  *
- * The list is bounded by the server: the route reads one row past its own cap
- * and reports `truncated`, so this renders what the response carried and says
- * when there is more, rather than paging a list it does not hold.
+ * ## Two bounds, stated separately
  *
- * TODO(integrator): a shared `src/app/components/PagedList.tsx` is being built
- * on another track and does not exist in this branch. When it lands, swap the
- * `<ul>` below for it and hand it `truncated`. Note that real paging needs
- * `limit`/`offset` query parameters added to `GET /v1/units/{unit_id}/events`
- * first — the route accepts none today, so a pager wired to this response would
- * be a control that cannot fetch a second page. Do not add a second paging
- * component for this page in the meantime.
+ * The list is bounded twice over, by two different things, and this section
+ * renders both rather than letting either stand for the other:
+ *
+ *  - **The server's bound.** The route reads one row past its own cap and
+ *    reports `truncated`, so a unit holding more presentable events than one
+ *    response carries is told the response stopped short. That notice is about
+ *    rows this browser never received, and it is rendered below the list.
+ *  - **This page's bound.** `PagedList` windows the array that *did* arrive, a
+ *    page at a time, and its range line counts only what is in hand — "of N
+ *    loaded". `GET /v1/units/{unit_id}/events` still accepts no `limit` or
+ *    `offset`, and nothing here pretends otherwise: turning a page fetches
+ *    nothing, because there is nothing here to fetch.
+ *
+ * Folding the first notice into the second would hide a real truncation behind
+ * a control that cannot cure it, so they stay two sentences about two
+ * quantities. A listing shorter than the pager's own minimum is handed back
+ * whole with no chrome, which is `PagedList`'s decision and not re-made here.
+ *
+ * ## Still nothing computed
+ *
+ * The withheld counts are the server's own, printed as sent. The pager states
+ * the length of the array it was handed and nothing else. No total, mean or
+ * rounded figure is derived anywhere in this section.
  */
 function HostedEvents({ state }: { state: Loaded<UnitEventList> }) {
   const listing = state.data;
@@ -231,11 +246,20 @@ function HostedEvents({ state }: { state: Loaded<UnitEventList> }) {
               The server listed no presentable events for this unit.
             </p>
           ) : (
-            <ul className="mt-4 space-y-3">
-              {listing.events.map((event) => (
-                <EventRow key={event.id} event={event} />
-              ))}
-            </ul>
+            <div className="mt-4">
+              {/* A window over the events this response carried, not a server
+                  page: the route takes no page parameter, so the array handed
+                  over here is the whole of what arrived. */}
+              <PagedList items={listing.events} label="events" idPrefix="unit-hosted-events">
+                {(visibleEvents) => (
+                  <ul className="space-y-3">
+                    {visibleEvents.map((event) => (
+                      <EventRow key={event.id} event={event} />
+                    ))}
+                  </ul>
+                )}
+              </PagedList>
+            </div>
           )}
 
           <dl className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -255,9 +279,10 @@ function HostedEvents({ state }: { state: Loaded<UnitEventList> }) {
 
           {listing.truncated && (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              This unit holds more presentable events than one response returns, so this is not
-              the whole list. The route takes no page parameter yet, and a control here that
-              looked like paging would not be.
+              The server stopped sending before the end of this unit&apos;s presentable events, so
+              more exist than were loaded here. That is a different shortfall from the one the
+              pager describes: the pager windows the events that did arrive, and no control on
+              this page can ask the route for the rest.
             </p>
           )}
         </>
