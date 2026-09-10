@@ -242,7 +242,7 @@ rather than a built bundle.
 (`SMARTMATCH_RELEASE=dev`). Compose substitutes `${SMARTMATCH_RELEASE:-...}`
 from the project directory's `.env` before either default applies, so a VM whose
 `.env` was copied from `.env.example` — the ordinary thing to do, and what
-`local-dev-walkthrough.md:65` and `hosted-synthetic-pilot-guide.md:191` both
+`local-dev-walkthrough.md:65` and `hosted-synthetic-pilot-guide.md:207` both
 instruct — reports `dev` regardless of which compose files are in play. The two
 defaults that `dev` displaces are `compose-dev` at `docker-compose.yml:433` and
 `:481`, and `vm-unknown` at `docker-compose.vm.yml:49` and `:54`; the latter's
@@ -286,7 +286,7 @@ fronting the classroom pilot VM" and cross-referencing
 `classroom-vm-cloudflare-tunnel.md`, which is the guide that sets the tunnel up
 (its Part 2, lines 185-231) and puts Cloudflare Access in front of it (its Part
 3, lines 234-253). The tunnel token is not in this repository and must not be:
-`classroom-vm-cloudflare-tunnel.md:18-19` and this file's own tunnel section say
+`classroom-vm-cloudflare-tunnel.md:17-19` and this file's own tunnel section say
 so, and `scripts/vm/deploy.sh:56-63` records that the deployment path reads no
 secret of any kind. The VM's `.env` holds real credential values and is
 referenced here by name only.
