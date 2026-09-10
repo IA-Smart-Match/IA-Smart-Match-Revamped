@@ -87,7 +87,12 @@ import {
   unknownValue,
   type AccountableMetric,
 } from "@/app/components/provenance";
-import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
+import { grantedPortal } from "@/app/components/PortalGate";
+import { usePortalAccess } from "@/app/hooks/usePortalAccess";
+import {
+  METRICS_UNIT_RESOLVING_REASON,
+  useUnitMetrics,
+} from "@/app/hooks/useUnitMetrics";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
 import { useSignOut } from "../hooks/useSession";
@@ -453,25 +458,58 @@ export function Dashboard() {
     };
   }, [reloadToken]);
 
+  // The unit this screen is about is the one the **server** granted this
+  // account — `PortalDescriptor.default_unit_id` off `GET /v1/me/portals` —
+  // resolved here because this page is what holds the grant.
+  //
+  // This page *is* a portal home screen, appearances notwithstanding: it sits
+  // under the pathless `Layout` route rather than a portal shell, but
+  // `_PORTAL_FOR_ROLE` in `services/api/smartmatch_api/routers/portals.py`
+  // maps the stored `admin` role to the portal `admin` with
+  // `home_path: "/dashboard"`, and `PortalGate` links a signed-in account
+  // straight here. So the unit is resolved the way every other portal screen
+  // resolves it, and not from a build variable.
+  //
+  // It used to be `getConfiguredUnitId()` inside `useUnitMetrics`, the
+  // `VITE_SMARTMATCH_UNIT_ID` build variable that the pilot VM's bundle is
+  // built without. On that deployment every registered metric here rendered
+  // unknown with a reason instructing the reader to set a build variable —
+  // which they cannot do, and which was not the true cause anyway.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "admin");
+  const unitId = grant?.default_unit_id ?? null;
+  // `grantedPortal()` returns `null` both while `GET /v1/me/portals` is in
+  // flight and when the answer carried no grant. Only this page can tell those
+  // two apart, so only this page may say which one the reader is looking at.
+  const unitResolving = portalAccess.status === "loading";
+
   const {
     metricsByName,
     status: metricsStatus,
     loadError: metricsLoadError,
     metricsUnavailableReason,
+    metricsNoUnitReason,
     openDrilldown,
     drilldownOpen,
     setDrilldownOpen,
     drilldownLoading,
     drilldownError,
     drilldown,
-  } = useUnitMetrics(reloadToken);
+  } = useUnitMetrics(unitId, reloadToken);
 
   const unavailableReason =
     metricsStatus === "unavailable"
       ? (metricsLoadError ?? metricsUnavailableReason)
       : metricsStatus === "loading"
         ? "Loading registered metrics…"
-        : "This metric is not present in the unit's register.";
+        : metricsStatus === "idle"
+          ? // Nothing was asked for. Not a failure, and — ADR-0011 rule 1 —
+            // emphatically not a zero: every consumer of `unavailableReason`
+            // wraps it in an explicit unknown.
+            unitResolving
+            ? METRICS_UNIT_RESOLVING_REASON
+            : metricsNoUnitReason
+          : "This metric is not present in the unit's register.";
 
   /** Wraps one registered summary, or an explicit unknown when it is absent. */
   function registeredMetric(
@@ -867,7 +905,11 @@ export function Dashboard() {
 
       <div>
         <h2 className="mb-3 text-lg font-semibold text-gray-900">Pipeline funnel</h2>
-        <PipelineFunnelTiles reloadToken={reloadToken} />
+        <PipelineFunnelTiles
+          unitId={unitId}
+          unitResolving={unitResolving}
+          reloadToken={reloadToken}
+        />
         <p className="mt-3 text-sm text-gray-600">
           These are the same registered names the Pipeline page subscribes to, so the two surfaces
           cannot show different numbers for the same metric.
