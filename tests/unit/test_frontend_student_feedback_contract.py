@@ -784,3 +784,141 @@ def test_the_pooled_route_still_carries_no_per_speaker_breakdown() -> None:
             "response lets a reader difference the pool against an already-published "
             "speaker's count and recover a suppressed group (OQ-CBA-003 part 1)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Addendum 9 September 2026 (second) — the student agenda read is bounded too
+#
+# The same defect, one page over. The student page reads its stored ratings
+# through a per-event route and there is no student-scoped bulk form of it, so
+# one read per agenda event is the shape of the data rather than a choice. What
+# was a choice was issuing them all at once.
+#
+# The count is the server's, not the caller's. ``GET
+# /v1/units/{unit_id}/student/agenda`` takes exactly one parameter — the unit —
+# and returns every event this student is recorded at (attendance *or* an active
+# registration), ordered by date and truncated only at the router's own
+# ``MAX_ROWS`` safety cap of 200. There is no ``limit``, no ``page``, and no
+# response field a caller could use to ask for fewer; ``truncated`` reports the
+# cap after the fact. So the fan-out's width is agenda length, and the deployed
+# pilot unit holds 63 events against an API pool of 5 base plus 5 overflow.
+#
+# This is the distinction that matters when reading these tests: a fan-out over
+# a list the *server* bounds to a handful is not this defect.
+# ``CoordinatorInvitations.tsx`` fans out over a match-run shortlist whose size
+# the server pins between ``MIN_SHORTLIST_SIZE`` and ``MAX_SHORTLIST_SIZE``, and
+# it is fine. The tests below are about a list whose length is whatever the data
+# turned out to be.
+# ---------------------------------------------------------------------------
+
+
+def test_the_student_page_does_not_issue_one_request_per_event_at_once() -> None:
+    """The agenda's per-event reads must be bounded, never the agenda's length.
+
+    ``Promise.all(agenda.events.map(...))`` opens one request per event
+    simultaneously, and no code in the browser chose that number: the agenda
+    route has no page-size parameter and returns up to ``MAX_ROWS`` (200)
+    events, of which the pilot unit already holds 63. Each request holds a
+    connection from the API's 5 + 5 pool for the length of its auth dependency
+    alone, so the eleventh queues for ``pool_timeout`` and the page hangs with
+    ``QueuePool limit of size 5 overflow 5 reached`` rather than loading
+    slowly.
+
+    ``Promise.all`` is forbidden outright on this page rather than
+    pattern-matched for an agenda argument, for the reason the sibling
+    Connector test gives: the safe uses here (there are none today) are not
+    worth the check that could tell them apart from the unsafe one.
+    """
+    source = STUDENT_PAGE.read_text(encoding="utf-8")
+    code = _code_only(source)
+
+    assert "fetchMySpeakerFeedback" in code, (
+        "the student page no longer reads its stored ratings per event at all; if the read "
+        "moved, this contract needs to move with it rather than being deleted"
+    )
+
+    assert "Promise.all" not in code, (
+        "the student page fans its per-event reads out with Promise.all: that is one request "
+        "per agenda event in flight at once (63 on the pilot unit, up to MAX_ROWS=200), which "
+        "exhausts the API's 5+5 connection pool and hangs the page with a QueuePool timeout"
+    )
+    for forbidden in ("Promise.allSettled", "Promise.race"):
+        assert forbidden not in code, (
+            f"the student page fans out with {forbidden!r}; the number of simultaneous "
+            "per-event reads must be bounded by a limit, not by the agenda's length"
+        )
+
+    assert "mapWithConcurrency" in code, (
+        "the student page must read its per-event feedback through mapWithConcurrency, which "
+        "bounds how many are in flight"
+    )
+    assert "DEFAULT_READ_CONCURRENCY" in code, (
+        "the page must pass the shared DEFAULT_READ_CONCURRENCY bound rather than an inline "
+        "number nobody will find when the pool is resized"
+    )
+
+    # The bound's value is pinned to 1..5 by
+    # `test_the_connector_pages_fan_out_bound_is_the_pools_base_size`, and the
+    # helper is pinned as a real queue rather than a renamed `Promise.all` by
+    # `test_the_concurrency_helper_actually_bounds_what_it_starts`. Both pages
+    # inherit those guarantees only by sharing one module: a vendored second
+    # copy would satisfy every assertion above while drifting out of sync with
+    # the pool size it is supposed to track.
+    assert "lib/concurrency" in source, (
+        "the student page must import the shared concurrency helper rather than vendoring its "
+        "own; a duplicated bound drifts out of sync with the pool it is sized against"
+    )
+
+
+def test_the_student_page_still_reports_a_failed_event_read_per_event() -> None:
+    """Bounding the fan-out must not turn N per-event errors into one banner.
+
+    The behaviour being preserved: an event whose feedback the server refused
+    shows that refusal in that event's own section, and the events that did
+    come back still render their ratings. A ``mapWithConcurrency`` whose worker
+    let a rejection escape would discard the whole agenda on one ``403``, so
+    the ``catch`` must stay *inside* the worker and turn the failure into a
+    value.
+    """
+    code = _code_only(STUDENT_PAGE.read_text(encoding="utf-8"))
+
+    assert "setReadErrors(" in code, (
+        "per-event read failures must still be collected per event id, not folded into the "
+        "page-level error"
+    )
+    assert "readError" in code, (
+        "the event section no longer takes a per-event read error; a refused event would "
+        "vanish into a global banner"
+    )
+    assert "ApiRequestError" in code, (
+        "the page must still read the server's own message off ApiRequestError for the event "
+        "whose feedback was refused"
+    )
+    # The agenda-level catch is separate and stays separate: it is the read that
+    # failed *before* there were any events to attribute a failure to.
+    assert "setLoadError(" in code, (
+        "the agenda-level failure path must remain distinct from the per-event one"
+    )
+
+
+def test_a_failed_event_read_is_not_rendered_as_having_rated_nobody() -> None:
+    """ADR-0011 rule 1, in the branch the fan-out feeds.
+
+    A per-event failure yields an empty row list, and an empty row list is also
+    what a student who genuinely rated nobody at that event produces. Those are
+    different facts. Rendering "You have not rated a speaker at this event"
+    under a read that failed states the second while the first is unknown — a
+    value with no evidence rendered as a zero — and it does so directly beneath
+    an alert saying the read failed, so the page contradicts itself on screen.
+
+    So the empty state is claimed only when the read that would have
+    contradicted it actually succeeded.
+    """
+    code = _code_only(STUDENT_PAGE.read_text(encoding="utf-8"))
+
+    assert "readError !== null ? null : rows.length === 0" in code, (
+        "the 'you have not rated a speaker at this event' empty state is not gated on the "
+        "per-event read having succeeded; an event whose read failed has no rows because "
+        "nothing was read, and saying the student rated nobody there renders an unknown as a "
+        "zero (ADR-0011 rule 1)"
+    )
