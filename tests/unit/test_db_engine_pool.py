@@ -83,8 +83,9 @@ def test_engine_is_built_with_the_resolved_settings(monkeypatch: pytest.MonkeyPa
     try:
         pool = engine.pool
         assert pool.size() == 7
-        assert pool._max_overflow == 3  # noqa: SLF001 - no public accessor
-        assert pool._timeout == 11  # noqa: SLF001 - no public accessor
+        # No public accessor for either of the next two on QueuePool.
+        assert pool._max_overflow == 3
+        assert pool._timeout == 11
     finally:
         engine.dispose()
 

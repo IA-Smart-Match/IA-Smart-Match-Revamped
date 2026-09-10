@@ -66,7 +66,7 @@ def _int_from_env(name: str, default: int) -> int:
         return default
     try:
         value = int(raw.strip())
-    except ValueError as exc:  # noqa: TRY003 - the name is the useful part
+    except ValueError as exc:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
     if value < 0:
         raise ValueError(f"{name} must be >= 0, got {value}")
