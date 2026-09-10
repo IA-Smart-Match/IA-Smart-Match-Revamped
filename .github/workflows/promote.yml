@@ -1,0 +1,113 @@
+# Promote `main` to `deploy` — a deliberate, manual, human-triggered step.
+#
+# ---------------------------------------------------------------------------
+# Why this exists, and why it does not run automatically on every push
+# ---------------------------------------------------------------------------
+# This pilot wants "merge to main" and "deploy to the VM" to be two distinct
+# events, decided by two distinct people or moments, not the same commit.
+# So this workflow is workflow_dispatch only — an operator runs it by hand,
+# choosing (or accepting the default) source ref to promote.
+#
+# ---------------------------------------------------------------------------
+# Why this workflow explicitly dispatches deploy.yml instead of just pushing
+# ---------------------------------------------------------------------------
+# GitHub deliberately does not fire a `push`-triggered workflow when the push
+# was made with the built-in GITHUB_TOKEN — this prevents accidental
+# recursive workflow chains. deploy.yml triggers on `push` to `deploy`, so a
+# GITHUB_TOKEN-authored fast-forward of `deploy` here would NEVER start it.
+# The documented exception is that `workflow_dispatch` (and
+# `repository_dispatch`) events ARE honored even when raised via
+# GITHUB_TOKEN. So after promoting the branch, this workflow explicitly
+# dispatches deploy.yml via the GitHub CLI, which is what actually starts a
+# deployment run.
+#
+# ---------------------------------------------------------------------------
+# Why the push here is fast-forward-only
+# ---------------------------------------------------------------------------
+# `deploy` must always be a fast-forward of a real, built commit. A
+# non-fast-forward promotion (history rewrite, or promoting an ancestor of
+# the current deploy head) is refused loudly rather than silently forced —
+# forcing it could roll `deploy` backward or discard commits that were
+# already running on the VM.
+
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Ref to promote to 'deploy' (branch, tag, or SHA)"
+        required: true
+        default: main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  promote:
+    name: promote — fast-forward deploy to the chosen ref, then dispatch deploy.yml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+
+      - name: Resolve and sanity-check the source commit
+        # Fail loudly and early if the requested ref does not resolve to a
+        # real commit that is actually present in this checkout — cheaper
+        # and clearer than letting the fast-forward push fail obscurely.
+        #
+        # SOURCE_REF is passed via env rather than interpolated directly into
+        # the shell script, so an unusual ref name cannot be interpreted as
+        # shell syntax.
+        id: resolve
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          if ! source_sha="$(git rev-parse --verify "${SOURCE_REF}^{commit}" 2>/dev/null)"; then
+            echo "::error::'${SOURCE_REF}' does not resolve to a commit in this repository"
+            exit 1
+          fi
+          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
+          echo "promoting ${SOURCE_REF} (${source_sha})"
+
+      - name: Fast-forward deploy to the source commit
+        # `git push` without --force refuses any update that is not a
+        # fast-forward, which is exactly the guarantee we want: this step
+        # fails loudly rather than rewriting or rolling back `deploy`.
+        env:
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git push origin "${SOURCE_SHA}:refs/heads/deploy"
+
+      - name: Dispatch deploy.yml
+        # A GITHUB_TOKEN-authored push to `deploy` above will NOT trigger
+        # deploy.yml's `push` trigger (GitHub suppresses that to avoid
+        # workflow recursion). workflow_dispatch raised via GITHUB_TOKEN IS
+        # honored, so this explicit dispatch is what actually starts the
+        # deployment.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy.yml --ref deploy
+
+      - name: Record the promotion
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
+        run: |
+          {
+            echo "### Promoted"
+            echo ""
+            echo "- source ref: \`${SOURCE_REF}\`"
+            echo "- source commit: \`${SOURCE_SHA}\`"
+            echo "- deploy.yml has been dispatched against \`deploy\`"
+          } >> "$GITHUB_STEP_SUMMARY"
