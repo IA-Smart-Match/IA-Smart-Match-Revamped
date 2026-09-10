@@ -159,11 +159,21 @@ def test_api_lib_reads_attendance_evidence_as_the_server_counted_it() -> None:
 def test_the_statistics_surface_reads_both_owning_queries() -> None:
     """The Connector's own landing surface carries the statistics.
 
-    Not ``Dashboard.tsx``: that is the IA admin surface, it scopes itself by the
-    ``VITE_SMARTMATCH_UNIT_ID`` build variable rather than by the unit the
-    server granted this account, and a pilot Connector never reaches it. The
-    unit here comes from ``GET /v1/me/portals``, which is the only source of a
-    unit id this account is entitled to.
+    Not ``Dashboard.tsx``: that is the ``admin`` portal's own home screen
+    (``_PORTAL_FOR_ROLE`` maps the stored ``admin`` role to
+    ``home_path: "/dashboard"``), and a pilot Connector holding only a
+    ``coordinator`` membership never reaches it. The unit here comes from
+    ``GET /v1/me/portals``, which is the only source of a unit id this account
+    is entitled to.
+
+    This paragraph used to add "and it scopes itself by the
+    ``VITE_SMARTMATCH_UNIT_ID`` build variable". That was true when it was
+    written and is no longer: ``useUnitMetrics`` now takes the granted unit as
+    an argument, exactly as the three hooks in PR #139 do, and every one of its
+    call sites resolves ``grantedPortal(portalAccess, "admin")`` — see
+    ``test_frontend_unit_metrics_granted_unit.py``. Which surface a Connector
+    reaches is why this test targets the Connector's own landing page, and that
+    reason stands on the portal grant alone.
     """
     code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
 
