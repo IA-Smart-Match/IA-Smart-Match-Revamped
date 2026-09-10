@@ -190,26 +190,64 @@ echo "database      $DATABASE_URL"
 echo "seed          $SEED"
 echo "logs          $LOG_DIR"
 
-# The dev-principal map the API will boot with: the coordinator the generator
-# authenticates as, plus one student per member of the feedback cohort. It is
-# computed here, before anything starts, because Settings reads the environment
-# once at process start — a token added after the API is up authenticates as
-# nobody and answers 401.
+# The dev-principal map the API will boot with. It is computed here, before
+# anything starts, because Settings reads the environment once at process start
+# — a token added after the API is up authenticates as nobody and answers 401.
+#
+# THREE sources, MERGED rather than one replacing another:
+#
+#   * tools/seed_pilot_principals.COMPOSE_DEV_PRINCIPALS — the four portal
+#     principals, one per portal. This map used to omit them entirely, and the
+#     omission failed in exactly the worst way: step 4 below runs
+#     `make seed-pilot-principals`, which SEEDS the student, Event Host and
+#     admin rows, so a rebuild produced three perfectly good accounts that no
+#     token could reach. Three of the four portals answered 401 to a
+#     stakeholder who had just been told the appliance was rebuilt. The table
+#     is imported rather than restated for the reason its own docstring gives
+#     about docker-compose.yml: two halves of one fixture that can drift
+#     silently will. `tests/unit/test_reset_pilot_dataset_principals.py` runs
+#     this very snippet and compares what it prints against that table.
+#   * the operator-configurable coordinator ($COORDINATOR_TOKEN), which is what
+#     the generator itself authenticates as. Applied AFTER the table, so an
+#     operator who points COORDINATOR_TOKEN at a compose token gets the subject
+#     they asked for rather than the table's.
+#   * one student per member of the feedback cohort, so each Phase B rating is
+#     written by the student who gave it.
+#
+# services/api joins the PYTHONPATH here because seed_pilot_principals imports
+# smartmatch_api.config — the same path the Makefile's seed-pilot-principals
+# target runs it under.
 say "0b. dev principal map"
 DEV_PRINCIPALS="$(
-  PYTHONPATH="$DOMAIN_PATH:tools" "$PY" - "$COORDINATOR_TOKEN" "$COORDINATOR_SUBJECT" <<'PYEOF'
+  PYTHONPATH="$DOMAIN_PATH:services/api:tools" "$PY" - "$COORDINATOR_TOKEN" "$COORDINATOR_SUBJECT" <<'PYEOF'
 import json
 import sys
 
 from pilot_dataset_plan import feedback_dev_principals
+from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 
 token, subject = sys.argv[1], sys.argv[2]
-principals = {token: subject}
+principals = {principal.token: principal.subject for principal in COMPOSE_DEV_PRINCIPALS}
+principals[token] = subject
 principals.update(feedback_dev_principals())
 print(json.dumps(principals, sort_keys=True))
 PYEOF
 )"
 echo "$DEV_PRINCIPALS"
+
+# The compose coordinator's subject and email, read from that same table, for
+# step 3b below. A token in the map whose subject nothing ever created is the
+# same 401 arriving from the other direction.
+COMPOSE_COORDINATOR="$(
+  PYTHONPATH="$DOMAIN_PATH:services/api:tools" "$PY" - <<'PYEOF'
+from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
+
+coordinator = next(p for p in COMPOSE_DEV_PRINCIPALS if p.role == "coordinator")
+print(f"{coordinator.subject} {coordinator.email}")
+PYEOF
+)"
+COMPOSE_COORDINATOR_SUBJECT="${COMPOSE_COORDINATOR%% *}"
+COMPOSE_COORDINATOR_EMAIL="${COMPOSE_COORDINATOR##* }"
 
 # ---------------------------------------------------------------------------
 # 1. Drop and recreate. THIS DESTROYS EVERY TENANT IN THIS DATABASE, not only
@@ -240,6 +278,25 @@ make VENV="$VENV" migrate
 say "3. make seed-pilot"
 make VENV="$VENV" seed-pilot \
   SEED_PILOT_ARGS="--subject $COORDINATOR_SUBJECT --email $COORDINATOR_EMAIL --role coordinator"
+
+# The compose coordinator, which is a DIFFERENT row from the one above:
+# COORDINATOR_SUBJECT defaults to `local-pilot-coordinator`, while the
+# `compose-api` token resolves to `compose-pilot-coordinator`. Under
+# `docker compose` the `seed` one-shot creates it; this script is not compose,
+# and step 1 dropped the database, so nothing else here would. Step 4 will not
+# either: `seed-pilot-principals` seeds everything EXCEPT the coordinator, on
+# purpose (tools/seed_pilot_principals.SEEDED_BY_THIS_TOOL), so that row has
+# exactly one owner. Skipped when the operator has already pointed
+# COORDINATOR_SUBJECT at it, because step 3 has then written it with the
+# operator's email and seed_pilot refuses a second, differing write rather than
+# quietly reassigning one.
+if [[ "$COORDINATOR_SUBJECT" != "$COMPOSE_COORDINATOR_SUBJECT" ]]; then
+  say "3b. make seed-pilot (compose coordinator, the subject compose-api resolves to)"
+  make VENV="$VENV" seed-pilot \
+    SEED_PILOT_ARGS="--subject $COMPOSE_COORDINATOR_SUBJECT --email $COMPOSE_COORDINATOR_EMAIL --role coordinator"
+else
+  say "3b. compose coordinator already seeded as the operator coordinator — skipped"
+fi
 
 say "4. make seed-pilot-principals"
 make VENV="$VENV" seed-pilot-principals
