@@ -2765,3 +2765,164 @@ cba_meeting = sa.Table(
         "scheduled_at",
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Manual event detail and feedback QR (migration 0035_manual_event_detail)
+# ---------------------------------------------------------------------------
+#
+# Manual events are rows in `event` above (origin='coordinator_entry',
+# filed_by_user_id set, ADR-0010 temporal columns), written and published
+# through `smartmatch_persistence.events.EventRepository`. That table has no
+# room for the event-only fields a manually-filed event also carries
+# (category, free-text location, capacity, volunteer openings/needs,
+# audience, contact, speaker topics, region) — `event_manual_detail` is the
+# 1:1 side table for exactly those, keyed on `event.id`. There is no
+# `managed_event` table: the plan-gate review (PORT_PLAN.md §0.5, finding 2)
+# rejected a second event table as invisible to main's own catalog reads.
+
+event_manual_detail = sa.Table(
+    "event_manual_detail",
+    METADATA,
+    sa.Column("event_id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    # Denormalised from event.host_org_unit_id at write time. Present so this
+    # table's own rows can be scoped and indexed without a join back to
+    # `event` on every read of a coordinator's manual-event list.
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("category", sa.Text, nullable=True),
+    sa.Column("location", sa.Text, nullable=True),
+    sa.Column("capacity", sa.Integer, nullable=True),
+    sa.Column("volunteer_openings", sa.Integer, nullable=True),
+    sa.Column("volunteer_needs", sa.Text, nullable=True),
+    sa.Column("audience", sa.Text, nullable=True),
+    sa.Column("contact_name", sa.Text, nullable=True),
+    sa.Column("contact_email", sa.Text, nullable=True),
+    # JSON array of strings. Postgres' native JSONB, not a joined child table —
+    # a bounded, order-preserving list with no independent identity of its
+    # own row for row.
+    sa.Column(
+        "speaker_topics",
+        postgresql.JSONB,
+        nullable=False,
+        server_default=sa.text("'[]'::jsonb"),
+    ),
+    sa.Column("region", sa.Text, nullable=True),
+    # Idempotency-Key replay support for the create route (mirrors migration
+    # 0009's job idempotency shape): one key per (tenant, unit, key), storing
+    # the fingerprint of the request it was first used for.
+    sa.Column("idempotency_key", sa.Text, nullable=True),
+    sa.Column("request_fingerprint", sa.Text, nullable=True),
+    # Optimistic-locking version, incremented on every PATCH/publish. The
+    # canonical `event` row has no such column; manual events need one
+    # because a coordinator's edit and a publish can race.
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("event_id", name="event_manual_detail_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+        name="fk_event_manual_detail_event",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "owning_unit_id",
+        "idempotency_key",
+        name="uq_event_manual_detail_idempotency",
+    ),
+    sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_event_manual_detail_capacity"),
+    sa.CheckConstraint(
+        "volunteer_openings IS NULL OR volunteer_openings >= 0",
+        name="ck_event_manual_detail_volunteer_openings",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_event_manual_detail_version"),
+    sa.Index(
+        "ix_event_manual_detail_unit",
+        "tenant_id",
+        "owning_unit_id",
+    ),
+)
+
+
+event_feedback_qr = sa.Table(
+    "event_feedback_qr",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("event_id", _UUID, nullable=False),
+    # A stable, opaque token embedded in the public redirect URL
+    # (`GET /q/{public_token}`). Changing `destination_url` never rotates
+    # this, so printed QR codes keep working (decision doc,
+    # 2026-09-07).
+    sa.Column("public_token", sa.Text, nullable=False),
+    sa.Column("destination_url", sa.Text, nullable=False),
+    sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="CASCADE",
+        name="fk_event_feedback_qr_event",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_event_feedback_qr_created_by",
+    ),
+    # One feedback QR per event (decision doc: "Each event may have one
+    # feedback QR code"). Named because manual_events.py's upsert passes it
+    # to ON CONFLICT ON CONSTRAINT.
+    sa.UniqueConstraint("tenant_id", "event_id", name="uq_event_feedback_qr_event"),
+    sa.UniqueConstraint("public_token", name="uq_event_feedback_qr_public_token"),
+    sa.CheckConstraint(
+        "length(btrim(public_token)) >= 20 AND length(public_token) <= 100",
+        name="ck_event_feedback_qr_token_shape",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(destination_url)) > 0 AND length(destination_url) <= 2048",
+        name="ck_event_feedback_qr_destination_shape",
+    ),
+)
+
+
+event_feedback_qr_open = sa.Table(
+    "event_feedback_qr_open",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("qr_id", _UUID, nullable=False),
+    # Data-minimised by construction (decision doc): the QR identifier and
+    # the open time, and nothing else. No IP, user agent, referrer, or
+    # cookie column exists on this table, so no later edit can add one by
+    # a copy-paste from a table that has them.
+    sa.Column("opened_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="event_feedback_qr_open_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "qr_id"],
+        ["event_feedback_qr.tenant_id", "event_feedback_qr.id"],
+        ondelete="CASCADE",
+        name="fk_event_feedback_qr_open_qr",
+    ),
+    sa.Index(
+        "ix_event_feedback_qr_open_qr",
+        "tenant_id",
+        "qr_id",
+        "opened_at",
+    ),
+)
