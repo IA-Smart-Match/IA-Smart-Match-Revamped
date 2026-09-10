@@ -427,7 +427,7 @@ export function Pipeline() {
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-xl border border-border bg-slate-50 p-4">
+              <div className="rounded-xl border border-border bg-muted p-4">
                 <div className="mb-4 flex items-center justify-between">
                   <h4 className="font-semibold text-foreground">Top referral history</h4>
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">scan volume</span>
@@ -559,7 +559,7 @@ export function Pipeline() {
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-xl border border-border bg-slate-50 p-4">
+              <div className="rounded-xl border border-border bg-muted p-4">
                 <div className="mb-4 flex items-center justify-between">
                   <h4 className="font-semibold text-foreground">Acceptance trend</h4>
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">feedback loop</span>
@@ -598,7 +598,7 @@ export function Pipeline() {
                 <h4 className="mb-4 font-semibold text-foreground">Weight-shift watchlist</h4>
                 <div className="space-y-3">
                   {feedbackStats.recommended_adjustments.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border bg-slate-50 p-4 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border bg-muted p-4 text-sm text-muted-foreground">
                       {feedbackAvailable
                         ? "The optimizer has not proposed any bounded weight changes yet."
                         : "Feedback optimizer stats are unavailable."}
@@ -607,7 +607,7 @@ export function Pipeline() {
                     feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
                       <div
                         key={adjustment.factor}
-                        className="rounded-lg border border-border bg-slate-50 px-4 py-3"
+                        className="rounded-lg border border-border bg-muted px-4 py-3"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-medium text-foreground">
