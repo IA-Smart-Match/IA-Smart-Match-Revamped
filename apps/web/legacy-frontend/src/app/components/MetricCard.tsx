@@ -22,8 +22,8 @@ export function MetricCard({
   href,
 }: MetricCardProps) {
   const changeColors = {
-    positive: "bg-[#eaf6ef] text-[#1f7a46]",
-    negative: "bg-[#fef1f1] text-[#b42318]",
+    positive: "bg-accent text-accent-foreground",
+    negative: "bg-destructive/10 text-destructive",
     neutral: "bg-accent text-primary",
   };
 

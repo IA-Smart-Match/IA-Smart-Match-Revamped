@@ -479,7 +479,7 @@ export function MatchingFeedbackPanel({
                   acceptance_percent: Math.round(point.acceptance_rate * 100),
                 }))}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
                 <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
                 <Tooltip />
@@ -568,7 +568,7 @@ export function RegionalPulseAndDiscovery({
             regionalPulse.map((region) => (
               <div
                 key={region.region}
-                className="rounded-2xl border border-border bg-[linear-gradient(180deg,#fafdff_0%,#edf4ff_100%)] p-5 shadow-sm"
+                className="rounded-2xl border border-border bg-card p-5 shadow-sm"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -691,12 +691,12 @@ export function CalendarReachChart({
       ) : (
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={reachTrend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis dataKey="month" tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
             <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
             <Tooltip />
             <Line type="monotone" dataKey="windows" stroke="var(--primary)" strokeWidth={3} name="IA windows" />
-            <Line type="monotone" dataKey="covered" stroke="#56a4e4" strokeWidth={3} name="Covered windows" />
+            <Line type="monotone" dataKey="covered" stroke="var(--chart-2)" strokeWidth={3} name="Covered windows" />
           </LineChart>
         </ResponsiveContainer>
       )}

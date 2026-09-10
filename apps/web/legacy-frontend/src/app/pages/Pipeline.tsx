@@ -578,14 +578,14 @@ export function Pipeline() {
                         acceptance_percent: Math.round(point.acceptance_rate * 100),
                       }))}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
                       <Line
                         type="monotone"
                         dataKey="acceptance_percent"
-                        stroke="#2563eb"
+                        stroke="var(--chart-1)"
                         strokeWidth={3}
                         name="Acceptance %"
                       />
