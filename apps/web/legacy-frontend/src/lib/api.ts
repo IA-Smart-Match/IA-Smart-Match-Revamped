@@ -429,13 +429,27 @@ async function requestJson<T>(
   init?: RequestInit,
   options?: { authenticated?: boolean },
 ): Promise<T> {
+  // `init` is destructured rather than spread after `headers`, and that ordering
+  // is the whole point of this shape.
+  //
+  // Spreading `...init` *after* a `headers` property does not merge the two:
+  // `init.headers` replaces the assembled object wholesale, taking the
+  // `Authorization` header with it. The result was a split personality — a
+  // request that passed no headers of its own authenticated correctly, while
+  // every caller that added one silently sent an anonymous request and got
+  // `401 unauthenticated` back from a route it was in fact authorized for.
+  // This affected every authenticated write carrying an `Idempotency-Key`.
+  //
+  // Destructuring makes the ordering impossible to reintroduce: `headers` is no
+  // longer a key of `rest`, so no later spread can overwrite it.
+  const { headers: initHeaders, ...rest } = init ?? {};
   const response = await fetch(path, {
+    ...rest,
     headers: {
       "Content-Type": "application/json",
       ...(options?.authenticated ? smartmatchAuthHeaders() : {}),
-      ...(init?.headers ?? {}),
+      ...(initHeaders ?? {}),
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -2126,8 +2140,8 @@ export interface MatchRunAccepted {
  * Far), `400` for an oversized or duplicated pool, `404` for a request that is
  * not this unit's, `503` while the registry is not ready.
  *
- * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID`, the
- * the same way any idempotent command does: a retry of *this* attempt is
+ * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID`: a
+ * retry of *this* attempt is
  * safe, and a deliberate resubmission is a new command rather than a silently
  * swallowed one.
  */
@@ -2399,6 +2413,340 @@ export async function requestRedemption(unitId: string, itemId: string): Promise
 }
 
 // ---------------------------------------------------------------------------
+// Outreach (R4, gate G4)
+//
+// Read-only legacy outreach records remain available during the transition.
+//
+// That is the direct correction of the defect `docs/plans/frontend-broken-buttons.md`
+// catalogues as B17: the legacy Send button called `console.log("Message sent:")`,
+// showed "Message sent!" for two seconds, and closed the dialog, having made no
+// request at all. Replacing it with a real request that resolves to an
+// optimistic success would be the same defect with a network round trip in the
+// middle, so the types below give a caller nothing optimistic to render.
+// ---------------------------------------------------------------------------
+
+/** One stored draft, as `GET`/`POST .../outreach/drafts` returns it. */
+export interface OutreachDraft {
+  draft_id: string;
+  contact_channel_id: string;
+  template_id: string;
+  /**
+   * `"synthetic"` for pilot copy that has not been through institutional
+   * review, `"reviewed"` otherwise. Rendered in the UI rather than hidden: it
+   * is the fact that decides whether this message could go to a real person.
+   */
+  content_status: string;
+  subject: string;
+  body: string;
+  status: string;
+  version: number;
+  recipient_address: string;
+}
+
+export interface OutreachDraftListResponse {
+  drafts: OutreachDraft[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * What a submitted send command returns.
+ *
+ * Note the fields it does *not* have. There is no status, no disposition, and
+ * nothing about a message, because when this resolves the command has been
+ * recorded and the dispatcher has not moved it. A UI that wants to say
+ * something true at this point can say "queued" and show the job id.
+ */
+export interface OutreachSendAccepted {
+  job_id: string;
+  events_url: string;
+  replayed: boolean;
+}
+
+export interface OutreachDeliveryEvent {
+  event_type: string;
+  occurred_at: string;
+  provider_event_id: string | null;
+}
+
+/**
+ * One send attempt and its delivery stream.
+ *
+ * `disposition` is `null` while the attempt is in flight. That is a third
+ * state, not a missing value: render it as in-progress and never as a failure.
+ * Even `"accepted"` means only that a provider took custody — delivery is a
+ * later event in the stream and may never arrive.
+ */
+export interface OutreachSend {
+  send_id: string;
+  draft_id: string;
+  job_id: string;
+  recipient_address: string;
+  disposition: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  failure_reason: string | null;
+  delivery_events: OutreachDeliveryEvent[];
+}
+
+/** `GET /v1/units/{unit_id}/outreach/drafts` — a coordinator's drafts. */
+export async function fetchOutreachDrafts(unitId: string): Promise<OutreachDraftListResponse> {
+  return requestJson<OutreachDraftListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/drafts`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/outreach/drafts` — compose one message.
+ *
+ * The body carries a template id and its placeholder values. There is
+ * deliberately no `body` or `subject` parameter and there must never be one:
+ * the server's closed template registry decides what the words are, and
+ * free-form text from a browser would reopen the hole that registry closes.
+ */
+/**
+ * `POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send` — submit the command.
+ *
+ * Resolves with a job id when the server answers `202`. **Nothing has been sent
+ * at that point.** The `Idempotency-Key` is generated per attempt so that a
+ * retry after a network error cannot become a second message; `crypto.randomUUID`
+ * is used rather than a timestamp because two clicks in the same millisecond are
+ * two attempts, and a key that collided would silently merge them.
+ */
+/** `GET /v1/units/{unit_id}/outreach/sends/{send_id}` — what actually happened. */
+export async function fetchOutreachSend(unitId: string, sendId: string): Promise<OutreachSend> {
+  return requestJson<OutreachSend>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends/${encodeURIComponent(sendId)}`,
+    undefined,
+    { authenticated: true },
+  );
+}
+
+/**
+ * One send in a listing, **without** its delivery stream.
+ *
+ * The stream is absent rather than summarised, and the route says why: folding
+ * a send's events into one word is a choice about which fact to forget — a
+ * provider can report `delivered` and then `complained` — and making that
+ * choice once per row would bury it where nobody reviews it. A reader who needs
+ * to explain what happened to one message reads that send with
+ * {@link fetchOutreachSend}.
+ *
+ * `disposition` is `null` while the attempt is in flight. That is a third
+ * state, not a missing value: render it as in progress, never as a failure and
+ * never as a success.
+ */
+export interface OutreachSendSummary {
+  send_id: string;
+  draft_id: string;
+  job_id: string;
+  recipient_address: string;
+  /** `accepted`, `blocked`, `failed`, or null while the attempt is in flight. */
+  disposition: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  /** When the attempt reached an outcome, or null while it has not. */
+  concluded_at: string | null;
+}
+
+/**
+ * A page of sends, and how many were asked for.
+ *
+ * There is no total, and a caller must not derive one. `limit` and `offset` are
+ * what was asked for, not what exists; the number of send attempts a unit has
+ * made is not a figure this response reports.
+ */
+export interface OutreachSendListResponse {
+  sends: OutreachSendSummary[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/outreach/sends` — the unit's send attempts, newest first.
+ *
+ * The listing the coordinator surface was missing. Drafts could be listed and a
+ * single send could be read by id, so the only way to see what a unit had
+ * actually attempted was to have kept the ids from when it attempted them.
+ *
+ * These are **sends**, not threads. OQ-008 records that this slice stores send
+ * records rather than conversations: nothing here implies a reply exists, no
+ * row is part of an exchange, and a caller that renders this list under a
+ * "threads" heading is asserting a shape the data does not have.
+ */
+export async function fetchOutreachSends(unitId: string): Promise<OutreachSendListResponse> {
+  return requestJson<OutreachSendListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/outreach/sends`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Speaker invitations (CBA-INVITATIONS, customer §6 steps 7-8, §13, §14)
+//
+// Five calls, all on the consented `/v1` path. Nothing here touches
+// `/api/data/*`, `fetchSpecialists`, or the legacy cold flow — an invitation is
+// an `outreach_draft` addressed to an already-consented contact channel, sent by
+// the same `outreach.send` command every other message on this surface uses.
+//
+// **The types below keep two facts in two objects, and that is the whole point
+// of this section.** `SpeakerInvitationOutcome.delivery` is what a *mail
+// provider* did; `SpeakerInvitationOutcome.speaker_response` is what a *person*
+// said. They share no field and no value: a provider's "accepted" means custody
+// of some bytes, while a Speaker's acceptance is spelled `accepted_invitation`.
+// Flattening them into one status in the browser would reintroduce here exactly
+// the confusion the server's schema, its CHECK constraints and its tests are all
+// arranged to prevent — and it would reintroduce it at the boundary where it
+// actually reaches an Event Host's eyes.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a mail provider did with one invitation's message.
+ *
+ * `null` at the top level of an outcome when no send has been submitted at all.
+ * A non-null object whose `disposition` is `null` is an attempt in flight — a
+ * third state, to be rendered as in-progress and never as a failure.
+ */
+export interface SpeakerInvitationDelivery {
+  send_id: string;
+  /**
+   * `"accepted"`, `"blocked"`, `"failed"`, or `null` while in flight.
+   * `"accepted"` means a provider took custody. It does **not** mean delivered,
+   * and it says nothing whatever about whether the Speaker agreed to come.
+   */
+  disposition: string | null;
+  provider: string | null;
+  failure_reason: string | null;
+  concluded_at: string | null;
+}
+
+/**
+ * What the Speaker said. Never what a provider did.
+ *
+ * `response` is `"awaiting_response"`, `"accepted_invitation"` or
+ * `"declined_invitation"` — every value names the invitation, so none of them
+ * can be confused with a delivery disposition. `"awaiting_response"` is a real
+ * state and the ordinary condition of every invitation until somebody reads
+ * their mail; it is not a failure.
+ */
+export interface SpeakerInvitationResponse {
+  response: string;
+  recorded_at: string | null;
+  /**
+   * `"speaker_link"` when the Speaker followed the link in their own
+   * invitation, `"connector_recorded"` when a coordinator entered what they
+   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
+   * screen that showed them alike would assert a directness nobody has.
+   */
+  channel: string | null;
+  recorded_by_user_id: string | null;
+}
+
+/** One named recipient's outcome, with the two facts kept apart. */
+export interface SpeakerInvitationOutcome {
+  invitation_id: string;
+  professional_id: string;
+  /** `"pending"`, `"dispatched"` or `"skipped"`. What the platform did. */
+  status: string;
+  /** Why nobody was written to, present exactly when `status` is `"skipped"`. */
+  skip_reason: string | null;
+  recipient_address: string | null;
+  delivery: SpeakerInvitationDelivery | null;
+  speaker_response: SpeakerInvitationResponse;
+}
+
+/** One batch and every outcome in it. */
+export interface SpeakerInvitationBatch {
+  batch_id: string;
+  match_run_id: string | null;
+  template_id: string;
+  event_name: string;
+  /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
+  event_date: string;
+  created_at: string;
+  /** True when this response replayed a key already used; nobody was invited twice. */
+  replayed: boolean;
+  invited_count: number;
+  skipped_count: number;
+  invitations: SpeakerInvitationOutcome[];
+}
+
+/** One batch in a listing, deliberately without its outcomes. */
+export interface SpeakerInvitationBatchSummary {
+  batch_id: string;
+  match_run_id: string | null;
+  template_id: string;
+  event_name: string;
+  event_date: string;
+  created_at: string;
+}
+
+export interface SpeakerInvitationBatchListResponse {
+  batches: SpeakerInvitationBatchSummary[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * What a dispatch submitted, and what it refused to submit.
+ *
+ * Note the absent field: there is no count of messages sent, because when this
+ * resolves nothing has been sent. Each `dispatched` entry is a command the
+ * dispatcher has not moved yet.
+ */
+export interface SpeakerInvitationDispatchResponse {
+  batch_id: string;
+  dispatched: Array<{
+    invitation_id: string;
+    job_id: string;
+    events_url: string;
+    replayed: boolean;
+  }>;
+  /** Refused at dispatch on a consent fact read *now*, with the reason. */
+  not_dispatched: Array<{ invitation_id: string; reason: string }>;
+}
+
+/** Legacy Connector invitation-list response retained for stored-data compatibility. */
+/** Legacy invitation-detail response retained for stored-data compatibility. */
+/**
+ * Historical batch request shape; there is no active browser command for it.
+ *
+ * There is deliberately no `template_id`, no `body`, no recipient address and no
+ * response link in this payload, and there must never be one. The template is
+ * the server's closed registry; the address comes from the recipient's own
+ * stored channels; and a browser-supplied link would put an arbitrary URL into
+ * an institutional email to an already-consented address.
+ *
+ * The `Idempotency-Key` is generated per attempt with `crypto.randomUUID` rather
+ * than a timestamp: two clicks in the same
+ * millisecond are two attempts, and a colliding key would silently merge them.
+ * The server treats a repeat of one key as a replay and invites nobody twice.
+ */
+/**
+ * `POST .../batches/{batch_id}/dispatch` — submit the send commands.
+ *
+ * Resolves when the server answers `202`. **Nothing has been sent at that
+ * point**, and the response has no field that could be rendered otherwise. No
+ * `Idempotency-Key` header: each command's key is derived server-side from the
+ * invitation id, which is a stronger promise than a per-attempt key — a second
+ * dispatch replays rather than queueing a second message to the same person.
+ */
+/**
+ * `POST .../speaker-invitations/{invitation_id}/response` — record an answer a
+ * Speaker gave the Connector out of band.
+ *
+ * The verb is `"accept"` or `"decline"`, deliberately not a status value: a
+ * vocabulary a browser could paste a delivery disposition into is a vocabulary
+ * that will eventually receive one. The server stores it as
+ * `accepted_invitation` / `declined_invitation` and records that a coordinator,
+ * rather than the Speaker themselves, is the one who entered it.
+ */
+// ---------------------------------------------------------------------------
 // Speaker Requests (CBA-EVENT-REQUEST, customer §12)
 //
 // One call, and the shape that matters runs through it: **the response is the
@@ -2407,8 +2755,8 @@ export async function requestRedemption(unitId: string, itemId: string): Promise
 // status, review status, timestamps and the resolved taxonomy names included —
 // so a caller has something real to render and nothing optimistic to invent.
 //
-// There is deliberately no `Idempotency-Key` here, unlike an externally dispatched command
-// above. A Speaker Request has a deterministic identity server-side (ADR-0012:
+// There is deliberately no `Idempotency-Key` here. A Speaker Request has a
+// deterministic identity server-side (ADR-0012:
 // host unit, folded title, resolved date), so a second submission of the same
 // request updates the first rather than filing a duplicate — a stronger promise
 // than a per-attempt key, which only recognises a byte-identical repeat.
@@ -3730,6 +4078,375 @@ export async function fetchAttendanceSummary(unitId: string): Promise<Attendance
   );
 }
 
+// ---------------------------------------------------------------------------
+// A unit's presentable events (`GET /v1/units/{unit_id}/events`)
+//
+// The route the coordinator portal was not calling. It has existed since the
+// discovery slice — `routers/events.py` — while the portal went on rendering an
+// "unavailable" panel for hosted events beside it, which said something false
+// about this deployment rather than something true about the legacy backend.
+//
+// Two things about the response shape are load-bearing and neither may be
+// flattened by a caller.
+//
+// `time` is a view, not a timestamp (ADR-0010). A `date_only` event has no
+// instant, and reporting one — midnight in some zone — is the fabrication that
+// ADR exists to stop, so `precision` says which of `starts_at` and `on_date` is
+// real and a renderer reads that rather than inferring it from a null.
+//
+// The two `withheld_*` counts are what keep an empty list meaningful: no events
+// and nothing withheld means the unit has none, while no events and seven
+// withheld means the unit has seven the pipeline could not finish. ADR-0011's
+// rule is that an unknown is never rendered as a zero, and the corollary this
+// response applies is that an omission is never rendered as an absence. Render
+// them.
+// ---------------------------------------------------------------------------
+
+/**
+ * An event's time at whichever precision is actually known (ADR-0010).
+ *
+ * Never collapsed to one nullable instant. `precision` is `exact`, `date_only`,
+ * or `unresolved`; `ends_at` is null when the source stated no end rather than
+ * when the event lasts no time, which is the absence that makes a calendar
+ * download refusable rather than guessable.
+ */
+export interface UnitEventTime {
+  precision: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  /** The IANA zone the event happens in — never the viewer's or the server's. */
+  time_zone: string | null;
+}
+
+/**
+ * Where the event came from (ADR-0012), as its own object.
+ *
+ * Every field but `origin` is null on a `coordinator_entry` event: a human
+ * typing an event fetched nothing, and a source URL invented to fill the column
+ * would be a fabricated field arriving through a response model.
+ */
+export interface UnitEventProvenance {
+  origin: string;
+  source_url: string | null;
+  fetched_at: string | null;
+  extractor_version: string | null;
+}
+
+/** One presentable event, as a coordinator's unit listing returns it. */
+export interface UnitEventSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  time: UnitEventTime;
+  /** Mapped vocabulary terms only. A quarantined value has no term to carry. */
+  tags: string[];
+  publication_status: string;
+  review_status: string;
+  provenance: UnitEventProvenance;
+}
+
+/** The unit's presentable events, and an honest account of what is missing. */
+export interface UnitEventList {
+  unit_id: string;
+  events: UnitEventSummary[];
+  /** Excluded because no date could be resolved (ADR-0010 rule 2). Render it. */
+  withheld_unresolved_date: number;
+  /** Excluded because a tag value awaits human review (ADR-0012). Render it. */
+  withheld_quarantined_tags: number;
+  /** True when the unit holds more presentable events than the response cap returns. */
+  truncated: boolean;
+}
+
+/**
+ * The three statuses a review item may be listed at.
+ *
+ * Mirrors the server's `ReviewItemStatusFilter`, which is a `Literal` for the
+ * reason worth repeating on this side: there is deliberately no "all" member.
+ * A caller always names exactly one status, so no value a UI could pass — an
+ * empty string, an unset variable — resolves to "every row". The server refuses
+ * anything outside this union with a `422` rather than widening the query.
+ */
+export type ReviewItemStatus = "pending" | "accepted" | "rejected";
+
+/**
+ * One quarantined import row awaiting — or carrying — a coordinator's decision.
+ *
+ * `row_data` is the submitted record verbatim, and its shape is genuinely
+ * unknown to this client: it is whatever columns the import carried, which vary
+ * by dataset. It is typed as an open record rather than given invented fields,
+ * because a type that claimed to know the columns would be wrong for the first
+ * import that carried different ones.
+ *
+ * There is no `decided_by`, and its absence is a decision rather than an
+ * oversight. The column exists on the row and holds a `user_account` id; no
+ * route in this API discloses one, and the list route deliberately does not
+ * become the first. A field added here would be permanently null, which reads
+ * as "nobody decided it" rather than "we are not told".
+ *
+ * `decided_at` is `null` for exactly the pending rows — undecided, never
+ * unknown (ADR-0011 rule 1). A surface that rendered it as a dash or a zero
+ * date would be discarding that distinction.
+ */
+export interface ReviewItem {
+  id: string;
+  /** The import that submitted this row; rows from one import share it. */
+  import_batch_id: string;
+  /** This row's position within its import batch, from zero. */
+  row_index: number;
+  status: ReviewItemStatus;
+  /** The submitted record, exactly as the import wrote it. Columns vary by dataset. */
+  row_data: Record<string, unknown>;
+  created_at: string;
+  /** When this item was decided, or `null` while it is still pending. */
+  decided_at: string | null;
+}
+
+/**
+ * One unit's review items at one status.
+ *
+ * Carries no count, of these items or of the unit's pending total. That number
+ * has an owning query — `GET /v1/units/{unit_id}/metrics` — and ADR-0011 rule 4
+ * is that it is read from there rather than recomputed beside it.
+ * `items.length` is the length of *this page* and is not a total whenever
+ * `truncated` is true.
+ *
+ * `truncated` is measured rather than guessed: the server reads one row beyond
+ * its cap and reports whether it came back. A surface that ignored it would
+ * render a full page as a complete one, which is the silent-zero failure
+ * ADR-0011 rule 1 forbids.
+ */
+export interface ReviewItemListResponse {
+  unit_id: string;
+  /** The status these items were filtered to; echoes the request. */
+  status: ReviewItemStatus;
+  items: ReviewItem[];
+  /** True when more items exist at this status than the response cap returned. */
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events` — the unit's presentable events.
+ *
+ * The unit is the one the server granted this account
+ * (`PortalDescriptor.default_unit_id`), never a value the browser composed and
+ * never a build variable. `admin` and `coordinator` only, authorized
+ * server-side per request against the loaded unit: a caller the server refuses
+ * gets {@link ApiRequestError} with status `403`, and a unit in another tenant
+ * is a `404` rather than a `403` that would confirm the id names something
+ * real.
+ */
+export async function fetchUnitEvents(unitId: string): Promise<UnitEventList> {
+  return requestJson<UnitEventList>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/review-items` — the queue behind the
+ * `pending_review_items` badge.
+ *
+ * The dashboard has counted pending review items since before this route
+ * existed, and nothing listed them, so the screen showed a number it could not
+ * explain. Both sides derive a row's owning unit through the same join, so the
+ * length of this list and the value of that metric are the same number by
+ * construction rather than by coincidence.
+ *
+ * Nothing but `unitId` selects whose rows come back. `status` chooses a column
+ * value and cannot widen across units, and there is no caller identity on this
+ * path at all. Authorization is `admin`/`coordinator` against the loaded unit,
+ * decided per request: a caller the server refuses gets {@link ApiRequestError}
+ * with status `403`, and a unit in another tenant is a `404` rather than a
+ * `403` that would confirm the id names something real.
+ */
+export async function fetchReviewItems(
+  unitId: string,
+  status: ReviewItemStatus = "pending",
+): Promise<ReviewItemListResponse> {
+  return requestJson<ReviewItemListResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/review-items?status=${encodeURIComponent(status)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** What a coordinator may write to a pending item. Never `pending`: that is not a decision. */
+export type ReviewDecision = "accepted" | "rejected";
+
+/**
+ * What changed, read back from the row rather than echoed from the request.
+ *
+ * No pending count, for the reason {@link ReviewItemListResponse} gives: the
+ * metrics route owns that number. A caller wanting the new count re-reads it
+ * there, which is also the only way the two can be guaranteed to agree.
+ */
+export interface ReviewDecisionResult {
+  id: string;
+  status: ReviewDecision;
+  decided_at: string;
+}
+
+/**
+ * `POST /v1/review-items/{review_item_id}/decision` — accept or reject one row.
+ *
+ * The item is named, and the unit the decision is authorized against is derived
+ * server-side from that item's own import batch. No unit travels in this call,
+ * deliberately: a caller who could name one could name a sibling department's,
+ * and an authorizer that trusted the assertion over the row's own ancestry is
+ * the archived MM-A01 defect.
+ *
+ * A second decision on the same row is a `409`, not a silent success — the
+ * server's `UPDATE` is guarded by `status = 'pending'`, so a retried request
+ * refuses cleanly rather than double-applying. Callers should surface that as
+ * the state disagreement it is, typically by re-reading the queue.
+ */
+export async function decideReviewItem(
+  reviewItemId: string,
+  decision: ReviewDecision,
+): Promise<ReviewDecisionResult> {
+  return requestJson<ReviewDecisionResult>(
+    `/v1/review-items/${encodeURIComponent(reviewItemId)}/decision`,
+    { method: "POST", body: JSON.stringify({ decision }) },
+    { authenticated: true },
+  );
+}
+
+/**
+ * One meeting a unit recorded with the CBA team (migration `0034`).
+ *
+ * **An internal record, not a booking.** Nothing in this system tells anybody
+ * outside it that this meeting exists — no invitation is composed, queued or
+ * sent, and no address is read. The row is the unit's own note. A surface that
+ * implied otherwise would be promising something the server cannot do.
+ *
+ * `scheduled_at` is **never null and never inferred.** A meeting with no
+ * resolved time cannot be stored: the column is `NOT NULL` with no default, the
+ * repository refuses a time carrying no zone, and the route answers `422` rather
+ * than choosing one. That is ADR-0010 rule 2 and migration finding F-003 — the
+ * legacy turned an unparsed date into "30 days from now" and rendered a slot
+ * nobody had chosen. The practical consequence for a caller is that this field
+ * needs no absent branch: there is no such row to render.
+ *
+ * `time_zone` is the IANA zone the time was *agreed in*, and it is a separate
+ * field because `scheduled_at` cannot recover it. Rendering the instant in the
+ * reader's own zone without saying which zone it was agreed in is how a 5pm
+ * meeting becomes an 8pm one on somebody's screen.
+ *
+ * There is deliberately **no participant field of any kind** — not a name, not
+ * an account, not free text. What a "meeting with the CBA team" is contractually
+ * (who may book, whether an external participant is a user account or free text,
+ * whether a booking ever leaves the system) is **OQ-CBA-066**, open, and a field
+ * here would be an answer to it shipped in a client.
+ */
+export interface Meeting {
+  id: string;
+  unit_id: string;
+  /** What the meeting is. Never blank — the server refuses an empty title. */
+  title: string;
+  /** When it is, ISO-8601 with an offset. Never null, never inferred. */
+  scheduled_at: string;
+  /** The IANA zone the time was agreed in, e.g. `America/Los_Angeles`. */
+  time_zone: string;
+  /** A room, a building, or a join link. `null` when nobody has said yet. */
+  location_or_link: string | null;
+  /** `scheduled` or `cancelled`. Cancelled meetings are listed, not hidden. */
+  status: string;
+  /** When the note was made, ISO-8601. */
+  recorded_at: string;
+  /** When the note last moved, ISO-8601. */
+  updated_at: string;
+}
+
+/**
+ * A bounded page of a unit's meetings, plus a measured total.
+ *
+ * `total` is counted server-side across every meeting the unit holds, not folded
+ * from `meetings`. Comparing the two is how a caller tells a full page from a
+ * truncated one — which is a question a bounded listing would otherwise leave a
+ * client to guess at, and guessing it is how a surface ends up claiming a number
+ * nobody measured (ADR-0011 rule 1).
+ */
+export interface MeetingList {
+  unit_id: string;
+  meetings: Meeting[];
+  total: number;
+  /** The bound this listing was taken under. */
+  limit: number;
+}
+
+/**
+ * What a coordinator supplies to record a meeting.
+ *
+ * No `status` and no recorder: every meeting starts `scheduled`, and the author
+ * is the verified principal behind the bearer token. Neither is a field the
+ * client can set, which is what keeps caller-selected identity out of the write.
+ */
+export interface NewMeeting {
+  title: string;
+  /**
+   * ISO-8601 **with an offset**. A value with no offset is a wall-clock reading
+   * rather than an instant and is refused with `422 meeting_time_unresolved`;
+   * `new Date(...).toISOString()` produces an acceptable value.
+   */
+  scheduled_at: string;
+  /** The IANA zone the time was agreed in. Required. */
+  time_zone: string;
+  /** Optional. Omit or send `null` when nobody has said where yet. */
+  location_or_link?: string | null;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/meetings` — the meetings this unit has recorded.
+ *
+ * Soonest first, bounded by the server, with cancelled meetings **included**: a
+ * surface has to render "this was called off" differently from "this was never
+ * arranged", and a route that dropped them would take that distinction away from
+ * the only caller who needs it.
+ *
+ * Authorization runs before any meeting row is read, against the unit the list
+ * is scoped to. `admin` and `coordinator` only, with no tenant-wide widening: a
+ * caller the server refuses gets {@link ApiRequestError} with status `403`, and
+ * a unit in another tenant is a `404` rather than a `403` that would confirm the
+ * id names something real.
+ */
+export async function fetchMeetings(unitId: string, limit?: number): Promise<MeetingList> {
+  const query = limit === undefined ? "" : `?limit=${encodeURIComponent(String(limit))}`;
+  return requestJson<MeetingList>(
+    `/v1/units/${encodeURIComponent(unitId)}/meetings${query}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/meetings` — record one meeting.
+ *
+ * Returns the meeting as stored, read back out of the table rather than echoed:
+ * the two provenance instants are server-written, so an echo would be this
+ * client's guess at what was saved.
+ *
+ * **Sends nothing to anybody.** This writes a row. If a future caller needs an
+ * invitation delivered, that is a different capability with a different consent
+ * story, and it does not exist.
+ *
+ * A `422` with code `meeting_time_unresolved` means the time carried no offset.
+ * **Do not retry it by supplying one** — picking a zone on the unit's behalf is
+ * the fabrication the refusal exists to prevent. Ask the person for the zone.
+ */
+export async function createMeeting(unitId: string, input: NewMeeting): Promise<Meeting> {
+  return requestJson<Meeting>(
+    `/v1/units/${encodeURIComponent(unitId)}/meetings`,
+    { method: "POST", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manual events, external feedback QR codes, and speaker handoffs
+// ---------------------------------------------------------------------------
+
 export type ManualEventStatus = "draft" | "published" | "cancelled";
 export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
 
@@ -3783,31 +4500,96 @@ export interface ManualEventInput {
 }
 
 export interface SpeakerProfile {
-  id: string; name: string; title: string | null; company: string | null; board_role: string | null;
-  expertise_topics: string[]; home_region: string | null; service_regions: string[];
-  contact_email?: string | null; contact_phone?: string | null; available?: boolean; active?: boolean;
-  version?: number; created_at?: string; updated_at?: string;
+  id: string;
+  name: string;
+  title: string | null;
+  company: string | null;
+  board_role: string | null;
+  expertise_topics: string[];
+  home_region: string | null;
+  service_regions: string[];
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  available?: boolean;
+  active?: boolean;
+  version?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SpeakerProfileInput {
-  name: string; title?: string | null; company?: string | null; board_role?: string | null;
-  expertise_topics: string[]; home_region?: string | null; service_regions: string[];
-  contact_email?: string | null; contact_phone?: string | null; available: boolean; active: boolean;
+  name: string;
+  title?: string | null;
+  company?: string | null;
+  board_role?: string | null;
+  expertise_topics: string[];
+  home_region?: string | null;
+  service_regions: string[];
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  available: boolean;
+  active: boolean;
 }
 
-export interface MatchSuggestion extends Omit<SpeakerProfile, "contact_email" | "contact_phone" | "available" | "active"> {
-  speaker_id: string; explanations: string[];
+export interface MatchSuggestion
+  extends Omit<SpeakerProfile, "contact_email" | "contact_phone" | "available" | "active"> {
+  speaker_id: string;
+  explanations: string[];
 }
 
-export interface MatchRun { id: string; event_id: string; suggestions: MatchSuggestion[]; created_at: string; }
+export interface MatchRun {
+  id: string;
+  event_id: string;
+  suggestions: MatchSuggestion[];
+  created_at: string;
+}
 
-export type SpeakerEventStatus = "not_emailed_yet" | "awaiting_response" | "declined" | "ready_for_handoff" | "handed_off" | "awaiting_final_confirmation" | "confirmed" | "withdrawn" | "attended" | "did_not_attend" | "event_cancelled";
-export interface SpeakerEventHistory { id: string; from_status: SpeakerEventStatus | null; to_status: SpeakerEventStatus; action_kind: string; actor_id: string; note: string | null; correction_reason: string | null; created_at: string; }
-export interface SpeakerEventNote { id: string; actor_id: string; body: string; created_at: string; }
+export type SpeakerEventStatus =
+  | "not_emailed_yet"
+  | "awaiting_response"
+  | "declined"
+  | "ready_for_handoff"
+  | "handed_off"
+  | "awaiting_final_confirmation"
+  | "confirmed"
+  | "withdrawn"
+  | "attended"
+  | "did_not_attend"
+  | "event_cancelled";
+
+export interface SpeakerEventHistory {
+  id: string;
+  from_status: SpeakerEventStatus | null;
+  to_status: SpeakerEventStatus;
+  action_kind: string;
+  actor_id: string;
+  note: string | null;
+  correction_reason: string | null;
+  created_at: string;
+}
+
+export interface SpeakerEventNote {
+  id: string;
+  actor_id: string;
+  body: string;
+  created_at: string;
+}
+
 export interface SpeakerEventRecord {
-  id: string; event_id: string; speaker_id: string; assigned_host_id: string; status: SpeakerEventStatus;
-  version: number; speaker_name: string; speaker_title: string | null; speaker_company: string | null;
-  event_title: string; created_at: string; updated_at: string; history: SpeakerEventHistory[]; notes: SpeakerEventNote[];
+  id: string;
+  event_id: string;
+  speaker_id: string;
+  assigned_host_id: string;
+  status: SpeakerEventStatus;
+  version: number;
+  speaker_name: string;
+  speaker_title: string | null;
+  speaker_company: string | null;
+  event_title: string;
+  created_at: string;
+  updated_at: string;
+  history: SpeakerEventHistory[];
+  notes: SpeakerEventNote[];
 }
 
 export interface FeedbackQrAsset {
@@ -3825,7 +4607,7 @@ export async function fetchManualEvents(
   unitId: string,
   status: "published" | "draft" | "all" = "published",
 ): Promise<{ data: ManualEvent[]; total: number }> {
-  return requestJson<{ data: ManualEvent[]; total: number }>(
+  return requestJson(
     `/v1/units/${encodeURIComponent(unitId)}/events?status=${status}`,
     undefined,
     { authenticated: true },
@@ -3837,9 +4619,13 @@ export async function createManualEvent(
   input: ManualEventInput,
   idempotencyKey = crypto.randomUUID(),
 ): Promise<ManualEvent> {
-  return requestJson<ManualEvent>(
+  return requestJson(
     `/v1/units/${encodeURIComponent(unitId)}/events`,
-    { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    },
     { authenticated: true },
   );
 }
@@ -3850,7 +4636,7 @@ export async function updateManualEvent(
   version: number,
   input: Partial<ManualEventInput>,
 ): Promise<ManualEvent> {
-  return requestJson<ManualEvent>(
+  return requestJson(
     `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
     { method: "PATCH", body: JSON.stringify({ ...input, version }) },
     { authenticated: true },
@@ -3858,16 +4644,19 @@ export async function updateManualEvent(
 }
 
 export async function publishManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
-  return requestJson<ManualEvent>(
+  return requestJson(
     `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/publish`,
     { method: "POST" },
     { authenticated: true },
   );
 }
 
-export async function fetchFeedbackQr(unitId: string, eventId: string): Promise<FeedbackQrAsset | null> {
+export async function fetchFeedbackQr(
+  unitId: string,
+  eventId: string,
+): Promise<FeedbackQrAsset | null> {
   try {
-    return await requestJson<FeedbackQrAsset>(
+    return await requestJson(
       `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
       undefined,
       { authenticated: true },
@@ -3883,62 +4672,191 @@ export async function saveFeedbackQr(
   eventId: string,
   destinationUrl: string,
 ): Promise<FeedbackQrAsset> {
-  return requestJson<FeedbackQrAsset>(
+  return requestJson(
     `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
     { method: "PUT", body: JSON.stringify({ destination_url: destinationUrl }) },
     { authenticated: true },
   );
 }
 
-export async function fetchSpeakers(unitId: string): Promise<{ data: SpeakerProfile[]; total: number; roster_version: number | null; published_at: string | null }> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, undefined, { authenticated: true });
+export async function fetchSpeakers(
+  unitId: string,
+): Promise<{
+  data: SpeakerProfile[];
+  total: number;
+  roster_version: number | null;
+  published_at: string | null;
+}> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, undefined, {
+    authenticated: true,
+  });
 }
 
-export async function createSpeaker(unitId: string, input: SpeakerProfileInput): Promise<SpeakerProfile> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, { method: "POST", body: JSON.stringify(input) }, { authenticated: true });
+export async function createSpeaker(
+  unitId: string,
+  input: SpeakerProfileInput,
+): Promise<SpeakerProfile> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speakers`,
+    { method: "POST", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
 }
 
-export async function updateSpeaker(unitId: string, speakerId: string, input: SpeakerProfileInput & { version: number }): Promise<SpeakerProfile> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers/${encodeURIComponent(speakerId)}`, { method: "PATCH", body: JSON.stringify(input) }, { authenticated: true });
+export async function updateSpeaker(
+  unitId: string,
+  speakerId: string,
+  input: SpeakerProfileInput & { version: number },
+): Promise<SpeakerProfile> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speakers/${encodeURIComponent(speakerId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
 }
 
-export async function publishSpeakerRoster(unitId: string): Promise<{ version: number; published_at: string }> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-roster/publish`, { method: "POST" }, { authenticated: true });
+export async function publishSpeakerRoster(
+  unitId: string,
+): Promise<{ version: number; published_at: string }> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-roster/publish`,
+    { method: "POST" },
+    { authenticated: true },
+  );
 }
 
-export async function runSpeakerMatch(unitId: string, eventId: string, idempotencyKey = crypto.randomUUID()): Promise<MatchRun> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/match-runs`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }, { authenticated: true });
+export async function runSpeakerMatch(
+  unitId: string,
+  eventId: string,
+  idempotencyKey = crypto.randomUUID(),
+): Promise<MatchRun> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/match-runs`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
+    { authenticated: true },
+  );
 }
 
-export async function submitSpeakerShortlist(unitId: string, matchRunId: string, speakerIds: string[], idempotencyKey = crypto.randomUUID()): Promise<SpeakerEventRecord[]> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/match-runs/${encodeURIComponent(matchRunId)}/shortlist`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ speaker_ids: speakerIds }) }, { authenticated: true });
+export async function submitSpeakerShortlist(
+  unitId: string,
+  matchRunId: string,
+  speakerIds: string[],
+  idempotencyKey = crypto.randomUUID(),
+): Promise<SpeakerEventRecord[]> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/match-runs/${encodeURIComponent(matchRunId)}/shortlist`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ speaker_ids: speakerIds }),
+    },
+    { authenticated: true },
+  );
 }
 
-export async function fetchSpeakerEvents(unitId: string, eventId?: string): Promise<SpeakerEventRecord[]> {
+export async function fetchSpeakerEvents(
+  unitId: string,
+  eventId?: string,
+): Promise<SpeakerEventRecord[]> {
   const query = eventId ? `?event_id=${encodeURIComponent(eventId)}` : "";
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events${query}`, undefined, { authenticated: true });
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-events${query}`,
+    undefined,
+    { authenticated: true },
+  );
 }
 
-export async function fetchSpeakerEvent(unitId: string, recordId: string): Promise<SpeakerEventRecord> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}`, undefined, { authenticated: true });
+export async function fetchSpeakerEvent(
+  unitId: string,
+  recordId: string,
+): Promise<SpeakerEventRecord> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}`,
+    undefined,
+    { authenticated: true },
+  );
 }
 
-export async function transitionSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, note?: string): Promise<SpeakerEventRecord> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/transitions`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, note }) }, { authenticated: true });
+export async function transitionSpeakerEvent(
+  unitId: string,
+  recordId: string,
+  toStatus: SpeakerEventStatus,
+  expectedVersion: number,
+  note?: string,
+): Promise<SpeakerEventRecord> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/transitions`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({
+        to_status: toStatus,
+        expected_version: expectedVersion,
+        note,
+      }),
+    },
+    { authenticated: true },
+  );
 }
 
-export async function addSpeakerEventNote(unitId: string, recordId: string, body: string): Promise<SpeakerEventNote> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/notes`, { method: "POST", body: JSON.stringify({ body }) }, { authenticated: true });
+export async function addSpeakerEventNote(
+  unitId: string,
+  recordId: string,
+  body: string,
+): Promise<SpeakerEventNote> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/notes`,
+    { method: "POST", body: JSON.stringify({ body }) },
+    { authenticated: true },
+  );
 }
 
-export async function correctSpeakerEvent(unitId: string, recordId: string, toStatus: SpeakerEventStatus, expectedVersion: number, reason: string): Promise<SpeakerEventRecord> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/corrections`, { method: "POST", body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, reason }) }, { authenticated: true });
+export async function correctSpeakerEvent(
+  unitId: string,
+  recordId: string,
+  toStatus: SpeakerEventStatus,
+  expectedVersion: number,
+  reason: string,
+): Promise<SpeakerEventRecord> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-events/${encodeURIComponent(recordId)}/corrections`,
+    {
+      method: "POST",
+      body: JSON.stringify({ to_status: toStatus, expected_version: expectedVersion, reason }),
+    },
+    { authenticated: true },
+  );
 }
 
-export async function closeEventAttendance(unitId: string, eventId: string, expectedVersion: number): Promise<SpeakerEventRecord[]> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/close-attendance`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion }) }, { authenticated: true });
+export async function closeEventAttendance(
+  unitId: string,
+  eventId: string,
+  expectedVersion: number,
+): Promise<SpeakerEventRecord[]> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/close-attendance`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    },
+    { authenticated: true },
+  );
 }
 
-export async function cancelManualEvent(unitId: string, eventId: string, expectedVersion: number, reason: string): Promise<SpeakerEventRecord[]> {
-  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/cancel`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ expected_version: expectedVersion, reason }) }, { authenticated: true });
+export async function cancelManualEvent(
+  unitId: string,
+  eventId: string,
+  expectedVersion: number,
+  reason: string,
+): Promise<SpeakerEventRecord[]> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/cancel`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ expected_version: expectedVersion, reason }),
+    },
+    { authenticated: true },
+  );
 }

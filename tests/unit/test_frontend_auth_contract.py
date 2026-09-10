@@ -608,3 +608,81 @@ def test_the_signed_out_surfaces_carry_the_cpp_name() -> None:
         assert "Cal Poly Pomona" in source, f"{page.name} lost the CPP product name"
         assert "IA West" not in source, f"{page.name} still shows the retired IA West name"
         assert "Insights Association" not in source
+
+
+API_CLIENT = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib" / "api.ts"
+
+
+def test_request_json_cannot_let_a_caller_header_drop_authorization() -> None:
+    """A caller-supplied header must never be able to unseat `Authorization`.
+
+    `requestJson` assembles `Content-Type`, then the auth header when the call is
+    authenticated, then whatever headers the caller passed. Spreading the whole
+    `init` object *after* that assembled `headers` property does not merge the
+    two — the caller's `headers` replaces it wholesale, and the bearer token goes
+    with it.
+
+    That produced a split personality rather than an outright failure, which is
+    why it survived review: a request passing no headers of its own
+    authenticated correctly, while the three writes that carry an
+    `Idempotency-Key` sent an anonymous request and were told
+    `401 unauthenticated` by routes they were authorized for. Submitting a match
+    run, composing an invitation batch and dispatching an outreach send were all
+    unreachable from the UI.
+
+    So this pins the shape, not the symptom: `init` is destructured, and the
+    rest-object is spread *before* `headers`. `headers` is then not a key of
+    that object at all, and no later edit can reintroduce the overwrite by
+    reordering two lines.
+    """
+    source = API_CLIENT.read_text(encoding="utf-8")
+
+    assert "const { headers: initHeaders, ...rest } = init ?? {};" in source, (
+        "requestJson must destructure `init` so a caller's `headers` cannot replace "
+        "the assembled header object"
+    )
+    assert re.search(r"await fetch\(path, \{\s*\.\.\.rest,\s*headers: \{", source), (
+        "the rest-object must be spread BEFORE `headers`, or the caller's headers "
+        "overwrite the authorization header again"
+    )
+    assert not re.search(r"\.\.\.\(init\?\.headers \?\? \{\}\),\s*\},\s*\.\.\.init,", source), (
+        "`...init` must not be spread after the `headers` property — that is the "
+        "exact ordering that dropped the bearer token"
+    )
+
+
+def test_only_the_streaming_reader_adds_auth_outside_request_json() -> None:
+    """One authorization path, and exactly one documented exception.
+
+    While `requestJson` was dropping the caller's `Authorization`,
+    `fetchJobCompletionSummary` compensated by spreading
+    `smartmatchAuthHeaders()` into its own `fetch`. That made one call site work
+    and left the shared defect in place for every other one, which is a large
+    part of why the bug survived to a deployed pilot.
+
+    That call site is nonetheless legitimate: `GET /v1/jobs/{id}/events` is a
+    text event stream, so it cannot go through `requestJson`, which parses JSON.
+    The exception is therefore pinned rather than removed, and the count is
+    exact so that a *fifth* use — a second hand-rolled auth header, which would
+    be a genuine workaround — fails this test.
+
+    The four expected uses are: the function's own definition; the
+    `hasSmartmatchAuth` guard; the single call inside `requestJson`; and the
+    streaming reader.
+    """
+    source = API_CLIENT.read_text(encoding="utf-8")
+    occurrences = source.count("smartmatchAuthHeaders()")
+
+    assert occurrences == 4, (
+        "expected exactly four uses of smartmatchAuthHeaders() — definition, "
+        "hasSmartmatchAuth guard, requestJson, and the job-events stream reader — "
+        f"but found {occurrences}. A new one means a call site is re-adding the "
+        "authorization header by hand instead of going through requestJson."
+    )
+
+    stream_reader = source[source.index("export async function fetchJobCompletionSummary") :]
+    assert "smartmatchAuthHeaders()" in stream_reader[:600], (
+        "the one permitted exception is the job-events stream reader; if it no "
+        "longer needs its own header, delete it here rather than allowing a "
+        "different call site to take its place in the count"
+    )

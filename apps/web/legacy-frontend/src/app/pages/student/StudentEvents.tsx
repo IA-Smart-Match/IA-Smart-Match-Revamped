@@ -94,6 +94,7 @@ import {
   registerForEvent,
   type StudentEvent,
 } from "../../../lib/api";
+import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -530,16 +531,28 @@ export function StudentEvents() {
               </p>
             ) : (
               <>
-                <ul className="space-y-3">
-                  {published.map((event) => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      unitId={unitId}
-                      onChanged={load}
-                    />
-                  ))}
-                </ul>
+                {/* The published catalog, a page at a time. The pager is a
+                    window over the events this browser already holds — it
+                    fetches nothing, and its "of N loaded" count is the length
+                    of that response, not how many the department has. */}
+                <PagedList
+                  items={published}
+                  label="published events"
+                  idPrefix="student-events-published"
+                >
+                  {(visibleEvents) => (
+                    <ul className="space-y-3">
+                      {visibleEvents.map((event) => (
+                        <EventCard
+                          key={event.id}
+                          event={event}
+                          unitId={unitId}
+                          onChanged={load}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
                 {withheldUnpublished === 0 ? null : (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
@@ -566,16 +579,24 @@ export function StudentEvents() {
               </p>
             ) : (
               <>
-                <ul className="space-y-3">
-                  {agenda.map((event) => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      unitId={unitId}
-                      onChanged={load}
-                    />
-                  ))}
-                </ul>
+                {/* The agenda, a page at a time, with its own id prefix
+                    because two lists on one page may not share one. Same
+                    boundary as above: a window over what already arrived, not
+                    a second read and not a claim about how many exist. */}
+                <PagedList items={agenda} label="agenda events" idPrefix="student-events-agenda">
+                  {(visibleEvents) => (
+                    <ul className="space-y-3">
+                      {visibleEvents.map((event) => (
+                        <EventCard
+                          key={event.id}
+                          event={event}
+                          unitId={unitId}
+                          onChanged={load}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
                 {withheldUndated === 0 ? null : (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />

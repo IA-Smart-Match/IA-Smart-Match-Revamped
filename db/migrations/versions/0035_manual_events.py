@@ -1,7 +1,7 @@
 """Add manually managed events and external-feedback QR redirects.
 
-Revision ID: 0034_manual_events
-Revises: 0033_event_filed_by
+Revision ID: 0035_manual_events
+Revises: 0034_cba_meeting
 Create Date: 2026-09-07
 
 This is the manual-entry path authorized independently of crawler work. It
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0034_manual_events"
-down_revision = "0033_event_filed_by"
+revision = "0035_manual_events"
+down_revision = "0034_cba_meeting"
 branch_labels = None
 depends_on = None
 

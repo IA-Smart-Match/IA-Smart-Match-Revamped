@@ -11,12 +11,12 @@ way, which is enforced by the import-linter layering contract.
 """
 
 from smartmatch_persistence.engine import create_session_factory
+from smartmatch_persistence.events import EventRepository
 from smartmatch_persistence.idempotency import (
     IdempotencyConflictError,
     IdempotencyRepository,
     IdempotencyResult,
 )
-from smartmatch_persistence.events import EventRepository
 from smartmatch_persistence.jobs import JobRecord, JobRepository
 from smartmatch_persistence.outbox import (
     ClaimedOutboxRecord,
@@ -32,10 +32,10 @@ from smartmatch_persistence.redrive import (
 
 __all__ = [
     "ClaimedOutboxRecord",
+    "EventRepository",
     "IdempotencyConflictError",
     "IdempotencyRepository",
     "IdempotencyResult",
-    "EventRepository",
     "JobRecord",
     "JobRepository",
     "OutboxRepository",

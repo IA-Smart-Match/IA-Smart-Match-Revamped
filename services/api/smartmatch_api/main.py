@@ -47,10 +47,7 @@ from smartmatch_api.routers import (
     attendance,
     auth,
     calendar,
-    cba_contact_channels,
     cba_contacts,
-    cba_handoff,
-    cba_invitations,
     engagement,
     events,
     imports,
@@ -58,9 +55,8 @@ from smartmatch_api.routers import (
     match_runs,
     matching_weights,
     me,
+    meetings,
     metrics,
-    outreach,
-    outreach_contacts,
     pipeline,
     portals,
     redrive,
@@ -252,8 +248,19 @@ app.include_router(jobs.router)
 app.include_router(redrive.router)
 app.include_router(engagement.router)
 app.include_router(review.router)
-app.include_router(events.router)
+# The unit-scoped half of the same resource: `GET /v1/units/{unit_id}/review-items`,
+# the queue behind the `pending_review_items` badge `routers/metrics.py` already
+# published. Mounted here rather than folded into `review.router` because the two
+# prefixes genuinely differ — `/v1/units` against `/v1/review-items` — and a
+# FastAPI prefix cannot be escaped per-route. Unconditional, beside the decision
+# route it is the read half of: a route that lists what another route decides
+# should not be able to disappear separately from it.
+app.include_router(review.unit_router)
+# Feedback QR redirects are public capability URLs whose opaque tokens are the
+# authorization; the managed event API itself remains capability-scoped below.
 app.include_router(events.public_router)
+# The roster and speaker-event collaboration surface is independently
+# authorized per unit and has no crawler or email-delivery dependency.
 app.include_router(speakers.router)
 
 #: Every router that answers to a named product capability, paired with the
@@ -279,6 +286,7 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (imports.router, Capability.OPERATOR_RECORD_IMPORT),
     (me.router, Capability.AUTHENTICATED_LOGIN),
     (metrics.router, Capability.DISCOVERY_METRICS),
+    (events.router, Capability.EVENT_READS),
     # The .ics download, classified with `events` because that is what it is:
     # the same event, in a second representation, behind the same roles
     # (`routers/calendar.py` restates `routers/events.py::_EVENT_ROLES`) and
@@ -386,56 +394,6 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (attendance.router, Capability.DISCOVERY_METRICS),
     (auth.router, Capability.AUTHENTICATED_LOGIN),
     (portals.router, Capability.AUTHENTICATED_LOGIN),
-    # Two routers from one module: the unit-scoped operations, and the one
-    # unauthenticated operation. See `routers/outreach.py` — "this route takes
-    # no principal" is worth being visible in a declaration rather than
-    # discoverable by reading a handler.
-    #
-    # Both are CONSENTED outreach, which the CBA scope preserves. The gated
-    # capability is cold contact of someone who never agreed to be contacted —
-    # a different trust model that shares only a word, and that these routes do
-    # not implement.
-    # The contact-channel surface lives in its own module but authorizes
-    # through `outreach._authorize_outreach` — one question about a unit's
-    # outreach with one answer. See `routers/outreach_contacts.py`. It is
-    # classified with the two above because it is the same trust model: these
-    # routes record and move *consent*, which is exactly what CONSENTED_OUTREACH
-    # names. A product without consented outreach has no contact channels to
-    # administer.
-    # The §13 roster's channels — the one place a Speaker Connector's contact
-    # *record* can acquire a contact *channel*. `CONSENTED_OUTREACH` rather than
-    # `SPEAKER_CONTACT_MANAGEMENT`, and the split is the same one the
-    # `cba_contacts` note above draws, applied honestly in the other direction:
-    # a deployment that offers the roster with outreach switched off should get
-    # the roster and no way to make anybody writable-to, which is precisely what
-    # gating these three here produces. Classifying them with the roster would
-    # have handed a consent surface to every deployment that wanted a directory.
-    #
-    # They still authorize through `cba_contacts._authorize_speaker_contacts`,
-    # so the capability flag and the role gate answer two different questions:
-    # whether this product includes consent management at all, and whether this
-    # caller may exercise it on this unit.
-    # Speaker invitations (customer §6 steps 7-8, §13, §14). `CONSENTED_OUTREACH`
-    # and not `SPEAKER_CONTACT_MANAGEMENT`, for the reason the note directly
-    # above gives and more plainly still: these routes put messages in inboxes.
-    # Every one of them is composed from the closed template registry, addressed
-    # to an `active_candidate` channel, and delivered by the one `outreach.send`
-    # handler — so a deployment with consented outreach switched off must not
-    # have them, and a deployment that has them has already accepted the
-    # capability that governs sending.
-    #
-    # Both routers ride the same flag, and the second is the unauthenticated one
-    # — the Speaker's own accept/decline. It is listed here rather than mounted
-    # unconditionally because an invitation nobody can be sent has nothing to
-    # answer: gating the answer with the send is what keeps the pair coherent.
-    # The speaker handoff (customer §6 step 8, §23). Rides `CONSENTED_OUTREACH`
-    # rather than `DISCOVERY_METRICS` even though it writes funnel stages,
-    # because the fact it writes them *from* is an invitation's stored answer: a
-    # deployment without consented outreach has no `cba_invitation` rows, so
-    # this surface would have nothing to reconcile and would only be able to
-    # report 404. Gating the handoff with the invitation is what keeps the pair
-    # coherent, the same argument the Speaker's own accept/decline route above
-    # is mounted on.
     # Student speaker feedback (customer §§15-16, OQ-CBA-003 decided 6 September
     # 2026). The card's two halves ride two different flags on purpose.
     #
@@ -456,6 +414,24 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # Deliberately not `CONSENTED_OUTREACH`: this route puts nothing in an inbox
     # and sends nobody anything. It reads numbers students volunteered.
     (student_speaker_feedback.connector_router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # The internal CBA meeting record (migration 0034). One flag, and the
+    # router's own docstring carries the argument for this one rather than the
+    # two it was weighed against.
+    #
+    # `SPEAKER_CONTACT_MANAGEMENT` because this is the same persona doing the
+    # same kind of by-hand record-keeping the roster routes above are: a
+    # Connector maintaining their unit's own records, with no network call and
+    # nothing sent. A deployment with that surface off has no page these routes
+    # could be opened from.
+    #
+    # Deliberately not `CONSENTED_OUTREACH`: that flag gates putting something in
+    # somebody's inbox, and these routes send nothing and read no address --
+    # mounting them there would make an outreach switch govern a table that
+    # cannot reach anybody. Deliberately not `EVENT_READS` either: a meeting is
+    # not an `event` row, is in no catalog, no match run and no student agenda,
+    # and attaching it to that flag would place it inside a funnel it stands
+    # outside of.
+    (meetings.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:

@@ -2102,6 +2102,154 @@
         "title": "MeResponse",
         "type": "object"
       },
+      "MeetingListResponse": {
+        "description": "This unit's meetings, bounded, with a measured total beside them.",
+        "properties": {
+          "limit": {
+            "description": "The bound this listing was taken under.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "meetings": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingView"
+            },
+            "title": "Meetings",
+            "type": "array"
+          },
+          "total": {
+            "description": "How many meetings this unit holds, all statuses \u2014 counted in the database, not folded from the rows above. A caller comparing it to the length of `meetings` can tell a full page from a truncated one, which is the question a bounded listing otherwise leaves a client to guess at.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "meetings",
+          "total",
+          "limit"
+        ],
+        "title": "MeetingListResponse",
+        "type": "object"
+      },
+      "MeetingSubmission": {
+        "description": "What a coordinator says about one meeting.\n\nFour fields, and the absent ones are the design. There is no ``status``: a\nmeeting recorded as already cancelled is a meeting that was never arranged,\nand migration ``0034`` keeps those two distinguishable. There is no\n``created_by``: that comes from the verified principal, and no route here\naccepts one, so there is no request field for MM-A01's caller-selected\nidentity to enter through. And there are no participants \u2014 **OQ-CBA-066**.",
+        "properties": {
+          "location_or_link": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A room, a building, or a join URL. Optional in the honest sense: absent means nobody has said yet, and a blank or whitespace-only value is normalized to absent rather than stored, so there is no third state between 'no location' and 'a location'.",
+            "title": "Location Or Link"
+          },
+          "scheduled_at": {
+            "description": "When the meeting is, ISO-8601 **with an offset**. Required, and there is no default: a meeting with no resolved time is refused rather than given one (ADR-0010 rule 2, finding F-003). A value with no offset is a wall-clock reading rather than an instant and is refused for the same reason.",
+            "format": "date-time",
+            "title": "Scheduled At",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "The IANA zone the time was agreed in, e.g. 'America/Los_Angeles'. Required, because it is the half of a wall-clock appointment the instant above cannot recover \u2014 a surface that wants to say '5pm' has to know 5pm where, and guessing is the defect one column over.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "description": "What the meeting is. Required and non-blank.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "scheduled_at",
+          "time_zone"
+        ],
+        "title": "MeetingSubmission",
+        "type": "object"
+      },
+      "MeetingView": {
+        "description": "One meeting as its own unit sees it.\n\nCarries no participant field of any kind, for the module docstring's reason.\nA model with no such field cannot grow one by a later copy-paste onto a\nsurface that should not have it.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location_or_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where, or how to join. Null when nobody has said yet.",
+            "title": "Location Or Link"
+          },
+          "recorded_at": {
+            "description": "When this note was made, ISO-8601.",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "scheduled_at": {
+            "description": "When the meeting is, ISO-8601 with an offset. Never null and never inferred \u2014 a meeting with no time cannot be stored.",
+            "title": "Scheduled At",
+            "type": "string"
+          },
+          "status": {
+            "description": "'scheduled' or 'cancelled'. A cancelled meeting is listed rather than hidden: 'called off' and 'never arranged' are different facts.",
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "The IANA zone the time was agreed in.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When this note last moved, ISO-8601.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit_id",
+          "title",
+          "scheduled_at",
+          "time_zone",
+          "status",
+          "recorded_at",
+          "updated_at"
+        ],
+        "title": "MeetingView",
+        "type": "object"
+      },
       "MembershipResponse": {
         "description": "One server-assigned membership, exactly as ``membership`` recorded it.",
         "properties": {
@@ -2888,6 +3036,110 @@
           "decided_at"
         ],
         "title": "ReviewDecisionResponse",
+        "type": "object"
+      },
+      "ReviewItemListResponse": {
+        "description": "One unit's review items at one status.\n\nCarries no count \u2014 not of these items and not of the unit's pending total.\n``GET /v1/units/{unit_id}/metrics`` owns ``pending_review_items``, and\nADR-0011 rule 4 is that a number with an owning query is read from that\nquery rather than recomputed by a second handler that would have to stay in\nstep with it by hand. :attr:`ReviewDecisionResponse` refuses the same\ntemptation for the same reason, and the contract test asserts the two\nsurfaces agree rather than letting this one restate the number.\n\n:attr:`truncated` is the one thing this response says about what it is not\nshowing, and it is a fact rather than an estimate: the handler reads\n``MAX_ROWS + 1`` rows and reports whether the extra one came back. It is\nnever a guess and never a silent zero \u2014 ADR-0011 rule 1, unknown must not\ndegrade to 0 \u2014 because \"there are more\" is measured by the same query that\nproduced the page, not by a second count whose filters could drift from it.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewItemView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "description": "The status these items were filtered to; echoes the request.",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when more items exist at this status than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "status",
+          "items",
+          "truncated"
+        ],
+        "title": "ReviewItemListResponse",
+        "type": "object"
+      },
+      "ReviewItemView": {
+        "description": "One review item as the queue discloses it.\n\nDeliberately **not** carrying ``decided_by``, which the row does have. That\ncolumn holds a ``user_account`` id, and nothing in this API discloses one\ntoday \u2014 ``ReviewDecisionResponse`` above answers a decision with ``id``,\n``status`` and ``decided_at`` and stops there. Under deny-by-default the\nabsence of an existing disclosure is the answer, not an invitation: a list\nis the widest possible place to become the first surface that publishes who\nacted, since it returns many rows at once to anyone holding the unit's\nrole rather than one row to the caller who just acted. Publishing it would\nbe a product decision with its own justification to write down, and this\nroute is not the place that decision would be made. See\n``ReviewItemRow``'s docstring, which omits it one layer down for the same\nreason, so it is never selected at all rather than selected and dropped.\n\n``row_data`` is the submitted record itself, verbatim as the import wrote\nit. That is the point of a review queue \u2014 a coordinator cannot decide a row\nthey cannot read \u2014 and it is also why ``_REVIEW_ROLES`` gates this route\nexactly as ``metrics.drill_down`` is gated: this is the same disclosure the\ndrill-down makes, so it answers to the same roles.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this item was decided, or null when it is still pending. Null means undecided and never 'unknown' \u2014 the column is null for exactly the pending rows (ck_review_item_decision_evidence).",
+            "title": "Decided At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "import_batch_id": {
+            "description": "The import that submitted this row; rows from one import share it.",
+            "format": "uuid",
+            "title": "Import Batch Id",
+            "type": "string"
+          },
+          "row_data": {
+            "additionalProperties": true,
+            "description": "The submitted record, exactly as the import wrote it.",
+            "title": "Row Data",
+            "type": "object"
+          },
+          "row_index": {
+            "description": "This row's position within its import batch, from zero.",
+            "title": "Row Index",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "import_batch_id",
+          "row_index",
+          "status",
+          "row_data",
+          "created_at"
+        ],
+        "title": "ReviewItemView",
         "type": "object"
       },
       "RewardBalanceResponse": {
@@ -9910,6 +10162,279 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/meetings": {
+      "get": {
+        "description": "This unit's meetings, soonest first, with a measured total.\n\nCancelled meetings are **listed, not hidden**. A surface has to render \"this\nwas called off\" differently from \"this was never arranged\", and a route that\ndropped the cancelled rows would take that distinction away from the only\ncaller who needs it.\n\n``total`` is counted in the database rather than folded from the rows\nreturned, so a client can tell a full page from a truncated one instead of\ninferring a number nobody measured.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator over\n        this unit.\n    404: ``unit_not_found`` for a unit outside the caller's tenant.",
+        "operationId": "list_meetings_v1_units__unit_id__meetings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the meetings this unit has recorded",
+        "tags": [
+          "meetings"
+        ]
+      },
+      "post": {
+        "description": "Store one meeting note for this unit, and return it as stored.\n\nEvery meeting is recorded as ``scheduled``; the body cannot choose a status,\nfor :class:`MeetingSubmission`'s reason. ``created_by_user_id`` comes from the\nverified principal and never from the request.\n\nNothing is sent. This route writes a row and returns it \u2014 no invitation, no\nmessage, no calendar entry anywhere but this database.\n\nRaises:\n    403: ``forbidden`` for a caller who is not an admin or coordinator over\n        this unit.\n    404: ``unit_not_found`` for a unit outside the caller's tenant.\n    422: ``invalid_request`` for a missing or malformed field;\n        ``meeting_time_unresolved`` when the time carries no offset.\n    429: over the write quota.",
+        "operationId": "record_meeting_v1_units__unit_id__meetings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "description": "The request states no usable meeting time: an absent `scheduled_at`, or one carrying no UTC offset. No meeting is recorded and no time is inferred (finding F-003)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Record a meeting this unit is holding with the CBA team",
+        "tags": [
+          "meetings"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/metrics": {
       "get": {
         "description": "Return registered metrics, preserving unknown values as null.\n\nAuthorization runs before any conditional-request handling: an\n``If-None-Match`` header must never let an unauthorized or unknown caller\nlearn that a 304-eligible representation exists. Any active unit\nmembership with a role may read aggregates (a bare ``resource_grant`` is\nrefused) \u2014 see :func:`_authorize_aggregate_read`.\n\n``surface`` selects which product's view of the register to return and\nchanges nothing else: the same owning query measures each metric either\nway, so a metric present in both views reports the identical number. See\n:data:`MetricSurface` for why the narrower view is a parameter rather than\nthe default.",
@@ -10919,6 +11444,153 @@
         "summary": "Approve, deny, or fulfil a redemption",
         "tags": [
           "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/review-items": {
+      "get": {
+        "description": "Return the review items this unit owns at one status, oldest first.\n\nThe queue behind the badge. ``GET /v1/units/{unit_id}/metrics`` has counted\n``pending_review_items`` for this unit since before this route existed, and\nuntil it did there was nothing to click through to \u2014 the dashboard showed a\nnumber it could not explain. The list and the count derive a row's owning\nunit through the *same* join (``review_item`` \u2192 ``import_batch`` \u2192\n``owning_unit_id``, in ``ReviewRepository.list_for_unit``), because\n``review_item`` has no owning unit column and two derivations that drifted\nwould put a row in one unit's queue and another unit's badge. See the module\ndocstring; the contract test asserts the two agree on one fixture.\n\n**Nothing in the request selects whose rows come back beyond the authorized\nunit.** The path names a unit, which\n:func:`_authorize_review_item_list` loads and authorizes against before any\nreview item is read; ``status`` chooses a column value and cannot widen\nacross units; and there is no caller-supplied identity, no ``user_id``, no\n``batch_id`` and no free-text predicate anywhere on this path. A caller who\nmay read this unit reads all of this unit's items at that status, and a\ncaller who may not reads none of them.\n\nReads at most :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the\nsame query that produced the page rather than by a second count whose\nfilters could drift from this one's \u2014 the shape\n``speaker_requests.py::list_speaker_requests`` uses, followed here\ndeliberately rather than reinvented. A full page therefore never reads as a\ncomplete one, and \"there are more\" is measured rather than assumed: ADR-0011\nrule 1, an unknown must not degrade to a 0 (or, here, to a quiet ``false``).\n\nQuota is charged before the unit is loaded and before authorization runs\n(ADR-0015), so a caller producing 404s against unit ids they invented spends\nexactly what a caller reading their own queue spends \u2014 the same ordering\n``decide_review_item`` and ``create_import`` both apply, for the same\nreason: those are the refusals cheapest to produce in bulk.\n\nRaises:\n    ApiError: 403 when the caller holds no ``_REVIEW_ROLES`` membership\n        covering this unit; 404 when the unit is not this tenant's; 429 when\n        the minute's quota is spent. A 422 comes from Pydantic when\n        ``status`` is not one of the three the column admits.",
+        "operationId": "list_unit_review_items_v1_units__unit_id__review_items_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which status to list. Defaults to the queue a coordinator works.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "description": "Which status to list. Defaults to the queue a coordinator works.",
+              "enum": [
+                "pending",
+                "accepted",
+                "rejected"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewItemListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List a unit's review items",
+        "tags": [
+          "review"
         ]
       }
     },

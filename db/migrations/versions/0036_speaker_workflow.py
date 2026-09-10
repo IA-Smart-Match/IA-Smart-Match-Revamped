@@ -1,7 +1,7 @@
 """Add published speaker rosters, matching, and invitation tracking.
 
-Revision ID: 0035_speaker_workflow
-Revises: 0034_manual_events
+Revision ID: 0036_speaker_workflow
+Revises: 0035_manual_events
 Create Date: 2026-09-08
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0035_speaker_workflow"
-down_revision = "0034_manual_events"
+revision = "0036_speaker_workflow"
+down_revision = "0035_manual_events"
 branch_labels = None
 depends_on = None
 

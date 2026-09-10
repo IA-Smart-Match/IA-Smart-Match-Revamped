@@ -507,7 +507,12 @@ def test_the_student_page_handles_a_refusal_rather_than_hiding_the_control() -> 
 def test_the_dashboard_reads_the_unit_aggregate_and_computes_nothing() -> None:
     code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
     assert "fetchUnitSpeakerFeedbackSummary" in code
-    for forbidden in ("fetchMySpeakerFeedback", "fetchSpeakerFeedbackSummary", "reduce(", "toFixed"):
+    for forbidden in (
+        "fetchMySpeakerFeedback",
+        "fetchSpeakerFeedbackSummary",
+        "reduce(",
+        "toFixed",
+    ):
         assert forbidden not in code
 
 

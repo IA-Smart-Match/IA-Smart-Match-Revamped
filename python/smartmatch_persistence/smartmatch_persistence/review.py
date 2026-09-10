@@ -55,6 +55,33 @@ in this module rather than a new one for the same reason ``import_batch`` and
 ``review_item`` share this file to begin with: both tables, and every write to
 either of them, are one path (v1.1 §1.5), and a second repository file would
 only be a second place to look for "what may write ``review_item``".
+
+## The queue a coordinator decides *from*
+
+:meth:`ReviewRepository.decide` gave the API a way to move one row out of
+``pending`` while nothing gave it a way to find out which rows were pending in
+the first place. The coordinator dashboard counted them —
+``pending_review_items`` (``smartmatch_domain.metrics``, served through
+``GET /v1/units/{unit_id}/metrics``) — and no route listed them, so the screen
+showed a number it could not itself explain. :meth:`list_for_unit` is the
+missing read, and it is deliberately the *same query shape* the count is
+derived from.
+
+That sameness is the whole point, not an implementation convenience.
+``review_item`` carries **no owning unit column**: the unit a row belongs to is
+derived by joining ``import_batch.owning_unit_id``, and there are now three
+places that make that derivation — ``routers/metrics.py``'s
+``_pending_review_item_rows_v1`` (the count and its drill-down),
+``routers/review.py``'s ``_load_review_item_context_or_404`` (the decision's
+authorization), and this method. Any two of them disagreeing about the join
+would put a row in one unit's queue and another unit's count, which is
+precisely the defect this method exists to close. So the join is written the
+same way in all three: composite on ``tenant_id`` at every hop, scoped to the
+caller's tenant *in the query* rather than by a filter applied afterwards, and
+inner because both ``review_item.import_batch_id`` and
+``import_batch.owning_unit_id`` are ``NOT NULL`` under composite foreign keys
+(migration ``0008``) — a row that fails to join cannot exist while those
+constraints hold.
 """
 
 from __future__ import annotations
@@ -71,7 +98,12 @@ from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
 
-__all__ = ["ImportBatchRecord", "ReviewDecisionOutcome", "ReviewRepository"]
+__all__ = [
+    "ImportBatchRecord",
+    "ReviewDecisionOutcome",
+    "ReviewItemRow",
+    "ReviewRepository",
+]
 
 #: Fixed, not random: this is a *namespace* for deriving a stable id, and a
 #: value that changed on every process start would make every batch id change
@@ -156,6 +188,39 @@ class ReviewDecisionOutcome:
     transitioned: bool
     status: str | None = None
     decided_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewItemRow:
+    """One ``review_item`` as a queue reader sees it.
+
+    Carries exactly the columns a coordinator needs to decide the row and no
+    more. In particular it does **not** carry ``decided_by``. That column holds
+    a ``user_account`` id, and no surface in this API discloses one today —
+    ``ReviewDecisionResponse`` (``routers/review.py``) answers a decision with
+    ``id``, ``status`` and ``decided_at`` and stops there. A list is the widest
+    possible place to be the first surface to publish who acted: it returns
+    many rows at once, to anyone holding the unit's role, rather than one row to
+    the caller who just acted on it. Widening disclosure is a product decision
+    with its own justification to write down, not something a new read should
+    acquire as a side effect of selecting one more column, so this omits it. If
+    a queue is later asked to show "decided by whom", that is a deliberate
+    change to this dataclass and to the decision surface together.
+
+    ``decided_at`` *is* carried, because it is already disclosed by the decision
+    response and because a queue filtered to ``accepted``/``rejected`` is
+    meaningless without it — the column is ``NULL`` exactly for ``pending``
+    rows (``ck_review_item_decision_evidence``), so it reads as "not yet
+    decided" rather than as a missing fact.
+    """
+
+    id: uuid.UUID
+    import_batch_id: uuid.UUID
+    row_index: int
+    status: str
+    row_data: Mapping[str, Any]
+    created_at: datetime
+    decided_at: datetime | None
 
 
 class ReviewRepository:
@@ -277,6 +342,109 @@ class ReviewRepository:
             dry_run=row.dry_run,
             created_at=row.created_at,
             review_item_count=item_count,
+        )
+
+    def list_for_unit(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        status: str,
+        limit: int,
+    ) -> tuple[ReviewItemRow, ...]:
+        """The review items one unit owns at one ``status``, oldest first.
+
+        The unit is **derived, never stored**. ``review_item`` has no owning
+        unit column, so this joins ``import_batch`` and filters on
+        ``import_batch.owning_unit_id`` — byte for byte the derivation
+        ``routers/metrics.py::_pending_review_item_rows_v1`` makes for the
+        ``pending_review_items`` count and its drill-down, including the
+        ``ORDER BY created_at, id``. The module docstring says why that
+        agreement is load-bearing rather than cosmetic: a list and a count that
+        derived ownership differently would disagree about which unit a row
+        belongs to, and a coordinator dashboard whose queue length contradicted
+        its own badge is the defect this method closes.
+
+        The join is composite on ``tenant_id`` at both ends and the tenant
+        predicate is in the query itself, not applied to the result. A join on
+        the surrogate id alone would return the same rows today only because
+        the composite foreign keys already forbid a cross-tenant pairing, and a
+        read behind an authorization boundary should not depend on a constraint
+        defined elsewhere staying intact in order to stay safe — the same
+        discipline ``JobRepository.get`` and
+        ``routers/review.py::_load_review_item_context_or_404`` both state at
+        length for their own joins.
+
+        Ordered by ``created_at`` then ``id``. ``created_at`` is the order a
+        queue should be worked in — oldest submission first — and ``id`` breaks
+        ties so a batch inserted inside one transaction, whose rows share a
+        ``now()``, never swaps places between two identical reads. A stable
+        total order is also what makes a truncation cut at a stable point
+        instead of at an arbitrary one.
+
+        Args:
+            owning_unit_id: The unit the caller was **already authorized
+                against**, passed in rather than derived here. This method
+                performs no authorization and holds no opinion about who may
+                read the unit; the router authorizes, then names the unit it
+                authorized. Nothing else in the request may select which rows
+                come back.
+            status: An exact equality predicate — ``pending``, ``accepted`` or
+                ``rejected``. Not validated here, the same discipline
+                :meth:`decide` states for its own ``decision`` argument: the
+                router parsed and refused an out-of-vocabulary value before
+                this call, and ``ck_review_item_status`` is the schema's
+                backstop should that lapse. There is no "all statuses" arm and
+                no ``NULL``/empty fallback that would widen the predicate into
+                the whole table — an unrecognised status matches nothing, which
+                is the fail-closed answer.
+            limit: The maximum number of rows to return. The caller passes it
+                and decides what a full page means; this method returns at most
+                that many and says nothing about whether more exist, because a
+                repository inventing a ``truncated`` flag would be a second
+                opinion beside the route's own cap (the same split
+                ``SpeakerRequestRepository.list_for_unit`` documents).
+
+        Returns:
+            At most ``limit`` :class:`ReviewItemRow` values, oldest first.
+        """
+        result = session.execute(
+            sa.select(
+                schema.review_item.c.id,
+                schema.review_item.c.import_batch_id,
+                schema.review_item.c.row_index,
+                schema.review_item.c.status,
+                schema.review_item.c.row_data,
+                schema.review_item.c.created_at,
+                schema.review_item.c.decided_at,
+            )
+            .join(
+                schema.import_batch,
+                sa.and_(
+                    schema.import_batch.c.tenant_id == schema.review_item.c.tenant_id,
+                    schema.import_batch.c.id == schema.review_item.c.import_batch_id,
+                ),
+            )
+            .where(
+                schema.review_item.c.tenant_id == tenant_id,
+                schema.import_batch.c.owning_unit_id == owning_unit_id,
+                schema.review_item.c.status == status,
+            )
+            .order_by(schema.review_item.c.created_at, schema.review_item.c.id)
+            .limit(limit)
+        )
+        return tuple(
+            ReviewItemRow(
+                id=row.id,
+                import_batch_id=row.import_batch_id,
+                row_index=row.row_index,
+                status=row.status,
+                row_data=row.row_data,
+                created_at=row.created_at,
+                decided_at=row.decided_at,
+            )
+            for row in result
         )
 
     def decide(

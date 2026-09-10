@@ -77,9 +77,9 @@ def test_manual_events_follow_the_established_event_migration_chain() -> None:
         / "db"
         / "migrations"
         / "versions"
-        / "0034_manual_events.py"
+        / "0035_manual_events.py"
     ).read_text(encoding="utf-8")
-    assert 'down_revision = "0033_event_filed_by"' in migration
+    assert 'down_revision = "0034_cba_meeting"' in migration
     assert '"managed_event"' in migration
     assert "fk_attendance_record_event" not in migration
     assert "fk_pipeline_record_event" not in migration
@@ -91,7 +91,7 @@ def test_feedback_qr_constraint_names_match_the_repository() -> None:
         / "db"
         / "migrations"
         / "versions"
-        / "0034_manual_events.py"
+        / "0035_manual_events.py"
     ).read_text(encoding="utf-8")
     repository = (
         Path(__file__).resolve().parents[2]

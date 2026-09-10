@@ -8,9 +8,11 @@ no evidence at all so ADR-0011's ``unknown`` states stay visible.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import pytest
+from smartmatch_domain import student_speaker_feedback as feedback
 from smartmatch_domain.metrics import OpportunityCategoryShape, shape_opportunity_category
 
 from tools import pilot_dataset_plan as plan
@@ -250,3 +252,164 @@ def test_initials_come_from_the_generated_name():
     person = plan.build_professionals(1)[0]
     given, surname = person.name.split(" ", 1)
     assert person.initials == (given[0] + surname[0]).upper()
+
+
+# ---------------------------------------------------------------------------
+# Student speaker feedback — the plan whose arithmetic the aggregates depend on
+# ---------------------------------------------------------------------------
+
+
+def test_the_same_seed_reproduces_the_same_feedback_plan():
+    """Who said what about whom must not wobble between two runs of one seed."""
+    assert plan.build_speaker_feedback(seed=7) == plan.build_speaker_feedback(seed=7)
+
+
+def test_a_different_seed_moves_the_ratings_and_the_silences():
+    assert plan.build_speaker_feedback(seed=7) != plan.build_speaker_feedback(seed=8)
+
+
+def test_every_planned_rating_is_on_the_approved_scale():
+    """A rating off 1-5 is a 422 at the route and a CHECK violation beneath it."""
+    for entry in plan.build_speaker_feedback(seed=7):
+        assert entry.rating is None or feedback.MIN_RATING <= entry.rating <= feedback.MAX_RATING
+
+
+def test_a_withheld_rating_is_an_absent_row_and_never_a_zero():
+    """ADR-0011 rule 1, at the one surface where a zero is most tempting.
+
+    A student who did not rate a speaker has said nothing, and nothing is not
+    ``0``. The type makes that structural: ``rating`` is ``None`` and there is
+    no other field a zero could be written into.
+    """
+    withheld = [e for e in plan.build_speaker_feedback(seed=7) if e.rating is None]
+    assert withheld, "a plan with no silences cannot demonstrate a suppressed aggregate"
+    assert all(entry.rating is None for entry in withheld)
+    assert 0 not in {entry.rating for entry in plan.build_speaker_feedback(seed=7)}
+
+
+def test_a_deliberate_fraction_of_the_opportunities_is_left_unmeasured():
+    """The realized share tracks FEEDBACK_WITHHELD_SHARE within one rounding step."""
+    summary = plan.feedback_plan_summary(plan.build_speaker_feedback(seed=7))
+    assert summary.withheld > 0
+    assert abs(summary.withheld_share - plan.FEEDBACK_WITHHELD_SHARE) < 0.1
+
+
+def test_the_planned_shape_publishes_the_unit_aggregate():
+    """The residual rule is satisfied, and not by accident.
+
+    ``aggregate_unit_feedback`` publishes only when the pool clears the
+    threshold AND the residual — pool minus every published per-speaker count —
+    is zero or itself above it. A shape that missed this would suppress the unit
+    number and the demo would show nothing where it meant to show something.
+    """
+    summary = plan.feedback_plan_summary(plan.build_speaker_feedback(seed=7))
+    assert summary.unit_publishes
+    assert (
+        summary.unit_residual == 0 or summary.unit_residual >= feedback.MIN_RESPONSES_FOR_AGGREGATE
+    )
+
+
+def test_the_planned_shape_also_suppresses_at_least_one_speaker():
+    """Both states must be reachable, or the demo only ever shows one of them."""
+    summary = plan.feedback_plan_summary(plan.build_speaker_feedback(seed=7))
+    assert summary.speakers_published >= 1
+    assert summary.speakers_suppressed >= 1
+
+
+def test_the_plans_verdict_matches_the_shipped_aggregate():
+    """The residual rule is restated in the plan; this is what stops it drifting.
+
+    ``feedback_plan_summary`` may not import the shipped aggregate without
+    making a pure plan depend on it, so the rule is written twice. Here the two
+    are run against the same data and required to agree — per speaker and for
+    the unit — so a change to either one that the other did not follow fails.
+    """
+    planned = plan.build_speaker_feedback(seed=7)
+    summary = plan.feedback_plan_summary(planned)
+
+    by_speaker: dict[int, list[int]] = {}
+    for entry in planned:
+        if entry.rating is not None:
+            by_speaker.setdefault(entry.speaker_rank, []).append(entry.rating)
+
+    per_speaker = {
+        rank: feedback.aggregate_speaker_feedback(ratings) for rank, ratings in by_speaker.items()
+    }
+    assert (
+        sum(1 for agg in per_speaker.values() if not agg.suppressed) == summary.speakers_published
+    )
+    assert sum(1 for agg in per_speaker.values() if agg.suppressed) == summary.speakers_suppressed
+
+    keyed = {uuid.uuid5(uuid.NAMESPACE_OID, str(rank)): r for rank, r in by_speaker.items()}
+    unit = feedback.aggregate_unit_feedback(keyed)
+    assert unit.suppressed is not summary.unit_publishes
+
+
+def test_the_cohort_is_large_enough_for_the_planned_shape():
+    """The widest speaker's pool must fit in the cohort that holds the tokens."""
+    widest = max(plan._feedback_opportunities(n) for n in plan.FEEDBACK_SPEAKER_RESPONSE_SHAPE)
+    assert widest <= plan.FEEDBACK_STUDENT_COUNT
+
+
+def test_a_shape_wider_than_the_cohort_is_refused_rather_than_narrowed():
+    """Narrowing silently would change the residual arithmetic with nothing said."""
+    with pytest.raises(ValueError, match="distinct students"):
+        plan.build_speaker_feedback(shape=(plan.FEEDBACK_STUDENT_COUNT * 2,), seed=7)
+
+
+def test_an_empty_or_negative_shape_is_refused():
+    with pytest.raises(ValueError):
+        plan.build_speaker_feedback(shape=(), seed=7)
+    with pytest.raises(ValueError):
+        plan.build_speaker_feedback(shape=(-1,), seed=7)
+
+
+def test_a_feedback_students_token_and_subject_are_derived_from_its_rank_alone():
+    """The rebuild script computes this map before any database exists."""
+    principals = plan.feedback_dev_principals()
+    assert len(principals) == plan.FEEDBACK_STUDENT_COUNT
+    assert principals[plan.feedback_student_token(1)] == plan.feedback_student_external_subject(1)
+    assert len(set(principals.values())) == len(principals)
+
+
+def test_a_rank_outside_the_cohort_is_refused():
+    """A token mapped to an unseeded subject authenticates as nobody and 401s."""
+    with pytest.raises(ValueError):
+        plan.feedback_student_token(0)
+    with pytest.raises(ValueError):
+        plan.feedback_student_external_subject(plan.FEEDBACK_STUDENT_COUNT + 1)
+
+
+# ---------------------------------------------------------------------------
+# Contact channels — a fraction reachable, a deliberate remainder not
+# ---------------------------------------------------------------------------
+
+
+def test_the_contact_channel_rule_matches_its_declared_share():
+    """The constant and the function must not drift apart."""
+    reached = sum(1 for index in range(100) if plan.records_contact_channel(index))
+    assert abs(reached / 100 - plan.CONTACT_CHANNEL_SHARE) < 0.02
+
+
+def test_a_deliberate_remainder_of_the_roster_holds_no_channel():
+    """`no_contact_channel` must stay a reachable skip on a composed batch.
+
+    A roster where everybody is addressable asserts a consent coverage no real
+    programme has, and it would hide the one outcome the invitations surface
+    exists to report honestly — that a shortlisted person cannot be written to.
+    """
+    unreachable = [index for index in range(100) if not plan.records_contact_channel(index)]
+    assert unreachable
+    assert len(unreachable) < 100
+
+
+def test_which_roster_members_are_reachable_is_a_function_of_the_index_alone():
+    """Two runs of one seed must agree about who an invitation could address."""
+    first = [plan.records_contact_channel(index) for index in range(100)]
+    second = [plan.records_contact_channel(index) for index in range(100)]
+    assert first == second
+
+
+def test_a_negative_roster_index_is_refused():
+    with pytest.raises(ValueError):
+        plan.records_contact_channel(-1)

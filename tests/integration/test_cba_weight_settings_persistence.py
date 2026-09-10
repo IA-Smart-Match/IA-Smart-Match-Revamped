@@ -165,7 +165,9 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: on ``event`` — a table this file's tests never read or write. Nothing here
 #: about a unit's weights, its revision log, or who last changed them is
 #: affected.
-_HEAD_REVISION = "0035_speaker_workflow"
+#: The merged manual-event and speaker-workflow migrations follow main's
+#: ``0034_cba_meeting`` without changing the legacy matching-weight tables.
+_HEAD_REVISION = "0036_speaker_workflow"
 
 NEED = "need-weight-settings-1"
 

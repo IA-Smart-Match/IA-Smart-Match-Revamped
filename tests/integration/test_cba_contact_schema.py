@@ -126,12 +126,17 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``event.filed_by_user_id``, nullable and never backfilled, and its two
 #: constraints and one composite foreign key all reach ``event`` rather than
 #: ``speaker_profile`` — this file's surface is untouched.
-_HEAD_REVISION = "0035_speaker_workflow"
+#: The merged manual-event and speaker-workflow migrations follow main's
+#: ``0034_cba_meeting`` without changing this legacy contact surface.
+_HEAD_REVISION = "0036_speaker_workflow"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0035_manual_events",
+    "0034_cba_meeting",
+    "0033_event_filed_by",
     "0032_match_run_scoring_mode",
     "0031_student_speaker_feedback",
     "0030_cba_opaque_speaker_identity",

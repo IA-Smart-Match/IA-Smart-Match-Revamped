@@ -55,6 +55,13 @@ services:
 
   scheduler:
     restart: unless-stopped
+    # This sidecar answers nothing over HTTP (see docker-compose.yml's
+    # scheduler comment) but shares Dockerfile.worker, which bakes in a
+    # HEALTHCHECK against /health. That check can never pass here, so
+    # disable it rather than have docker ps permanently flag a working
+    # process as unhealthy.
+    healthcheck:
+      disable: true
 
   web:
     restart: unless-stopped

@@ -3084,6 +3084,61 @@ speaker_event_note = sa.Table(
     sa.CheckConstraint("btrim(body) <> ''", name="ck_speaker_event_note_body"),
 )
 
+
+# Migration 0034. One unit's internal record that a meeting with the CBA team
+# is scheduled. It is deliberately a record rather than an invitation or an
+# external calendar write.
+cba_meeting = sa.Table(
+    "cba_meeting",
+    METADATA,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("owning_unit_id", _UUID, nullable=False),
+    sa.Column("title", sa.Text, nullable=False),
+    sa.Column("scheduled_at", _TS, nullable=False),
+    sa.Column("time_zone", sa.Text, nullable=False),
+    sa.Column("location_or_link", sa.Text, nullable=True),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("created_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="cba_meeting_pkey"),
+    sa.UniqueConstraint("tenant_id", "id", name="uq_cba_meeting_tenant_id"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "owning_unit_id"],
+        ["org_unit.tenant_id", "org_unit.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.CheckConstraint(
+        "status IN ('scheduled', 'cancelled')",
+        name="ck_cba_meeting_status",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(title)) > 0 AND length(title) <= 200",
+        name="ck_cba_meeting_title_shape",
+    ),
+    sa.CheckConstraint(
+        "length(btrim(time_zone)) > 0 AND length(time_zone) <= 64",
+        name="ck_cba_meeting_time_zone",
+    ),
+    sa.CheckConstraint(
+        "location_or_link IS NULL OR "
+        "(length(btrim(location_or_link)) > 0 AND length(location_or_link) <= 500)",
+        name="ck_cba_meeting_location_shape",
+    ),
+    sa.Index(
+        "ix_cba_meeting_unit_schedule",
+        "tenant_id",
+        "owning_unit_id",
+        "scheduled_at",
+    ),
+)
+
 event_feedback_qr = sa.Table(
     "event_feedback_qr",
     METADATA,

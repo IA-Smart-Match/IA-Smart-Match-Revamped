@@ -67,34 +67,17 @@ def test_no_route_advertises_a_mock_or_demo_login():
 
 
 # ---------------------------------------------------------------------------
-# Unsubscribe GET/POST semantics (v1.1 §1.10)
+# Retired unsubscribe surface
 # ---------------------------------------------------------------------------
 
 
-def test_unsubscribe_get_renders_a_confirmation_page(client: TestClient):
+def test_unsubscribe_page_is_retired(client: TestClient):
     response = client.get("/u/some-opaque-token")
-    assert response.status_code == 200
-    assert "confirm" in response.text.lower()
+    assert response.status_code == 404
 
 
-def test_unsubscribe_get_does_not_echo_the_token():
-    """Reflecting the token into HTML invites both leakage and injection."""
-    response = TestClient(app).get("/u/secret-token-value")
-    assert "secret-token-value" not in response.text
-
-
-def test_unsubscribe_get_is_declared_safe():
-    """A GET route must not be registered for any mutating verb path.
-
-    The corrected design puts the state change on a signed POST; this asserts
-    the GET path exists and is registered for GET only.
-    """
-    methods = {
-        frozenset(route.methods)  # type: ignore[attr-defined]
-        for route in app.routes
-        if getattr(route, "path", None) == "/u/{token}"
-    }
-    assert methods == {frozenset({"GET"})}
+def test_unsubscribe_page_is_not_published_in_openapi():
+    assert not any(path.startswith("/u/") for path in app.openapi()["paths"])
 
 
 # ---------------------------------------------------------------------------
