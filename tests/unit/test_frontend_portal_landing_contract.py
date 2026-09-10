@@ -34,9 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_LIB = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib"
 API_MODULE = FRONTEND_LIB / "api.ts"
 BEARER_TOKEN_MODULE = FRONTEND_LIB / "bearerToken.ts"
-HOME_PAGE = (
-    REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "Home.tsx"
-)
+HOME_PAGE = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "Home.tsx"
 
 # See `test_compose_dev_principals.py` for why `tools/` goes on the path rather
 # than the repository root.
@@ -106,8 +104,7 @@ def test_each_compose_dev_principal_opens_a_distinct_portal_path() -> None:
     than left to be told apart by clicking.
     """
     home_paths = {
-        principal.token: _PORTAL_FOR_ROLE[principal.role][1]
-        for principal in COMPOSE_DEV_PRINCIPALS
+        principal.token: _PORTAL_FOR_ROLE[principal.role][1] for principal in COMPOSE_DEV_PRINCIPALS
     }
 
     assert len(set(home_paths.values())) == len(home_paths), (
