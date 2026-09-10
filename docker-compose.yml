@@ -443,12 +443,22 @@ services:
       SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-compose-dev}
       # ADR-0017's offline, in-process embedding model for the §9 topic
       # comparison, gated by Settings.cba_topic_local_embedding_enabled
-      # (services/api/smartmatch_api/config.py). Off by default here too —
-      # this appliance keeps today's fixture-only behaviour unless the shell
-      # that runs `docker compose up` exports the variable, because compose
-      # does not read `.env.example`/`.env` for this passthrough. Whether the
-      # demo appliance should ship with it on is a product decision, not
-      # this file's; see docs/operations/hosted-synthetic-pilot-guide.md.
+      # (services/api/smartmatch_api/config.py). This is the ONLY service that
+      # scores topics — see the `worker` block below for why it is not there —
+      # so this one passthrough decides the engine for the whole appliance.
+      #
+      # Off by default: unset, the appliance keeps today's fixture-only
+      # behaviour. Because the value is interpolated rather than hard-set,
+      # compose resolves it from the shell environment AND from a `.env` file
+      # in the project directory, shell winning. `.env` is the one that
+      # matters on the VM: scripts/vm/deploy.sh runs `docker compose up` from
+      # a systemd service rather than an operator's shell, so an `export`
+      # lasts exactly one invocation while a `.env` entry survives the next
+      # deploy. (`.env.example` is a template and is never read by anything.)
+      #
+      # Whether the demo appliance should ship with it on is a product
+      # decision, not this file's; see
+      # docs/operations/hosted-synthetic-pilot-guide.md.
       SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED: ${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}
       PORT: "8080"
       # Maps four local-only bearer tokens to the four subjects `seed` and
@@ -507,6 +517,22 @@ services:
       # F5/S-001 deployment work, not something this compose file stands up.
       # What routes real traffic in this stack instead is the local-only pair
       # below.
+      #
+      # Also absent, and this one is worth stating because it looks like an
+      # oversight: SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED. A match run
+      # reads like worker work — it is submitted as a command and executed by
+      # smartmatch_worker.handlers.handle_match_run_create — but the API
+      # scores and the worker solves. rank_cba_candidates runs in
+      # services/api/smartmatch_api/routers/match_runs.py before the command is
+      # ever submitted, and the per-candidate utilities travel in the command
+      # payload, so this container calls solve_portfolio over numbers that are
+      # already final. It constructs no topic provider, and
+      # smartmatch_worker.config.Settings has no field to receive the flag.
+      # Setting it here would configure nothing while looking, to anyone
+      # reading this file, as though it configured something — so the two
+      # containers cannot drift apart on §9, because only one of them has an
+      # opinion. Pinned by tests/unit/test_topic_embedding_flag_plumbing.py in
+      # both directions; if the worker ever starts scoring, that file fails.
       #
       # SMARTMATCH_EDITION is set explicitly, not left at its "dev" default,
       # because the two dev tokens below refuse to activate under any other
