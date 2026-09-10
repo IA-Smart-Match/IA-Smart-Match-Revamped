@@ -32,6 +32,12 @@ const Outreach = lazy(() =>
 const AIMatching = lazy(() =>
   import("./pages/AIMatching").then((m) => ({ default: m.AIMatching })),
 );
+// The Speaker Connector's manual event creation/editing/publishing surface,
+// plus its per-event feedback QR. Backed by
+// `services/api/smartmatch_api/routers/manual_events.py` — `admin` writes on
+// the same `event` table the coordinator-portal `CoordinatorEvents` page (and
+// this admin shell's own `Opportunities`) already read.
+const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
 
 const StudentHome = lazy(() =>
   import("./pages/student/StudentHome").then((m) => ({ default: m.StudentHome })),
@@ -335,6 +341,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "dashboard", element: withSuspense(<Dashboard />) },
       { path: "opportunities", element: withSuspense(<Opportunities />) },
+      { path: "events", element: withSuspense(<Events />) },
       { path: "volunteers", element: withSuspense(<Volunteers />) },
       { path: "ai-matching", element: withSuspense(<AIMatching />) },
       { path: "pipeline", element: withSuspense(<Pipeline />) },

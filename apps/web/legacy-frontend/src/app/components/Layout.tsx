@@ -67,6 +67,7 @@ const navigationSections: readonly { label: string; items: readonly NavItem[] }[
       { name: "Volunteers", href: "/volunteers", icon: Users, tooltip: "Specialist roster and engagement metrics" },
       { name: "Pipeline", href: "/pipeline", icon: TrendingUp, tooltip: "Track matches through each stage" },
       { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
+      { name: "Events", href: "/events", icon: CalendarDays, tooltip: "Create and publish events" },
     ],
   },
   {
