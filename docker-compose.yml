@@ -19,6 +19,12 @@
 #   docker compose up --build        # the full appliance, for image-level checks
 #   docker compose up --build -d     # same, detached — see the smoke path in INSTALL.md
 #   scripts/compose_smoke.sh         # the full import -> review -> metrics path
+#   docker compose --profile dataset run --rm dataset
+#                                    # opt-in: generate the synthetic dataset
+#                                    # that makes the numbers mean something.
+#                                    # Minutes, not seconds, and deliberately
+#                                    # not part of any `up` — see the `dataset`
+#                                    # service's own note.
 #   docker compose down -v           # stop and discard the data volume
 #
 # `scripts/compose_smoke.sh` is the one implementation of the smoke path this
@@ -678,6 +684,121 @@ services:
         condition: service_healthy
       scheduler:
         condition: service_started
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Dataset — one-shot, dev-only, and **opt-in**. Generates the synthetic pilot
+  # dataset that makes the appliance's numbers mean something.
+  #
+  # `seed`, `seed-principals`, `seed-logins` and `seed-review` between them
+  # produce one tenant, one unit, eight accounts, one event and two pending
+  # review items. Every screen is then correct and almost every number is
+  # `unknown`: 39 of the 49 tables are empty, and to a stakeholder that reads as
+  # broken software rather than as ADR-0011 being honest about absent evidence.
+  # tools/generate_pilot_dataset.py is the tool that fixes it — by generating
+  # more evidence, never by relaxing the rule — and until now nothing in this
+  # file, the Makefile, or INSTALL.md ran it. It was reachable only by an
+  # operator who already knew it existed, which is how the pilot appliance and
+  # the demo database came to hold different data.
+  #
+  # WHY `profiles`, i.e. why this does NOT run on `docker compose up`.
+  # Deploying the stack, migrating the database, and generating a demo dataset
+  # are three different operations, and a start-up step that silently writes
+  # several thousand synthetic rows is the kind of convenience that later gets
+  # discovered in a place it was never wanted. A profile is compose's own
+  # opt-in: this service is inert for every `up`, `down`, `ps` and
+  # `compose_smoke.sh` invocation that does not name it, and it is invisible to
+  # docker-compose.vm.yml, which starts services by name and never this one. It
+  # takes minutes, not seconds, which is a second reason it is not on the path
+  # everybody walks.
+  #
+  #   docker compose --profile dataset run --rm dataset
+  #
+  # WHY IT IS SAFE TO RE-RUN ONLY AGAINST THE STACK IT LAST WROTE. The
+  # generator is re-runnable against its own output, but not against a tenant
+  # some *other* run half filled: Phase B resolves rows Phase A would create,
+  # so a partial run collides on `uq_professional_unit_relationship` and on the
+  # ADR-0012 event identity key. Recovery is an empty database, which for this
+  # stack means `docker compose down -v` and `up` again before re-running this.
+  # scripts/reset_pilot_dataset.sh does the equivalent for a host-run stack.
+  #
+  # WHY `--feedback-students 0` HERE, AND NOWHERE ELSE. The generator's Phase C
+  # has each of eight students POST their own speaker rating with their own
+  # bearer token, because `routers/student_speaker_feedback.py` takes
+  # `student_id` from the verified principal and no request field could carry
+  # another. Those eight tokens must be in the API process's
+  # SMARTMATCH_DEV_PRINCIPALS *before it boots* — the API reads that map once at
+  # startup — and this stack's map is a fixed four, one per portal, pinned
+  # against tools/seed_pilot_principals.py by
+  # tests/unit/test_compose_dev_principals.py. Adding eight more here would
+  # mean eight `pilot-feedback-NN` literals in this file, each one character
+  # over the sixteen `tools/scan_forbidden.py` treats as "shaped like a real
+  # secret", to widen a fixture identity map for a demo. Not worth it, and not
+  # this service's decision to take. So Phase C is skipped here and
+  # `student_speaker_feedback` stays empty on the compose route;
+  # scripts/reset_pilot_dataset.sh, which composes that map itself at process
+  # start with no literal in any tracked file, is the route that fills it.
+  # `make verify-pilot-dataset` reports the zero either way rather than hiding
+  # it.
+  #
+  # Depends on `scheduler` for seed-review's reason, and additionally on
+  # `seed-review` itself: both submit imports to the same unit, and the review
+  # seed's idempotency check ("exit 0 if the unit already has pending items")
+  # would read this generator's deliberately-undecided import as its own work
+  # and skip, leaving the appliance's own start-up seed unproven.
+  # -------------------------------------------------------------------------
+  dataset:
+    profiles:
+      - "dataset"
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - "python"
+      - "/home/smartmatch/generate_pilot_dataset.py"
+      - "--api-base"
+      # The compose-network name and port, for seed-review's reason: this
+      # container is inside the network, so 127.0.0.1 here would be itself.
+      - "http://api:8080"
+      - "--bearer-token"
+      - *compose_api_dev_bearer_token
+      # See the note above. Phase C needs eight principals this stack's
+      # SMARTMATCH_DEV_PRINCIPALS does not carry, and a 401 mid-run would
+      # otherwise abandon the dataset after Phase B had already written.
+      - "--feedback-students"
+      - "0"
+      # --tenant-slug and --unit-path stay at the script's defaults (pilot /
+      # pilot), the same ones `seed` above relies on, and --seed stays at the
+      # generator's fixed default so two runs of this service produce the same
+      # dataset. Its report prints the seed; record it with a demo.
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+    # Disabled for seed-review's reason: the API image's HEALTHCHECK probes
+    # /api/health, this container serves nothing, so the probe can only fail and
+    # `health: starting` would be a misleading signal about a one-shot whose
+    # only meaningful state is its exit code.
+    healthcheck:
+      disable: true
+    volumes:
+      # All four, because they import each other by bare module name and must
+      # therefore share one directory on sys.path: the generator imports
+      # `pilot_dataset_plan` (the shape of the dataset), `seed_demo_pipeline`
+      # (`advance_journey`, so every funnel stage goes through the same writer
+      # as before) and `seed_pilot` (the dev/fixture guard, verbatim rather than
+      # restated — the same reason seed-review mounts it).
+      - ./tools/generate_pilot_dataset.py:/home/smartmatch/generate_pilot_dataset.py:ro
+      - ./tools/pilot_dataset_plan.py:/home/smartmatch/pilot_dataset_plan.py:ro
+      - ./tools/seed_demo_pipeline.py:/home/smartmatch/seed_demo_pipeline.py:ro
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      scheduler:
+        condition: service_started
+      seed-review:
+        condition: service_completed_successfully
     restart: "no"
 
   # -------------------------------------------------------------------------

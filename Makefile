@@ -210,6 +210,45 @@ seed-pilot-engagement: ## Seed rewards, redemptions, registrations and meetings 
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_engagement.py \
 		--items-from-worksheet $(SEED_PILOT_ENGAGEMENT_ARGS)
 
+# The API base a host-run stack publishes (`make run-api`). Overridable for a
+# stack on another port; the *bearer token* deliberately has no default here —
+# see the target below.
+PILOT_DATASET_API_BASE ?= http://127.0.0.1:8000
+
+.PHONY: generate-pilot-dataset
+generate-pilot-dataset: ## Generate the synthetic pilot dataset; needs a RUNNING api+worker+dispatch and GENERATE_PILOT_DATASET_ARGS="--bearer-token ..."
+	# The step that turns a seeded appliance into a measurable one. The seeds
+	# above produce one tenant, one unit, eight accounts and two pending review
+	# items; 39 of the 49 tables stay empty, and every screen reading `unknown`
+	# looks like broken software rather than like ADR-0011 being honest. This
+	# target is the documented way to run the generator that fills them, and it
+	# is opt-in for the same reason the compose `dataset` profile is: deploying,
+	# migrating, and generating a demo dataset are three operations, not one.
+	#
+	# It is NOT a seed in the sense the targets above are. It needs three live
+	# processes, not just a database — the API to accept the imports, the worker
+	# to execute the queued commands, and something driving dispatch, because
+	# nothing moves a queued job to the worker on its own. Run `make run-api`
+	# and `make run-worker` first (the compose `scheduler` sidecar is the
+	# dispatch driver on that route; on this one, drive the worker's own
+	# /operations/dispatch, which is what scripts/reset_pilot_dataset.sh does).
+	#
+	# --bearer-token has no default and must be supplied. Its value has to match
+	# a key in the *API process's own* SMARTMATCH_DEV_PRINCIPALS map, which the
+	# API read once at startup, so only the operator who started that process
+	# knows it — inventing one here would produce a bare 401 several minutes into
+	# a run. seed-pilot-principals above refuses identity arguments for the
+	# mirror-image reason.
+	#
+	# On a stack the generator, or any other run, has already half filled, this
+	# collides rather than topping up: Phase B resolves rows Phase A would
+	# create. scripts/reset_pilot_dataset.sh rebuilds from an empty database and
+	# is the way back to a known state. Follow either with
+	# `make verify-pilot-dataset`, which reports what the database holds rather
+	# than what the tool believed it wrote.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/generate_pilot_dataset.py \
+		--api-base $(PILOT_DATASET_API_BASE) $(GENERATE_PILOT_DATASET_ARGS)
+
 .PHONY: verify-pilot-dataset
 verify-pilot-dataset: ## Fail if any table a pilot demo reads from is empty for the pilot tenant
 	# Read-only, and the counterpart to the seeds above rather than another one.

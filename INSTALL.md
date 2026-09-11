@@ -390,7 +390,8 @@ catalog in step 14.
   fresh appliance and are not defects: nothing seeds a **funded reward item**,
   so the catalog is `[]` and there is nothing to redeem; and no event is
   published, so the browse list reports what it withheld rather than showing
-  rows. Submitting a speaker rating additionally needs an `attendance_record`,
+  rows. Step 6 below fills most of what a fresh appliance leaves empty, and
+  says which two things it deliberately still does not. Submitting a speaker rating additionally needs an `attendance_record`,
   and **no `/v1` route creates one** — the route answers `403
   student_feedback_not_eligible`, which is the check working, not a gap in the
   principal.
@@ -417,6 +418,85 @@ catalog in step 14.
   data path's proof is the curl sequence below and
   `scripts/compose_smoke.sh`.
 - **Sign-in.** There is none. See step 2.
+
+**6. Optional: generate a dataset deep enough to measure.**
+
+Everything above runs on a *seeded* appliance: one tenant, one unit, eight
+accounts, one event and two pending review items. That is enough to prove the
+import path and the metric that a decision moves, and it is not enough to look
+like a program. 39 of the 49 tables are empty, so most screens report `unknown`
+or withhold — which is ADR-0011 being honest about evidence it does not have,
+and which reads from the outside as broken software.
+
+`tools/generate_pilot_dataset.py` is the tool that closes that gap, and one
+compose one-shot runs it:
+
+```bash
+docker compose --profile dataset run --rm dataset
+```
+
+It takes several minutes. 250 professionals, 60 events, 120 students and 180
+pipeline journeys, written the product's own way: the imports go through `POST
+/v1/units/{unit_id}/imports` and reach the review queue through the same worker
+and scheduler the two seeded items did, the §19 classification review and the
+match runs go through their own routes, and the writers with no HTTP door
+(events, attendance, points, the funnel) go through the repositories rather
+than through SQL of their own. Nothing it writes is a zero standing in for an
+unknown, and a deliberate fraction of it carries no evidence at all so the
+`unknown` states stay visible and provable.
+
+Check what the database actually holds afterwards, rather than what the tool
+said it did:
+
+```bash
+make verify-pilot-dataset
+```
+
+Four things are worth knowing before running it.
+
+- **It is opt-in, and stays that way.** `docker compose up` does not run it —
+  it is behind a compose *profile*, so it is inert for every `up`, `ps` and
+  `scripts/compose_smoke.sh` that does not name it. Starting the stack,
+  migrating the database, and generating a demo dataset are three separate
+  operations. Nothing on the pilot VM runs this: `docker-compose.vm.yml` starts
+  services by name and never this one.
+- **Run it once, on a freshly started stack.** The generator is re-runnable
+  against its own output but not against a tenant another run half filled — its
+  repository phase resolves rows its import phase would create, so a partial
+  run collides. The way back to a known state is an empty database:
+  `docker compose down -v`, then start again. (`down -v` discards the data
+  volume; on a stack you care about, don't.)
+- **`student_speaker_feedback` stays empty on this route, on purpose.** Each of
+  those ratings is a `POST` a student's *own* bearer token made, and the eight
+  tokens for that cohort would have to be in the API's
+  `SMARTMATCH_DEV_PRINCIPALS` before it booted. This stack's map is a fixed
+  four, one per portal. `scripts/reset_pilot_dataset.sh` — a host-run rebuild
+  from an empty database — composes that map itself and is the route that fills
+  the table. `make verify-pilot-dataset` names the zero either way.
+- **The rewards catalog stays empty too**, and that is a recorded decision
+  rather than a gap: every `reward_item` value (name, points cost, fulfilment
+  cost, budget owner, funded) is owner-supplied, so `make seed-pilot-rewards`
+  takes them all as required arguments from a row in
+  `docs/pilot-data/rewards-catalog-worksheet.md` and this generator invents
+  none. With no catalog there is no redemption in any state; `make
+  seed-pilot-engagement` fills the student-side engagement tables once a
+  catalog exists.
+
+On a host-run stack (`make run-api` plus `make run-worker`, no compose), the
+same generator has a Makefile target:
+
+```bash
+make generate-pilot-dataset GENERATE_PILOT_DATASET_ARGS="--bearer-token <your dev token>"
+```
+
+There is no default token, because the value has to match a key in the map the
+API process read at *its* startup, and only the person who started it knows
+that. That route also needs something driving dispatch — the compose
+`scheduler` sidecar's job — or the imports sit queued and the run fails on its
+own poll. `scripts/reset_pilot_dataset.sh` does the whole host sequence (drop,
+recreate, migrate, seed, dispatch, generate, verify) and is the better choice
+if you have no stack running yet. `docs/operations/local-dev-walkthrough.md`
+step 6 is the long-form version of this paragraph.
 
 **A port collision worth knowing about.** This stack publishes `5432`, and so
 does a native `apt install postgresql-16`. If `docker compose ps db` shows

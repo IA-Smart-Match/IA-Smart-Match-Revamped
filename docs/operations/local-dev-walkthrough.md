@@ -203,11 +203,41 @@ process without you doing it by hand.
 
 ## 6. `tools/generate_pilot_dataset.py` — a dataset deep enough to measure
 
+Three routes run the same generator. Pick the one that matches the stack you
+have:
+
+```bash
+# Host-run stack (this walkthrough's route: `make run-api` + `make run-worker`).
+make generate-pilot-dataset \
+  GENERATE_PILOT_DATASET_ARGS="--bearer-token <token mapped to local-pilot-coordinator>"
+
+# Compose stack (INSTALL.md's route). Opt-in profile; never part of `up`.
+docker compose --profile dataset run --rm dataset
+
+# No stack yet, or a half-filled one: rebuild from an empty database.
+scripts/reset_pilot_dataset.sh
+```
+
+The Makefile target is the invocation below with `--api-base` defaulted to
+`http://127.0.0.1:8000` (override with `PILOT_DATASET_API_BASE`); every other
+flag passes through `GENERATE_PILOT_DATASET_ARGS`. Calling the script directly
+is still exactly equivalent:
+
 ```bash
 python3 tools/generate_pilot_dataset.py \
   --api-base http://127.0.0.1:8000 \
   --bearer-token <token mapped to local-pilot-coordinator in SMARTMATCH_DEV_PRINCIPALS>
 ```
+
+Whichever route, the generator needs **something driving dispatch** as well as
+an API and a worker: nothing moves a queued job to the worker on its own, so
+without it the imports sit queued and the run fails on its own poll rather than
+producing a dataset. On the compose route the `scheduler` sidecar is that
+something; on this one, drive the worker's own `/operations/dispatch`, which is
+what `scripts/reset_pilot_dataset.sh` does for you. The compose route
+additionally skips the generator's feedback cohort — see that service's note in
+`docker-compose.yml` — so `student_speaker_feedback` stays empty there and this
+route or the rebuild script is the one that fills it.
 
 `--api-base` and `--bearer-token` are the two `required=True` arguments
 (`tools/generate_pilot_dataset.py`'s `parse_args`); everything else —
