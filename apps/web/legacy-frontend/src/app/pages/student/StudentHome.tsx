@@ -96,10 +96,12 @@ export function StudentHome() {
         <>
           <section
             className="rounded-2xl border border-border/70 bg-card p-6"
-            aria-label="What is next for you"
+            aria-labelledby="student-home-next-heading"
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-semibold text-foreground">What is next for you</h2>
+              <h2 id="student-home-next-heading" className="min-w-0 font-semibold text-foreground">
+                What is next for you
+              </h2>
               <Link
                 to="/events"
                 className="rounded text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -170,10 +172,15 @@ export function StudentHome() {
           {rewards !== null && rewards.items.length > 0 ? (
             <section
               className="rounded-2xl border border-border/70 bg-card p-6"
-              aria-label="Rewards in your department"
+              aria-labelledby="student-home-rewards-heading"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="font-semibold text-foreground">Rewards in your department</h2>
+                <h2
+                  id="student-home-rewards-heading"
+                  className="min-w-0 font-semibold text-foreground"
+                >
+                  Rewards in your department
+                </h2>
                 <Link
                   to="/rewards"
                   className="rounded text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

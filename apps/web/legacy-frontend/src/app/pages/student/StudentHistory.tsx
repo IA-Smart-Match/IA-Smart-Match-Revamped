@@ -91,9 +91,11 @@ export function StudentHistory() {
         <>
           <section
             className="rounded-2xl border border-border/70 bg-card p-6"
-            aria-label="Events already on your record"
+            aria-labelledby="student-history-record-heading"
           >
-            <h2 className="font-semibold text-foreground">Events already on your record</h2>
+            <h2 id="student-history-record-heading" className="font-semibold text-foreground">
+              Events already on your record
+            </h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Events your department recorded you at, and places you held that have now passed.
               The server returns both together and does not mark which is which, so each entry

@@ -120,8 +120,13 @@ export function PointsPanel({
   error: string | null;
 }) {
   return (
-    <section className="rounded-2xl border border-border/70 bg-card p-6" aria-label="Your points">
-      <h2 className="font-semibold text-foreground">Your points</h2>
+    <section
+      className="rounded-2xl border border-border/70 bg-card p-6"
+      aria-labelledby="student-points-heading"
+    >
+      <h2 id="student-points-heading" className="font-semibold text-foreground">
+        Your points
+      </h2>
 
       {error !== null ? (
         <p role="alert" className="mt-2 text-sm leading-6 text-foreground">
