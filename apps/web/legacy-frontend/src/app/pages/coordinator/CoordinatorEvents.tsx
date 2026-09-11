@@ -100,14 +100,27 @@
  * request against the loaded unit, and this page renders the server's refusal
  * as the answer it is rather than hiding the controls and implying the
  * capability is absent.
+ *
+ * ## The month view
+ *
+ * The hosted-events section draws the same `listing.events` two ways — a
+ * list, or a month grid (`CoordinatorEventsCalendar`). It is a *view*, not a
+ * second fetch: the route accepts no `from`/`to` window and caps at 200
+ * rows, so paging the grid re-buckets the response already held and the
+ * `truncated` notice stays on screen in both views. The retired `/calendar`
+ * address redirects to this page, and this view is the successor to what it
+ * served — minus the coverage and volunteer overlays, which the API has no
+ * domain for and nothing here fakes. Placement obeys ADR-0010: an event that
+ * resolves to no calendar day is named under the grid, not guessed onto one.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { CalendarDays, Plus, Save } from "lucide-react";
+import { CalendarDays, List, Plus, Save } from "lucide-react";
 
 import { QRCodeCard } from "@/components/QRCodeCard";
+import { CoordinatorEventsCalendar } from "./CoordinatorEventsCalendar";
 import {
   ApiRequestError,
   createManualEvent,
@@ -283,6 +296,9 @@ export function CoordinatorEvents() {
   const [form, setForm] = useState<EventFormState>(blankEventForm);
   const [notice, setNotice] = useState("");
   const [recent, setRecent] = useState<ManualEvent[]>([]);
+  // How the hosted-events section draws the response: the list, or the month
+  // grid. One response, two views — see this file's header.
+  const [eventsView, setEventsView] = useState<"list" | "month">("list");
   // A failure to *open* an event, which is neither a list failure nor a save
   // failure and so has nowhere else to be reported. Never swallowed: a click
   // that silently does nothing is indistinguishable from a broken button.
@@ -487,20 +503,52 @@ export function CoordinatorEvents() {
         </p>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      {/* The month grid needs seven columns of room: in `month` view the
+          section spans the page and the editor column drops below it. In
+          `list` view the two sit side by side as before. */}
+      <div className={eventsView === "month" ? "space-y-6" : "grid gap-6 xl:grid-cols-2"}>
         <section className="rounded-2xl border border-border p-6" aria-label="Hosted events">
-          <div className="flex items-start gap-2">
-            <CalendarDays
-              className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <div>
-              <h2 className="font-semibold text-foreground">Events your unit hosts</h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Listed by the server from the events this unit owns. An event with no resolved
-                date, or with a tag value still awaiting human review, is not listed — and is
-                counted below rather than quietly dropped.
-              </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <CalendarDays
+                className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <div>
+                <h2 className="font-semibold text-foreground">Events your unit hosts</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  Listed by the server from the events this unit owns, as a list or a month. An
+                  event with no resolved date, or with a tag value still awaiting human review, is
+                  not listed — and is counted below rather than quietly dropped.
+                </p>
+              </div>
+            </div>
+            <div
+              role="group"
+              aria-label="Choose how to view the hosted events"
+              className="flex items-center gap-1 rounded-xl border border-border p-1"
+            >
+              {(
+                [
+                  { value: "list", label: "List", Icon: List },
+                  { value: "month", label: "Month", Icon: CalendarDays },
+                ] as const
+              ).map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={eventsView === value}
+                  onClick={() => setEventsView(value)}
+                  className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    eventsView === value
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -530,29 +578,42 @@ export function CoordinatorEvents() {
             // it has could be listed.
             <p className="mt-4 text-sm leading-6 text-muted-foreground">
               The server listed no presentable events for this unit. A draft you save in this
-              session still appears in the editor beside this list, because a draft with an
+              session still appears in the editor on this page, because a draft with an
               unsettled schedule is not presentable and this route will not carry it.
             </p>
           ) : listing !== null ? (
-            <div className="mt-4">
-              {/* A window over the events this response carried, not a server
-                  page: the route takes no page parameter, so the array handed
-                  over here is the whole of what arrived. */}
-              <PagedList items={listing.events} label="events" idPrefix="unit-hosted-events">
-                {(visibleEvents) => (
-                  <ul className="space-y-3">
-                    {visibleEvents.map((event) => (
-                      <EventRow
-                        key={event.id}
-                        event={event}
-                        selected={selected?.id === event.id}
-                        onOpen={() => void refreshSelected(event.id)}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </PagedList>
-            </div>
+            eventsView === "month" ? (
+              /* The same `listing.events`, drawn on a month grid. Placement is
+                 decided by the event's own precision and zone inside
+                 `CoordinatorEventsCalendar`; the withheld counts and the
+                 `truncated` notice below describe this response and stay on
+                 screen in this view on purpose. */
+              <CoordinatorEventsCalendar
+                events={listing.events}
+                selectedId={selected?.id ?? null}
+                onOpenEvent={(event) => void refreshSelected(event.id)}
+              />
+            ) : (
+              <div className="mt-4">
+                {/* A window over the events this response carried, not a server
+                    page: the route takes no page parameter, so the array handed
+                    over here is the whole of what arrived. */}
+                <PagedList items={listing.events} label="events" idPrefix="unit-hosted-events">
+                  {(visibleEvents) => (
+                    <ul className="space-y-3">
+                      {visibleEvents.map((event) => (
+                        <EventRow
+                          key={event.id}
+                          event={event}
+                          selected={selected?.id === event.id}
+                          onOpen={() => void refreshSelected(event.id)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </PagedList>
+              </div>
+            )
           ) : null}
 
           {listing !== null && (

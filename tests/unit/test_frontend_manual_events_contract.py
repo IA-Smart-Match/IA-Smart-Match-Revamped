@@ -41,6 +41,9 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 EVENTS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorEvents.tsx"
 QR_CARD = FRONTEND_SRC / "components" / "QRCodeCard.tsx"
+CALENDAR = (
+    FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorEventsCalendar.tsx"
+)
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
 CONNECTOR_SHELL = FRONTEND_SRC / "app" / "components" / "CoordinatorPortalLayout.tsx"
 REDIRECTS = FRONTEND_SRC / "app" / "legacyRedirects.ts"
@@ -147,6 +150,44 @@ def test_the_publish_refusal_is_rendered_rather_than_swallowed() -> None:
     text = EVENTS_PAGE.read_text(encoding="utf-8")
     assert "details?.fields" in text
     assert "Complete these fields before publishing" in text
+
+
+def test_the_events_page_carries_the_month_view() -> None:
+    """The retired /calendar page's successor is a month view on this page.
+
+    The redirect table sends `/calendar` to `/coordinator-portal/events`, so
+    the month grid lives here as a *view* of the same
+    `GET /v1/units/{unit_id}/events` response — no new route, no date-window
+    parameters the route does not accept, and no coverage or assignment
+    overlays the response does not carry.
+    """
+    page = EVENTS_PAGE.read_text(encoding="utf-8")
+    text = CALENDAR.read_text(encoding="utf-8")
+
+    # The page mounts the grid behind a pressed-state toggle, on the same
+    # array the list draws.
+    assert "CoordinatorEventsCalendar" in page
+    assert "events={listing.events}" in page
+    assert "aria-pressed" in page
+    assert '"month"' in page
+
+    # The grid is a real grid — rows, column headers, cells — and the days
+    # are keyboard-operable rather than click-only.
+    for role in ('role="grid"', 'role="row"', 'role="columnheader"', 'role="gridcell"'):
+        assert role in text, f"the month view lost {role}"
+    assert "tabIndex" in text
+    assert "ArrowLeft" in text and "PageDown" in text
+
+    # ADR-0010 honesty: an event with no resolvable day is named under the
+    # grid, never guessed onto one.
+    assert "partitionEventsByDay" in text
+    assert "Not placed on a day" in text
+
+    # No new endpoint and none of the retired feed's vocabulary: the
+    # volunteer-assignment overlay domain does not exist in this API.
+    assert "fetch(" not in text
+    assert "/api/calendar" not in text
+    assert "coverage_status" not in text
 
 
 def test_routes_tsx_keeps_every_main_route() -> None:
