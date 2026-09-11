@@ -70,6 +70,7 @@ from smartmatch_api.routers import (
     redrive,
     review,
     rewards,
+    speaker_pipeline,
     speaker_requests,
     student_events,
     student_speaker_feedback,
@@ -287,6 +288,12 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (imports.router, Capability.OPERATOR_RECORD_IMPORT),
     (me.router, Capability.AUTHENTICATED_LOGIN),
     (metrics.router, Capability.DISCOVERY_METRICS),
+    # The same register, presented as a funnel. `DISCOVERY_METRICS` and not a
+    # capability of its own: this router measures nothing `metrics.router` does
+    # not already measure, through the same owning queries and the same
+    # authorization, so a deployment that offered one and withheld the other
+    # would be offering and withholding the identical numbers.
+    (speaker_pipeline.router, Capability.DISCOVERY_METRICS),
     (events.router, Capability.EVENT_READS),
     # The .ics download, classified with `events` because that is what it is:
     # the same event, in a second representation, behind the same roles
