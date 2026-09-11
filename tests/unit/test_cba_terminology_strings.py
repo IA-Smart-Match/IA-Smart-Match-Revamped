@@ -169,13 +169,18 @@ def test_cba_visible_copy_carries_no_retired_terminology() -> None:
 
 
 def test_the_admin_shell_names_cba() -> None:
-    """The stored ``admin`` role still names CBA where the name is decided.
+    """The stored ``admin`` role names the one connector shell it lands in.
 
     There is no admin shell any more — ``admin`` and ``coordinator`` are one
-    persona, and ``Layout.tsx`` is deleted — but the role's portal descriptor
-    still gets its display name from the one map, and that name is CBA's.
+    persona, and ``Layout.tsx`` is deleted — so the role's portal descriptor
+    deliberately carries the same display name as ``coordinator``'s:
+    "CBA Administration" named a second dashboard that no longer exists, and
+    Administration is a section inside the Connector Dashboard now
+    (``role_presentation.py`` says why at length). What this assertion still
+    pins is that the name comes from the one map — a literal back in a shell
+    would be a second naming authority.
     """
-    assert portal_display_name_for_role("admin") == "CBA Administration"
+    assert portal_display_name_for_role("admin") == "Connector Dashboard"
 
 
 # A portal's name is no longer a literal in its shell. `CBA-ROLE-PRESENTATION`
