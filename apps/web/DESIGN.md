@@ -40,10 +40,15 @@ Keep the established backend authorization keys for compatibility, but never exp
 
 | Backend role key | User-facing role name |
 |---|---|
-| `admin` | Speaker Connector |
-| `coordinator` | Event Host |
-| `volunteer` | Speaker |
+| `admin` | Speaker Connector (administrator) |
+| `coordinator` | Speaker Connector |
+| `volunteer` | Event Host |
 | `student` | Student |
+
+`admin` and `coordinator` are one persona — the Speaker Connector — and open
+the same shell (the Connector Dashboard at `/coordinator-portal`). Speakers
+are contact records, not accounts: no stored role maps to a speaker, so no
+row above names one.
 
 Use the user-facing terms in headings, navigation, help text, profile fallbacks, statuses, and accessibility labels. Internal route names, API fields, database columns, and authorization checks retain their existing identifiers.
 

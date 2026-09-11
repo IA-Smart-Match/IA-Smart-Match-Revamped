@@ -2,9 +2,31 @@
 
 ``tests/unit/test_cba_scope_policy.py`` pins the *policy* — which named
 capabilities the CBA product includes — and proves the API composition reads it.
-This file pins the other half: that the **frontend composition** reads the same
+This file pins the other half: that the **frontend composition** honours the same
 policy, so a capability the policy disables owns no CBA route, no CBA navigation
 entry, and no CBA claim.
+
+Addendum — the Connector Dashboard consolidation (September 2026)
+================================================================
+
+``admin`` and ``coordinator`` are one persona (``role_presentation.py``), so the
+two Speaker Connector shells became one. ``components/Layout.tsx`` — the admin
+shell that carried the capability-gated ``/outreach`` entry and the eight
+top-level addresses — is deleted, and every address it owned redirects to its
+successor in ``app/legacyRedirects.ts``. The assertions below therefore read
+different files than they used to, for the same guarantees:
+
+* where a test once asserted the router *asked the policy* before mounting the
+  gated legacy ``/outreach`` page, it now asserts the gated page is **mounted
+  nowhere** and its address redirects to the consented ``/v1`` successor. That
+  is the stronger form of the same property: a surface with no route at all is
+  unreachable no matter what the policy says, and nothing out of scope is
+  offered a gate to hide behind.
+* where a test once asserted a *preserved* admin route stayed mounted at its
+  own address, it now asserts the address still resolves — through the redirect
+  table — *and* that its successor page is mounted in the Connector shell. A
+  redirect that pointed nowhere would pass a naive "the address resolves" check;
+  both halves are asserted so neither can rot.
 
 Three properties, and the difference between them matters:
 
@@ -14,11 +36,12 @@ Three properties, and the difference between them matters:
    repository but are not mounted, routed, advertised, or presented as
    successful on CBA paths" — the customer put them out of scope for *this
    phase* (§20), which is not the same as declaring them defective.
-2. **Preserved surfaces are asserted present.** A gate that quietly took the
-   discovery feed, consented coordinator outreach, or server-backed rewards with
-   it would satisfy "nothing out of scope is reachable" and fail the customer's
-   §17/§22 "do not rebuild what works". Each preserved surface therefore gets an
-   explicit regression assertion rather than being left to inference.
+2. **Preserved surfaces are asserted present.** A consolidation that quietly
+   took the discovery feed, consented coordinator outreach, or server-backed
+   rewards with it would satisfy "nothing out of scope is reachable" and fail
+   the customer's §17/§22 "do not rebuild what works". Each preserved surface
+   therefore gets an explicit regression assertion rather than being left to
+   inference.
 3. **A UI gate is not authorization.** Removing a link removes a *claim*. Every
    route the API keeps mounted still enforces its own deny-by-default,
    tenant-scoped authorization (``smartmatch_authz``), and nothing here may be
@@ -44,7 +67,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
-LAYOUT = FRONTEND_SRC / "app" / "components" / "Layout.tsx"
+REDIRECTS = FRONTEND_SRC / "app" / "legacyRedirects.ts"
+#: The shell the consolidation kept. ``Layout.tsx`` — the admin shell this file
+#: used to read — is deleted; its capability-gated nav structure went with it.
+CONNECTOR_SHELL = FRONTEND_SRC / "app" / "components" / "CoordinatorPortalLayout.tsx"
 LANDING_PAGE = FRONTEND_SRC / "app" / "pages" / "LandingPage.tsx"
 PIPELINE_FUNNEL_TILES = FRONTEND_SRC / "app" / "components" / "PipelineFunnelTiles.tsx"
 DASHBOARD = FRONTEND_SRC / "app" / "pages" / "Dashboard.tsx"
@@ -72,6 +98,29 @@ LEGACY_OUTREACH_CAPABILITIES = (
 _COLD = Capability.COLD_UNKNOWN_CONTACT_OUTREACH.value
 _EXTERNAL = Capability.EXTERNAL_SPEAKER_ACQUISITION.value
 _MEMBER_INQUIRY = Capability.MEMBER_INQUIRY_NARRATIVE.value
+
+#: The admin-shell addresses this file once asserted were mounted as pages,
+#: and the Connector surface each one lands on now. They are redirects —
+#: "preserved" means the address still resolves to a mounted successor, not
+#: that a literal still sits in the router.
+RETIRED_ADMIN_ADDRESSES = {
+    "dashboard": "/coordinator-portal",
+    "opportunities": "/coordinator-portal/speaker-requests",
+    "pipeline": "/coordinator-portal/speaker-requests",
+    "calendar": "/coordinator-portal/events",
+    "ai-matching": "/coordinator-portal/match-runs",
+}
+
+#: The retired admin-shell nav hrefs and the Connector-shell successor each
+#: maps to. Written out rather than derived: this is the independent
+#: inventory of what the sidebar must still offer.
+RETIRED_ADMIN_NAV = {
+    "/dashboard": "/coordinator-portal",
+    "/volunteers": "/coordinator-portal/speaker-contacts",
+    "/pipeline": "/coordinator-portal/speaker-requests",
+    "/calendar": "/coordinator-portal/events",
+    "/opportunities": "/coordinator-portal/speaker-requests",
+}
 
 
 def _read(path: Path) -> str:
@@ -110,52 +159,90 @@ def test_member_inquiry_narrative_is_disabled_under_cba() -> None:
 
 
 class TestRouteComposition:
-    """``routes.tsx`` asks the policy instead of hard-coding a product decision."""
+    """``routes.tsx`` mounts nothing the policy disables, and loses nothing it kept.
 
-    def test_routes_read_the_shared_policy(self) -> None:
-        source = _read(ROUTES)
-        assert "productScope" in source, (
-            "routes.tsx must compose from the shared capability policy "
-            "(src/lib/productScope.ts), not from an ad-hoc flag"
+    The shape of this guarantee changed with the consolidation. The admin shell
+    whose children the policy used to filter is deleted, so there is no route
+    left for a capability gate to decide: the gated pages are simply mounted
+    nowhere, and their addresses resolve through the redirect table instead.
+    """
+
+    def test_no_route_mounts_a_capability_gated_page(self) -> None:
+        """The retired admin pages are unreachable, not filtered.
+
+        Where this file once asserted ``routes.tsx`` asked the policy before
+        mounting the gated legacy ``/outreach`` page, it now asserts the
+        stronger fact: the router imports none of the retired pages at all. A
+        page with no route is unreachable whatever the policy says — there is
+        no gate left to get wrong.
+        """
+        code = _strip_comments(_read(ROUTES))
+        for page in ("Outreach", "Dashboard", "Opportunities", "Pipeline", "Calendar"):
+            assert f'import("./pages/{page}")' not in code, (
+                f"the retired admin {page} page is still routed; gated surfaces are "
+                "unreachable, not merely unlinked"
+            )
+
+    def test_the_gated_capabilities_own_no_route(self) -> None:
+        """Nothing the router mounts is decided by a disabled capability.
+
+        The only route the capability policy ever had to gate was the legacy
+        cold-outreach page, and it is retired rather than gated. Asserting the
+        mechanism survives (``productScope``/``isCapabilityEnabled`` in
+        ``routes.tsx``) would pin scaffolding with nothing left to scaffold —
+        so this asserts the outcome instead: no capability name appears in the
+        route table, because no route's existence depends on one.
+        """
+        code = _strip_comments(_read(ROUTES))
+        assert _COLD not in code and _EXTERNAL not in code, (
+            "a route still names a disabled capability; the only route that needed "
+            "one is retired, so this is either a remnant or a new out-of-scope surface"
         )
-        assert "isCapabilityEnabled" in source
 
-    def test_the_legacy_admin_outreach_route_is_capability_gated(self) -> None:
-        source = _read(ROUTES)
-        assert _COLD in source and _EXTERNAL in source, (
-            "the legacy admin /outreach route must name the capabilities it needs; "
-            f"expected both {_COLD!r} and {_EXTERNAL!r} in routes.tsx"
+    def test_the_legacy_admin_outreach_address_redirects_to_the_consented_page(self) -> None:
+        """``/outreach`` still resolves — to the page that does its in-scope half.
+
+        The retired page composed cold unknown-contact outreach *and* external
+        speaker acquisition (both §20-disabled); its address now lands on the
+        coordinator portal's consented ``/v1`` outreach page, which is a
+        different thing sharing a word. Asserting the redirect — rather than
+        the page's absence — is what keeps a bookmarked address from 404ing.
+        """
+        redirects = _read(REDIRECTS)
+        assert re.search(
+            r'from:\s*"/outreach"\s*,\s*to:\s*"/coordinator-portal/outreach"', redirects
+        ), (
+            "the retired /outreach address must redirect to the consented coordinator "
+            "outreach page; dropping the address would 404 a URL that used to work"
+        )
+        # And the gated page itself must not also be mounted — a route and a
+        # redirect on one address would shadow each other unpredictably.
+        code = _strip_comments(_read(ROUTES))
+        assert not re.search(r'path:\s*"/outreach"', code), (
+            "/outreach is still registered as a page as well as a redirect"
         )
 
     def test_no_unconditional_legacy_outreach_route(self) -> None:
-        """The gated page must not sit in a route array the policy never sees.
+        """The only ``outreach`` route is the coordinator portal's consented one.
 
-        Checked structurally rather than by substring: strip the capability-
-        guarded spreads out of the admin layout's ``children`` array, and what
-        remains is the set of routes mounted *whatever the policy says*. The
-        legacy ``/outreach`` path must not be among them.
+        Checked structurally: the single ``path: "outreach"`` registration sits
+        inside the ``coordinator-portal`` children array — the preserved
+        consented ``/v1`` surface — and nowhere else. A second registration
+        outside it would be a top-level page the redirect table does not own.
         """
         code = _strip_comments(_read(ROUTES))
-        admin_children = re.search(
-            r"Component:\s*Layout\s*,\s*children:\s*\[(.*?)\n\s*\]", code, flags=re.DOTALL
+        coordinator = re.search(
+            r'path:\s*"coordinator-portal".*?children:\s*\[(.*?)\n\s*\]', code, flags=re.DOTALL
         )
-        assert admin_children is not None, "could not locate the admin layout children array"
-
-        guarded = re.search(
-            r"whenCapable\(\s*LEGACY_COLD_OUTREACH_CAPABILITIES\s*,\s*\{\s*path:\s*\"outreach\"",
-            admin_children.group(1),
+        assert coordinator is not None, "could not locate the coordinator portal children array"
+        assert 'path: "outreach"' in coordinator.group(1), (
+            "coordinator-portal/outreach is the preserved consented /v1 path and must stay routed"
         )
-        assert guarded is not None, (
-            "the legacy /outreach route must be composed through whenCapable(...) with the "
-            "capabilities it needs"
-        )
-
-        unconditional = re.sub(
-            r"\.\.\.whenCapable\(.*?\}\),", "", admin_children.group(1), flags=re.DOTALL
-        )
-        assert '"outreach"' not in unconditional, (
-            "the legacy admin /outreach route is mounted unconditionally; it must be composed "
-            "through the capability policy so the CBA product does not route to it"
+        # Every other `path:` registration, outside that children array.
+        remainder = code[: coordinator.start()] + code[coordinator.end() :]
+        assert not re.search(r'path:\s*"/?outreach"', remainder), (
+            "an /outreach page is still mounted outside the coordinator portal; "
+            "the consented successor is the only outreach route there may be"
         )
 
     def test_the_consented_coordinator_outreach_route_is_preserved(self) -> None:
@@ -183,13 +270,27 @@ class TestRouteComposition:
         )
 
     @pytest.mark.parametrize(
-        "path_literal",
-        ["dashboard", "opportunities", "pipeline", "calendar", "ai-matching"],
+        "path_literal", sorted(RETIRED_ADMIN_ADDRESSES.keys())
     )
-    def test_preserved_admin_routes_stay_mounted(self, path_literal: str) -> None:
+    def test_preserved_admin_addresses_still_resolve(self, path_literal: str) -> None:
+        """Every preserved admin address redirects to a mounted successor.
+
+        Customer §§17, 22 — "do not rebuild what works" — survive the
+        consolidation as a promise about *addresses*, not file names: the URL
+        in a bookmark or a walkthrough still lands on the surface that does
+        the job now. Both halves are checked: the redirect exists, and its
+        destination is a route this router actually registers.
+        """
+        successor = RETIRED_ADMIN_ADDRESSES[path_literal]
+        redirects = _read(REDIRECTS)
+        assert re.search(
+            rf'from:\s*"/{path_literal}"\s*,\s*to:\s*"{re.escape(successor)}"', redirects
+        ), f"/{path_literal} no longer resolves; it must redirect to {successor}"
+
         code = _strip_comments(_read(ROUTES))
-        assert f'"{path_literal}"' in code, (
-            f"/{path_literal} is preserved under CBA (customer §§17, 22) and must stay routed"
+        leaf = successor.rsplit("/", 1)[-1]
+        assert f'path: "{leaf}"' in code or f'path: "{successor.strip("/")}"' in code, (
+            f"/{path_literal} redirects to {successor}, which routes.tsx does not register"
         )
 
 
@@ -199,47 +300,76 @@ class TestRouteComposition:
 
 
 class TestNavigationComposition:
-    """The sidebar advertises only what the product offers."""
+    """The sidebar advertises only what the product offers.
 
-    def test_navigation_reads_the_shared_policy(self) -> None:
-        source = _read(LAYOUT)
-        assert "productScope" in source and "isCapabilityEnabled" in source, (
-            "Layout.tsx navigation must be composed from the shared capability policy"
-        )
+    The guarantee is the same as it was under the admin ``Layout.tsx``; the
+    mechanism is not. That shell carried a capability-filtered section list
+    because one of its entries — the cold-outreach page — was gated. The
+    Connector shell links nothing out of scope, so there is no filter left to
+    assert: what must hold is that every entry it draws resolves to a mounted,
+    in-scope successor and that no disabled capability is offered.
+    """
 
-    def test_the_legacy_outreach_nav_entry_is_capability_gated(self) -> None:
-        source = _read(LAYOUT)
-        assert _COLD in source and _EXTERNAL in source, (
-            "the legacy Outreach nav entry must declare the capabilities it requires"
-        )
+    def test_the_connector_shell_offers_no_disabled_capability(self) -> None:
+        """The successors, present; the gated page, absent.
 
-    def test_no_navigation_entry_links_to_the_gated_page_unconditionally(self) -> None:
-        """Every entry pointing at the gated page must declare what it needs.
-
-        The entry is allowed to keep its `href` — a nav item that stopped
-        naming its own destination would be harder to read, not safer. What it
-        may not do is reach the rendered sidebar without the policy having been
-        asked, so each object literal carrying `/outreach` must also carry a
-        `requires`, and the rendered list must be the filtered one.
+        The one nav entry the policy ever had to hide belonged to the retired
+        cold-outreach page. The Connector shell's only outreach link is the
+        preserved consented ``/v1`` page — so the assertion is that the
+        disabled capability names never appear in the shell's code at all.
         """
-        code = _strip_comments(_read(LAYOUT))
+        code = _strip_comments(_read(CONNECTOR_SHELL))
+        assert _COLD not in code and _EXTERNAL not in code, (
+            "the Connector shell still declares a need for a disabled capability; "
+            "the only entry that needed one is retired"
+        )
+        assert "isCapabilityEnabled" not in code and "productScope" not in code, (
+            "the Connector shell grew a capability gate with nothing gated behind it; "
+            "a filter over an all-in-scope list is a claim that something is hidden"
+        )
 
-        for entry in re.findall(r"\{[^{}]*?href:\s*\"/outreach\"[^{}]*?\}", code, flags=re.DOTALL):
-            assert "requires:" in entry, (
-                "a nav item points at /outreach without declaring the capabilities it needs; "
-                "under CBA this advertises a page the customer put out of scope (§20)"
+    def test_no_navigation_entry_links_to_the_retired_outreach_page(self) -> None:
+        """The shell's outreach link is the consented successor, only.
+
+        The retired top-level ``/outreach`` address still resolves — it
+        redirects — but the sidebar must offer the real surface, not the
+        forwarding address. An ``href`` on the retired spelling would work and
+        still be wrong: it would advertise a URL the product retired rather
+        than the page it keeps.
+        """
+        code = _strip_comments(_read(CONNECTOR_SHELL))
+        for entry in re.findall(
+            r"\{[^{}]*?href:\s*\"[^\"]*outreach[^\"]*\"[^{}]*?\}", code, flags=re.DOTALL
+        ):
+            assert 'href: "/coordinator-portal/outreach"' in entry, (
+                "a nav item points at an outreach address that is not the consented "
+                "coordinator-portal successor"
             )
-
-        assert re.search(r"offeredSections\.map\(", code), (
-            "the sidebar must render the capability-filtered sections, not the raw declaration"
+        assert 'href: "/outreach"' not in code, (
+            "a nav entry still carries the retired top-level /outreach address"
+        )
+        assert 'href: "/coordinator-portal/outreach"' in code, (
+            "the consented outreach page lost its navigation entry entirely"
         )
 
     @pytest.mark.parametrize(
-        "href", ["/dashboard", "/volunteers", "/pipeline", "/calendar", "/opportunities"]
+        "retired,successor", sorted(RETIRED_ADMIN_NAV.items())
     )
-    def test_preserved_navigation_entries_remain(self, href: str) -> None:
-        code = _strip_comments(_read(LAYOUT))
-        assert f'"{href}"' in code, f"preserved navigation entry {href} disappeared"
+    def test_preserved_navigation_entries_remain(
+        self, retired: str, successor: str
+    ) -> None:
+        """Every admin-shell nav entry's successor is still in the sidebar.
+
+        The entry moved shells and addresses with the consolidation; what may
+        not move is the offer. The sidebar must carry the successor href — and
+        each of those destinations is asserted mounted by the route tests
+        above, so a linked dead end cannot pass.
+        """
+        code = _strip_comments(_read(CONNECTOR_SHELL))
+        assert f'href: "{successor}"' in code, (
+            f"the Connector shell has no nav entry for {successor} "
+            f"(the {retired} entry's successor)"
+        )
 
 
 # ---------------------------------------------------------------------------

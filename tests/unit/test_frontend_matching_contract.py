@@ -93,7 +93,19 @@ def test_ai_matching_page_reads_the_real_match_run_api() -> None:
     source = AI_MATCHING_PAGE.read_text(encoding="utf-8")
     assert "fetchMatchRun" in source, "the shortlist page must read the real match-run API"
     assert "match-runs" in source
-    assert "getConfiguredUnitId" in source, "match runs are unit-scoped; the page must say which"
+    # Match runs are unit-scoped, so the page must say which unit — and the
+    # unit must be the one the server's portal grant named, not the
+    # `VITE_SMARTMATCH_UNIT_ID` build variable, which is unset on the deployed
+    # bundle (the shortlist could never load there) and can name a different
+    # unit than the grant on a multi-unit pilot. Deliberately changed when the
+    # page moved into the Connector shell: same scoping guarantee, read from
+    # the server's answer like every other page in the shell.
+    assert "grantedPortal" in source and "default_unit_id" in source, (
+        "match runs are unit-scoped; the page must scope itself by the granted unit"
+    )
+    assert "getConfiguredUnitId" not in source, (
+        "the build variable is unset on the deployed bundle; the granted unit is the scope"
+    )
 
 
 def test_ai_matching_page_still_has_an_honest_unavailable_state() -> None:

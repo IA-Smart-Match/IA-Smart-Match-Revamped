@@ -1,24 +1,50 @@
+/**
+ * The manual-event surface survived the Connector Dashboard consolidation.
+ *
+ * This file used to assert that the *admin shell* carried the manual-event
+ * route and nav entry. That shell (`components/Layout.tsx`) is gone: `admin`
+ * and `coordinator` are one persona and now share one shell, so the
+ * assertions were repointed at the surviving surface rather than deleted.
+ * What they guard is unchanged — the canonical unit-scoped API, the
+ * draft/publish controls, no raw `fetch`, and a locally generated QR that
+ * reports opens only.
+ */
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+import { LEGACY_ROUTE_REDIRECTS } from "../src/app/legacyRedirects.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const routes = read("../src/app/routes.tsx");
 const api = read("../src/lib/api.ts");
 const events = read("../src/app/pages/Events.tsx");
 const qr = read("../src/components/QRCodeCard.tsx");
-const layout = read("../src/app/components/Layout.tsx");
+const shell = read("../src/app/components/CoordinatorPortalLayout.tsx");
+
+/** The successor address of a retired one, or `undefined` if it was not retired. */
+function redirectFor(from: string): string | undefined {
+  return LEGACY_ROUTE_REDIRECTS.find((entry) => entry.from === from)?.to;
+}
 
 test("manual event routes use the canonical unit-scoped API", () => {
   assert.match(api, /\/v1\/units\/\$\{encodeURIComponent\(unitId\)\}\/events/);
   assert.match(routes, /path: "events"/);
-  // Main's existing routes must survive this port unchanged.
-  assert.match(routes, /path: "opportunities"/);
-  assert.match(routes, /path: "ai-matching"/);
-  assert.doesNotMatch(routes, /path: "opportunities", element: <Navigate to="\/events"/);
+  // The two admin-shell routes this file used to find at the top level are now
+  // children of the one Connector shell, reached from their old addresses by
+  // redirect. Both must still resolve to something.
+  assert.match(routes, /path: "speaker-requests"/);
+  assert.match(routes, /path: "match-runs"/);
+  assert.equal(redirectFor("/opportunities"), "/coordinator-portal/speaker-requests");
+  assert.equal(redirectFor("/ai-matching"), "/coordinator-portal/match-runs");
+  // The original point of this assertion, preserved: Speaker Requests must not
+  // be collapsed into the Events page. They are separate surfaces.
+  assert.notEqual(redirectFor("/opportunities"), "/coordinator-portal/events");
   assert.match(events, /Save draft/);
   assert.match(events, /Publish event/);
-  assert.match(layout, /name: "Events", href: "\/events"/);
+  // The nav entry moved from the deleted admin sidebar to the Connector
+  // Dashboard's "Coordinate" group, at the portal-scoped address.
+  assert.match(shell, /name: "Events", href: "\/coordinator-portal\/events"/);
 });
 
 test("manual event api.ts adapters cover create/get/patch/publish + feedback QR", () => {

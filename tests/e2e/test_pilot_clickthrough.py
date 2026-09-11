@@ -575,7 +575,9 @@ _PORTAL_PRINCIPALS: dict[str, tuple[str, str, str]] = {
     "api": ("coordinator", "coordinator", "/coordinator-portal"),
     "student_api": ("student", "student", "/student-portal"),
     "host_api": ("volunteer", "volunteer", "/volunteer-portal"),
-    "admin_api": ("admin", "admin", "/dashboard"),
+    # `admin` and `coordinator` are one persona — the Speaker Connector —
+    # so the stored `admin` role opens the same portal at the same home.
+    "admin_api": ("admin", "coordinator", "/coordinator-portal"),
 }
 
 

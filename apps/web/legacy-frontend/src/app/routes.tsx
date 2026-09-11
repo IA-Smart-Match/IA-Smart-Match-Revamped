@@ -1,43 +1,16 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { createBrowserRouter, type RouteObject } from "react-router";
-import { isCapabilityEnabled, type Capability } from "@/lib/productScope";
-import { Layout } from "./components/Layout";
+import { Navigate, createBrowserRouter, useSearchParams, type RouteObject } from "react-router";
 import { StudentLayout } from "./components/StudentLayout";
 import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
 import { VolunteerPortalLayout } from "./components/VolunteerPortalLayout";
 import { RouteFallback } from "./components/RouteFallback";
+import { NotFound } from "./components/NotFound";
+import { LEGACY_ROUTE_REDIRECTS } from "./legacyRedirects";
 import { Home } from "./pages/Home";
 import { LoginPage } from "./pages/LoginPage";
 
-// Portal/admin pages are code-split per route so the initial bundle only
-// carries the landing/login flow. Each import below becomes its own chunk.
-const Dashboard = lazy(() =>
-  import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })),
-);
-const Opportunities = lazy(() =>
-  import("./pages/Opportunities").then((m) => ({ default: m.Opportunities })),
-);
-const Volunteers = lazy(() =>
-  import("./pages/Volunteers").then((m) => ({ default: m.Volunteers })),
-);
-const Pipeline = lazy(() =>
-  import("./pages/Pipeline").then((m) => ({ default: m.Pipeline })),
-);
-const Calendar = lazy(() =>
-  import("./pages/Calendar").then((m) => ({ default: m.Calendar })),
-);
-const Outreach = lazy(() =>
-  import("./pages/Outreach").then((m) => ({ default: m.Outreach })),
-);
-const AIMatching = lazy(() =>
-  import("./pages/AIMatching").then((m) => ({ default: m.AIMatching })),
-);
-// The Speaker Connector's manual event creation/editing/publishing surface,
-// plus its per-event feedback QR. Backed by
-// `services/api/smartmatch_api/routers/manual_events.py` — `admin` writes on
-// the same `event` table the coordinator-portal `CoordinatorEvents` page (and
-// this admin shell's own `Opportunities`) already read.
-const Events = lazy(() => import("./pages/Events").then((m) => ({ default: m.Events })));
+// Portal pages are code-split per route so the initial bundle only carries the
+// landing/login flow. Each import below becomes its own chunk.
 
 const StudentHome = lazy(() =>
   import("./pages/student/StudentHome").then((m) => ({ default: m.StudentHome })),
@@ -63,6 +36,14 @@ const StudentSpeakerFeedback = lazy(() =>
 const CoordinatorHome = lazy(() =>
   import("./pages/coordinator/CoordinatorHome").then((m) => ({ default: m.CoordinatorHome })),
 );
+// Customer §12's read side for the Connector: the Speaker Requests event hosts
+// have filed with this unit. `GET /v1/units/{unit_id}/speaker-requests`,
+// `admin`/`coordinator` server-side.
+const CoordinatorSpeakerRequests = lazy(() =>
+  import("./pages/coordinator/CoordinatorSpeakerRequests").then((m) => ({
+    default: m.CoordinatorSpeakerRequests,
+  })),
+);
 const CoordinatorEvents = lazy(() =>
   import("./pages/coordinator/CoordinatorEvents").then((m) => ({ default: m.CoordinatorEvents })),
 );
@@ -80,6 +61,13 @@ const CoordinatorMatchRuns = lazy(() =>
   import("./pages/coordinator/CoordinatorMatchRuns").then((m) => ({
     default: m.CoordinatorMatchRuns,
   })),
+);
+// The run a submitted match produced, read back with its per-factor
+// explanation. Mounted by the `match-runs` route's `?run=` detail state — the
+// successor to the retired `/ai-matching?run=` address, whose redirect forwards
+// the parameter.
+const AIMatching = lazy(() =>
+  import("./pages/AIMatching").then((m) => ({ default: m.AIMatching })),
 );
 const CoordinatorInvitations = lazy(() =>
   import("./pages/coordinator/CoordinatorInvitations").then((m) => ({
@@ -110,19 +98,9 @@ const CoordinatorReviewQueue = lazy(() =>
 const VolunteerHome = lazy(() =>
   import("./pages/volunteer/VolunteerHome").then((m) => ({ default: m.VolunteerHome })),
 );
-const VolunteerAssignments = lazy(() =>
-  import("./pages/volunteer/VolunteerAssignments").then((m) => ({
-    default: m.VolunteerAssignments,
-  })),
-);
 const VolunteerSpeakerRequest = lazy(() =>
   import("./pages/volunteer/VolunteerSpeakerRequest").then((m) => ({
     default: m.VolunteerSpeakerRequest,
-  })),
-);
-const VolunteerConfirmedSpeaker = lazy(() =>
-  import("./pages/volunteer/VolunteerConfirmedSpeaker").then((m) => ({
-    default: m.VolunteerConfirmedSpeaker,
   })),
 );
 // Customer §12's read side. `GET /v1/units/{unit_id}/host/speaker-requests`
@@ -139,71 +117,99 @@ const VolunteerProfile = lazy(() =>
 
 /**
  * react-router v7's object-route `Component:` field renders the component
- * with no Suspense boundary of its own. Layout files are out of scope for
- * this lane, so each lazy page is wrapped locally here (via `element:`)
- * instead of relying on a boundary higher in the tree.
+ * with no Suspense boundary of its own, so each lazy page is wrapped locally
+ * here (via `element:`) rather than relying on a boundary higher in the tree.
  */
 function withSuspense(node: ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{node}</Suspense>;
 }
 
 /**
- * Routes that exist only when this product offers every capability they need.
+ * The match-runs address has two states: the submission form, and — when a
+ * `?run={id}` parameter names a persisted run — the shortlist that run
+ * produced, which `pages/AIMatching.tsx` renders.
  *
- * Composition asks the shared policy (`src/lib/productScope.ts`, mirroring
- * `smartmatch_domain.product_scope`) rather than restating a product decision
- * here. A route the policy has disabled is never handed to the router at all,
- * so there is no path, no chunk fetch, and nothing for a link to point at.
- *
- * Two things this is not:
- *
- * - **Not authorization.** An absent route removes a *claim*; anyone can still
- *   call the API directly, and `/v1` stays deny-by-default and tenant-scoped
- *   (`smartmatch_authz`). See the policy module's own header.
- * - **Not deletion.** The page still exists and still compiles; the customer
- *   put the capability out of scope for this phase (§20), which is a different
- *   statement from "this code is wrong".
- *
- * Every capability must be enabled, not any: a surface that composes two gated
- * capabilities must not become reachable because a later phase re-opened one.
+ * This is the successor to the retired `/ai-matching?run={id}` address: the
+ * redirect table forwards `run` onto this route, so a bookmarked shortlist
+ * still opens the run it named. An empty or whitespace-only parameter is not
+ * a run id and selects the form, same as no parameter.
  */
-function whenCapable(
-  capabilities: readonly Capability[],
-  ...routes: readonly RouteObject[]
-): RouteObject[] {
-  return capabilities.every(isCapabilityEnabled) ? [...routes] : [];
+function MatchRunsOrShortlist() {
+  const [searchParams] = useSearchParams();
+  const run = searchParams.get("run");
+  return run !== null && run.trim().length > 0 ? <AIMatching /> : <CoordinatorMatchRuns />;
 }
 
 /**
- * What the legacy admin `/outreach` page would need in order to be an honest
- * offer, and why it is two capabilities rather than one.
+ * A retired address whose successor still reads some of its query string.
  *
- * The page reaches unknown university contacts through the legacy
- * `/api/data/*` reads — cold contact of someone who never consented — *and* it
- * embeds `CrawlerFeed`, the retired external-discovery surface. Customer §20
- * puts both out of scope for this phase. Naming both here means a later phase
- * that re-opened only one of them does not silently restore the whole page.
- *
- * The preserved outreach path is the coordinator portal's, below: consented
- * `/v1` sends whose consent is re-checked at delivery. It shares a word with
- * this page and nothing else, and it is deliberately not gated.
+ * `<Navigate to>` alone would drop the parameters, and for `/ai-matching` the
+ * `?run=` parameter *is* the address: it names the persisted run the shortlist
+ * page reads. Entries that declare `forwardParams` render this instead, which
+ * copies exactly the named parameters — nothing else — onto the destination.
  */
-const LEGACY_COLD_OUTREACH_CAPABILITIES: readonly Capability[] = [
-  "cold_unknown_contact_outreach",
-  "external_speaker_acquisition",
-];
+function LegacyRouteRedirect({
+  to,
+  forwardParams,
+}: {
+  to: string;
+  forwardParams?: readonly string[];
+}) {
+  const [searchParams] = useSearchParams();
+  const forwarded = new URLSearchParams();
+  for (const name of forwardParams ?? []) {
+    const value = searchParams.get(name);
+    if (value !== null && value.trim().length > 0) {
+      forwarded.set(name, value.trim());
+    }
+  }
+  const query = forwarded.toString();
+  return <Navigate to={query === "" ? to : `${to}?${query}`} replace />;
+}
+
+/**
+ * The retired addresses, turned into route objects.
+ *
+ * `replace` so the retired path does not sit in the history stack: pressing
+ * Back onto it would only redirect forward again and trap the reader. The
+ * table itself is `app/legacyRedirects.ts`, which exists as a separate,
+ * JSX-free module so `tests/legacyRedirects.test.ts` can import and check it —
+ * see that file's header for why the mapping is data rather than ten elements
+ * scattered through this one.
+ *
+ * One of these deserves a note. `/outreach` was the legacy admin surface for
+ * *cold* contact of people who never consented, and it was gated behind
+ * `cold_unknown_contact_outreach` + `external_speaker_acquisition`, both out
+ * of scope (customer §20). It is not restored here. The address now lands on
+ * the coordinator portal's outreach page, which is a different thing sharing a
+ * word: consented `/v1` sends whose consent is re-checked at delivery. The URL
+ * survives; the retired capability does not, and no route in this file offers
+ * it any more.
+ */
+const legacyRedirectRoutes: RouteObject[] = LEGACY_ROUTE_REDIRECTS.map(
+  ({ from, to, forwardParams }) => ({
+    path: from,
+    element:
+      forwardParams === undefined ? (
+        <Navigate to={to} replace />
+      ) : (
+        <LegacyRouteRedirect to={to} forwardParams={forwardParams} />
+      ),
+  }),
+);
 
 export const router = createBrowserRouter([
   // Public routes (no sidebar) — kept static: this is the first code an
   // unauthenticated visitor needs, and lazy-loading it would add a fetch
   // round trip before anything can render at all.
-  { path: "/", Component: Home },
-  { path: "/login", Component: LoginPage },
+  { path: "/", Component: Home, errorElement: <NotFound /> },
+  { path: "/login", Component: LoginPage, errorElement: <NotFound /> },
 
   // Student portal routes
   {
     path: "student-portal",
     Component: StudentLayout,
+    errorElement: <NotFound />,
     children: [
       { index: true, element: withSuspense(<StudentHome />) },
       { path: "events", element: withSuspense(<StudentEvents />) },
@@ -220,136 +226,95 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // Event coordinator portal routes
+  // The Connector Dashboard — one shell for both stored Speaker Connector
+  // roles, `coordinator` and `admin`. The separate admin shell this replaced
+  // (`components/Layout.tsx`) is deleted; its eight addresses are in
+  // `legacyRedirectRoutes` above.
+  //
+  // Every child is mounted unconditionally, for the reason the shell's own
+  // header gives at length: a route is a claim about what exists rather than a
+  // permission. Each page behind one is authorized server-side per request —
+  // deny-by-default, tenant-scoped — whatever this router renders, and each
+  // shows the server's refusal as the answer it is rather than hiding its
+  // controls and implying the capability is absent.
   {
     path: "coordinator-portal",
     Component: CoordinatorPortalLayout,
+    errorElement: <NotFound />,
     children: [
       { index: true, element: withSuspense(<CoordinatorHome />) },
+      { path: "speaker-requests", element: withSuspense(<CoordinatorSpeakerRequests />) },
+      // The queue behind the home screen's `pending_review_items` badge and
+      // the sidebar's Review queue count. `GET /v1/units/{unit_id}/review-items`
+      // has existed since before anything linked to it.
+      { path: "review-queue", element: withSuspense(<CoordinatorReviewQueue />) },
+      // One events page. The Connector's create/edit/publish controls and the
+      // per-event feedback QR live here alongside the unit's listing, rather
+      // than on a second page in a second shell — both surfaces were
+      // `admin`+`coordinator` server-side all along.
       { path: "events", element: withSuspense(<CoordinatorEvents />) },
-      { path: "outreach", element: withSuspense(<CoordinatorOutreach />) },
-      // Customer §13's speaker-contact roster. Mounted unconditionally like
-      // every other route in this shell: the capability that gates the *API* is
-      // `speaker_contact_management`, and it is on under both product scopes,
-      // so there is nothing here for `whenCapable` to remove. A UI gate is not
-      // authorization in any case — the server decides, per request, and this
-      // page is behind `admin`/`coordinator` there regardless of what the
-      // browser renders.
+      // Card B24's replacement: the Connector submits a real match run against
+      // a filed Speaker Request. `POST /v1/units/{unit_id}/match-runs`.
+      // The same address with a `?run={id}` is the run's detail state — the
+      // shortlist viewer the retired `/ai-matching` page held. One address,
+      // two states: the parameter selects which page mounts.
+      {
+        path: "match-runs",
+        element: withSuspense(<MatchRunsOrShortlist />),
+      },
+      // §13's compose step, reached from a shortlist link carrying `?run={id}`.
+      // `POST /v1/units/{unit_id}/speaker-invitations/batches` repeats the
+      // consent check at dispatch and again at delivery.
+      { path: "invitations", element: withSuspense(<CoordinatorInvitations />) },
+      // The internal CBA meeting record (migration `0034`), `GET`/`POST
+      // /v1/units/{unit_id}/meetings`. A *record*, not a booking — nothing
+      // behind it sends an invitation or writes to anybody's calendar, and the
+      // page says so on screen.
+      { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
+      // Customer §13's roster of professionals this unit knows.
       { path: "speaker-contacts", element: withSuspense(<CoordinatorSpeakerContacts />) },
-      // Customer §16's Connector read of student feedback, aggregate-only per
-      // OQ-CBA-003 part 1. Mounted unconditionally for the reason the roster
-      // above is: a route is a claim about what exists rather than a
-      // permission. `GET .../speakers/{speaker_id}/feedback-summary` is
+      // §16's Connector read of student feedback, aggregate-only per
+      // OQ-CBA-003 part 1. `GET .../speakers/{speaker_id}/feedback-summary` is
       // `admin`/`coordinator` server-side whatever the router renders, and
       // there is deliberately no route listing individual ratings for a later
       // page to reach for.
       { path: "speaker-feedback", element: withSuspense(<CoordinatorSpeakerFeedback />) },
-      // Card B24's replacement: the Connector submits a real match run against
-      // a filed Speaker Request. Mounted unconditionally for the same reason
-      // the roster above is — the capability gating the *API* is on under both
-      // product scopes, and a route is a claim about what exists rather than a
-      // permission. `POST /v1/units/{unit_id}/match-runs` is authorized
-      // server-side per request whatever the router renders.
-      { path: "match-runs", element: withSuspense(<CoordinatorMatchRuns />) },
-      // §13's compose step, reached from a shortlist link carrying `?run={id}`.
-      // Mounted unconditionally for the reason the two routes above are: a
-      // route is a claim about what exists rather than a permission, and
-      // `POST /v1/units/{unit_id}/speaker-invitations/batches` is authorized
-      // server-side per request — deny-by-default, `admin`/`coordinator` only,
-      // and with the consent check repeated at dispatch and again at delivery —
-      // whatever this router renders.
-      { path: "invitations", element: withSuspense(<CoordinatorInvitations />) },
-      // §5's "one configurable location" for the four-factor weighting, and the
-      // panel `cba-phase-deferred.md` deferred in writing. Mounted
-      // unconditionally for the reason the routes above are: a route is a claim
-      // about what exists rather than a permission, and both
-      // `GET`/`PATCH /v1/units/{unit_id}/matching-weights` are authorized
-      // server-side per request — `admin`/`coordinator`, deny-by-default,
-      // tenant-scoped — whatever this router renders. The page shows the
-      // server's refusal rather than hiding the control.
+      // The consented outreach record over `contact_channel`. Deliberately not
+      // capability-gated: this is the preserved path, distinct from the retired
+      // cold-contact page that once held the `/outreach` address.
+      { path: "outreach", element: withSuspense(<CoordinatorOutreach />) },
+      // §5's "one configurable location" for the four-factor weighting. Both
+      // `GET`/`PATCH /v1/units/{unit_id}/matching-weights` are
+      // `admin`/`coordinator`, deny-by-default and tenant-scoped; the page
+      // shows the server's refusal rather than hiding the control.
       { path: "matching-weights", element: withSuspense(<CoordinatorMatchingWeights />) },
-      // The internal CBA meeting record (migration `0034`). This route already
-      // existed, pointing at a `PortalDatasetUnavailable` placeholder for the
-      // legacy `/api/portals/event-coordinators/{id}/meetings` dataset; what
-      // changed is that the page behind it now reads and writes a real `/v1`
-      // surface, `GET`/`POST /v1/units/{unit_id}/meetings`.
-      //
-      // Mounted unconditionally for the reason its siblings above are: a route
-      // is a claim about what exists rather than a permission. Both routes are
-      // `admin`/`coordinator` server-side, authorized per request against the
-      // loaded unit, whatever this router renders.
-      //
-      // The page is a *record*, not a booking — nothing behind it sends an
-      // invitation or writes to anybody's calendar, and G5 stays deferred. The
-      // page says so on screen, because a coordinator who believed otherwise
-      // would stop arranging the meeting themselves.
-      { path: "meetings", element: withSuspense(<CoordinatorMeetings />) },
-      // The queue behind the dashboard's `pending_review_items` badge. Until
-      // `GET /v1/units/{unit_id}/review-items` existed the count had no route
-      // to click through to, so the coordinator home screen showed a number it
-      // could not explain.
-      //
-      // Appended at the end of this list rather than placed beside a related
-      // entry, for a merge reason rather than a taxonomic one: several tracks
-      // add children here at once, and an insertion in the middle conflicts
-      // with every one of them.
-      //
-      // Mounted unconditionally, for the reason every route above it is: a
-      // route is a claim about what exists rather than a permission. Both
-      // `GET /v1/units/{unit_id}/review-items` and
-      // `POST /v1/review-items/{id}/decision` are authorized server-side per
-      // request — `admin`/`coordinator`, deny-by-default, tenant-scoped, with
-      // another tenant's unit answering `404` rather than `403` — whatever
-      // this router renders. The page shows the server's refusal instead of
-      // hiding the controls and implying the capability is absent.
-      { path: "review-queue", element: withSuspense(<CoordinatorReviewQueue />) },
     ],
   },
 
-  // Volunteer portal routes
+  // Event Host portal routes
   {
     path: "volunteer-portal",
     Component: VolunteerPortalLayout,
+    errorElement: <NotFound />,
     children: [
       { index: true, element: withSuspense(<VolunteerHome />) },
       // Customer §12's Event Host intake. Mounted unconditionally like every
       // other route in this shell: the capability that gates the *API* is
-      // `speaker_request_intake`, and it is on under both product scopes, so
-      // there is nothing here for `whenCapable` to remove. A UI gate is not
-      // authorization in any case — the server decides, per request.
+      // `speaker_request_intake`, and it is on under both product scopes. A UI
+      // gate is not authorization in any case — the server decides, per request.
       { path: "speaker-request", element: withSuspense(<VolunteerSpeakerRequest />) },
-      // Customer §6 step 9: the other end of the intake above. Mounted
-      // unconditionally for the same reason it is — a route is a claim about
-      // what exists, not a permission. `GET .../cba/confirmed-speakers` and the
-      // hand-off `POST` beside it are `admin`/`coordinator` server-side
-      // whatever the router renders, and the page treats the refusal as an
-      // answer rather than hiding the control.
-      { path: "confirmed-speaker", element: withSuspense(<VolunteerConfirmedSpeaker />) },
-      // OQ-CBA-014's read side. Mounted unconditionally like its siblings — a
-      // route is a claim about what exists, not a permission. `GET
-      // .../host/speaker-requests` is `volunteer`-only server-side, and the
-      // page renders a coordinator's or admin's 403 as the answer it is.
+      // OQ-CBA-014's read side. `GET .../host/speaker-requests` is
+      // `volunteer`-only server-side, and the page renders a coordinator's or
+      // admin's 403 as the answer it is.
       { path: "my-requests", element: withSuspense(<VolunteerMyRequests />) },
-      { path: "assignments", element: withSuspense(<VolunteerAssignments />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],
   },
 
-  // IA Admin routes (with sidebar layout — pathless layout route)
-  {
-    Component: Layout,
-    children: [
-      { path: "dashboard", element: withSuspense(<Dashboard />) },
-      { path: "opportunities", element: withSuspense(<Opportunities />) },
-      { path: "events", element: withSuspense(<Events />) },
-      { path: "volunteers", element: withSuspense(<Volunteers />) },
-      { path: "ai-matching", element: withSuspense(<AIMatching />) },
-      { path: "pipeline", element: withSuspense(<Pipeline />) },
-      { path: "calendar", element: withSuspense(<Calendar />) },
-      ...whenCapable(LEGACY_COLD_OUTREACH_CAPABILITIES, {
-        path: "outreach",
-        element: withSuspense(<Outreach />),
-      }),
-    ],
-  },
+  // Every address the consolidation retired, pointed at its successor.
+  ...legacyRedirectRoutes,
+
+  // Anything else. An honest 404 rather than react-router's stock
+  // "Unexpected Application Error!" with a stack trace — see `NotFound`.
+  { path: "*", element: <NotFound /> },
 ]);

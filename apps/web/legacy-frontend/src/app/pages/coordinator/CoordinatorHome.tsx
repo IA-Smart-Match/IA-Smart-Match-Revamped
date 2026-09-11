@@ -43,9 +43,11 @@
  * defect these placeholders exist to prevent: a reader told they are looking at
  * threads goes looking for replies that are not withheld but absent.
  *
- * **Meeting bookings** still has no `/v1` answer and keeps its panel. Deleting
- * it alongside the others would turn a named absence into an unnamed one, which
- * is the direction this page is built to refuse.
+ * **Meeting bookings** was the fourth, and kept its panel while that was true.
+ * It no longer is: `GET`/`POST /v1/units/{unit_id}/meetings` (migration
+ * `0034`) are live and `CoordinatorMeetings` reads and writes them. The panel
+ * came down with the others — see the addendum below — and this page now
+ * renders no unavailable panel at all.
  *
  * What *is* real on this page comes from `/v1` routes and nothing else:
  * `GET /v1/me` for who the caller is, `GET /v1/me/portals` for the portal the
@@ -68,10 +70,15 @@
  * another. This page already holds the granted unit, because its identity card
  * is built from it.
  *
- * The second is who arrives. `Dashboard.tsx` sits behind the IA admin shell
- * (`Layout`), not `CoordinatorPortalLayout`, and a Connector clicking through
- * the pilot never reaches it. Statistics nobody in the audience can see are not
- * statistics.
+ * The second is who arrives. `Dashboard.tsx` sat behind a second, admin-only
+ * shell that a Connector clicking through the pilot never reached, and
+ * statistics nobody in the audience can see are not statistics.
+ *
+ * Both shells are now one. `admin` and `coordinator` are the same persona, so
+ * `Layout.tsx` and `Dashboard.tsx` are retired and `/dashboard` redirects
+ * here. This page is the Connector home screen for both stored roles, and it
+ * is still scoped by the *granted* unit rather than a build variable — which
+ * is why the retirement was a redirect to this page rather than the reverse.
  *
  * ## Every number here has one owning server query (ADR-0011)
  *
@@ -134,9 +141,38 @@
  * `CoordinatorSpeakerFeedback.tsx`.
  *
 
- * The review queue is the same shape of gap in the opposite direction: its
- * *size* is a registered metric and appears below, but there is still no route
- * that lists the items, so no queue is drawn.
+ * ## Two gaps that closed, addendum 10 September 2026
+ *
+ * This header used to say the review queue was "the same shape of gap in the
+ * opposite direction" — size measurable, items unlistable — and a panel at the
+ * foot of the page said so at length, naming `GET /v1/review-items` as a
+ * deferred follow-up. That route landed:
+ * `GET /v1/units/{unit_id}/review-items` (`routers/review.py`) has existed
+ * since before this page was last read, and `CoordinatorReviewQueue` has been
+ * rendering it at `/coordinator-portal/review-queue` the whole time —
+ * reachable by URL and linked from nowhere. The page was telling a Connector
+ * that a working page did not exist.
+ *
+ * `Meeting bookings` was the second. It carried a `PortalDatasetUnavailable`
+ * panel naming the retired `/api/portals/event-coordinators/{id}/meetings`
+ * feed, while `GET`/`POST /v1/units/{unit_id}/meetings` (migration `0034`)
+ * were live and `CoordinatorMeetings` was already reading and writing them.
+ *
+ * An unavailable panel is a claim, and it has to come down when it stops
+ * being true — the same fabricated-equivalence defect those panels exist to
+ * prevent, pointed the other way. Both are gone. The action queue at the top
+ * counts the pending review items from the real route and links straight to
+ * them; the count and the queue derive a row's owning unit through the same
+ * join, which is why the badge and the page cannot disagree.
+ *
+ * ## Order: what to do, then what is coming, then what happened
+ *
+ * `DESIGN.md` puts the action queue before summary statistics on a Speaker
+ * Connector home page, and this page now reads in that order — the queue, then
+ * this week's events, then the measured aggregates. A reader arriving at work
+ * wants the four things waiting for them, not six metric cards about last
+ * month; the metrics are why the work matters and they keep their place, at
+ * the bottom.
  *
  * ## Not authorization
  *
@@ -147,7 +183,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BarChart3, CalendarDays, Info, Mail, MessageSquareHeart } from "lucide-react";
+import {
+  BarChart3,
+  CalendarDays,
+  ClipboardCheck,
+  Inbox,
+  Info,
+  Mail,
+  MessageSquareHeart,
+  Send,
+  Target,
+} from "lucide-react";
 
 import {
   ApiRequestError,
@@ -155,16 +201,23 @@ import {
   fetchCbaUnitMetrics,
   fetchOutreachDrafts,
   fetchOutreachSends,
+  fetchReviewItems,
+  fetchSpeakerInvitationBatches,
+  fetchSpeakerRequests,
   fetchUnitEvents,
   fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
   type MetricSummary,
   type OutreachDraft,
   type OutreachSendSummary,
+  type ReviewItemListResponse,
+  type SpeakerInvitationBatchListResponse,
+  type SpeakerRequestList,
   type UnitEventList,
+  type UnitEventSummary,
   type UnitFeedbackSummary,
 } from "../../../lib/api";
-import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
+import { PortalIdentityCard } from "../../components/PortalContent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
@@ -796,57 +849,289 @@ function OutreachDraftsAndSends({
 }
 
 /**
- * The review queue, and why it is empty rather than absent.
+ * The action queue: the four things waiting for a Connector, before anything
+ * that merely describes the past.
  *
- * This is a *different* gap from the `/api/portals/*` panels above, and it is
- * stated separately because conflating them would hide it. The review workflow
- * genuinely lives in this API — `POST /v1/review-items/{review_item_id}/decision`
- * exists and works — but there is **no list route**. A coordinator can decide
- * a review item only if they already know its id, and no `/v1` path yields
- * one: `scripts/compose_smoke.sh` and the E2E suite both read the id straight
- * out of the database.
+ * `DESIGN.md` puts the action queue ahead of summary statistics on this page,
+ * and the reason is the shape of the job. A Speaker Connector arriving at work
+ * needs to know what is unanswered — a host has filed a request, an import is
+ * waiting on a decision — not what the mean attendance was. The metrics are
+ * still here; they are last, which is where a figure you consult belongs
+ * relative to a task you owe.
  *
- * TRACK 14 narrowed this by exactly one fact and no more. The *size* of the
- * queue is a registered metric (`pending_review_items`), so the count above is
- * real and server-owned. The items themselves are still unlistable, and drawing
- * an empty list beside a non-zero count would be worse than drawing nothing:
- * it would contradict a measured number on the same screen.
+ * ## Four rows, and three different kinds of honesty
  *
- * So this portal still cannot render a queue, and it says so instead of
- * rendering an empty one. An empty list would be a claim that there is nothing
- * to review, which is a statement about the data; the truth is a statement
- * about the API (ADR-0011: unknown is never zero). Fetching the ids from the
- * database to fill it in was explicitly ruled out — a frontend that reaches
- * around a missing endpoint makes the endpoint's absence invisible and
- * un-fixable.
+ * Each row links to the page that acts on it, and each says exactly what its
+ * number is a number of:
  *
- * Adding `GET /v1/review-items` is the follow-up. It was left out of this PR
- * deliberately: it needs decisions about filtering, pagination, and which
- * statuses are visible to which roles, and those are not decisions to make as
- * a side effect of a login change.
+ *  - **Speaker requests** and **Items waiting for review** are counts of the
+ *    rows the linked page will show, read from the same route that page reads.
+ *    Badge and page cannot disagree.
+ *  - **Invitation batches** is deliberately *not* labelled "open invitations".
+ *    `GET .../speaker-invitations/batches` returns batch summaries, and a
+ *    summary carries no per-invitation answer — accepted, declined, or
+ *    unanswered are on the batch detail. Counting batches and calling them
+ *    open invitations would be this page inventing a figure the response does
+ *    not contain, so it counts what it has and names it.
+ *  - **Match runs with a shortlist** has no count at all, because there is no
+ *    route that lists match runs. `GET /v1/units/{u}/match-runs/{id}` fetches
+ *    one by id; nothing enumerates them. The row stays — the work is real and
+ *    reachable — and says why it carries no number instead of showing a zero.
+ *    ADR-0011 rule 1: "we cannot ask" is never "there are none".
+ *
+ * A row whose read has not settled shows no number either, and a row whose
+ * read failed shows the server's own refusal. Neither is drawn as a zero.
+ *
+ * Nothing here is computed. Every number is the length of a list the server
+ * sent, and where a list arrived truncated the row says `N+` rather than
+ * printing the server's cap as though it were a total.
  */
-function ReviewQueueUnavailable() {
+function ActionRow({
+  icon: Icon,
+  title,
+  to,
+  linkLabel,
+  state,
+  count,
+  truncated,
+  unavailable,
+}: {
+  icon: typeof Inbox;
+  title: string;
+  to: string;
+  linkLabel: string;
+  /** The read behind the count, for its error and settled facts. */
+  state: { error: string | null; settled: boolean };
+  /** The number of rows the linked page will show, or `null` when unknown. */
+  count: number | null;
+  truncated: boolean;
+  /** Why this row can carry no number at all, when that is a property of the API. */
+  unavailable?: string;
+}) {
   return (
-    <section
-      className="rounded-2xl border border-dashed border-border bg-muted/30 p-6"
-      aria-label="Review queue unavailable"
-    >
-      <h2 className="font-semibold text-foreground">Review queue is not listable yet</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-        The count of pending review items above is real and comes from the register. What is
-        missing is the queue itself: this API can record a review decision (
-        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-          POST /v1/review-items/&#123;id&#125;/decision
-        </code>
-        ) but has no route that lists the items awaiting one, so there is no queue to draw. An
-        empty list here would contradict the count on the same screen — the items exist, and it
-        is the reading of them that has no endpoint.
+    <li className="flex min-h-[40px] flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border border-border/70 p-4">
+      <Icon className="h-4 w-4 shrink-0 self-center text-muted-foreground" aria-hidden="true" />
+      <span className="font-medium text-foreground">{title}</span>
+
+      {unavailable !== undefined ? (
+        <span className="basis-full text-sm leading-6 text-muted-foreground">{unavailable}</span>
+      ) : state.error !== null ? (
+        <span className="basis-full text-sm leading-6 text-foreground" role="alert">
+          {state.error}
+        </span>
+      ) : count === null ? (
+        <span className="text-sm text-muted-foreground">
+          {state.settled ? "The server returned no list." : "Loading…"}
+        </span>
+      ) : (
+        <span className="text-sm tabular-nums text-foreground">
+          {count}
+          {truncated ? "+" : ""}
+        </span>
+      )}
+
+      <Link
+        className="ml-auto shrink-0 text-sm font-medium text-foreground underline underline-offset-4"
+        to={to}
+      >
+        {linkLabel}
+      </Link>
+    </li>
+  );
+}
+
+function ActionQueue({
+  speakerRequests,
+  reviewItems,
+  invitationBatches,
+}: {
+  speakerRequests: Loaded<SpeakerRequestList>;
+  reviewItems: Loaded<ReviewItemListResponse>;
+  invitationBatches: Loaded<SpeakerInvitationBatchListResponse>;
+}) {
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="What needs your attention">
+      <h2 className="font-semibold text-foreground">What needs your attention</h2>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        Each line counts the rows the linked page will show, read from the same route that page
+        reads. A line with no number says why it has none.
       </p>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        Needs: <code className="rounded bg-muted px-1.5 py-0.5">GET /v1/review-items</code>{" "}
-        (follow-up; deferred because it requires decisions about filtering, pagination, and
-        per-role visibility).
+
+      <ul className="mt-4 space-y-3">
+        <ActionRow
+          icon={Inbox}
+          title="Speaker requests filed by event hosts"
+          to="/coordinator-portal/speaker-requests"
+          linkLabel="Open speaker requests"
+          state={speakerRequests}
+          count={speakerRequests.data?.requests.length ?? null}
+          truncated={speakerRequests.data?.truncated ?? false}
+        />
+        <ActionRow
+          icon={ClipboardCheck}
+          title="Imported records waiting for a decision"
+          to="/coordinator-portal/review-queue"
+          linkLabel="Open review queue"
+          state={reviewItems}
+          count={reviewItems.data?.items.length ?? null}
+          truncated={reviewItems.data?.truncated ?? false}
+        />
+        <ActionRow
+          icon={Target}
+          title="Match runs with a shortlist"
+          to="/coordinator-portal/match-runs"
+          linkLabel="Run a match"
+          state={{ error: null, settled: true }}
+          count={null}
+          truncated={false}
+          unavailable={
+            "This API fetches one match run by id and has no route that lists them, so there is " +
+            "no number to show here. Runs you start are reachable from the shortlist link the " +
+            "run itself returns."
+          }
+        />
+        <ActionRow
+          icon={Send}
+          title="Invitation batches composed"
+          to="/coordinator-portal/invitations"
+          linkLabel="Open invitations"
+          state={invitationBatches}
+          count={invitationBatches.data?.batches.length ?? null}
+          truncated={false}
+        />
+      </ul>
+
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+        Batches, not invitations: the batch list carries no per-invitation answer, so who accepted
+        or declined is on each batch rather than in this count. The batch list is also a server
+        page rather than a total — it reports its own limit and offset and no count of everything
+        behind them.
       </p>
+    </section>
+  );
+}
+
+/**
+ * The events starting in the next seven days.
+ *
+ * A window over the listing already fetched for the summary panel below — no
+ * second request, and no second opinion about which events this unit has.
+ *
+ * ## Which events can be in it, and which cannot
+ *
+ * Only an event whose time the server resolved to an **instant** can be
+ * compared against "now". A `date_only` event has a calendar date and no hour,
+ * and placing it in or out of a seven-day window would mean choosing a moment
+ * for it — the invented midnight ADR-0010 exists to forbid, which moves an
+ * event across a day boundary for any reader west of the source.
+ *
+ * So those events are excluded, and the exclusion is stated on screen. An
+ * unexplained short list is indistinguishable from a quiet week, and telling
+ * those two apart is the whole point of this section.
+ *
+ * ## It is stated in words and not as a count
+ *
+ * The notice says *that* some events were left out, never *how many*. This
+ * surface computes nothing — every number on it is one the server chose to
+ * send (`test_frontend_dashboard_stats_contract.py`), and a tally of excluded
+ * rows would be a figure this browser derived and no query owns. The link to
+ * the full events page is what a reader who wants the actual set follows.
+ *
+ * Selecting and ordering rows is not computing a value: no number below is
+ * rendered from an arithmetic result.
+ */
+function ThisWeeksEvents({ state }: { state: Loaded<UnitEventList> }) {
+  const listing = state.data;
+  const now = Date.now();
+  const horizon = now + 7 * 24 * 60 * 60 * 1000;
+
+  /** An event the server pinned to an instant, which is the only kind this window can judge. */
+  function startsAtInstant(event: UnitEventSummary): number | null {
+    if (event.time.precision !== "exact" || event.time.starts_at === null) {
+      return null;
+    }
+    const parsed = new Date(event.time.starts_at).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const all = listing?.events ?? [];
+  const upcoming = all
+    .filter((event) => {
+      const at = startsAtInstant(event);
+      return at !== null && at >= now && at <= horizon;
+    })
+    .sort((a, b) => (startsAtInstant(a) as number) - (startsAtInstant(b) as number));
+  const someHaveNoSettledHour = all.some((event) => startsAtInstant(event) === null);
+
+  return (
+    <section className="rounded-2xl border border-border p-6" aria-label="This week">
+      <div className="flex items-start gap-2">
+        <CalendarDays
+          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div>
+          <h2 className="font-semibold text-foreground">Starting in the next seven days</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            From the same listing the events panel below reads. Each time is shown in the
+            event&apos;s own zone, not yours.
+          </p>
+        </div>
+      </div>
+
+      {state.error !== null ? (
+        <p
+          role="alert"
+          className="mt-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
+        >
+          {state.error}
+        </p>
+      ) : listing === null ? (
+        <p className="mt-4 text-sm text-muted-foreground" role="status">
+          {state.settled ? "The listing returned nothing." : "Loading this unit's events…"}
+        </p>
+      ) : (
+        <>
+          {upcoming.length === 0 ? (
+            <p className="mt-4 text-sm leading-6 text-muted-foreground">
+              No event with a resolved start time falls in the next seven days.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {upcoming.map((event) => (
+                <li
+                  key={event.id}
+                  className="flex min-h-[40px] flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border border-border/70 p-3"
+                >
+                  <span className="font-medium text-foreground">{event.title}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {new Date(event.time.starts_at as string).toLocaleString(undefined, {
+                      timeZone: event.time.time_zone ?? undefined,
+                      timeZoneName: "short",
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {someHaveNoSettledHour && (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              This unit also holds events with a date but no settled hour. They are not placed in
+              or out of this window, because choosing a time for them would move them across a day
+              boundary for some readers. No tally of them is shown here — this page states only
+              figures the server sent.{" "}
+              <Link
+                className="font-medium text-foreground underline underline-offset-4"
+                to="/coordinator-portal/events"
+              >
+                See all events
+              </Link>
+              .
+            </p>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -867,13 +1152,58 @@ export function CoordinatorHome() {
   const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
   const [drafts, setDrafts] = useState<Loaded<OutreachDraft[]>>(PENDING);
   const [sends, setSends] = useState<Loaded<OutreachSendSummary[]>>(PENDING);
+  // The three action-queue reads. Settled independently of each other and of
+  // everything above, for the reason the rest of this page is: a refusal on
+  // one route says nothing about another, and one banner over all of them
+  // would misreport which capability the server actually withheld.
+  const [speakerRequests, setSpeakerRequests] = useState<Loaded<SpeakerRequestList>>(PENDING);
+  const [reviewItems, setReviewItems] = useState<Loaded<ReviewItemListResponse>>(PENDING);
+  const [invitationBatches, setInvitationBatches] =
+    useState<Loaded<SpeakerInvitationBatchListResponse>>(PENDING);
 
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Six independent reads, settled independently. Letting one refusal
+    // Nine independent reads, settled independently. Letting one refusal
     // decide what another section shows would misreport which capability the
     // server actually withheld.
+    //
+    // The three action-queue reads run first because the queue renders first:
+    // the four things a Connector owes are the reason they opened this page,
+    // and the metrics below can finish arriving while they read them.
+    try {
+      const listing = await fetchSpeakerRequests(unitId);
+      setSpeakerRequests({ data: listing, error: null, settled: true });
+    } catch (cause) {
+      setSpeakerRequests({
+        data: null,
+        error: describeFailure(cause, "The unit's speaker requests"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchReviewItems(unitId, "pending");
+      setReviewItems({ data: listing, error: null, settled: true });
+    } catch (cause) {
+      setReviewItems({
+        data: null,
+        error: describeFailure(cause, "The review queue"),
+        settled: true,
+      });
+    }
+
+    try {
+      const listing = await fetchSpeakerInvitationBatches(unitId);
+      setInvitationBatches({ data: listing, error: null, settled: true });
+    } catch (cause) {
+      setInvitationBatches({
+        data: null,
+        error: describeFailure(cause, "The invitation batches"),
+        settled: true,
+      });
+    }
+
     try {
       const response = await fetchCbaUnitMetrics(unitId);
       setMetrics({ data: response.metrics, error: null, settled: true });
@@ -976,6 +1306,15 @@ export function CoordinatorHome() {
         </section>
       ) : (
         <>
+          {/* Action queue first, then what is coming, then the measured
+              aggregates — `DESIGN.md`'s order for a Connector home page. */}
+          <ActionQueue
+            speakerRequests={speakerRequests}
+            reviewItems={reviewItems}
+            invitationBatches={invitationBatches}
+          />
+          <ThisWeeksEvents state={events} />
+
           <RegisteredMetrics state={metrics} />
           <AttendanceEvidence state={attendance} />
           <StudentFeedbackPointer state={feedback} />
@@ -983,18 +1322,6 @@ export function CoordinatorHome() {
           <OutreachDraftsAndSends drafts={drafts} sends={sends} />
         </>
       )}
-
-      <div className="space-y-4">
-        {/* Meeting bookings has no `/v1` answer today, so it stays a named
-            absence rather than being quietly dropped now that the panels
-            around it have landed. */}
-        <PortalDatasetUnavailable
-          dataset="Meeting bookings"
-          endpoints={["/api/portals/event-coordinators/{id}/meetings"]}
-        />
-      </div>
-
-      <ReviewQueueUnavailable />
     </div>
   );
 }
