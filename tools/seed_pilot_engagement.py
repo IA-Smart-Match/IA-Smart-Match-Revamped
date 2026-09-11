@@ -71,10 +71,13 @@ anywhere moved to make any of these rows readable.
 Idempotent throughout, by the same rule the rest of this family applies:
 attendance is ``ON CONFLICT DO NOTHING`` on ``(tenant, subject, event)``, a
 credit is refused twice by ``uq_point_ledger_entry_attendance_credit``,
-registration is idempotent on its natural key, an open redemption is idempotent
-on ``uq_redemption_open_per_item``, a reward item with identical values is a
-verified repeat, and a meeting is matched on ``(unit, title)`` before it is
-written. A second run reports and changes nothing.
+registration is idempotent on its natural key, a redemption is matched on
+``(subject, item)`` before it is opened — the partial
+``uq_redemption_open_per_item`` index cannot do that alone, because it neither
+sees a terminal row nor runs before the balance check — a reward item with
+identical values is a verified repeat, and a meeting is matched on
+``(unit, title)`` before it is written. A second run reports and changes
+nothing.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 from seed_pilot_rewards import seed_reward_item
 from smartmatch_api.config import Settings
 from smartmatch_domain.events import DateOnlyTime
-from smartmatch_domain.rewards import RedemptionState
+from smartmatch_domain.rewards import Redemption, RedemptionState
 from smartmatch_domain.speaker_requests import SpeakerRequestDraft
 from smartmatch_domain.synthetic_pilot import SYNTHETIC_ATTENDANCE_METHOD
 from smartmatch_persistence import schema
@@ -365,6 +368,7 @@ class EngagementReport:
     cancellations: int = 0
     redemptions_opened: int = 0
     redemptions_advanced: int = 0
+    redemptions_existing: int = 0
     meetings_created: int = 0
     meetings_existing: int = 0
     host_requests_filed: int = 0
@@ -378,7 +382,8 @@ class EngagementReport:
             f"attendance_record written={self.attendances}",
             f"point_ledger_entry credits={self.ledger_credits}",
             f"event_registration registered={self.registrations} cancelled={self.cancellations}",
-            f"redemption opened={self.redemptions_opened} advanced={self.redemptions_advanced}",
+            f"redemption opened={self.redemptions_opened} "
+            f"advanced={self.redemptions_advanced} existing={self.redemptions_existing}",
             f"cba_meeting created={self.meetings_created} existing={self.meetings_existing}",
             f"event (host-filed Speaker Request) filed={self.host_requests_filed}",
         )
@@ -515,15 +520,19 @@ def _seed_student(
         )
 
     for event_id in attended:
-        attendance_id = attendance.record_attendance(
+        outcome = attendance.record_attendance(
             session,
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=student_id,
             event_id=event_id,
             method=SYNTHETIC_ATTENDANCE_METHOD,
-        ).attendance_id
-        report.attendances += 1
+        )
+        if outcome.created:
+            # The counter counts this run's writes, not its checks — on a
+            # re-run the row already exists and the report must not claim it.
+            report.attendances += 1
+        attendance_id = outcome.attendance_id
         try:
             rewards.credit_attendance(session, tenant_id=tenant_id, attendance_id=attendance_id)
             report.ledger_credits += 1
@@ -555,21 +564,62 @@ def _seed_student(
         return
 
     wanted = upcoming[:wanted_total]
-    for event_id in wanted:
-        result = registrations.register(
+
+    # Reconcile, never blindly rewrite: on a re-run the places are already
+    # held and the given-up ones already cancelled. Calling ``register`` on a
+    # cancelled row would move it back to ``registered`` — a real write — so
+    # the desired state per event is compared first, and the repository is
+    # asked only when the row is not already there.
+    existing_status: dict[uuid.UUID, str] = {
+        uuid.UUID(str(row.event_id)): str(row.status)
+        for row in session.execute(
+            sa.select(
+                schema.event_registration.c.event_id,
+                schema.event_registration.c.status,
+            ).where(
+                schema.event_registration.c.tenant_id == tenant_id,
+                schema.event_registration.c.subject_id == student_id,
+                schema.event_registration.c.event_id.in_(wanted),
+            )
+        ).all()
+    }
+
+    kept = wanted[: len(wanted) - STUDENT_CANCELLATIONS]
+    for event_id in kept:
+        if existing_status.get(event_id) == "registered":
+            continue
+        if registrations.register(
             session,
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=student_id,
             event_id=event_id,
-        )
-        if result.created:
+        ).changed:
             report.registrations += 1
 
     for event_id in wanted[len(wanted) - STUDENT_CANCELLATIONS :]:
-        registrations.cancel(session, tenant_id=tenant_id, subject_id=student_id, event_id=event_id)
-        report.cancellations += 1
-        report.registrations = max(report.registrations - 1, 0)
+        status = existing_status.get(event_id)
+        if status == "cancelled":
+            continue
+        # A cancellation needs a held place to give up: ``cancel`` writes no
+        # row where none exists, so the registration is written first — the
+        # same two-step shape the first run always takes.
+        if (
+            status is None
+            and registrations.register(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=unit_id,
+                subject_id=student_id,
+                event_id=event_id,
+            ).changed
+        ):
+            report.registrations += 1
+        if registrations.cancel(
+            session, tenant_id=tenant_id, subject_id=student_id, event_id=event_id
+        ).changed:
+            report.cancellations += 1
+            report.registrations = max(report.registrations - 1, 0)
 
 
 def _seed_redemptions(
@@ -581,7 +631,7 @@ def _seed_redemptions(
     item_ids: dict[str, uuid.UUID],
     report: EngagementReport,
 ) -> None:
-    """Open every planned redemption first, then advance them.
+    """Open every planned redemption first, then advance them — once.
 
     See :data:`REDEMPTION_PLAN` for why that order is required rather than tidy.
     ``actor_id`` is the coordinator on every hop that needs one: an approval, a
@@ -589,9 +639,29 @@ def _seed_redemptions(
     an approval with no author. An expiry would take none — time is not a person
     — and this plan contains no expiry for that reason, since a seeded one would
     have to name nobody and would read as a row missing its actor.
+
+    A re-run does **not** go back through
+    :meth:`RewardsRepository.open_redemption`. That method folds the balance and
+    lets :func:`smartmatch_domain.rewards.request_redemption` refuse a cost the
+    balance does not cover *before* the ``ON CONFLICT`` dedupe can return the
+    in-flight row — so on an already-seeded tenant the 1000-point step would
+    crash against the post-fulfilment balance instead of recognising its own
+    earlier work. Nor can a step whose row already closed terminal be left to
+    the index: ``uq_redemption_open_per_item`` is partial and never blocks one,
+    so a second open would mint a duplicate and a second debit. The student's
+    history is therefore read first, and each step is matched against it the
+    way every other leg of this tool is: a row already at the planned state is
+    a verified repeat, an in-flight one is carried the rest of the way, and a
+    terminal one is a person's decision — never reopened, never doubled.
     """
     rewards = RewardsRepository()
-    opened: list[tuple[RedemptionStep, uuid.UUID]] = []
+    carried: list[tuple[RedemptionStep, Redemption]] = []
+
+    priors_by_item: dict[uuid.UUID, list[Redemption]] = {}
+    for prior in rewards.redemptions_for_subject(
+        session, tenant_id=tenant_id, subject_id=student_id
+    ):
+        priors_by_item.setdefault(prior.item_id, []).append(prior)
 
     for step in REDEMPTION_PLAN:
         item_id = item_ids.get(step.item_name)
@@ -599,33 +669,88 @@ def _seed_redemptions(
             raise SeedEngagementError(
                 f"redemption plan names {step.item_name!r}, which is not in the seeded catalog"
             )
-        redemption = rewards.open_redemption(
-            session, tenant_id=tenant_id, subject_id=student_id, item_id=item_id
-        )
-        report.redemptions_opened += 1
-        opened.append((step, redemption.redemption_id))
 
-    for step, redemption_id in opened:
-        if step.final_state is RedemptionState.REQUESTED:
+        priors = priors_by_item.get(item_id, [])
+        if any(prior.state is step.final_state for prior in priors):
+            # The ordinary re-run: this step's planned row is already on the
+            # student's screen, whether it closed there or is still in flight.
+            report.redemptions_existing += 1
             continue
-        rewards.transition_redemption(
-            session,
-            tenant_id=tenant_id,
-            redemption_id=redemption_id,
-            to_state=RedemptionState.APPROVED,
-            actor_id=approver_id,
-        )
-        report.redemptions_advanced += 1
-        if step.final_state is RedemptionState.APPROVED:
+        in_flight = next((prior for prior in priors if not prior.is_terminal), None)
+        if in_flight is not None:
+            # A first run that stopped partway: carry the in-flight row the
+            # rest of the way rather than opening a second one — the partial
+            # index would have handed this row back anyway.
+            carried.append((step, in_flight))
             continue
-        rewards.transition_redemption(
-            session,
-            tenant_id=tenant_id,
-            redemption_id=redemption_id,
-            to_state=step.final_state,
-            actor_id=approver_id,
-        )
-        report.redemptions_advanced += 1
+        if priors:
+            # Every prior is terminal and none is the planned state: a person
+            # closed this history some other way. Re-requesting after a denial
+            # is a student's act, not a seed's — and opening a duplicate of a
+            # fulfilled row would debit the balance a second time.
+            report.notes.append(
+                f"the redemption for {step.item_name!r} already closed as "
+                + "/".join(sorted({prior.state.value for prior in priors}))
+                + f" and was not reopened toward {step.final_state.value}"
+            )
+            continue
+        try:
+            redemption = rewards.open_redemption(
+                session, tenant_id=tenant_id, subject_id=student_id, item_id=item_id
+            )
+        except ValueError as exc:
+            raise SeedEngagementError(
+                f"cannot open the {step.item_name!r} redemption for the demo student: "
+                f"{exc}. The student's folded balance must cover every planned request "
+                "at open time — the attendance leg above is what writes those points, "
+                "so a tenant too thin for the plan fails here rather than with a bare "
+                "traceback."
+            ) from exc
+        report.redemptions_opened += 1
+        carried.append((step, redemption))
+
+    for step, redemption in carried:
+        # Only the hops the plan still needs beyond where this row stands:
+        # requested -> approved -> fulfilled is its whole shape, because
+        # fulfilled is reachable through approval alone. A fresh open enters at
+        # `requested`; a carried in-flight row enters wherever it stopped. A
+        # plan asking for denial or expiry — a person's act, which this plan
+        # never does — gets no transition at all and falls to the refusal
+        # below rather than being approved on its way there.
+        if redemption.state is RedemptionState.REQUESTED and step.final_state in (
+            RedemptionState.APPROVED,
+            RedemptionState.FULFILLED,
+        ):
+            redemption = rewards.transition_redemption(
+                session,
+                tenant_id=tenant_id,
+                redemption_id=redemption.redemption_id,
+                to_state=RedemptionState.APPROVED,
+                actor_id=approver_id,
+            )
+            report.redemptions_advanced += 1
+        if (
+            redemption.state is RedemptionState.APPROVED
+            and step.final_state is RedemptionState.FULFILLED
+        ):
+            redemption = rewards.transition_redemption(
+                session,
+                tenant_id=tenant_id,
+                redemption_id=redemption.redemption_id,
+                to_state=step.final_state,
+                actor_id=approver_id,
+            )
+            report.redemptions_advanced += 1
+        if redemption.state is not step.final_state:
+            # A row ahead of the plan — approved where requested was wanted —
+            # cannot be walked back, and walking it back would be a person's
+            # decision undone by a seed. Refused with a sentence, not a
+            # swallowed difference.
+            raise SeedEngagementError(
+                f"the existing redemption for {step.item_name!r} is "
+                f"{redemption.state.value}, and the planned {step.final_state.value} "
+                "cannot be reached from it"
+            )
 
 
 def _seed_meetings(
