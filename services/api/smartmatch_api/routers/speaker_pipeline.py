@@ -111,7 +111,16 @@ class FunnelStageOut(BaseModel):
 
     metric_name: str
     display_name: str
-    description: str
+    description: str = Field(
+        description="This surface's short caption for the stage; not the counting rule."
+    )
+    definition: str = Field(
+        description=(
+            "The register's own sentence for what this metric counts. Authoritative "
+            "where it and `description` could be read as disagreeing, and the text "
+            "the card's definition affordance shows."
+        )
+    )
     value: int | None = Field(description="Measured count, or null when unmeasured.")
     unknown_reason: str | None = None
     share_of_baseline_pct: float | None = Field(
@@ -224,6 +233,7 @@ def speaker_pipeline(
             metric_name=stage.metric_name,
             display_name=display_names.get(stage.metric_name, stage.metric_name),
             description=stage.description,
+            definition=by_name[stage.metric_name].definition,
             value=stage.value,
             unknown_reason=by_name[stage.metric_name].unknown_reason
             if stage.metric_name in by_name

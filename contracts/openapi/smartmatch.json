@@ -847,6 +847,58 @@
         "title": "CommandAcceptedResponse",
         "type": "object"
       },
+      "CompanionMetricOut": {
+        "description": "A registered metric shown beside the funnel but not inside it.",
+        "properties": {
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metric_name": {
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "unknown_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unknown Reason"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "metric_name",
+          "display_name",
+          "description",
+          "definition",
+          "value"
+        ],
+        "title": "CompanionMetricOut",
+        "type": "object"
+      },
       "ConfirmedSpeakerListResponse": {
         "description": "The confirmed speakers a unit can hand its Event Hosts.",
         "properties": {
@@ -1181,6 +1233,90 @@
           "transitions"
         ],
         "title": "ContactWithHistoryResponse",
+        "type": "object"
+      },
+      "ConversionOut": {
+        "description": "One cohort conversion between adjacent lifecycle stages.",
+        "properties": {
+          "accessible_label": {
+            "description": "The same relation in prose, for aria-label.",
+            "title": "Accessible Label",
+            "type": "string"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "display": {
+            "description": "The server's rendering; an em dash when there is no rate.",
+            "title": "Display",
+            "type": "string"
+          },
+          "from_metric": {
+            "title": "From Metric",
+            "type": "string"
+          },
+          "label": {
+            "description": "Panel label using an arrow; not for a screen reader.",
+            "title": "Label",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "rate_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Pct"
+          },
+          "to_metric": {
+            "title": "To Metric",
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "from_metric",
+          "to_metric",
+          "label",
+          "accessible_label",
+          "numerator",
+          "denominator",
+          "rate_pct",
+          "display"
+        ],
+        "title": "ConversionOut",
         "type": "object"
       },
       "DeliveryEventView": {
@@ -2655,6 +2791,80 @@
         "title": "FeedbackSubmission",
         "type": "object"
       },
+      "FunnelStageOut": {
+        "description": "One lifecycle stage, with the width it may be drawn at.",
+        "properties": {
+          "definition": {
+            "description": "The register's own sentence for what this metric counts. Authoritative where it and `description` could be read as disagreeing, and the text the card's definition affordance shows.",
+            "title": "Definition",
+            "type": "string"
+          },
+          "description": {
+            "description": "This surface's short caption for the stage; not the counting rule.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metric_name": {
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "share_display": {
+            "description": "The server's rendering of that share.",
+            "title": "Share Display",
+            "type": "string"
+          },
+          "share_of_baseline_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the baseline stage, or null when it cannot be calculated.",
+            "title": "Share Of Baseline Pct"
+          },
+          "unknown_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unknown Reason"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured count, or null when unmeasured.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "metric_name",
+          "display_name",
+          "description",
+          "definition",
+          "value",
+          "share_of_baseline_pct",
+          "share_display"
+        ],
+        "title": "FunnelStageOut",
+        "type": "object"
+      },
       "HostOrganizationListResponse": {
         "description": "The unit's organizations, as a Speaker Connector reads them.",
         "properties": {
@@ -2907,6 +3117,35 @@
           "dataset"
         ],
         "title": "ImportRequest",
+        "type": "object"
+      },
+      "InsightOut": {
+        "description": "One deterministic sentence derived from the figures above.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tone": {
+            "title": "Tone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "tone",
+          "title",
+          "detail"
+        ],
+        "title": "InsightOut",
         "type": "object"
       },
       "InvitationOutcomeView": {
@@ -5875,6 +6114,101 @@
           "speaker"
         ],
         "title": "SpeakerHandoffResponse",
+        "type": "object"
+      },
+      "SpeakerPipelineRange": {
+        "description": "The window these figures cover, named rather than assumed.",
+        "properties": {
+          "kind": {
+            "description": "Machine-readable window identifier; only 'all_time' today.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "What to show the reader in the range control.",
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "description": "Why the window is what it is.",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "note"
+        ],
+        "title": "SpeakerPipelineRange",
+        "type": "object"
+      },
+      "SpeakerPipelineResponse": {
+        "description": "Everything the Speaker Pipeline screen renders, from one read.",
+        "properties": {
+          "baseline_metric": {
+            "description": "The stage funnel widths are normalized against.",
+            "title": "Baseline Metric",
+            "type": "string"
+          },
+          "companions": {
+            "description": "Registered metrics presented beside the funnel. They count a different entity, so no conversion is defined between them and any stage.",
+            "items": {
+              "$ref": "#/components/schemas/CompanionMetricOut"
+            },
+            "title": "Companions",
+            "type": "array"
+          },
+          "conversions": {
+            "description": "Only transitions the stored lifecycle makes a cohort conversion.",
+            "items": {
+              "$ref": "#/components/schemas/ConversionOut"
+            },
+            "title": "Conversions",
+            "type": "array"
+          },
+          "insights": {
+            "items": {
+              "$ref": "#/components/schemas/InsightOut"
+            },
+            "title": "Insights",
+            "type": "array"
+          },
+          "metrics": {
+            "description": "Every registered metric in this surface's view, unchanged.",
+            "items": {
+              "$ref": "#/components/schemas/MetricSummary"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "range": {
+            "$ref": "#/components/schemas/SpeakerPipelineRange"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStageOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "range",
+          "metrics",
+          "baseline_metric",
+          "stages",
+          "companions",
+          "conversions",
+          "insights"
+        ],
+        "title": "SpeakerPipelineResponse",
         "type": "object"
       },
       "SpeakerRequestCreate": {
@@ -16894,6 +17228,139 @@
         "summary": "Record a Speaker's answer received out of band",
         "tags": [
           "speaker-invitations"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-pipeline": {
+      "get": {
+        "description": "Measure every metric on this surface once, then shape the result.\n\nAuthorization is the metrics collection's aggregate rule verbatim \u2014 any\nactive unit membership with a role, tenant-wide for ``admin`` \u2014 and it\nruns before any conditional-request handling, so an ``If-None-Match``\nheader can never tell an unauthorized caller that a representation\nexists.\n\nA metric whose owning query answered unknown stays unknown the whole way\nthrough: it is ``null`` in ``metrics`` and in its stage, and every\nconversion that would have used it carries an ``unavailable_reason``\ninstead of a rate. Nothing here substitutes a zero for an absence.",
+        "operationId": "speaker_pipeline_v1_units__unit_id__speaker_pipeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerPipelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "304": {
+            "description": "Not Modified: the payload named by If-None-Match is still current. The body is empty; Cache-Control and ETag repeat the values a matching 200 would have carried."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "The Speaker Pipeline funnel, conversions and insights for a unit",
+        "tags": [
+          "metrics"
         ]
       }
     },

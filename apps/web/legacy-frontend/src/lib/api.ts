@@ -2104,7 +2104,14 @@ export interface MetricsResponse {
 export interface SpeakerPipelineStage {
   metric_name: string;
   display_name: string;
+  /** This surface's short caption. Not the counting rule. */
   description: string;
+  /**
+   * The register's own sentence for what this metric counts, and the
+   * authoritative one where it and `description` could be read as
+   * disagreeing. Shown behind the card's definition affordance.
+   */
+  definition: string;
   value: number | null;
   unknown_reason?: string | null;
   share_of_baseline_pct: number | null;

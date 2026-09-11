@@ -44,6 +44,7 @@ function stage(
     metric_name: metricName,
     display_name: metricName,
     description: "",
+    definition: "",
     value,
     unknown_reason: value === null ? "No evidence source exists for this metric." : null,
     share_of_baseline_pct: share,

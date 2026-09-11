@@ -45,6 +45,18 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 STATS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.tsx"
 TOOLTIP_PRIMITIVE = FRONTEND_SRC / "app" / "components" / "ui" / "tooltip.tsx"
+
+#: Where one metric card is rendered, now that the six of them are the Speaker
+#: Pipeline section's KPI row rather than an inline component on the page.
+#:
+#: The card's contract below is unchanged and is still asserted in full: the
+#: definition behind a real focusable ``<button>``, rendered once and only
+#: inside the tooltip; the name and the value on the card face; the server's
+#: ``unknown_reason`` inline and never in the tooltip; no truncation; and no
+#: second tooltip dependency. Only the file holding that contract moved, and
+#: this constant moves with it — a guard left pointing at the page would go on
+#: passing against a card that is no longer there.
+METRIC_CARD = FRONTEND_SRC / "app" / "components" / "speakerPipeline" / "PipelineMetricGrid.tsx"
 WEB_PACKAGE_JSON = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "package.json"
 
 #: The Speaker Pipeline section, which now carries the register read and the
@@ -240,13 +252,24 @@ def test_the_statistics_surface_computes_nothing() -> None:
         "average",
         " += ",
         ".length +",
-        "* 100",
-        "/ 100",
     ):
         assert forbidden not in code, (
             f"the statistics surface computes {forbidden!r}; every number it shows must be "
             "one the server chose to send"
         )
+
+    # A blanket ban on ``* 100`` was tried here and was wrong: this page also
+    # does date arithmetic (``60 * 60 * 1000``), which has nothing to do with a
+    # percentage and which a text search cannot tell apart. The rule that
+    # actually matters is narrower and stronger — the *percentage fields* are
+    # never operands. A rate is published already computed and already rounded,
+    # so any arithmetic applied to one here is a second definition of it.
+    for field in ("rate_pct", "share_of_baseline_pct"):
+        for operator in ("*", "/", "+", "-", "%"):
+            assert f"{field} {operator}" not in code, (
+                f"the statistics surface computes with {field!r}; a published rate arrives "
+                "rounded and is rendered from the server's own `display`/`share_display`"
+            )
 
 
 #: The two places a clamp is legitimate, and what each one clamps.
@@ -340,7 +363,7 @@ def test_a_metric_definition_opens_from_a_real_focusable_button() -> None:
     control at all to a keyboard or a screen reader. Radix's ``Tooltip`` opens
     on both from a single trigger, which is why this needs no new component.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     assert "TooltipTrigger" in code and "TooltipContent" in code, (
         "the definition must be rendered through the tooltip primitive this app already has"
@@ -366,7 +389,7 @@ def test_the_card_face_carries_the_name_and_the_value_and_no_definition() -> Non
     A definition left on the face *as well* would defeat the whole change while
     passing a check that only asked whether a tooltip existed.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     assert code.count("metric.definition") == 1, (
         "the registered definition is rendered exactly once — inside the tooltip"
@@ -388,7 +411,7 @@ def test_the_definition_is_rendered_verbatim() -> None:
     is a sentence to rewrite in ``metrics.py``, where every reader of the
     register gets the rewrite.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     for forbidden in (
         "definition.slice",
@@ -424,7 +447,7 @@ def test_an_unmeasured_metric_states_its_reason_on_the_card_face() -> None:
     gesture a reader has to guess to make would leave "Not measured" standing
     alone, which is the bare dash this register exists to prevent.
     """
-    source = STATS_PAGE.read_text(encoding="utf-8")
+    source = METRIC_CARD.read_text(encoding="utf-8")
     code = _code_only(source)
 
     assert "metric.unknown_reason" in code
@@ -441,7 +464,7 @@ def test_the_hover_affordance_adds_no_dependency() -> None:
     one — would be a new supply-chain entry and a second set of focus and
     dismissal behaviours to keep correct, bought for a card header.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
     manifest = json.loads(WEB_PACKAGE_JSON.read_text(encoding="utf-8"))
 
     assert "components/ui/tooltip" in code, (
