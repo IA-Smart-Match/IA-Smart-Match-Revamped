@@ -2088,6 +2088,106 @@ export interface MetricsResponse {
   metrics: MetricSummary[];
 }
 
+/**
+ * One lifecycle stage of the Speaker Pipeline funnel, as the server shaped it.
+ *
+ * `value` is the registered metric's measured count, or `null` when the
+ * register answered unknown — never a zero standing in for an absence.
+ * `share_of_baseline_pct` is the width this stage may be drawn at, relative to
+ * the baseline stage, and is `null` whenever it could not be calculated. A
+ * client that substitutes a default width for a `null` share is drawing a
+ * number nobody measured.
+ *
+ * `share_display` is the server's own rendering of that share. Render it;
+ * re-rounding `share_of_baseline_pct` here would be a second formatting rule.
+ */
+export interface SpeakerPipelineStage {
+  metric_name: string;
+  display_name: string;
+  description: string;
+  value: number | null;
+  unknown_reason?: string | null;
+  share_of_baseline_pct: number | null;
+  share_display: string;
+}
+
+/**
+ * One cohort conversion between adjacent lifecycle stages.
+ *
+ * The server publishes a conversion only where the stored lifecycle defines
+ * one: `pipeline_record`'s stage-prefix constraint makes each stage's rows a
+ * subset of the previous stage's, which is what makes `numerator / denominator`
+ * a conversion rate rather than a quotient of two unrelated aggregates. There
+ * is deliberately no conversion to or from the review-queue metrics.
+ *
+ * `rate_pct` is `null` when there is no rate — an unmeasured stage on either
+ * side, or a denominator of zero — and `unavailable_reason` says which. Render
+ * `display` (an em dash in that case) rather than computing a fallback.
+ */
+export interface SpeakerPipelineConversion {
+  from_metric: string;
+  to_metric: string;
+  label: string;
+  numerator: number | null;
+  denominator: number | null;
+  rate_pct: number | null;
+  display: string;
+  unavailable_reason?: string | null;
+}
+
+/**
+ * A registered metric shown beside the funnel but never inside it.
+ *
+ * `opportunities` and `pending_review_items` count `review_item` rows, not
+ * pipeline records. Neither is a subset of any funnel stage, so no ratio
+ * between either of them and a stage is a conversion. They are a separate
+ * field in this payload for exactly that reason: the shape refuses the mistake
+ * rather than relying on a comment not to make it.
+ */
+export interface SpeakerPipelineCompanion {
+  metric_name: string;
+  display_name: string;
+  description: string;
+  definition: string;
+  value: number | null;
+  unknown_reason?: string | null;
+}
+
+/** One deterministic sentence the server derived from the figures. */
+export interface SpeakerPipelineInsight {
+  /** Stable identifier; the client picks an icon from this, never from prose. */
+  code: string;
+  /** One of `attention`, `opportunity`, `strength`, `neutral`. */
+  tone: string;
+  title: string;
+  detail: string;
+}
+
+/**
+ * The window these figures cover, named by the server.
+ *
+ * `kind` is `all_time` today and the label travels with it, because none of
+ * the owning queries behind these metrics takes a date window. The range
+ * control renders `label`; it never invents one.
+ */
+export interface SpeakerPipelineRange {
+  kind: string;
+  label: string;
+  note: string;
+}
+
+/** Everything the Speaker Pipeline section renders, from one authorized read. */
+export interface SpeakerPipelineResponse {
+  unit_id: string;
+  range: SpeakerPipelineRange;
+  metrics: MetricSummary[];
+  baseline_metric: string;
+  stages: SpeakerPipelineStage[];
+  companions: SpeakerPipelineCompanion[];
+  conversions: SpeakerPipelineConversion[];
+  insights: SpeakerPipelineInsight[];
+}
+
 export interface MetricDrillDownResponse {
   unit_id: string;
   name: string;
@@ -4490,6 +4590,33 @@ export async function updateMatchingWeights(
 export async function fetchCbaUnitMetrics(unitId: string): Promise<MetricsResponse> {
   return requestJson<MetricsResponse>(
     `/v1/units/${encodeURIComponent(unitId)}/metrics?surface=cba`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * The Speaker Pipeline section's whole dataset, in one authorized read.
+ *
+ * One request rather than six, and the reason is correctness before it is
+ * latency: every metric here is measured inside one request against one
+ * session, so a conversion's numerator and denominator cannot be counted
+ * seconds apart and disagree.
+ *
+ * Nothing in this response is recomputed on the client. The counts are the
+ * same registered metrics `fetchCbaUnitMetrics` returns, through the same
+ * owning queries; the rates, the funnel widths, the percentage formatting and
+ * the insight sentences are the server's, because each of those is a published
+ * number too and a second copy in the browser is a second definition.
+ *
+ * A caller the server refuses gets {@link ApiRequestError} with status `403` —
+ * an answer to render, not a state to hide behind zeros.
+ */
+export async function fetchSpeakerPipeline(
+  unitId: string,
+): Promise<SpeakerPipelineResponse> {
+  return requestJson<SpeakerPipelineResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-pipeline`,
     { method: "GET" },
     { authenticated: true },
   );
