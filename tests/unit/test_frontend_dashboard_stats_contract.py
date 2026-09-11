@@ -159,12 +159,11 @@ def test_api_lib_reads_attendance_evidence_as_the_server_counted_it() -> None:
 def test_the_statistics_surface_reads_both_owning_queries() -> None:
     """The Connector's own landing surface carries the statistics.
 
-    Not ``Dashboard.tsx``: that is the ``admin`` portal's own home screen
-    (``_PORTAL_FOR_ROLE`` maps the stored ``admin`` role to
-    ``home_path: "/dashboard"``), and a pilot Connector holding only a
-    ``coordinator`` membership never reaches it. The unit here comes from
-    ``GET /v1/me/portals``, which is the only source of a unit id this account
-    is entitled to.
+    Not ``Dashboard.tsx``: that was the retired admin shell's home screen, and
+    it is mounted nowhere now — ``admin`` and ``coordinator`` are one persona
+    and ``/dashboard`` redirects to ``/coordinator-portal``. The unit here
+    comes from ``GET /v1/me/portals``, which is the only source of a unit id
+    this account is entitled to.
 
     This paragraph used to add "and it scopes itself by the
     ``VITE_SMARTMATCH_UNIT_ID`` build variable". That was true when it was
