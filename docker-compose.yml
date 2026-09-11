@@ -775,6 +775,11 @@ services:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
       SMARTMATCH_EDITION: dev
       SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      # The verifier's topic_evidence_measurable check reads the flag from
+      # THIS process's settings while judging what the api can score — so the
+      # one-shot must see the same value the api service interpolates from
+      # .env above, or it reports a deployment gap that is not one.
+      SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED: ${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}
     # Disabled for seed-review's reason: the API image's HEALTHCHECK probes
     # /api/health, this container serves nothing, so the probe can only fail and
     # `health: starting` would be a misleading signal about a one-shot whose
