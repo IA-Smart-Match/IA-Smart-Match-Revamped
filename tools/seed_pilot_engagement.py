@@ -27,11 +27,22 @@ in see nothing. A row count cannot see that;
 ``verify_pilot_dataset.DEMO_PORTAL_SURFACES`` and this tool are the two halves of
 the answer, and ``tests/unit/test_demo_portal_surfaces.py`` holds them together.
 
-Every subject this tool writes under is therefore one of the four
-``COMPOSE_DEV_PRINCIPALS`` subjects, resolved from ``user_account`` by
-``external_subject`` at run time. It **creates no account**: if
-``make seed-pilot-principals`` has not run, this tool refuses rather than minting
-a fifth identity that nothing can authenticate as.
+Every subject this tool writes under is therefore one of the four accounts a
+*person* can reach, resolved from ``user_account`` by ``external_subject`` at
+run time. By default that is the ``pilot-login-*`` family — the accounts
+``tools/seed_pilot_logins.py`` creates for the four ``@``-addressed credentials
+a reviewer types into ``POST /v1/auth/login``. ``--subjects fixture`` selects
+the ``compose-pilot-*`` accounts the local ``SMARTMATCH_DEV_PRINCIPALS`` bearer
+tokens resolve to, for a stack driven by tokens and no browser.
+
+That default was the other way round, and it reproduced the very defect above
+one level up: the rows landed on accounts nobody signs in as, so ``student@``
+and ``volunteer@`` saw blank pages over a database this tool reported as
+seeded. A default is not a documentation problem; it is where the trap lives.
+
+It **creates no account**: if neither ``make seed-pilot-logins`` nor
+``make seed-pilot-principals`` has run for the chosen family, this tool refuses
+rather than minting a fifth identity that nothing can authenticate as.
 
 ## What it does not do
 
@@ -72,7 +83,7 @@ import argparse
 import decimal
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Final
@@ -86,6 +97,8 @@ from seed_pilot import (
     SeedConflictError,
     require_development_fixture_settings,
 )
+from seed_pilot_logins import ROLE_CREDENTIALS
+from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 from seed_pilot_rewards import seed_reward_item
 from smartmatch_api.config import Settings
 from smartmatch_domain.events import DateOnlyTime
@@ -103,6 +116,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 __all__ = [
+    "DEFAULT_SUBJECT_SET",
+    "FIXTURE_SUBJECT_SET",
+    "LOGIN_SUBJECT_SET",
     "MEETINGS",
     "REDEMPTION_PLAN",
     "WORKSHEET_ITEMS",
@@ -113,12 +129,89 @@ __all__ = [
     "WorksheetItem",
     "main",
     "seed_engagement",
+    "subjects_for",
 ]
 
 #: The pilot's zone, matching ``generate_pilot_dataset.PILOT_TIME_ZONE``. Stated
 #: rather than imported because importing the generator would drag its whole
 #: HTTP-driven module into an operator tool that makes no request.
 PILOT_TIME_ZONE: Final[str] = "America/Los_Angeles"
+
+# ---------------------------------------------------------------------------
+# Whose accounts these rows are written under
+# ---------------------------------------------------------------------------
+#
+# Two families of pilot account exist and only one of them can be signed in as
+# from a browser. ``pilot-login-*`` are the accounts ``seed_pilot_logins``
+# creates for the four ``@``-addressed credentials a reviewer types into the
+# login form; ``compose-pilot-*`` are the accounts the local
+# ``SMARTMATCH_DEV_PRINCIPALS`` bearer tokens resolve to.
+#
+# This tool defaulted to the *fixtures*, and that default was the defect. It
+# fills the surfaces a person reads — an agenda, a balance, a redemption
+# history, a filed request — and a person reads them after signing in. Writing
+# them under a bearer-token fixture left ``student@`` and ``volunteer@`` looking
+# at blank pages over a database this tool's own report called full.
+#
+# Neither list is restated here: they are the seeds that write the accounts, and
+# a third copy would be the first to drift.
+
+#: ``membership.role`` -> ``external_subject`` for the browser logins.
+LOGIN_SUBJECT_SET: Final[Mapping[str, str]] = {
+    entry.role: entry.subject for entry in ROLE_CREDENTIALS
+}
+
+#: ``membership.role`` -> ``external_subject`` for the compose bearer fixtures.
+FIXTURE_SUBJECT_SET: Final[Mapping[str, str]] = {
+    principal.role: principal.subject for principal in COMPOSE_DEV_PRINCIPALS
+}
+
+#: The selectable families, by the value ``--subjects`` takes.
+SUBJECT_SETS: Final[Mapping[str, Mapping[str, str]]] = {
+    "login": LOGIN_SUBJECT_SET,
+    "fixture": FIXTURE_SUBJECT_SET,
+}
+
+#: The default, and the correction this module carries.
+DEFAULT_SUBJECT_SET: Final[str] = "login"
+
+#: The roles this tool writes under. Named so a family missing one is refused
+#: at argument-parsing time rather than as a ``SeedEngagementError`` three
+#: writes into a run.
+REQUIRED_ROLES: Final[tuple[str, ...]] = ("student", "coordinator", "volunteer", "admin")
+
+
+def subjects_for(
+    name: str = DEFAULT_SUBJECT_SET, *, overrides: Mapping[str, str | None] | None = None
+) -> Mapping[str, str]:
+    """The ``role -> external_subject`` map for ``name``, with per-role overrides.
+
+    An override of ``None`` means "not given" and leaves the family's own
+    answer in place, so a caller can name one subject without restating the
+    other three.
+
+    Raises:
+        SeedEngagementError: ``name`` is not a declared family, or the family
+            has no account for a role this tool writes under. Both are refused
+            rather than defaulted: silently falling back to the fixture accounts
+            is the exact failure ``--subjects`` exists to end.
+    """
+    try:
+        family = dict(SUBJECT_SETS[name])
+    except KeyError:
+        raise SeedEngagementError(
+            f"unknown subject family {name!r}; choose one of {sorted(SUBJECT_SETS)}"
+        ) from None
+    for role, subject in (overrides or {}).items():
+        if subject is not None:
+            family[role] = subject
+    missing = [role for role in REQUIRED_ROLES if not family.get(role)]
+    if missing:
+        raise SeedEngagementError(
+            f"subject family {name!r} names no account for {missing}; pass the "
+            "matching --*-subject flag or seed that login first"
+        )
+    return family
 
 
 class SeedEngagementError(RuntimeError):
@@ -750,7 +843,7 @@ def seed_engagement(
     )
 
     report.notes.append(
-        "the generator's 187 point_ledger_entry rows under synthetic-student:* accounts "
+        "the generator's point_ledger_entry rows under synthetic-student:* accounts "
         "are NOT touched by this tool. They are a real, correctly-derived ledger for "
         "students who are not the demo login, and re-pointing them would rewrite whose "
         "attendance produced which credit. The demo student's balance above is its own, "
@@ -764,24 +857,49 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tenant-slug", default="pilot", help="Synthetic tenant slug")
     parser.add_argument("--unit-path", default="pilot", help="ltree path owning the dataset")
     parser.add_argument(
+        "--subjects",
+        choices=sorted(SUBJECT_SETS),
+        default=DEFAULT_SUBJECT_SET,
+        help=(
+            "Which family of account these rows are written under. 'login' (the "
+            "default) is the four pilot-login-* accounts a reviewer signs in as at "
+            "POST /v1/auth/login; 'fixture' is the compose-pilot-* accounts the local "
+            "SMARTMATCH_DEV_PRINCIPALS bearer tokens resolve to, for a stack driven by "
+            "tokens and no browser. The four --*-subject flags below override one "
+            "member of the chosen family each."
+        ),
+    )
+    parser.add_argument(
         "--student-subject",
-        default="compose-pilot-student",
-        help="external_subject the student portal's login resolves to",
+        default=None,
+        help=(
+            "external_subject the student portal's login resolves to "
+            "(default: the chosen family's student)"
+        ),
     )
     parser.add_argument(
         "--coordinator-subject",
-        default="compose-pilot-coordinator",
-        help="external_subject that records meetings and decides redemptions",
+        default=None,
+        help=(
+            "external_subject that records meetings and decides redemptions "
+            "(default: the chosen family's coordinator)"
+        ),
     )
     parser.add_argument(
         "--host-subject",
-        default="compose-pilot-volunteer",
-        help="external_subject the Event Host portal's login resolves to",
+        default=None,
+        help=(
+            "external_subject the Event Host portal's login resolves to "
+            "(default: the chosen family's volunteer)"
+        ),
     )
     parser.add_argument(
         "--budget-owner-subject",
-        default="compose-pilot-admin",
-        help="external_subject of the catalog's budget owner (from the worksheet)",
+        default=None,
+        help=(
+            "external_subject of the catalog's budget owner, from the worksheet "
+            "(default: the chosen family's admin)"
+        ),
     )
     parser.add_argument(
         "--items-from-worksheet",
@@ -811,6 +929,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"seed-pilot-engagement: configuration error: {exc}", file=sys.stderr)
         return 2
 
+    try:
+        chosen = subjects_for(
+            args.subjects,
+            overrides={
+                "student": args.student_subject,
+                "coordinator": args.coordinator_subject,
+                "volunteer": args.host_subject,
+                "admin": args.budget_owner_subject,
+            },
+        )
+    except SeedEngagementError as exc:
+        print(f"seed-pilot-engagement: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"seed-pilot-engagement: writing under the {args.subjects!r} accounts: "
+        + ", ".join(f"{role}={chosen[role]}" for role in REQUIRED_ROLES)
+    )
+
     session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         try:
@@ -822,10 +958,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 session,
                 tenant_slug=args.tenant_slug,
                 unit_path=args.unit_path,
-                student_subject=args.student_subject,
-                coordinator_subject=args.coordinator_subject,
-                host_subject=args.host_subject,
-                budget_owner_subject=args.budget_owner_subject,
+                student_subject=chosen["student"],
+                coordinator_subject=chosen["coordinator"],
+                host_subject=chosen["volunteer"],
+                budget_owner_subject=chosen["admin"],
             )
             session.commit()
         except (SeedEngagementError, SeedConflictError, SeedConfigurationError) as exc:
