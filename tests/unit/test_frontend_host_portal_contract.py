@@ -379,6 +379,4 @@ def test_every_host_nav_entry_resolves_to_a_mounted_route() -> None:
     hrefs = re.findall(r'href: "([^"]+)"', shell)
     assert hrefs, "the host shell declares no navigation"
     for href in hrefs:
-        assert href in mounted, (
-            f"the host sidebar links {href}, which routes.tsx does not mount"
-        )
+        assert href in mounted, f"the host sidebar links {href}, which routes.tsx does not mount"
