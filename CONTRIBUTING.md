@@ -248,6 +248,58 @@ and, for a port from the legacy repository, the provenance trailers the README's
 `Contract-Refs:`. The legacy repository is read-only evidence; do not copy files
 from it, and create the migration-manifest entry before writing code.
 
+## Changing direction inside an open pull request
+
+A pull request records a decision, not just a diff. When the work inside an open
+PR changes in a way a reviewer would not predict from the description they
+already read, post a **new comment on that PR** before pushing the change. Do
+not silently amend the description, and do not let the commit body be the only
+place the reasoning exists — a reviewer who read the PR yesterday must be able
+to see what moved without re-reading every commit.
+
+A change is major enough to need a comment when it does any of these:
+
+- alters the product's scope or behaviour, including turning a capability on or
+  off, or changing what a role can see or do;
+- reverses or overrides a decision made elsewhere — on `main`, in an earlier PR,
+  or in a document the PR now contradicts;
+- changes a public contract: an API route or response shape, a database schema,
+  a migration, or an environment variable;
+- changes the expectation encoded in an existing test, rather than adding a new
+  one;
+- resolves a question the PR had previously left open, including one a reviewer
+  asked.
+
+Routine work does not need one. Fixing a failing check, responding to review
+feedback the reviewer can already see, formatting, and renaming for clarity are
+all ordinary and stay in the commit body where they belong.
+
+The comment states four things, in this order:
+
+**Issue** — what was actually wrong, or what forced the change. Name the
+observed behaviour and how it was observed, not the abstraction. "Migration 0035
+died with `InvalidForeignKey` on an empty database, which aborted three CI jobs
+at the same step" is the shape; "migrations were broken" is not.
+
+**Planned and proposed** — what was going to happen, and what is now proposed
+instead. If the original plan is being abandoned, say so plainly. If more than
+one option was live, list them; a reviewer cannot weigh a choice they cannot
+see.
+
+**Agreed direction** — what was chosen, and **who agreed to it**. A decision
+that belongs to the product owner is not made by whoever noticed the problem. If
+nobody has agreed yet, write that the direction is proposed and unconfirmed, and
+say what is blocked until it is. An unanswered question recorded honestly is
+worth more than a decision invented to close it.
+
+**Trade-offs** — what the chosen direction costs, what it defers, and what it
+forecloses. State what would have to be true for this to be the wrong call.
+"None" is almost never true, and a comment claiming it invites the review the
+author was trying to avoid.
+
+Keep it short. Four honest paragraphs beat a page, and the point is that the
+next person can reconstruct the decision without asking anyone.
+
 ## Architecture decisions
 
 An ADR is immutable once accepted. A decision that stops being true is replaced
