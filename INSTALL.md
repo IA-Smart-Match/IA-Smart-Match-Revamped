@@ -486,22 +486,86 @@ Four things are worth knowing before running it.
   repository phase resolves rows its import phase would create, so a partial
   run collides. The way back to a known state is an empty database:
   `docker compose down -v`, then start again. (`down -v` discards the data
-  volume; on a stack you care about, don't.)
+  volume; on a stack you care about, don't.) If the tenant is *already*
+  generated and you only want the still-empty tables filled, do **not** re-run
+  the generator — run the top-up in step 6b, which is additive and does not
+  need an empty database.
 - **`student_speaker_feedback` stays empty on this route, on purpose.** Each of
   those ratings is a `POST` a student's *own* bearer token made, and the eight
   tokens for that cohort would have to be in the API's
   `SMARTMATCH_DEV_PRINCIPALS` before it booted. This stack's map is a fixed
-  four, one per portal. `scripts/reset_pilot_dataset.sh` — a host-run rebuild
-  from an empty database — composes that map itself and is the route that fills
-  the table. `make verify-pilot-dataset` names the zero either way.
+  four, one per portal, so the compose one-shot passes `--feedback-students 0`
+  and skips the phase. Two routes fill the table:
+  `scripts/reset_pilot_dataset.sh` — a host-run rebuild from an empty database
+  — composes the eight-token map itself, and the step-6b top-up signs in as the
+  `student@` **login** and rates through the same route.
+  `make verify-pilot-dataset` names the zero either way.
 - **The rewards catalog stays empty too**, and that is a recorded decision
   rather than a gap: every `reward_item` value (name, points cost, fulfilment
   cost, budget owner, funded) is owner-supplied, so `make seed-pilot-rewards`
   takes them all as required arguments from a row in
   `docs/pilot-data/rewards-catalog-worksheet.md` and this generator invents
-  none. With no catalog there is no redemption in any state; `make
-  seed-pilot-engagement` fills the student-side engagement tables once a
-  catalog exists.
+  none. With no catalog there is no redemption in any state; the step-6b top-up
+  seeds the worksheet's rows and a redemption history from them.
+
+**6b. Top up an already-generated tenant (additive; no `down -v`).**
+
+Step 6 needs an empty tenant. This one needs the opposite: a tenant the
+generator has already filled, with five tables still at zero —
+`student_speaker_feedback`, `event_registration`, `cba_meeting`, `reward_item`
+and `redemption`. Every step is additive and idempotent, so running it twice
+changes nothing the second time, and it creates no account.
+
+It needs two things the generator does not: a **running API** (the ratings go
+through the student's own route, not through SQL) and the student's login
+credential, from the environment:
+
+```bash
+export SMARTMATCH_PILOT_STUDENT_EMAIL=...      # the same two variables
+export SMARTMATCH_PILOT_STUDENT_PASSWORD=...   # `make seed-pilot-logins` used
+make top-up-pilot-dataset PILOT_DATASET_API_BASE=http://127.0.0.1:8080
+```
+
+There is no default password anywhere in this repository and this target
+invents none; an unset variable is a refusal naming the variable. Run
+`make seed-pilot-logins` first if the four `@`-addressed accounts do not exist
+yet — the top-up writes under those accounts, not under the `compose-pilot-*`
+bearer-token fixtures, because those have no password and nobody can sign in as
+them. (`--subjects fixture` selects the fixtures for a token-driven stack with
+no browser.)
+
+The compose form runs the same three tools inside the `dataset` profile's
+container, against the API on the compose network:
+
+```bash
+docker compose --profile dataset run --rm --no-deps --entrypoint python dataset \
+  /home/smartmatch/seed_pilot_engagement.py --items-from-worksheet
+docker compose --profile dataset run --rm --no-deps \
+  -e SMARTMATCH_PILOT_STUDENT_EMAIL -e SMARTMATCH_PILOT_STUDENT_PASSWORD \
+  --entrypoint python dataset \
+  /home/smartmatch/seed_pilot_student_feedback.py --api-base http://api:8080
+docker compose --profile dataset run --rm --no-deps --entrypoint python dataset \
+  /home/smartmatch/verify_pilot_dataset.py
+```
+
+`--no-deps` because the `dataset` service's `depends_on` exists for the
+*generator*: a top-up runs against a tenant those one-shots already filled.
+
+Two things it deliberately does **not** do.
+
+- **The reward catalogue values are illustrative.** They are transcribed from
+  `docs/pilot-data/rewards-catalog-worksheet.md`, which is where an owner
+  writes a real price down. Changing one means editing the worksheet row and
+  `seed_pilot_engagement.WORKSHEET_ITEMS` together; a changed value against an
+  existing row is refused, never silently applied. The same goes for the three
+  redemptions and the four meetings: they are a plausible history, not a record
+  of anything that happened.
+- **`outreach_send` and `event_feedback_qr` stay empty, and that is correct.**
+  Composing an invitation and dispatching one are different acts, and the
+  dispatch gate (G4) has not opened — a seeded send would be a record of an
+  email nobody sent. A feedback QR code is created by a coordinator pressing a
+  button. `make verify-pilot-dataset` reports both as zero and that report is
+  accurate.
 
 On a host-run stack (`make run-api` plus `make run-worker`, no compose), the
 same generator has a Makefile target:

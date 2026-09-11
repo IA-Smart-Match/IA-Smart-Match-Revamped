@@ -237,7 +237,38 @@ something; on this one, drive the worker's own `/operations/dispatch`, which is
 what `scripts/reset_pilot_dataset.sh` does for you. The compose route
 additionally skips the generator's feedback cohort — see that service's note in
 `docker-compose.yml` — so `student_speaker_feedback` stays empty there and this
-route or the rebuild script is the one that fills it.
+route, the rebuild script, or the top-up in step 6b is what fills it.
+
+### 6b. Topping up a tenant that is already generated
+
+The generator wants an **empty** tenant: its repository phase resolves rows its
+import phase creates, so a second run against a half-filled one collides. On a
+tenant that generated cleanly and still has empty tables —
+`student_speaker_feedback`, `event_registration`, `cba_meeting`, `reward_item`,
+`redemption`, none of which any generator phase writes on the compose route —
+the additive path is:
+
+```bash
+export SMARTMATCH_PILOT_STUDENT_EMAIL=...      # the same two variables from
+export SMARTMATCH_PILOT_STUDENT_PASSWORD=...   # step 1 / `make seed-pilot-logins`
+make top-up-pilot-dataset PILOT_DATASET_API_BASE=http://127.0.0.1:8000
+```
+
+It needs a **running API** (the ratings are `POST`s the student's own session
+token makes, through `routers/student_speaker_feedback.py`, because that route
+takes `student_id` from the verified principal and from nowhere else) and it
+needs the four `pilot-login-*` accounts to exist. It does **not** need the
+generator's `--bearer-token`: nothing in the top-up goes through a
+`SMARTMATCH_DEV_PRINCIPALS` fixture, which is the point — the rows land on the
+accounts a browser can sign in as.
+
+There is no default password in this repository and the target invents none; an
+unset variable is a refusal naming the variable. Every step is idempotent, so a
+second run changes nothing. `outreach_send` and `event_feedback_qr` stay empty
+on purpose (dispatch gate G4; a QR is a coordinator's button press), and the
+reward catalogue values are illustrative, transcribed from
+`docs/pilot-data/rewards-catalog-worksheet.md`. See
+`docs/operations/pilot-dataset-rebuild.md` §3b.
 
 `--api-base` and `--bearer-token` are the two `required=True` arguments
 (`tools/generate_pilot_dataset.py`'s `parse_args`); everything else —

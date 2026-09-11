@@ -782,8 +782,8 @@ services:
     healthcheck:
       disable: true
     volumes:
-      # All four, because they import each other by bare module name and must
-      # therefore share one directory on sys.path: the generator imports
+      # The first four because they import each other by bare module name and
+      # must therefore share one directory on sys.path: the generator imports
       # `pilot_dataset_plan` (the shape of the dataset), `seed_demo_pipeline`
       # (`advance_journey`, so every funnel stage goes through the same writer
       # as before) and `seed_pilot` (the dev/fixture guard, verbatim rather than
@@ -792,6 +792,39 @@ services:
       - ./tools/pilot_dataset_plan.py:/home/smartmatch/pilot_dataset_plan.py:ro
       - ./tools/seed_demo_pipeline.py:/home/smartmatch/seed_demo_pipeline.py:ro
       - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      # The rest are the TOP-UP path, and they are mounted here rather than on a
+      # service of their own so this profile carries one container and not two.
+      # `docker compose run` overrides the command above, so:
+      #
+      #   docker compose --profile dataset run --rm --no-deps \
+      #     -e SMARTMATCH_PILOT_STUDENT_EMAIL -e SMARTMATCH_PILOT_STUDENT_PASSWORD \
+      #     --entrypoint python dataset \
+      #     /home/smartmatch/seed_pilot_engagement.py --items-from-worksheet
+      #
+      #   docker compose --profile dataset run --rm --no-deps \
+      #     -e SMARTMATCH_PILOT_STUDENT_EMAIL -e SMARTMATCH_PILOT_STUDENT_PASSWORD \
+      #     --entrypoint python dataset \
+      #     /home/smartmatch/seed_pilot_student_feedback.py --api-base http://api:8080
+      #
+      #   docker compose --profile dataset run --rm --no-deps \
+      #     --entrypoint python dataset /home/smartmatch/verify_pilot_dataset.py
+      #
+      # `--no-deps` because `depends_on` below exists for the *generator*: a
+      # top-up runs against a tenant those one-shots already filled, and
+      # re-running seed-review to fill an empty table is a contradiction.
+      # The two SMARTMATCH_PILOT_STUDENT_* variables are passed through from the
+      # operator's shell and are declared nowhere in this file: a password with
+      # a default is a credential in a repository.
+      #
+      # seed_pilot_logins and seed_pilot_principals are mounted because they own
+      # the two families of subject string (pilot-login-* and compose-pilot-*);
+      # the seeders import them rather than restating a subject.
+      - ./tools/seed_pilot_engagement.py:/home/smartmatch/seed_pilot_engagement.py:ro
+      - ./tools/seed_pilot_student_feedback.py:/home/smartmatch/seed_pilot_student_feedback.py:ro
+      - ./tools/seed_pilot_rewards.py:/home/smartmatch/seed_pilot_rewards.py:ro
+      - ./tools/seed_pilot_logins.py:/home/smartmatch/seed_pilot_logins.py:ro
+      - ./tools/seed_pilot_principals.py:/home/smartmatch/seed_pilot_principals.py:ro
+      - ./tools/verify_pilot_dataset.py:/home/smartmatch/verify_pilot_dataset.py:ro
     depends_on:
       api:
         condition: service_healthy

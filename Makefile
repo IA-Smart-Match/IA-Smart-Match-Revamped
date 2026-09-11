@@ -249,6 +249,62 @@ generate-pilot-dataset: ## Generate the synthetic pilot dataset; needs a RUNNING
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/generate_pilot_dataset.py \
 		--api-base $(PILOT_DATASET_API_BASE) $(GENERATE_PILOT_DATASET_ARGS)
 
+.PHONY: seed-pilot-student-feedback
+seed-pilot-student-feedback: ## Rate speakers as the pilot student, through POST /v1/auth/login + the student route
+	# The one empty table that cannot be filled by writing rows.
+	# routers/student_speaker_feedback.py takes student_id from the verified
+	# principal and from nowhere else (MM-A01), so a seeder that INSERTed would
+	# exercise none of the attendance, roster or seven-day-window checks the
+	# surface exists for. This target signs in as student@ and POSTs.
+	#
+	# It therefore needs a RUNNING api, and it needs
+	# SMARTMATCH_PILOT_STUDENT_EMAIL and SMARTMATCH_PILOT_STUDENT_PASSWORD in
+	# the environment -- the same two variables `seed-pilot-logins` created the
+	# account from. There is no default password anywhere in this repository
+	# and this target invents none; an unset variable is a refusal naming it.
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_student_feedback.py \
+		--api-base $(PILOT_DATASET_API_BASE) $(SEED_PILOT_STUDENT_FEEDBACK_ARGS)
+
+.PHONY: top-up-pilot-dataset
+top-up-pilot-dataset: ## ADDITIVE, idempotent fill of the empty tables on an ALREADY-generated tenant
+	# The counterpart to `generate-pilot-dataset`, and the difference is the
+	# precondition, not the output. The generator needs an EMPTY tenant: its
+	# Phase B resolves rows its Phase A creates, so a second run against a
+	# half-filled database collides rather than topping up, and INSTALL.md's
+	# only documented way back has been `docker compose down -v`. That is a
+	# destructive answer to a non-destructive question -- "this tenant is
+	# generated, four tables are still empty, fill them" -- and this target is
+	# the non-destructive one.
+	#
+	# Every step it runs is additive and idempotent, and none of them creates
+	# an account: attendance is ON CONFLICT DO NOTHING on (tenant, subject,
+	# event); a credit is refused twice by uq_point_ledger_entry_attendance_credit;
+	# a registration is idempotent on its natural key; a catalog row with
+	# identical values is a verified repeat and a changed one is a refusal, not
+	# an overwrite; a meeting is matched on (unit, title) first; a resubmitted
+	# rating is an edit of the caller's own row and answers 200. Run it twice
+	# and the second run changes nothing.
+	#
+	# What it fills: cba_meeting and event_registration (engagement),
+	# reward_item + redemption (the worksheet catalogue and a three-state
+	# redemption history -- the VALUES ARE ILLUSTRATIVE, transcribed from
+	# docs/pilot-data/rewards-catalog-worksheet.md, and an owner replacing them
+	# edits the worksheet and WORKSHEET_ITEMS together), one host-filed Speaker
+	# Request, and student_speaker_feedback through the student's own route.
+	#
+	# What it deliberately does NOT fill: outreach_send stays empty. Composing
+	# an invitation and dispatching one are different acts and gate G4 has not
+	# opened; a seeded send would be a record of an email nobody sent. The same
+	# goes for event_feedback_qr, which is created by a coordinator pressing a
+	# button. `make verify-pilot-dataset` reports both as zero and that report
+	# is correct.
+	#
+	# Needs a RUNNING api for the feedback step and the two
+	# SMARTMATCH_PILOT_STUDENT_* variables; see seed-pilot-student-feedback.
+	$(MAKE) seed-pilot-engagement
+	$(MAKE) seed-pilot-student-feedback
+	$(MAKE) verify-pilot-dataset
+
 .PHONY: verify-pilot-dataset
 verify-pilot-dataset: ## Fail if any table a pilot demo reads from is empty for the pilot tenant
 	# Read-only, and the counterpart to the seeds above rather than another one.
