@@ -315,15 +315,18 @@ export function VolunteerSpeakerRequest() {
         {/*
           The other end of this arrow (customer §6 step 9). Filing a request is
           the start of a workflow a Connector carries out elsewhere, and a host
-          who files one has no other way to find out how it ended.
+          who files one needs somewhere to watch it. The confirmed-speaker read
+          is Connector-scoped server-side — its old page 403'd the hosts it
+          named — so this link lands on the request list a host can read until
+          a host-readable answer exists.
         */}
         <p className="text-sm text-muted-foreground">
           Already filed one?{" "}
           <Link
-            to="/volunteer-portal/confirmed-speaker"
+            to="/volunteer-portal/my-requests"
             className="font-semibold text-primary underline"
           >
-            See who has agreed to speak
+            Track its status
           </Link>
           .
         </p>

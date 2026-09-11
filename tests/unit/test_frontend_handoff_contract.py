@@ -26,6 +26,19 @@ Both routes are ``{admin, coordinator}`` server-side. A UI gate is not
 authorization, so the page renders its controls and handles the server's ``403``
 as the answer it is, rather than hiding the control and implying it does not
 exist.
+
+Addendum — the demotion (September 2026)
+========================================
+
+Because those routes are ``{admin, coordinator}``-only, the page mounted at
+``/volunteer-portal/confirmed-speaker`` rendered a 403 for the very Event
+Hosts it named — a mounted page that must refuse its own reader is not a
+capability, it is a dead end with chrome on it. The consolidation demoted the
+address to a redirect onto ``/volunteer-portal/my-requests`` — the request
+list a host *can* read — until a host-readable confirmed-speaker answer
+exists. The page file stays in the repository and every discipline assertion
+below still holds it to OQ-CBA-042; what changed is only the reachability
+half, which now asserts the redirect instead of the mount.
 """
 
 from __future__ import annotations
@@ -39,6 +52,7 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 HANDOFF_PAGE = FRONTEND_SRC / "app" / "pages" / "volunteer" / "VolunteerConfirmedSpeaker.tsx"
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
+REDIRECTS = FRONTEND_SRC / "app" / "legacyRedirects.ts"
 SPEAKER_REQUEST_PAGE = FRONTEND_SRC / "app" / "pages" / "volunteer" / "VolunteerSpeakerRequest.tsx"
 
 
@@ -333,13 +347,38 @@ def test_the_page_composes_no_identifier_in_the_browser() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_route_is_mounted_in_the_volunteer_portal() -> None:
+def test_the_address_still_resolves_to_its_successor() -> None:
+    """``/volunteer-portal/confirmed-speaker`` is demoted to a redirect, not 404.
+
+    Demoted is not deleted: the page file stays in the repository and every
+    discipline assertion above still holds it to OQ-CBA-042. What must not come
+    back without a host-readable route behind it is the *mount* — a page whose
+    only data routes are ``{admin, coordinator}`` guarantees a 403 for the
+    volunteer reader it is addressed to.
+    """
+    assert HANDOFF_PAGE.is_file()
+    redirects = REDIRECTS.read_text(encoding="utf-8")
+    assert re.search(
+        r'from:\s*"/volunteer-portal/confirmed-speaker"\s*,\s*to:\s*"/volunteer-portal/my-requests"',
+        redirects,
+    ), (
+        "the retired confirmed-speaker address must redirect to the host's own "
+        "request list; dropping it would 404 a URL that used to resolve"
+    )
     source = ROUTES.read_text(encoding="utf-8")
-    assert "VolunteerConfirmedSpeaker" in source
-    assert "confirmed-speaker" in source
+    assert "VolunteerConfirmedSpeaker" not in source, (
+        "the page was remounted on a volunteer route while its only data routes "
+        "stay admin/coordinator — that is a guaranteed 403, not a capability"
+    )
 
 
-def test_the_host_can_reach_it_from_the_request_they_filed() -> None:
-    """§6 closes a loop that §12 opened, so the two pages are linked."""
+def test_the_host_can_reach_the_successor_from_the_request_they_filed() -> None:
+    """§6 closes a loop that §12 opened, so the two pages stay linked.
+
+    The link lands on ``my-requests`` — the surface a host can actually read —
+    rather than on the retired address's redirect. Until the host-readable
+    confirmed-speaker answer exists, the request's status is the honest thing
+    to point at.
+    """
     source = SPEAKER_REQUEST_PAGE.read_text(encoding="utf-8")
-    assert "/volunteer-portal/confirmed-speaker" in source
+    assert "/volunteer-portal/my-requests" in source

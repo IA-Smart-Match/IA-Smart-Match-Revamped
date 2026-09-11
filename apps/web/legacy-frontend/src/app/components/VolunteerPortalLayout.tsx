@@ -1,9 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
-  ClipboardList,
   ListChecks,
-  UserCheck,
   UserCircle,
   Briefcase,
   Menu,
@@ -18,22 +16,23 @@ import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 
+// One entry per mounted page — nothing here links a retired address. Two
+// entries this sidebar used to carry were removed rather than repointed,
+// because their successors are already on this list: "Confirmed speaker" was
+// folded into My Requests (its only data routes are `admin`/`coordinator`
+// server-side, so it answered the hosts it named with a 403), and "My
+// Assignments" was folded into Home, which names the absent assignments
+// dataset honestly instead of opening a page for it.
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
   // Customer §12: the Event Host's own capability, backed by a `/v1` route
   // rather than by the absent legacy portal API — as is the page below it.
   { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
-  // Customer §6 step 9: the other end of the intake above, so it sits beside
-  // it. `GET .../cba/confirmed-speakers` and the hand-off `POST` are
-  // `admin`/`coordinator` server-side whatever this shell renders — the page
-  // shows the refusal as an answer rather than hiding the control.
-  { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
   // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
   // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
   // server-side, and a different query from the Connector's queue, not a
   // wider permit on it.
   { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
-  { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
   { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
 
@@ -96,7 +95,11 @@ export function VolunteerPortalLayout() {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
-            <BrandLogo label="Speaker portal" />
+            {/* The portal descriptor's own `display_name` ("Event Host
+                Portal") — the server names this shell, the way it names the
+                Connector Dashboard for the coordinator grant. A literal here
+                was how this sidebar came to call event hosts "speakers". */}
+            <BrandLogo label={grant.display_name} />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"

@@ -26,7 +26,14 @@ const connectorLayout = readFileSync(
   new URL("../src/app/components/CoordinatorPortalLayout.tsx", import.meta.url),
   "utf8",
 );
-const speakerLayout = readFileSync(
+/**
+ * The Event Host shell — customer §4's name for the `volunteer` persona. It
+ * used to call itself "Speaker portal", a leftover from before the host
+ * portal was separated from the speaker pages it sat beside; the brand now
+ * comes from the portal grant's own `display_name`, as the Connector shell's
+ * does.
+ */
+const hostLayout = readFileSync(
   new URL("../src/app/components/VolunteerPortalLayout.tsx", import.meta.url),
   "utf8",
 );
@@ -68,7 +75,11 @@ test("visible role names use the approved Smart Match terminology", () => {
   // leftover from before `admin` and `coordinator` were reconciled into one
   // Speaker Connector.
   assert.match(connectorLayout, /Speaker Connector/);
-  assert.match(speakerLayout, /Speaker portal/);
+  // The host shell's brand is the server-granted `display_name` ("Event Host
+  // Portal" through `role_presentation.py`), never a literal — a hard-coded
+  // "Speaker portal" here is how event hosts got called speakers.
+  assert.match(hostLayout, /label=\{grant\.display_name\}/);
+  assert.doesNotMatch(stripComments(hostLayout), /Speaker portal/);
   assert.match(landing, /Event Hosts/);
   assert.doesNotMatch(connectorLayout, />\s*IA Admin\s*</);
 });
