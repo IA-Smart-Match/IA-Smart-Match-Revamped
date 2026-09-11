@@ -2004,13 +2004,44 @@ export interface PortalUnit {
   path: string;
   unit_type: string;
   display_name: string;
+  /**
+   * The stored `membership.role`s held **over this unit**, highest reach first.
+   *
+   * Per unit, not per portal, because the two genuinely differ: one account can
+   * be `coordinator` over one subtree and `admin` over another, open a single
+   * shell, and still have different reach in each. Reading the descriptor's
+   * `role` for a unit would claim the stronger grant everywhere and offer an
+   * action the route then refuses.
+   */
+  roles: string[];
 }
 
 export interface PortalDescriptor {
   portal: string;
   display_name: string;
   home_path: string;
+  /** The highest-reach stored role that opened this portal — `roles[0]`. */
   role: string;
+  /**
+   * Every stored role the caller holds that opens this portal, highest reach
+   * first (`admin` > `coordinator` > `volunteer` > `student`).
+   *
+   * One shell can be opened by more than one role since `coordinator` and
+   * `admin` became one persona, so a reader that saw only `role` could not tell
+   * a connector who is also an administrator from one who is not.
+   *
+   * Do **not** gate the Administration section on this: use
+   * `hasActiveRole(me, "admin")` (`lib/roles.ts`) over `GET /v1/me`, which is
+   * the route that reports membership validity. This field describes the portal
+   * grant; that one describes the person.
+   */
+  roles: string[];
+  /**
+   * The granting membership's subtree — the same row `role` came from.
+   *
+   * Not a summary of everything this portal reaches. For that read `units`, and
+   * each unit's own `roles` for what is held over it.
+   */
   org_unit_path: string;
   /** Units the granting membership covers, shallowest first. May be empty. */
   units: PortalUnit[];
@@ -2019,6 +2050,14 @@ export interface PortalDescriptor {
 }
 
 export interface MyPortalsResponse {
+  /**
+   * One entry per *portal*, never two for one shell.
+   *
+   * `coordinator` and `admin` are one persona and open one descriptor between
+   * them; the server merges the caller's memberships deterministically and
+   * orders the list `coordinator`, `volunteer`, `student`, so the same account
+   * lands in the same place on every sign-in.
+   */
   portals: PortalDescriptor[];
   default_portal: string | null;
 }

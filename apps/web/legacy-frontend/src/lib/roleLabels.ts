@@ -42,8 +42,7 @@
  * stored role: speakers are contact records, not login accounts. Naming the
  * persona without inventing a role for it keeps the vocabulary honest.
  */
-export type Persona =
-  "student" | "event_host" | "speaker_connector" | "speaker";
+export type Persona = "student" | "event_host" | "speaker_connector" | "speaker";
 
 /**
  * Every stored `membership.role`, and everything visible it decides.
@@ -94,9 +93,7 @@ export const ROLE_PRESENTATION = {
 export type KnownRole = keyof typeof ROLE_PRESENTATION;
 
 /** Every stored role the map names, in declaration order. */
-export const KNOWN_ROLES = Object.keys(
-  ROLE_PRESENTATION,
-) as readonly KnownRole[];
+export const KNOWN_ROLES = Object.keys(ROLE_PRESENTATION) as readonly KnownRole[];
 
 function presentation(role: string) {
   // `Object.prototype.hasOwnProperty.call`, not `Object.hasOwn`: this project
