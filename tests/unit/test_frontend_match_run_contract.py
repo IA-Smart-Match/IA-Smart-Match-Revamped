@@ -254,17 +254,22 @@ def test_match_run_page_reports_the_queued_state_it_actually_has() -> None:
 
 
 def test_match_run_page_navigates_only_on_a_server_supplied_run_id() -> None:
-    """``/ai-matching?run={id}`` is reachable only once a run id exists.
+    """``/coordinator-portal/match-runs?run={id}`` opens only once a run id exists.
 
     The ``202`` carries a *job* id, and no route maps a job to its run: the id
     arrives on the job's own terminal ``job.completed`` summary. So navigation
     waits for that summary. A page that redirected at ``202`` would have to
     invent the id in the query string, which is a fabricated result wearing a
     URL.
+
+    The destination is this same route's detail state — ``?run=`` mounts the
+    shortlist viewer in place of the submission form. Before the Connector
+    Dashboard consolidation it was ``/ai-matching?run={id}``; the retired
+    address still resolves because its redirect forwards the parameter.
     """
     source = MATCH_RUN_PAGE.read_text(encoding="utf-8")
 
-    assert "/ai-matching?run=" in source
+    assert "/coordinator-portal/match-runs?run=" in source
     assert "match_run_id" in source
     assert "fetchJobCompletionSummary" in source
 
@@ -348,3 +353,30 @@ def test_the_match_run_page_is_mounted_in_the_coordinator_portal() -> None:
     source = ROUTES.read_text(encoding="utf-8")
     assert "CoordinatorMatchRuns" in source
     assert '"match-runs"' in source or "'match-runs'" in source
+
+
+def test_the_shortlist_stays_reachable_inside_the_connector_shell() -> None:
+    """``?run=`` on the match-runs route mounts the run's detail view.
+
+    The consolidation retired ``/ai-matching``, the address the shortlist page
+    owned. Route parity means the capability must survive the retirement:
+    ``AIMatching`` mounts under the Connector shell, selected by the same
+    ``run`` parameter, and the retired address's redirect forwards that
+    parameter rather than stranding the run it named.
+    """
+    source = ROUTES.read_text(encoding="utf-8")
+    assert "AIMatching" in source, (
+        "the shortlist page is not mounted; /ai-matching?run={id} lost its successor"
+    )
+    assert 'searchParams.get("run")' in source, (
+        "nothing selects the run-detail view; the ?run= parameter would be ignored"
+    )
+
+    redirects = (FRONTEND_SRC / "app" / "legacyRedirects.ts").read_text(encoding="utf-8")
+    ai_matching = re.search(
+        r'from:\s*"/ai-matching"\s*,\s*to:\s*"([^"]+)"([^}]*)}', redirects
+    )
+    assert ai_matching is not None, "the /ai-matching redirect is missing"
+    assert '"run"' in ai_matching.group(0), (
+        "/ai-matching must forward its ?run= parameter to the successor route"
+    )

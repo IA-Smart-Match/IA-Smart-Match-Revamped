@@ -105,6 +105,33 @@ test("no redirect chains into another redirect or into itself", () => {
   }
 });
 
+test("a retired address whose parameter names a resource keeps it", () => {
+  // `/ai-matching?run={id}` was the shortlist's whole address — `run` names the
+  // persisted match run, and a redirect that dropped it would land the reader
+  // on the submission form with the shortlist orphaned. The entry therefore
+  // declares the parameter, and routes.tsx must carry it through: a field the
+  // router never reads would be a promise the table makes and nothing keeps.
+  const aiMatching = LEGACY_ROUTE_REDIRECTS.find((r) => r.from === "/ai-matching");
+  assert.ok(aiMatching, "the /ai-matching redirect is missing");
+  assert.deepEqual(
+    aiMatching.forwardParams,
+    ["run"],
+    "/ai-matching must forward its ?run= parameter; the shortlist is unreachable without it",
+  );
+  assert.match(routes, /forwardParams/, "routes.tsx drops forwardParams — the field is never read");
+  assert.match(routes, /useSearchParams/, "routes.tsx never reads the query string to forward it");
+
+  // No other retired address declares parameters to forward: each was a whole
+  // page, and a silent forward-everything rule would hand the successors
+  // inputs they never agreed to read.
+  const forwarding = LEGACY_ROUTE_REDIRECTS.filter((r) => r.forwardParams !== undefined);
+  assert.deepEqual(
+    forwarding.map((r) => r.from),
+    ["/ai-matching"],
+    "forwardParams appeared on an address that had no parameter contract",
+  );
+});
+
 test("the redirects are registered in routes.tsx, not merely exported", () => {
   // The table is only a promise until the router is built from it. This is the
   // line that turns it into behaviour.

@@ -9,6 +9,15 @@
  * mode this whole plan exists to prevent is a matching page that looks like it
  * is working.
  *
+ * ## Where it lives now
+ *
+ * The Connector Dashboard consolidation retired the `/ai-matching` address this
+ * page used to own. The shortlist is the match-runs screen's detail state: a
+ * `?run={id}` on `/coordinator-portal/match-runs` mounts this page in place of
+ * the submission form, and the retired address forwards the parameter across
+ * (`app/legacyRedirects.ts`). A bookmarked `/ai-matching?run={id}` therefore
+ * still opens the run it named.
+ *
  * ## Where runs are submitted, and why not here
  *
  * There is no "run the matcher" form on this page, and there is no longer any
@@ -61,13 +70,15 @@
  * surface got wrong.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { AlertCircle, Info } from "lucide-react";
 
 import { AccountableValue } from "@/app/components/provenance";
+import { grantedPortal } from "@/app/components/PortalGate";
+import { usePortalAccess } from "@/app/hooks/usePortalAccess";
+import { useAuthenticatedPrincipal } from "@/app/hooks/useSession";
 import {
   fetchMatchRun,
-  getConfiguredUnitId,
   hasSmartmatchAuth,
   type MatchCandidateExplanation,
   type MatchFactorExplanation,
@@ -77,19 +88,6 @@ import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/me
 
 /** Query parameter naming which persisted run to read. */
 const RUN_ID_PARAM = "run";
-
-/**
- * Reads the run id from the URL. Returns null rather than a default: there is
- * no "the latest run" to fall back to, and picking one would be this page
- * choosing which recommendation a coordinator sees.
- */
-function readRunIdFromLocation(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const value = new URLSearchParams(window.location.search).get(RUN_ID_PARAM);
-  return value && value.trim().length > 0 ? value.trim() : null;
-}
 
 /**
  * Renders a score exactly as the API measured it.
@@ -276,8 +274,22 @@ function MatchingUnavailable({ reason }: { reason: string }) {
 }
 
 export function AIMatching() {
-  const unitId = getConfiguredUnitId();
-  const runId = readRunIdFromLocation();
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
+  useAuthenticatedPrincipal();
+  // `GET /v1/me/portals` — the only source of the unit this run was recorded
+  // under. Never the `VITE_SMARTMATCH_UNIT_ID` build variable: it is unset on
+  // the deployed bundle, and where it is set it can name a different unit than
+  // the one the server granted this account.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "coordinator");
+  const unitId = grant?.default_unit_id ?? null;
+  // The run id from the URL. Null rather than a default: there is no "the
+  // latest run" to fall back to, and picking one would be this page choosing
+  // which recommendation a coordinator sees.
+  const [searchParams] = useSearchParams();
+  const runParam = searchParams.get(RUN_ID_PARAM);
+  const runId = runParam !== null && runParam.trim().length > 0 ? runParam.trim() : null;
   const authenticated = hasSmartmatchAuth();
 
   const [run, setRun] = useState<MatchRunRead | null>(null);
@@ -321,7 +333,7 @@ export function AIMatching() {
     );
   } else if (!unitId) {
     body = (
-      <MatchingUnavailable reason="No organizational unit is configured (VITE_SMARTMATCH_UNIT_ID), and match runs are unit-scoped. There is no unit to read a shortlist for." />
+      <MatchingUnavailable reason="The server's portal grant named no unit, and match runs are unit-scoped. There is no unit to read a shortlist for." />
     );
   } else if (!runId) {
     body = (

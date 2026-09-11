@@ -38,7 +38,9 @@
  * and nowhere else: no route maps a job to its run, and
  * `tests/e2e/test_pilot_clickthrough.py` recovers it the same way. Only once the
  * server has handed over a real id does this page open
- * `/ai-matching?run={match_run_id}`.
+ * `/coordinator-portal/match-runs?run={match_run_id}` — this same address's
+ * detail state, which mounts the shortlist page the retired `/ai-matching`
+ * address used to hold.
  *
  * Redirecting at `202` would mean composing that id in the browser, which is a
  * fabricated result wearing a URL — the B17 defect with a router in front of it.
@@ -412,7 +414,7 @@ export function CoordinatorMatchRuns() {
           );
           return;
         }
-        navigate(`/ai-matching?run=${encodeURIComponent(matchRunId)}`);
+        navigate(`/coordinator-portal/match-runs?run=${encodeURIComponent(matchRunId)}`);
       } catch (cause) {
         if (cancelled) return;
         setFollowError(

@@ -40,6 +40,18 @@ export interface LegacyRedirect {
   readonly from: string;
   /** The surface that now does its job. */
   readonly to: string;
+  /**
+   * Query parameters that were part of the old address's contract, forwarded
+   * verbatim onto the destination.
+   *
+   * `/ai-matching?run={id}` was the shortlist's whole address — the parameter
+   * is not decoration, it names the run. Dropping it at the redirect would
+   * land the reader on the submission form with the shortlist orphaned, so
+   * `run` is listed here and `routes.tsx` carries it through. Everything not
+   * named is still dropped: forwarding every parameter wholesale would hand
+   * the successor inputs it never agreed to read.
+   */
+  readonly forwardParams?: readonly string[];
 }
 
 /**
@@ -54,7 +66,7 @@ export const LEGACY_ROUTE_REDIRECTS: readonly LegacyRedirect[] = [
   { from: "/dashboard", to: "/coordinator-portal" },
   { from: "/opportunities", to: "/coordinator-portal/speaker-requests" },
   { from: "/events", to: "/coordinator-portal/events" },
-  { from: "/ai-matching", to: "/coordinator-portal/match-runs" },
+  { from: "/ai-matching", to: "/coordinator-portal/match-runs", forwardParams: ["run"] },
   { from: "/pipeline", to: "/coordinator-portal/speaker-requests" },
   { from: "/calendar", to: "/coordinator-portal/events" },
   { from: "/volunteers", to: "/coordinator-portal/speaker-contacts" },

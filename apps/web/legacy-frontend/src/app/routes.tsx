@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, createBrowserRouter, type RouteObject } from "react-router";
+import { Navigate, createBrowserRouter, useSearchParams, type RouteObject } from "react-router";
 import { StudentLayout } from "./components/StudentLayout";
 import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
 import { VolunteerPortalLayout } from "./components/VolunteerPortalLayout";
@@ -62,6 +62,13 @@ const CoordinatorMatchRuns = lazy(() =>
     default: m.CoordinatorMatchRuns,
   })),
 );
+// The run a submitted match produced, read back with its per-factor
+// explanation. Mounted by the `match-runs` route's `?run=` detail state — the
+// successor to the retired `/ai-matching?run=` address, whose redirect forwards
+// the parameter.
+const AIMatching = lazy(() =>
+  import("./pages/AIMatching").then((m) => ({ default: m.AIMatching })),
+);
 const CoordinatorInvitations = lazy(() =>
   import("./pages/coordinator/CoordinatorInvitations").then((m) => ({
     default: m.CoordinatorInvitations,
@@ -118,6 +125,49 @@ function withSuspense(node: ReactNode) {
 }
 
 /**
+ * The match-runs address has two states: the submission form, and — when a
+ * `?run={id}` parameter names a persisted run — the shortlist that run
+ * produced, which `pages/AIMatching.tsx` renders.
+ *
+ * This is the successor to the retired `/ai-matching?run={id}` address: the
+ * redirect table forwards `run` onto this route, so a bookmarked shortlist
+ * still opens the run it named. An empty or whitespace-only parameter is not
+ * a run id and selects the form, same as no parameter.
+ */
+function MatchRunsOrShortlist() {
+  const [searchParams] = useSearchParams();
+  const run = searchParams.get("run");
+  return run !== null && run.trim().length > 0 ? <AIMatching /> : <CoordinatorMatchRuns />;
+}
+
+/**
+ * A retired address whose successor still reads some of its query string.
+ *
+ * `<Navigate to>` alone would drop the parameters, and for `/ai-matching` the
+ * `?run=` parameter *is* the address: it names the persisted run the shortlist
+ * page reads. Entries that declare `forwardParams` render this instead, which
+ * copies exactly the named parameters — nothing else — onto the destination.
+ */
+function LegacyRouteRedirect({
+  to,
+  forwardParams,
+}: {
+  to: string;
+  forwardParams?: readonly string[];
+}) {
+  const [searchParams] = useSearchParams();
+  const forwarded = new URLSearchParams();
+  for (const name of forwardParams ?? []) {
+    const value = searchParams.get(name);
+    if (value !== null && value.trim().length > 0) {
+      forwarded.set(name, value.trim());
+    }
+  }
+  const query = forwarded.toString();
+  return <Navigate to={query === "" ? to : `${to}?${query}`} replace />;
+}
+
+/**
  * The retired addresses, turned into route objects.
  *
  * `replace` so the retired path does not sit in the history stack: pressing
@@ -136,10 +186,17 @@ function withSuspense(node: ReactNode) {
  * survives; the retired capability does not, and no route in this file offers
  * it any more.
  */
-const legacyRedirectRoutes: RouteObject[] = LEGACY_ROUTE_REDIRECTS.map(({ from, to }) => ({
-  path: from,
-  element: <Navigate to={to} replace />,
-}));
+const legacyRedirectRoutes: RouteObject[] = LEGACY_ROUTE_REDIRECTS.map(
+  ({ from, to, forwardParams }) => ({
+    path: from,
+    element:
+      forwardParams === undefined ? (
+        <Navigate to={to} replace />
+      ) : (
+        <LegacyRouteRedirect to={to} forwardParams={forwardParams} />
+      ),
+  }),
+);
 
 export const router = createBrowserRouter([
   // Public routes (no sidebar) — kept static: this is the first code an
@@ -198,7 +255,13 @@ export const router = createBrowserRouter([
       { path: "events", element: withSuspense(<CoordinatorEvents />) },
       // Card B24's replacement: the Connector submits a real match run against
       // a filed Speaker Request. `POST /v1/units/{unit_id}/match-runs`.
-      { path: "match-runs", element: withSuspense(<CoordinatorMatchRuns />) },
+      // The same address with a `?run={id}` is the run's detail state — the
+      // shortlist viewer the retired `/ai-matching` page held. One address,
+      // two states: the parameter selects which page mounts.
+      {
+        path: "match-runs",
+        element: withSuspense(<MatchRunsOrShortlist />),
+      },
       // §13's compose step, reached from a shortlist link carrying `?run={id}`.
       // `POST /v1/units/{unit_id}/speaker-invitations/batches` repeats the
       // consent check at dispatch and again at delivery.
