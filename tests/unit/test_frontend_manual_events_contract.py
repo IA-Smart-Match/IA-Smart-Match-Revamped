@@ -41,9 +41,7 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 EVENTS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorEvents.tsx"
 QR_CARD = FRONTEND_SRC / "components" / "QRCodeCard.tsx"
-CALENDAR = (
-    FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorEventsCalendar.tsx"
-)
+CALENDAR = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorEventsCalendar.tsx"
 ROUTES = FRONTEND_SRC / "app" / "routes.tsx"
 CONNECTOR_SHELL = FRONTEND_SRC / "app" / "components" / "CoordinatorPortalLayout.tsx"
 REDIRECTS = FRONTEND_SRC / "app" / "legacyRedirects.ts"
