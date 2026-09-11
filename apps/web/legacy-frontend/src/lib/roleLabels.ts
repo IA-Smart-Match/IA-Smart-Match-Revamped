@@ -42,7 +42,8 @@
  * stored role: speakers are contact records, not login accounts. Naming the
  * persona without inventing a role for it keeps the vocabulary honest.
  */
-export type Persona = "student" | "event_host" | "speaker_connector" | "speaker";
+export type Persona =
+  "student" | "event_host" | "speaker_connector" | "speaker";
 
 /**
  * Every stored `membership.role`, and everything visible it decides.
@@ -71,15 +72,21 @@ export const ROLE_PRESENTATION = {
     portalDisplayName: "Connector Dashboard",
   },
   /**
-   * Same persona as `coordinator`, distinguishable label. The two stored roles
-   * keep genuinely different reach in `smartmatch_authz`; the qualifier lets a
-   * reader see which row they hold without implying a power the label cannot
-   * grant. See `docs/product/cba-role-presentation.md`.
+   * Same persona as `coordinator`, distinguishable role label, and the *same
+   * portal*. The two stored roles keep genuinely different reach in
+   * `smartmatch_authz`; the qualifier lets a reader see which row they hold
+   * without implying a power the label cannot grant.
+   *
+   * `portalDisplayName` matches `coordinator`'s on purpose: one persona lands
+   * in one shell. `GET /v1/me/portals` maps both roles to the `coordinator`
+   * portal, and Administration is a section inside it — shown when
+   * `hasActiveRole(me, "admin")` (`lib/roles.ts`) — rather than a portal with
+   * a name of its own.
    */
   admin: {
     persona: "speaker_connector",
     roleLabel: "Speaker Connector (administrator)",
-    portalDisplayName: "CBA Administration",
+    portalDisplayName: "Connector Dashboard",
   },
 } as const;
 
@@ -87,7 +94,9 @@ export const ROLE_PRESENTATION = {
 export type KnownRole = keyof typeof ROLE_PRESENTATION;
 
 /** Every stored role the map names, in declaration order. */
-export const KNOWN_ROLES = Object.keys(ROLE_PRESENTATION) as readonly KnownRole[];
+export const KNOWN_ROLES = Object.keys(
+  ROLE_PRESENTATION,
+) as readonly KnownRole[];
 
 function presentation(role: string) {
   // `Object.prototype.hasOwnProperty.call`, not `Object.hasOwn`: this project

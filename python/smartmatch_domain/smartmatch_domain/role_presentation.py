@@ -50,10 +50,18 @@ persona, because customer §2 gives the connector work — maintaining contact
 lists, receiving requests, running matching, sending invitations — to a single
 persona while this system has long split those powers across two stored roles
 with genuinely different reach (``admin`` is tenant-wide for aggregates;
-``coordinator`` is subtree-scoped). The two keep distinct *labels*, so a
+``coordinator`` is subtree-scoped). The two keep distinct *role labels*, so a
 reader can still tell which row they hold, and exactly the powers they had
-before. See ``docs/product/cba-role-presentation.md`` for the open question
-and what would settle it.
+before.
+
+They no longer keep distinct **portal** names. One persona lands in one shell:
+``routers/portals.py`` maps both roles to the ``coordinator`` portal at
+``/coordinator-portal``, and both therefore read "Connector Dashboard" in its
+chrome. Administration is a *section* of that shell, revealed by the caller
+actually holding ``admin`` on ``GET /v1/me``, not a second portal with a name
+of its own. Naming it like a portal is what used to send one person to two
+different shells depending on which membership a row-order-free query happened
+to return first.
 
 :attr:`Persona.SPEAKER` is named and unmapped for the mirror-image reason:
 customer §2 lists Speaker as a persona, and no ``membership.role`` grants it
@@ -158,13 +166,23 @@ _PRESENTATION: Final[Mapping[str, RolePresentation]] = MappingProxyType(
             # naming authority instead of a second one that happens to agree.
             portal_display_name="Connector Dashboard",
         ),
-        # Same persona, distinguishable label. The qualifier is presentation,
-        # not a power: ``admin``'s reach is decided by ``smartmatch_authz``
-        # exactly as it was before this map existed.
+        # Same persona, distinguishable label, and — since the CBA pivot —
+        # the same shell. The qualifier is presentation, not a power:
+        # ``admin``'s reach is decided by ``smartmatch_authz`` exactly as it
+        # was before this map existed.
+        #
+        # The portal name is deliberately *identical* to ``coordinator``'s.
+        # "CBA Administration" named a second dashboard that the connector
+        # persona was supposed to be one of, and naming it separately is what
+        # kept one person split across two shells with two different chrome
+        # titles. Administration is a section inside the Connector Dashboard
+        # now, shown when the caller holds this role; it is not a portal, so
+        # it is not named like one. ``role_label`` still distinguishes the two
+        # rows for a reader who needs to know which one they hold.
         "admin": RolePresentation(
             persona=Persona.SPEAKER_CONNECTOR,
             role_label="Speaker Connector (administrator)",
-            portal_display_name="CBA Administration",
+            portal_display_name="Connector Dashboard",
         ),
     }
 )

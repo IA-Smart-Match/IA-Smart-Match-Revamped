@@ -4,9 +4,15 @@
 An operator tool, like :mod:`seed_pilot`, whose helpers it reuses rather than
 restates. It exists because the appliance had **one** dev principal — a
 coordinator — and a stakeholder click-through needs to enter every portal the
-product has. One token that resolved to one role meant the student surfaces,
-the Event Host surface, and the administration surface could not be opened at
-all, and three e2e steps said so by skipping.
+product has, and to see the administration surface inside the connector one.
+One token that resolved to one role meant the student surfaces, the Event Host
+surface, and the administration surface could not be opened at all, and three
+e2e steps said so by skipping.
+
+Four principals, four *roles*, three *portals*: ``coordinator`` and ``admin``
+open the same connector shell (see the note on the ``compose-admin`` row), so
+``compose-admin`` demonstrates the Administration section rather than a fourth
+portal.
 
 ## What this is, and what it is emphatically not
 
@@ -131,12 +137,19 @@ COMPOSE_DEV_PRINCIPALS: tuple[DevPrincipal, ...] = (
         role="volunteer",
         portal="volunteer",
     ),
+    # `portal="coordinator"`, not `"admin"`: since the CBA pivot the stored
+    # `admin` role opens the *connector* shell (`_PORTAL_FOR_ROLE`), because
+    # `admin` and `coordinator` are one persona and Administration is a
+    # section of that shell rather than a portal of its own. This principal is
+    # still a distinct account holding a distinct, tenant-wide role — what it
+    # demonstrates is the administration surface *inside* the connector
+    # dashboard, which `compose-api` does not see.
     DevPrincipal(
         token="compose-admin",
         subject="compose-pilot-admin",
         email="compose-pilot-admin@example.invalid",
         role="admin",
-        portal="admin",
+        portal="coordinator",
     ),
 )
 
