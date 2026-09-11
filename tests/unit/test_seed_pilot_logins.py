@@ -31,9 +31,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
 import seed_pilot_logins
 
-#: Long enough to pass the minimum-length check and obviously synthetic. Not a
-#: credential: nothing reads it but the fake below.
-_USABLE_SECRET = "not-a-real-password-000"
+#: Long enough to pass ``MINIMUM_PASSWORD_LENGTH`` (12) and obviously
+#: synthetic — and deliberately under sixteen characters, the length at which
+#: ``tools/scan_forbidden.py``'s ``hard-coded-credential`` rule starts reading
+#: a ``secret``/``password`` literal as entropy-bearing (the convention
+#: ``test_compose_dev_principals.py`` documents). Not a credential: nothing
+#: reads it but the fake below.
+_USABLE_SECRET = "fake-pass-00000"
 
 _SEED_KWARGS = {
     "tenant_slug": "pilot",
