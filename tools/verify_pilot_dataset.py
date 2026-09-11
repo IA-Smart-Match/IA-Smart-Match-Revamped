@@ -54,7 +54,7 @@ whether any speaker named on them is on this unit's roster. A demo does not
 fail because a table is empty; it fails because a page shows a row whose
 neighbours are missing.
 
-So this tool runs three passes and every one of them can fail the run:
+So this tool runs four passes and every one of them can fail the run:
 
 1. :data:`COUNTED_TABLES` — is the table empty for this tenant?
 2. :data:`DEMO_PORTAL_SURFACES` — does the person who *signs in* own enough
@@ -66,6 +66,15 @@ So this tool runs three passes and every one of them can fail the run:
    *violation* count, and a population of zero fails as loudly as a violation
    does. "Every invitation names a roster speaker" is trivially true of no
    invitations, and a check that can only pass is not a check.
+4. :func:`run_capability_checks` — can the rows that *are* present actually be
+   scored by the deployment running them? The first three passes all passed on
+   an appliance whose "Run a match" page refused nearly every selection: the
+   roster was full and connected, but the §9 topic comparison ran on the empty
+   playback fixture, so every member carrying topic evidence was ``unknown``
+   and unscorable. That is a property of the deployment's provider
+   configuration meeting this dataset, which no count of rows can see — so it
+   is checked here, against ``Settings.cba_topic_local_embedding_enabled``,
+   rather than left for a reviewer to find by clicking.
 
 Whose rows: the logins, not the fixtures
 ----------------------------------------
@@ -108,6 +117,9 @@ from seed_pilot import SeedConfigurationError, require_development_fixture_setti
 from seed_pilot_logins import ROLE_CREDENTIALS
 from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 from smartmatch_api.config import Settings
+from smartmatch_domain.cba_classification import CLASSIFICATION_SOURCE_HUMAN
+from smartmatch_domain.cba_role_categories import CBA_ROLE_TAXONOMY_VERSION
+from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION
 from smartmatch_domain.synthetic_pilot import synthetic_opportunity_event_id
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_session_factory
@@ -139,6 +151,7 @@ __all__ = [
     "main",
     "portal_report_lines",
     "report_lines",
+    "run_capability_checks",
     "run_checks",
     "subjects_for",
 ]
@@ -1232,6 +1245,128 @@ CROSS_TABLE_CHECKS: Final[tuple[ReferenceCheck | JoinCheck | PipelineOpportunity
 )
 
 
+# ---------------------------------------------------------------------------
+# The fourth pass: can the deployment score what the dataset holds?
+# ---------------------------------------------------------------------------
+#
+# Not a cross-table property, and deliberately not in CROSS_TABLE_CHECKS: the
+# violation predicate turns on ``Settings.cba_topic_local_embedding_enabled``,
+# a deployment fact no row can express. ``tests/unit/\
+# test_verify_pilot_dataset_checks.py`` treats every entry in that tuple as a
+# pair of compilable counts, which stays true because this check lives beside
+# it rather than inside it.
+
+
+def _match_eligible_profiles(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """The unit's roster members §19 allows into matching — a run's real pool.
+
+    The same gate ``smartmatch_api.match_run_evidence.assemble_cba_pool``
+    applies: both §7/§8 codes present, both classifications set by a person,
+    and both resolved against the taxonomy versions this release scores. A
+    member failing any of it is *excluded* before scoring — reported, never
+    evaluated — so it is not part of this population either: these are the
+    candidates a shortlist can actually be filled from.
+    """
+    profile = schema.speaker_profile
+    return (
+        sa.select(sa.func.count())
+        .select_from(profile)
+        .where(
+            profile.c.tenant_id == tenant_id,
+            profile.c.owning_unit_id == unit_id,
+            profile.c.primary_industry_code.is_not(None),
+            profile.c.industry_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.primary_role_code.is_not(None),
+            profile.c.role_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.industry_taxonomy_version == NAICS_TAXONOMY_VERSION,
+            profile.c.role_taxonomy_version == CBA_ROLE_TAXONOMY_VERSION,
+        )
+    )
+
+
+def _topic_evidence_unmeasurable(
+    tenant_id: uuid.UUID, unit_id: uuid.UUID, *, local_embedding_enabled: bool
+) -> sa.Select:
+    """Eligible members whose §9 topic evidence this deployment cannot measure.
+
+    ``topic_text`` and ``prior_talk`` are CHECK-constrained non-blank, so
+    ``IS NOT NULL`` is the whole "usable evidence" test
+    (``SpeakerTopicEvidence.usable_text``). Whether that evidence can be
+    *measured* is decided by the provider the API builds per run, not by the
+    row: under ``cba_topic_local_embedding_enabled`` every pair reaches
+    ADR-0017's offline embedding model and is measured; under the default
+    ``FixtureSemanticTopicProvider`` none is — the fixture replays recorded
+    comparisons and no writer can put one there, so every usable pair raises
+    ``TopicComparisonUnavailable``, the factor is ``unknown``, and ADR-0011
+    makes the whole composite unknown. Each such member is a selection that
+    cannot enter a shortlist.
+
+    The flag-off count is exact; the flag-on count is ``false`` rather than a
+    narrower query deliberately: the embedding model measures any pair with an
+    in-vocabulary word, and whether a given text clears that bar is a model
+    property a SQL predicate cannot honestly restate.
+    """
+    usable_evidence = sa.or_(
+        schema.speaker_profile.c.topic_text.is_not(None),
+        schema.speaker_profile.c.prior_talk.is_not(None),
+    )
+    unmeasurable = usable_evidence if not local_embedding_enabled else sa.false()
+    profile = schema.speaker_profile
+    return (
+        sa.select(sa.func.count())
+        .select_from(profile)
+        .where(
+            profile.c.tenant_id == tenant_id,
+            profile.c.owning_unit_id == unit_id,
+            profile.c.primary_industry_code.is_not(None),
+            profile.c.industry_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.primary_role_code.is_not(None),
+            profile.c.role_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.industry_taxonomy_version == NAICS_TAXONOMY_VERSION,
+            profile.c.role_taxonomy_version == CBA_ROLE_TAXONOMY_VERSION,
+            unmeasurable,
+        )
+    )
+
+
+def run_capability_checks(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    local_embedding_enabled: bool,
+) -> tuple[CheckResult, ...]:
+    """Whether this deployment can score the dataset it serves, per check.
+
+    Args:
+        local_embedding_enabled: The API's own
+            ``Settings.cba_topic_local_embedding_enabled``. The caller passes
+            it rather than this function reading it, so the question asked is
+            "what did the *deployment* configure" — ``Settings`` reads
+            ``.env`` from the project directory, which is the same file
+            ``docker compose`` resolves the api container's flag from.
+    """
+    check = JoinCheck(
+        name="topic_evidence_measurable",
+        question=(
+            "every §19-eligible roster member's §9 topic evidence can be measured "
+            "by the provider this deployment runs"
+        ),
+        remedy=(
+            "set SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true for the api "
+            "(ADR-0017's offline embedding model — .env, not an export, so it "
+            "survives the next `docker compose up`); under the playback fixture "
+            "these members are unscorable on every run and only roster members "
+            "with no topic evidence at all can fill a shortlist"
+        ),
+        population_query=_match_eligible_profiles,
+        violations_query=lambda tenant, unit: _topic_evidence_unmeasurable(
+            tenant, unit, local_embedding_enabled=local_embedding_enabled
+        ),
+    )
+    return (check.counts(session, tenant_id=tenant_id, unit_id=unit_id),)
+
+
 def count_dataset(
     session: Session,
     *,
@@ -1453,16 +1588,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Print the three tables and exit non-zero on any finding.
+    """Print the four report sections and exit non-zero on any finding.
 
     Three distinguishable failures, three distinguishable exits: ``2`` for a
     configuration refusal (this is not a dev fixture appliance), ``1`` for a
     missing tenant or unit or a database that could not be read, and ``1`` again
     for the findings this tool exists for — an empty table, a portal surface
-    below its floor, or a cross-table property that is broken or that no row
-    exists to satisfy. Each is printed by name with the writer or the remedy
-    beside it, because "the dataset is incomplete" without that list is a
-    sentence nobody can act on.
+    below its floor, or a cross-table or capability property that is broken or
+    that no row exists to satisfy. Each is printed by name with the writer or
+    the remedy beside it, because "the dataset is incomplete" without that list
+    is a sentence nobody can act on.
     """
     args = parse_args(argv)
     try:
@@ -1496,6 +1631,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 session, tenant_id=tenant_id, unit_id=unit_id, subjects=subjects
             )
             checks = run_checks(session, tenant_id=tenant_id, unit_id=unit_id)
+            capability_checks = run_capability_checks(
+                session,
+                tenant_id=tenant_id,
+                unit_id=unit_id,
+                local_embedding_enabled=settings.cba_topic_local_embedding_enabled,
+            )
         except SQLAlchemyError as exc:
             print(
                 "verify-pilot-dataset: database read failed; the database must be migrated "
@@ -1517,17 +1658,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(line)
 
     print("")
+    print(
+        "verify-pilot-dataset: capability checks (whether this deployment can score "
+        "the rows it holds)"
+    )
+    for line in check_report_lines(capability_checks):
+        print(line)
+
+    print("")
     print("verify-pilot-dataset: cross-table checks (rows that point at rows)")
     for line in check_report_lines(checks):
         print(line)
 
     empty = [count for count in counts if count.empty]
     thin_surfaces = [surface for surface in surfaces if surface.short]
-    failed_checks = [check for check in checks if check.failed]
+    failed_checks = [check for check in (*capability_checks, *checks) if check.failed]
     if not empty and not thin_surfaces and not failed_checks:
         print(
             "verify-pilot-dataset: every counted table holds rows, every demo portal's "
-            "surfaces clear their floor, and every cross-table check passes."
+            "surfaces clear their floor, and every cross-table and capability check "
+            "passes."
         )
         return 0
 
@@ -1560,9 +1710,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # says a person owns nothing; this says the rows are there, belong to the
         # right people, and do not refer to each other.
         print(
-            "verify-pilot-dataset: DISCONNECTED. These cross-table properties do not hold "
-            "(VACUOUS means no row exists for the question to be about, which a dataset "
-            "meant to demonstrate the property does not get to call a pass):",
+            "verify-pilot-dataset: DISCONNECTED. These cross-table or capability properties "
+            "do not hold (VACUOUS means no row exists for the question to be about, which "
+            "a dataset meant to demonstrate the property does not get to call a pass):",
             file=sys.stderr,
         )
         for check in failed_checks:

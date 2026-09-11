@@ -156,7 +156,7 @@ make verify-pilot-dataset
 ```
 
 Read-only. Run it before assuming a screen is broken, and after any manual
-seeding. It makes three passes and any one of them fails the run:
+seeding. It makes four passes and any one of them fails the run:
 
 1. **Counts.** Every table a demo reads from, for the pilot tenant, printed
    aligned so a *block* of zeros in the middle is visible, with the writer that
@@ -175,6 +175,15 @@ seeding. It makes three passes and any one of them fails the run:
    population beside its violations, and **a population of zero fails as
    `VACUOUS`** — "every invitation names a roster speaker" is trivially true of
    no invitations, and a check that can only pass is not a check.
+4. **Capability checks.** Can the deployment score the rows it holds? The
+   first of these asks whether every §19-eligible roster member's §9 topic
+   evidence can be measured by the provider this appliance runs — a question
+   no count of rows can answer, because a full, connected roster under the
+   playback fixture still refuses almost every "Run a match" selection. The
+   predicate is `Settings.cba_topic_local_embedding_enabled` read from the
+   same `.env` docker compose resolves the api container's flag from; under
+   the fixture it reports each evidence-carrying member as a violation and
+   names the flag as the remedy.
 
 **Whose rows.** The person-scoped surfaces default to the `pilot-login-*`
 accounts — the four `@`-addressed logins a reviewer types into the sign-in form.

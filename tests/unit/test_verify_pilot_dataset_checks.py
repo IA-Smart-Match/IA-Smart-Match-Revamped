@@ -427,3 +427,98 @@ def test_a_surface_below_its_floor_is_reported_as_thin_not_only_as_empty() -> No
     )
     assert not thin.empty
     assert thin.short
+
+
+# -- can the deployment score what it holds -----------------------------------
+#
+# The pass added after a full, connected roster still refused almost every
+# "Run a match" selection: under the playback fixture provider, a member with
+# topic evidence is `unknown` on the §9 factor and therefore unscorable, and
+# no count of rows can see that — it is a property of the deployment's
+# provider meeting this dataset. These tests pin that the question is asked,
+# that its population is the §19-eligible roster, and that the violation
+# predicate is the provider flag and not the row.
+
+
+def test_the_capability_population_is_the_match_eligible_roster() -> None:
+    """ "Scorable" starts at §19: both codes, both human, both current taxonomies."""
+    from verify_pilot_dataset import _match_eligible_profiles
+
+    sql = _compiled(_match_eligible_profiles(_TENANT, _UNIT))
+    assert "count(*)" in sql
+    assert "tenant_id" in sql
+    assert "owning_unit_id" in sql
+    assert "primary_industry_code" in sql
+    assert "primary_role_code" in sql
+    assert "'human'" in sql
+    assert "industry_taxonomy_version" in sql
+    assert "role_taxonomy_version" in sql
+
+
+def test_under_the_fixture_every_member_with_topic_evidence_is_unmeasurable() -> None:
+    """The recorded failure, stated as SQL: usable §9 evidence the provider cannot measure."""
+    from verify_pilot_dataset import _topic_evidence_unmeasurable
+
+    sql = _compiled(_topic_evidence_unmeasurable(_TENANT, _UNIT, local_embedding_enabled=False))
+    assert "topic_text" in sql
+    assert "prior_talk" in sql
+    assert "tenant_id" in sql
+
+
+def test_under_local_embeddings_no_member_is_unmeasurable() -> None:
+    """ADR-0017's model measures any usable pair, so the violation set is empty.
+
+    SQLAlchemy constant-folds ``… AND false`` to ``WHERE false`` — which is the
+    stronger pin: under the embedding provider the count provably matches no
+    row, so no tenant predicate is needed to keep it scoped.
+    """
+    from verify_pilot_dataset import _topic_evidence_unmeasurable
+
+    sql = _compiled(_topic_evidence_unmeasurable(_TENANT, _UNIT, local_embedding_enabled=True))
+    assert sql.rstrip().endswith("WHERE false"), sql
+
+
+class _CountingSession:
+    """Just enough of ``Session`` for ``JoinCheck.counts`` — records, never opens a socket."""
+
+    def __init__(self) -> None:
+        self.statements: list[object] = []
+
+    def execute(self, statement: object) -> object:
+        self.statements.append(statement)
+        return self
+
+    def scalar_one(self) -> int:
+        return 1
+
+
+def test_the_capability_check_reports_its_name_and_folds_the_flag_in() -> None:
+    """The check is a real CheckResult — so the report and the exit code carry it."""
+    from verify_pilot_dataset import run_capability_checks
+
+    session = _CountingSession()
+    (result,) = run_capability_checks(
+        session,  # type: ignore[arg-type]
+        tenant_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        unit_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        local_embedding_enabled=False,
+    )
+    assert result.name == "topic_evidence_measurable"
+    assert result.remedy.strip()
+    compiled = [_compiled(statement) for statement in session.statements]
+    assert any("topic_text" in sql for sql in compiled), (
+        "with the flag off the violations count must name the unusable evidence"
+    )
+
+
+def test_main_asks_the_capability_question_against_the_deployment() -> None:
+    """A check nothing calls cannot fail a run; this pins that `main` calls it,
+    and that the flag it passes is the API's own setting — the file docker
+    compose resolves the api container's provider from."""
+    import inspect
+
+    from verify_pilot_dataset import main
+
+    source = inspect.getsource(main)
+    assert "run_capability_checks" in source
+    assert "cba_topic_local_embedding_enabled" in source

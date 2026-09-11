@@ -94,11 +94,18 @@ needs filled in are:
   update. Add the line yourself if your checkout predates that merge; this
   walkthrough assumes it exists. Off by default (`False`), which keeps
   customer §9's Topic comparison on `FixtureSemanticTopicProvider` — a
-  deterministic playback fixture with no recording for most speaker
-  expertise text, so most candidates score `cba_semantic_topic: unknown` and
-  are reported unscorable. On, it reaches ADR-0017's offline, in-process
-  embedding model (averaged GloVe vectors, vendored, no network call, no
-  vendor, no credential) — never a live or external provider either way.
+  deterministic playback fixture with no recording for *any* speaker
+  expertise text, so every candidate carrying topic evidence scores
+  `cba_semantic_topic: unknown` and is reported unscorable. The practical
+  consequence on a generated dataset: only the members with no topic
+  evidence at all (about one roster member in eight, §9's neutral policy)
+  can enter a shortlist, so a hand-picked selection on "Run a match" is
+  refused with `match_run_insufficient_scorable_candidates` almost every
+  time. `make verify-pilot-dataset` now reports exactly this state as a
+  capability-check violation and names this flag as the remedy. On, the
+  flag reaches ADR-0017's offline, in-process embedding model (averaged
+  GloVe vectors, vendored, no network call, no vendor, no credential) —
+  never a live or external provider either way.
   See `docs/architecture/decisions/ADR-0017-offline-embedding-topic-semantics.md`.
 
 `SMARTMATCH_DEV_PRINCIPALS` also lives in `.env.example`, defaulting to `{}`.
