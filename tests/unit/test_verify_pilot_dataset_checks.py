@@ -23,6 +23,7 @@ saw a blank page.
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,9 @@ from verify_pilot_dataset import (  # noqa: E402
     JoinCheck,
     OwnedByColumn,
     OwnedByLedgerCause,
+    PipelineOpportunityCheck,
     ReferenceCheck,
+    _accepted_events_review_items,
     check_report_lines,
     subjects_for,
 )
@@ -71,6 +74,8 @@ _REQUIRED_CHECKS: frozenset[str] = frozenset(
         "feedback_names_a_roster_speaker",
         "feedback_is_backed_by_attendance",
         "ledger_entry_has_a_cause",
+        "pipeline_record_names_an_event",
+        "synthetic_fanout_names_a_derived_opportunity",
     }
 )
 
@@ -134,6 +139,17 @@ def test_every_check_builds_two_tenant_scoped_counts(check: object) -> None:
             sa.select(sa.func.count()).select_from(check.table).where(*scope),
             sa.select(sa.func.count()).select_from(check.table).where(*scope, ~resolves.exists()),
         ]
+    elif isinstance(check, PipelineOpportunityCheck):
+        # Same exercise as the ReferenceCheck rebuild above: build the two
+        # statements from the check's own `queries` over a stand-in derived
+        # set, rather than executing anything.
+        statements = list(
+            check.queries(
+                frozenset({uuid.UUID("33333333-3333-3333-3333-333333333333")}),
+                _TENANT,
+                _UNIT,
+            )
+        )
     else:
         assert isinstance(check, JoinCheck)
         statements = [
@@ -177,6 +193,81 @@ def test_match_run_event_correlation_is_a_text_comparison() -> None:
     )
     assert isinstance(check, ReferenceCheck)
     assert check.cast_target_to_text, "event.id must be cast to text to meet event_need_id"
+
+
+# -- the pipeline opportunity split -----------------------------------------
+#
+# `pipeline_record.opportunity_event_id` has two legal referents: a real
+# `event.id` (Phase-B journeys, the Event Host hand-off) and a
+# review-item-derived uuid5 (the review-accept fan-out), which no event row
+# ever carries. The two checks below are the partition that replaced the one
+# too-broad check — "every record names an event" failed deterministically on
+# a complete dataset.
+
+
+def _pipeline_check(name: str) -> PipelineOpportunityCheck:
+    check = next(check for check in CROSS_TABLE_CHECKS if check.name == name)
+    assert isinstance(check, PipelineOpportunityCheck), f"{name} changed kind"
+    return check
+
+
+_DERIVED = frozenset({uuid.UUID("33333333-3333-3333-3333-333333333333")})
+
+
+def test_the_event_check_excludes_derived_opportunities_from_its_population() -> None:
+    """The fan-out is a legal shape, not a finding — but only *there*."""
+    population, violations = _pipeline_check("pipeline_record_names_an_event").queries(
+        _DERIVED, _TENANT, _UNIT
+    )
+    population_sql = _compiled(population)
+    violations_sql = _compiled(violations)
+    # The derived id is excluded from the population: a journey naming it is
+    # not asked to name an event.
+    assert "NOT IN" in population_sql
+    assert "33333333-3333-3333-3333-333333333333" in population_sql
+    # A journey that is neither derived nor event-named is still a violation —
+    # this is the dangling hand-off case the check must not stop catching.
+    assert "EXISTS" in violations_sql
+    assert "event" in violations_sql
+
+
+def test_the_fanout_check_counts_only_journeys_that_name_no_event() -> None:
+    """The other half: naming no event is allowed *only* by derivation."""
+    population, violations = _pipeline_check(
+        "synthetic_fanout_names_a_derived_opportunity"
+    ).queries(_DERIVED, _TENANT, _UNIT)
+    population_sql = _compiled(population)
+    violations_sql = _compiled(violations)
+    # Population: the journeys whose opportunity names no event row.
+    assert "NOT" in population_sql and "EXISTS" in population_sql
+    # Violation: of those, the ones no accepted events review item derives.
+    assert "NOT IN" in violations_sql
+    assert "33333333-3333-3333-3333-333333333333" in violations_sql
+
+
+def test_the_derived_set_is_read_from_accepted_events_review_items() -> None:
+    """``uuid5(tenant, review_item)`` only means "fan-out" for the rows provisioning used."""
+    sql = _compiled(_accepted_events_review_items(_TENANT))
+    assert "review_item" in sql
+    assert "import_batch" in sql
+    assert "accepted" in sql
+    assert "events" in sql
+    assert "tenant_id" in sql
+
+
+def test_the_two_pipeline_checks_partition_by_referent_not_provenance() -> None:
+    """Every ``pipeline_record`` writer stores the same provenance — the column
+    cannot separate the fan-out from the hand-off, and neither may this check."""
+    for name in (
+        "pipeline_record_names_an_event",
+        "synthetic_fanout_names_a_derived_opportunity",
+    ):
+        check = _pipeline_check(name)
+        for statement in check.queries(_DERIVED, _TENANT, _UNIT):
+            assert "matched_provenance" not in _compiled(statement), (
+                f"{name} filters on a provenance every writer shares — that "
+                "cannot separate the fan-out from the hand-off"
+            )
 
 
 # -- the verdict ------------------------------------------------------------

@@ -108,6 +108,7 @@ from seed_pilot import SeedConfigurationError, require_development_fixture_setti
 from seed_pilot_logins import ROLE_CREDENTIALS
 from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 from smartmatch_api.config import Settings
+from smartmatch_domain.synthetic_pilot import synthetic_opportunity_event_id
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_session_factory
 from sqlalchemy.exc import SQLAlchemyError
@@ -127,6 +128,7 @@ __all__ = [
     "OwnedByColumn",
     "OwnedByLedgerCause",
     "OwnerScope",
+    "PipelineOpportunityCheck",
     "PortalSurface",
     "ReferenceCheck",
     "SurfaceCount",
@@ -820,6 +822,142 @@ def _feedback_without_attendance(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa
     )
 
 
+def _accepted_events_review_items(tenant_id: uuid.UUID) -> sa.Select:
+    """Every *accepted* ``events`` review item in the tenant, as a select.
+
+    ``dataset = 'events'`` is the import contract's own spelling
+    (``pipeline_provisioning.EVENTS_DATASET``); the composite join on
+    ``(tenant_id, id)`` is ``review_item``'s own foreign key.
+    """
+    return (
+        sa.select(schema.review_item.c.id)
+        .select_from(
+            schema.review_item.join(
+                schema.import_batch,
+                sa.and_(
+                    schema.import_batch.c.tenant_id == schema.review_item.c.tenant_id,
+                    schema.import_batch.c.id == schema.review_item.c.import_batch_id,
+                ),
+            )
+        )
+        .where(
+            schema.review_item.c.tenant_id == tenant_id,
+            schema.review_item.c.status == "accepted",
+            schema.import_batch.c.dataset == "events",
+        )
+    )
+
+
+def _derived_fanout_opportunities(
+    session: Session, *, tenant_id: uuid.UUID
+) -> frozenset[uuid.UUID]:
+    """The ``opportunity_event_id`` values ``pipeline_provisioning`` can mint.
+
+    Accepting an in-list ``events`` review item fans out one journey per linked
+    professional under ``synthetic_opportunity_event_id(tenant, review_item)``
+    — a ``uuid5`` that is *about* the review item and that no ``event`` row ever
+    carries. That is the design, not a dangling reference:
+    ``pipeline_record.opportunity_event_id`` predates the ``event`` table and
+    deliberately has no foreign key.
+
+    Recomputing the set here, rather than filtering on ``matched_provenance``,
+    is what keeps the audit honest: **every** writer of ``pipeline_record``
+    stores the same ``synthetic / coordinator-accepted`` provenance — the
+    generated Phase-B journeys, the CBA hand-off (which verifies its event
+    before opening), and this fan-out — so the column cannot tell them apart.
+    The derivation is the only signature the fan-out actually has.
+
+    The set is computed over every *accepted* ``events`` review item, not only
+    the in-list ones: an out-of-list accept derives nothing, but an id that
+    matches no journey changes no count, and re-implementing the in-list rule
+    here would buy a marginally smaller set at the price of a second copy of
+    it.
+    """
+    rows = session.execute(_accepted_events_review_items(tenant_id)).all()
+    return frozenset(
+        synthetic_opportunity_event_id(tenant_id=tenant_id, review_item_id=uuid.UUID(str(row.id)))
+        for row in rows
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineOpportunityCheck:
+    """One half of the ``pipeline_record.opportunity_event_id`` audit.
+
+    Neither :class:`ReferenceCheck` nor :class:`JoinCheck` can phrase this one:
+    the column's legitimate referent is computed in Python (a ``uuid5``), so the
+    derived set has to be read out of ``review_item`` and rebuilt before either
+    count can run — which is what :meth:`counts` does.
+
+    Two instances split the one question by which referent is legal:
+
+    * ``fanout=False`` audits the journeys that must name a real ``event`` —
+      every record whose opportunity is **not** a review-item-derived id. Those
+      are the generated Phase-B journeys and the Event Host hand-offs, both of
+      which open only against verified events. A hand-off journey that dangles
+      still fails here.
+    * ``fanout=True`` audits the other half: every journey that names no event
+      must name an id the accepted-``events`` population actually derives. A
+      record naming neither is corruption, not fan-out.
+    """
+
+    name: str
+    question: str
+    remedy: str
+    fanout: bool
+
+    def queries(
+        self,
+        derived: frozenset[uuid.UUID],
+        tenant_id: uuid.UUID,
+        unit_id: uuid.UUID,
+    ) -> tuple[sa.Select, sa.Select]:
+        """The population and violation counts, over the given derived set."""
+        record = schema.pipeline_record
+        scope = _scope(
+            record,
+            tenant_id=tenant_id,
+            unit_id=unit_id,
+            unit_column="owning_unit_id",
+        )
+        names_event = sa.exists(
+            sa.select(sa.literal(1)).where(
+                schema.event.c.tenant_id == tenant_id,
+                schema.event.c.id == record.c.opportunity_event_id,
+            )
+        )
+        is_derived = record.c.opportunity_event_id.in_(sorted(derived)) if derived else sa.false()
+        if self.fanout:
+            population_q = (
+                sa.select(sa.func.count()).select_from(record).where(*scope, ~names_event)
+            )
+            violations_q = (
+                sa.select(sa.func.count())
+                .select_from(record)
+                .where(*scope, ~names_event, ~is_derived)
+            )
+        else:
+            population_q = sa.select(sa.func.count()).select_from(record).where(*scope, ~is_derived)
+            violations_q = (
+                sa.select(sa.func.count())
+                .select_from(record)
+                .where(*scope, ~is_derived, ~names_event)
+            )
+        return population_q, violations_q
+
+    def counts(self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> CheckResult:
+        """Population and violations, with the derived set rebuilt per run."""
+        derived = _derived_fanout_opportunities(session, tenant_id=tenant_id)
+        population_q, violations_q = self.queries(derived, tenant_id=tenant_id, unit_id=unit_id)
+        return CheckResult(
+            name=self.name,
+            question=self.question,
+            population=int(session.execute(population_q).scalar_one()),
+            violations=int(session.execute(violations_q).scalar_one()),
+            remedy=self.remedy,
+        )
+
+
 def _ledger_rows(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
     """Count the tenant's ledger entries. Tenant-wide: the table carries no unit."""
     del unit_id
@@ -879,7 +1017,7 @@ def _ledger_without_a_cause(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Sele
 #: dataset can satisfy every count and every ownership floor and still be a set
 #: of unrelated islands, and the only way to tell is to ask a question that
 #: needs two tables to answer.
-CROSS_TABLE_CHECKS: Final[tuple[ReferenceCheck | JoinCheck, ...]] = (
+CROSS_TABLE_CHECKS: Final[tuple[ReferenceCheck | JoinCheck | PipelineOpportunityCheck, ...]] = (
     JoinCheck(
         name="event_with_a_match_run_has_invitations",
         question="every event a match run was driven from has invitations composed for it",
@@ -940,15 +1078,25 @@ CROSS_TABLE_CHECKS: Final[tuple[ReferenceCheck | JoinCheck, ...]] = (
         target_column="professional_id",
         target_unit_column="owning_unit_id",
     ),
-    ReferenceCheck(
+    PipelineOpportunityCheck(
         name="pipeline_record_names_an_event",
-        question="every pipeline record names the event it is a journey towards",
-        remedy="a journey outlived its event; regenerate",
-        table=schema.pipeline_record,
-        unit_column="owning_unit_id",
-        column="opportunity_event_id",
-        target=schema.event,
-        target_column="id",
+        question=(
+            "every pipeline journey that is not a review-accept fan-out names the "
+            "event it is a journey towards"
+        ),
+        remedy="a hand-off or generated journey names an event that does not exist; regenerate",
+        fanout=False,
+    ),
+    PipelineOpportunityCheck(
+        name="synthetic_fanout_names_a_derived_opportunity",
+        question=(
+            "every pipeline journey that names no event is the synthetic fan-out of an "
+            "accepted events review item"
+        ),
+        remedy=(
+            "a journey names neither an event nor a review-item-derived opportunity; regenerate"
+        ),
+        fanout=True,
     ),
     ReferenceCheck(
         name="attendance_names_an_event",
@@ -1212,7 +1360,7 @@ def run_checks(
     *,
     tenant_id: uuid.UUID,
     unit_id: uuid.UUID,
-    checks: Sequence[ReferenceCheck | JoinCheck] = CROSS_TABLE_CHECKS,
+    checks: Sequence[ReferenceCheck | JoinCheck | PipelineOpportunityCheck] = CROSS_TABLE_CHECKS,
 ) -> tuple[CheckResult, ...]:
     """Answer every cross-table question, in declaration order."""
     return tuple(check.counts(session, tenant_id=tenant_id, unit_id=unit_id) for check in checks)
