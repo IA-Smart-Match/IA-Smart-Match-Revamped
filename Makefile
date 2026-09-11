@@ -262,6 +262,14 @@ seed-pilot-student-feedback: ## Rate speakers as the pilot student, through POST
 	# the environment -- the same two variables `seed-pilot-logins` created the
 	# account from. There is no default password anywhere in this repository
 	# and this target invents none; an unset variable is a refusal naming it.
+	#
+	# SEED_PILOT_STUDENT_FEEDBACK_ARGS=--cohort additionally runs the
+	# eight-student feedback cohort so the Speakers page shows several
+	# published per-speaker means rather than one. It authenticates with the
+	# pilot-feedback-NN dev tokens, so the API's SMARTMATCH_DEV_PRINCIPALS must
+	# carry them before it boots -- the fixed four-token compose map does not;
+	# scripts/reset_pilot_dataset.sh's map does. A stack without them is
+	# refused early by the tool's GET /v1/me probe, never posted into.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_student_feedback.py \
 		--api-base $(PILOT_DATASET_API_BASE) $(SEED_PILOT_STUDENT_FEEDBACK_ARGS)
 
@@ -301,6 +309,10 @@ top-up-pilot-dataset: ## ADDITIVE, idempotent fill of the empty tables on an ALR
 	#
 	# Needs a RUNNING api for the feedback step and the two
 	# SMARTMATCH_PILOT_STUDENT_* variables; see seed-pilot-student-feedback.
+	# On a stack whose API carries the pilot-feedback-NN dev principals (the
+	# reset script's map, or a local override that adds them), running the
+	# feedback step with SEED_PILOT_STUDENT_FEEDBACK_ARGS=--cohort additionally
+	# gives the Speakers page several published per-speaker means.
 	$(MAKE) seed-pilot-engagement
 	$(MAKE) seed-pilot-student-feedback
 	$(MAKE) verify-pilot-dataset

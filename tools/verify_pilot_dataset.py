@@ -462,6 +462,22 @@ DEMO_PORTAL_SURFACES: Final[tuple[PortalSurface, ...]] = (
         minimum_rows=1,
         writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
+    PortalSurface(
+        token="compose-api",
+        role="coordinator",
+        surface="Speaker feedback (Speakers page)",
+        table=schema.student_speaker_feedback,
+        owner=None,
+        unit_column="owning_unit_id",
+        # Nine, not one: a per-speaker aggregate publishes only at three
+        # distinct submitted responses, so below nine rows at most two speakers
+        # can publish and the page reads as a column of "not enough responses
+        # yet" — the thin state the cohort leg of seed-pilot-student-feedback
+        # exists to end. A floor and never a target; it says nothing about the
+        # spread, only that several aggregates *could* be showing.
+        minimum_rows=9,
+        writer="make top-up-pilot-dataset (student feedback cohort, through the API)",
+    ),
     # Student — every one of these is scoped by `principal.user_id`, and every
     # one of them was empty for the demo login while the tenant-wide count was
     # healthy. This block is the ownership trap, written down.

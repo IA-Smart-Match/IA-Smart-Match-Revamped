@@ -806,6 +806,12 @@ services:
       #     --entrypoint python dataset \
       #     /home/smartmatch/seed_pilot_student_feedback.py --api-base http://api:8080
       #
+      # Add `--cohort` to that invocation on a stack whose api service carries
+      # the eight `pilot-feedback-NN` principals described above — a local
+      # override is the place for them, for the same sixteen-character reason
+      # Phase C is skipped here. On this file's fixed four-token map the flag
+      # is refused early by the tool's own probe.
+      #
       #   docker compose --profile dataset run --rm --no-deps \
       #     --entrypoint python dataset /home/smartmatch/verify_pilot_dataset.py
       #

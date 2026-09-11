@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from seed_pilot_student_feedback import (  # noqa: E402
+    COHORT_RESPONSE_SHAPE,
     EMAIL_VARIABLE,
     MAX_EVENTS,
     MAX_SPEAKERS_PER_EVENT,
@@ -43,7 +44,10 @@ from seed_pilot_student_feedback import (  # noqa: E402
     login,
     parse_args,
 )
-from smartmatch_domain.student_speaker_feedback import EditWindowState  # noqa: E402
+from smartmatch_domain.student_speaker_feedback import (  # noqa: E402
+    MIN_RESPONSES_FOR_AGGREGATE,
+    EditWindowState,
+)
 
 # -- the credential ---------------------------------------------------------
 
@@ -164,6 +168,7 @@ def test_parse_args_requires_a_running_api_and_defaults_to_the_login_student() -
     args = parse_args(["--api-base", "http://127.0.0.1:18080"])
     assert args.subjects == "login"
     assert args.student_subject is None
+    assert args.cohort is False
 
 
 def test_the_report_distinguishes_a_created_rating_from_an_amended_one() -> None:
@@ -172,3 +177,66 @@ def test_the_report_distinguishes_a_created_rating_from_an_amended_one() -> None
     lines = "\n".join(report.lines())
     assert "created      4" in lines
     assert "amended      2" in lines
+
+
+# -- the cohort leg ---------------------------------------------------------
+
+
+def test_the_cohort_shape_fits_the_cohort() -> None:
+    """No entry may call for more students than the cohort holds.
+
+    ``build_speaker_feedback`` refuses a shape whose widest entry needs more
+    opportunities than ``FEEDBACK_STUDENT_COUNT`` provides — this test turns
+    that runtime refusal into a load-time guarantee, so a shape bump that
+    outgrew the cohort fails here and not fifty requests into a live run.
+    """
+    from pilot_dataset_plan import (
+        FEEDBACK_STUDENT_COUNT,
+        FEEDBACK_WITHHELD_SHARE,
+        build_speaker_feedback,
+    )
+
+    widest = max(
+        round(posted / (1.0 - FEEDBACK_WITHHELD_SHARE)) for posted in COHORT_RESPONSE_SHAPE
+    )
+    assert widest <= FEEDBACK_STUDENT_COUNT
+    # And the module agrees: the shape must build, not merely look buildable.
+    build_speaker_feedback(shape=COHORT_RESPONSE_SHAPE)
+
+
+def test_the_cohort_shape_shows_both_sides_of_the_publish_line() -> None:
+    """The demo needs published aggregates *and* suppressed ones to compare them."""
+    assert any(count >= MIN_RESPONSES_FOR_AGGREGATE for count in COHORT_RESPONSE_SHAPE)
+    assert any(0 < count < MIN_RESPONSES_FOR_AGGREGATE for count in COHORT_RESPONSE_SHAPE)
+
+
+def test_the_cohort_plan_publishes_varied_means() -> None:
+    """Every published mean landing on one number would demonstrate nothing.
+
+    Pinned as a property — more than one distinct published mean — rather than
+    the exact values, which are the plan module's seeded draw to change.
+    """
+    from pilot_dataset_plan import build_speaker_feedback
+
+    planned = build_speaker_feedback(shape=COHORT_RESPONSE_SHAPE)
+    by_speaker: dict[int, list[int]] = {}
+    for entry in planned:
+        if entry.rating is not None:
+            by_speaker.setdefault(entry.speaker_rank, []).append(entry.rating)
+    published_means = {
+        round(sum(ratings) / len(ratings), 2)
+        for ratings in by_speaker.values()
+        if len(ratings) >= MIN_RESPONSES_FOR_AGGREGATE
+    }
+    assert len(published_means) > 1
+
+
+def test_the_cohort_report_is_a_separate_set_of_lines() -> None:
+    """The cohort's counts are printed only when the leg ran — a skipped leg
+    must not look like a leg that ran and found nothing to do."""
+    quiet = FeedbackReport(ratings_created=1)
+    assert "cohort" not in "\n".join(quiet.lines())
+    ran = FeedbackReport(cohort_ran=True, cohort_ratings_created=50)
+    lines = "\n".join(ran.lines())
+    assert "cohort ratings created" in lines
+    assert "50" in lines
