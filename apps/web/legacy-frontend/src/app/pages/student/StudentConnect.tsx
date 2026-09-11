@@ -88,7 +88,7 @@ export function StudentConnect() {
           <ul className="mt-3 space-y-2 text-sm">
             <li>
               <Link
-                to="/events"
+                to="/student-portal/events"
                 className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Browse events and register
@@ -96,7 +96,7 @@ export function StudentConnect() {
             </li>
             <li>
               <Link
-                to="/speaker-feedback"
+                to="/student-portal/speaker-feedback"
                 className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Change or withdraw a rating you left a speaker

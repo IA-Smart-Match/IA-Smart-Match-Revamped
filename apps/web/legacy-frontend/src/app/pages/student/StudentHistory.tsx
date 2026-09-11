@@ -120,7 +120,7 @@ export function StudentHistory() {
                   Nothing has happened on your record yet. An event lands here once it has passed
                   and either you held a place at it or your department recorded you there.{" "}
                   <Link
-                    to="/events"
+                    to="/student-portal/events"
                     className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Browse what is coming up
@@ -170,7 +170,7 @@ export function StudentHistory() {
                 name it is allowed to show — and inventing one would be worse than showing none.
                 Ratings you have already left are on{" "}
                 <Link
-                  to="/speaker-feedback"
+                  to="/student-portal/speaker-feedback"
                   className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   Speaker feedback

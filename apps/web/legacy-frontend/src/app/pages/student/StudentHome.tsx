@@ -46,7 +46,7 @@ import { AgendaEventCard, MissingCapability, PointsPanel } from "./studentPanels
 import { pointsSummary, splitAgenda } from "./studentTimeline";
 import { useStudentPortalData } from "./useStudentPortalData";
 
-/** How many of the next events the home page shows before deferring to `/events`. */
+/** How many of the next events the home page shows before deferring to the events list. */
 const NEXT_EVENT_LIMIT = 3;
 
 /**
@@ -103,7 +103,7 @@ export function StudentHome() {
                 What is next for you
               </h2>
               <Link
-                to="/events"
+                to="/student-portal/events"
                 className="rounded text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Browse all events
@@ -140,7 +140,7 @@ export function StudentHome() {
               <p className="mt-3 text-xs text-muted-foreground">
                 {groups.upcoming.length - next.length} more still to come, on{" "}
                 <Link
-                  to="/events"
+                  to="/student-portal/events"
                   className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   your agenda
@@ -182,7 +182,7 @@ export function StudentHome() {
                   Rewards in your department
                 </h2>
                 <Link
-                  to="/rewards"
+                  to="/student-portal/rewards"
                   className="rounded text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   See the catalogue
