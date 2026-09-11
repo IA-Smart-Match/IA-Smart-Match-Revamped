@@ -27,25 +27,48 @@
  * this page, and the empty state below says so rather than implying the
  * account has never filed anything.
  *
+ * ## One address, two states
+ *
+ * `?request={id}` selects one request out of the loaded list into a detail
+ * view — the same pattern `?run=` uses on the Connector's match-runs
+ * address. The parameter names a row the server already returned; the detail
+ * re-reads nothing, because `SpeakerRequestResponse` is the whole of what
+ * the host route discloses. An id that names nothing in the list — a stale
+ * bookmark, a request another account filed, a row past the server's cap —
+ * gets the honest "not in what the server returned" state, not a guess.
+ *
+ * ## The host's view of a match is the request's own status
+ *
+ * A Speaker Connector scores the request against the unit's roster, invites
+ * a shortlist, and records a confirmation. **No route in this release
+ * reports any of that to an Event Host account**, and the detail view says
+ * so in words rather than leaving a gap where a match card could be
+ * invented: who was asked and who declined stays with the Connector
+ * (OQ-CBA-042), the confirmed-speaker hand-off read is `admin`/`coordinator`
+ * only, and the row this page renders carries no invitation, batch, count or
+ * match field to compute from. What a host watches is `review_status` and
+ * `publication_status` — the request's own state — and the detail presents
+ * those plainly rather than implying a progress bar the contract cannot
+ * fill.
+ *
  * ## Nothing here reports what it did not observe
  *
  * The list is a server response, rendered exactly as it came back — the
  * same fields `VolunteerSpeakerRequest.tsx` already showed this host on
  * submission: title, description, time, virtual flag, location, industries,
  * roles, `publication_status`, `review_status`, and the two timestamps.
- * Nothing about invitations, declines, matches or confirmed speakers is on
- * this row (OQ-CBA-042), and there is nothing here for a later edit to
- * compute from what is not sent.
  *
  * ## No identifier on this page is chosen by the browser
  *
  * `GET /v1/me` says who the caller is; `GET /v1/me/portals` says which
  * portal the server granted them and which unit it covers. That grant's
  * `default_unit_id` is the only unit read here — never composed, never read
- * from a query string.
+ * from a query string. The `request` parameter selects *which already
+ * returned row* to look at; it is never sent back to the server.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { ClipboardList, ShieldAlert } from "lucide-react";
 
 import {
@@ -76,16 +99,36 @@ function refusalMessage(cause: unknown, fallback: string): string {
   return fallback;
 }
 
-/** One filed request, rendered from exactly what the server stored. */
-function RequestCard({ request }: { request: SpeakerRequest }) {
-  const zone = request.time.time_zone ?? "zone unstated";
-  const when =
-    request.time.precision === "exact" && request.time.starts_at !== null
-      ? `${new Date(request.time.starts_at).toLocaleString()} (${zone})`
-      : request.time.on_date !== null
-        ? `${request.time.on_date} — day only, no time stated (${zone})`
-        : "No date on record";
+/**
+ * When a request's event happens, at the precision the server resolved.
+ * `date_only` is printed exactly as sent and never parsed through `Date`:
+ * parsing a bare date and formatting it back is how a 14 March event becomes
+ * 13 March for a reader west of the source (ADR-0010's invented midnight).
+ */
+function describeRequestTime(request: SpeakerRequest): string {
+  const time = request.time;
+  if (time.precision === "exact" && time.starts_at !== null) {
+    return new Date(time.starts_at).toLocaleString(undefined, {
+      timeZone: time.time_zone ?? undefined,
+      timeZoneName: "short",
+    });
+  }
+  if (time.precision === "date_only" && time.on_date !== null) {
+    return time.time_zone === null
+      ? `${time.on_date} — day only, no time stated`
+      : `${time.on_date} — day only, no time stated (${time.time_zone})`;
+  }
+  return `The server reported the time as “${time.precision}”.`;
+}
 
+/** One filed request in the list, with the door into its detail state. */
+function RequestCard({
+  request,
+  onOpen,
+}: {
+  request: SpeakerRequest;
+  onOpen: (requestId: string) => void;
+}) {
   return (
     <li className="space-y-3 rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
       <div className="flex items-start gap-3">
@@ -98,10 +141,8 @@ function RequestCard({ request }: { request: SpeakerRequest }) {
         </div>
       </div>
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
-        <dt className="text-muted-foreground">Reference</dt>
-        <dd className="font-mono text-xs text-foreground">{request.request_id}</dd>
         <dt className="text-muted-foreground">When</dt>
-        <dd className="text-foreground">{when}</dd>
+        <dd className="text-foreground">{describeRequestTime(request)}</dd>
         <dt className="text-muted-foreground">Format</dt>
         <dd className="text-foreground">
           {request.is_virtual
@@ -109,22 +150,102 @@ function RequestCard({ request }: { request: SpeakerRequest }) {
             : [request.location_city, request.location_postal_code].filter(Boolean).join(" ") ||
               "In person"}
         </dd>
-        <dt className="text-muted-foreground">Industries</dt>
-        <dd className="text-foreground">
-          {request.industries.map((item) => item.display_name).join(", ") || "None recorded"}
-        </dd>
-        <dt className="text-muted-foreground">Roles</dt>
-        <dd className="text-foreground">
-          {request.roles.map((item) => item.display_name).join(", ") || "None recorded"}
-        </dd>
         <dt className="text-muted-foreground">Status</dt>
         <dd className="text-foreground">
           {request.publication_status} · review {request.review_status}
         </dd>
-        <dt className="text-muted-foreground">Last updated</dt>
-        <dd className="text-foreground">{new Date(request.updated_at).toLocaleString()}</dd>
       </dl>
+      <div>
+        <button
+          type="button"
+          onClick={() => onOpen(request.request_id)}
+          className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted"
+        >
+          Open this request
+        </button>
+      </div>
     </li>
+  );
+}
+
+/**
+ * One request in full — the row the list already held, laid out completely,
+ * plus the honest answer to "has it been matched yet".
+ */
+function RequestDetail({
+  request,
+  onBack,
+}: {
+  request: SpeakerRequest;
+  onBack: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <button
+        type="button"
+        onClick={onBack}
+        className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted"
+      >
+        Back to your requests
+      </button>
+
+      <section
+        className="space-y-3 rounded-2xl border border-border/70 bg-card p-6 shadow-sm"
+        aria-label="Request detail"
+      >
+        <h2 className="text-lg font-semibold text-foreground">{request.title}</h2>
+        <p className="text-sm text-muted-foreground">
+          {request.description ?? "No description on record"}
+        </p>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
+          <dt className="text-muted-foreground">Reference</dt>
+          <dd className="font-mono text-xs text-foreground">{request.request_id}</dd>
+          <dt className="text-muted-foreground">When</dt>
+          <dd className="text-foreground">{describeRequestTime(request)}</dd>
+          <dt className="text-muted-foreground">Format</dt>
+          <dd className="text-foreground">
+            {request.is_virtual
+              ? "Virtual — proximity is not considered"
+              : [request.location_city, request.location_postal_code]
+                  .filter(Boolean)
+                  .join(" ") || "In person"}
+          </dd>
+          <dt className="text-muted-foreground">Industries</dt>
+          <dd className="text-foreground">
+            {request.industries.map((item) => item.display_name).join(", ") || "None recorded"}
+          </dd>
+          <dt className="text-muted-foreground">Roles</dt>
+          <dd className="text-foreground">
+            {request.roles.map((item) => item.display_name).join(", ") || "None recorded"}
+          </dd>
+          <dt className="text-muted-foreground">Filed</dt>
+          <dd className="text-foreground">{new Date(request.created_at).toLocaleString()}</dd>
+          <dt className="text-muted-foreground">Last updated</dt>
+          <dd className="text-foreground">{new Date(request.updated_at).toLocaleString()}</dd>
+        </dl>
+      </section>
+
+      <section
+        className="space-y-3 rounded-2xl border border-border/70 bg-card p-6"
+        aria-label="Where this request stands"
+      >
+        <h2 className="font-semibold text-foreground">Where this request stands</h2>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
+          <dt className="text-muted-foreground">Review</dt>
+          <dd className="text-foreground">{request.review_status}</dd>
+          <dt className="text-muted-foreground">Publication</dt>
+          <dd className="text-foreground">{request.publication_status}</dd>
+        </dl>
+        <p className="text-sm leading-6 text-muted-foreground">
+          A Speaker Connector scores this request against the unit&apos;s speaker roster, invites a
+          shortlist, and records a confirmation. That work is theirs to run and theirs to read: no
+          screen in this portal reports who was asked or who was shortlisted, and that is a
+          decision about what a host is owed, not an outage. When a speaker is confirmed for your
+          event, the Connector tells you directly — the two statuses above are what the request row
+          itself publishes until then.
+        </p>
+      </section>
+    </div>
   );
 }
 
@@ -142,6 +263,12 @@ export function VolunteerMyRequests() {
   const [truncated, setTruncated] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // `?request={id}` selects the detail state. It names a row the server
+  // already returned — it is never sent back to the server, so a stale or
+  // foreign id is a display question, not a permission question.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedRequestId = searchParams.get("request");
 
   const reload = useCallback(async () => {
     if (unitId === null) return;
@@ -176,6 +303,11 @@ export function VolunteerMyRequests() {
     return null;
   }
 
+  const selected =
+    selectedRequestId === null
+      ? null
+      : (requests.find((request) => request.request_id === selectedRequestId) ?? null);
+
   return (
     <div className="space-y-6">
       <header className="space-y-1">
@@ -207,7 +339,34 @@ export function VolunteerMyRequests() {
         </p>
       ) : null}
 
-      {loaded && loadError === null && requests.length === 0 ? (
+      {selectedRequestId !== null && loaded && loadError === null ? (
+        selected !== null ? (
+          <RequestDetail
+            request={selected}
+            onBack={() => setSearchParams({})}
+          />
+        ) : (
+          <div
+            className="space-y-3 rounded-2xl border border-border/70 bg-card p-6"
+            role="status"
+          >
+            <p className="text-sm leading-6 text-muted-foreground">
+              The request this address names is not in the list the server returned — it may have
+              been filed under a different account, or the list stopped short of it. Only requests
+              this account filed can be opened here.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearchParams({})}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted"
+            >
+              Back to your requests
+            </button>
+          </div>
+        )
+      ) : null}
+
+      {selectedRequestId === null && loaded && loadError === null && requests.length === 0 ? (
         <div
           className="rounded-2xl border border-border/70 bg-card p-6 text-sm text-muted-foreground"
           role="status"
@@ -219,7 +378,7 @@ export function VolunteerMyRequests() {
         </div>
       ) : null}
 
-      {requests.length > 0 ? (
+      {selectedRequestId === null && requests.length > 0 ? (
         <>
           {/* The requests this host filed, a page at a time. The pager is a
               window over the rows already returned — it fetches nothing, and
@@ -233,7 +392,11 @@ export function VolunteerMyRequests() {
             {(visibleRequests) => (
               <ul className="space-y-4">
                 {visibleRequests.map((request) => (
-                  <RequestCard key={request.request_id} request={request} />
+                  <RequestCard
+                    key={request.request_id}
+                    request={request}
+                    onOpen={(requestId) => setSearchParams({ request: requestId })}
+                  />
                 ))}
               </ul>
             )}

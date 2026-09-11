@@ -70,7 +70,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { AlertCircle, CalendarDays, CheckCircle2, ListChecks, ShieldAlert } from "lucide-react";
 
 import {
@@ -344,6 +344,15 @@ export function CoordinatorMatchRuns() {
   const [contactsTruncated, setContactsTruncated] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // `?request={id}` is the door the Speaker Requests detail opens: it names
+  // the request the Connector clicked "start a match" on. It is honoured only
+  // when the loaded queue actually contains the id — a parameter the queue
+  // does not hold is a stale or foreign id, and pre-selecting it would submit
+  // a request the Connector cannot see on screen.
+  const [searchParams] = useSearchParams();
+  const requestedRequestId = searchParams.get("request");
+  const [requestParamMiss, setRequestParamMiss] = useState(false);
+
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<readonly string[]>([]);
   const [portfolioSize, setPortfolioSize] = useState<number>(PORTFOLIO_SIZES[0]);
@@ -366,6 +375,13 @@ export function CoordinatorMatchRuns() {
       setContacts(roster.contacts);
       setContactsTruncated(roster.truncated);
       setLoadError(null);
+      if (requestedRequestId !== null) {
+        if (queue.requests.some((request) => request.request_id === requestedRequestId)) {
+          setSelectedRequestId(requestedRequestId);
+        } else {
+          setRequestParamMiss(true);
+        }
+      }
     } catch (cause) {
       setLoadError(
         cause instanceof ApiRequestError
@@ -373,7 +389,7 @@ export function CoordinatorMatchRuns() {
           : "The request queue and roster could not be loaded, and the server gave no reason.",
       );
     }
-  }, [unitId]);
+  }, [unitId, requestedRequestId]);
 
   useEffect(() => {
     void load();
@@ -538,6 +554,16 @@ export function CoordinatorMatchRuns() {
                 What Event Hosts filed under this unit (customer §§12-13), soonest first. Only
                 filed requests appear here.
               </p>
+              {requestParamMiss ? (
+                <p
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-foreground"
+                  role="status"
+                >
+                  The request this address names is not in the queue the server returned — it may
+                  have been withdrawn, filed under another unit, or beyond the server&apos;s limit.
+                  Nothing was pre-selected; choose the request this run answers from the list.
+                </p>
+              ) : null}
               {requests.length === 0 ? (
                 <p className="rounded-xl border border-border/70 p-4 text-sm text-muted-foreground">
                   No Speaker Requests are filed under this unit yet.
