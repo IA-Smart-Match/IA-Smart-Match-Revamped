@@ -4,6 +4,7 @@ import {
   ListChecks,
   UserCircle,
   Briefcase,
+  Building2,
   Menu,
   X,
 } from "lucide-react";
@@ -19,7 +20,7 @@ import { BrandLogo } from "./BrandLogo";
 // One entry per mounted page — nothing here links a retired address. Two
 // entries this sidebar used to carry were removed rather than repointed,
 // because their successors are already on this list: "Confirmed speaker" was
-// folded into My Requests (its only data routes are `admin`/`coordinator`
+// folded into My requests (its only data routes are `admin`/`coordinator`
 // server-side, so it answered the hosts it named with a 403), and "My
 // Assignments" was folded into Home, which names the absent assignments
 // dataset honestly instead of opening a page for it.
@@ -27,13 +28,17 @@ const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
   // Customer §12: the Event Host's own capability, backed by a `/v1` route
   // rather than by the absent legacy portal API — as is the page below it.
-  { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
+  // Sentence case per DESIGN.md's navigation rule.
+  { name: "Request a speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
   // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
   // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
   // server-side, and a different query from the Connector's queue, not a
   // wider permit on it.
-  { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
-  { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
+  { name: "My requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
+  // Migration `0036`: the host's own organization, self-asserted until a
+  // coordinator grant exists (owner decision 4).
+  { name: "Organization", href: "/volunteer-portal/organization", icon: Building2 },
+  { name: "Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
 
 export function VolunteerPortalLayout() {

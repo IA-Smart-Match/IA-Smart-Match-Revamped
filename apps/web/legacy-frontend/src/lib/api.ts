@@ -3215,6 +3215,166 @@ export async function fetchMySpeakerRequests(unitId: string): Promise<SpeakerReq
 }
 
 // ---------------------------------------------------------------------------
+// Host organizations (migration 0036, owner decision 4)
+//
+// What an Event Host is asking *on behalf of*. The same split
+// `speaker_requests.py` draws between a host's own filings and the
+// Connector's queue applies here, and for the same reason: the host routes
+// carry exactly one organization — the caller's — while the directory is
+// every host's record in the unit. The role sets are disjoint (`volunteer`
+// against `admin`/`coordinator`), so a page that called the wrong side of the
+// split would be refused server-side rather than quietly widened.
+//
+// Two things to know before rendering any of it:
+//
+// **A 404 is a state, not a failure.** A host who has not described an
+// organization gets `host_organization_not_found`, which is the honest answer
+// to "what is my organization in this department" — not an outage and not a
+// denial. A caller branches on `ApiRequestError.code` for it, never on the
+// message text.
+//
+// **Membership is asserted, not granted.** Every member row in this release
+// is self-asserted (`granted_by_user_id` is NULL and nothing can write it
+// otherwise), which is why `PUT` refuses to join the caller to an
+// organization somebody else already named — `409
+// host_organization_name_taken` — and refuses to move the caller's existing
+// organization across units — `409 host_organization_unit_conflict`. Both are
+// the server's own answers and both are rendered, never retried around.
+// ---------------------------------------------------------------------------
+
+/** One host organization, read back from the row that was written. */
+export interface HostOrganizationView {
+  unit_id: string;
+  organization_id: string;
+  name: string;
+  department: string | null;
+  default_location: string | null;
+  logistics_contact: string | null;
+  /**
+   * How many accounts belong — a count, never the accounts. Who belongs is a
+   * second question and neither host surface answers it.
+   */
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * The caller's organization plus what their own place in it is.
+ *
+ * `self_asserted` is `true` for every membership in this release — the member
+ * row's `granted_by_user_id` is NULL because nothing can grant a membership
+ * yet — so a screen that renders it must not present the flag as though a
+ * coordinator had approved anything.
+ */
+export interface HostOwnOrganization {
+  organization: HostOrganizationView;
+  self_asserted: boolean;
+  member_since: string;
+}
+
+/**
+ * What an Event Host may say about their organization — the whole of
+ * `HostOrganizationUpsert` in the contract. Note what is not here: no tenant,
+ * no unit, no user, no organization id, and no member list. The first three
+ * come from the verified principal and the authorized path; the fourth is
+ * decided by whether the account already has an organization; the fifth is a
+ * grant nothing in this release can make (MM-A01).
+ */
+export interface HostOrganizationUpsertPayload {
+  name: string;
+  /** The department inside the organization, when there is one. Omit to clear. */
+  department?: string;
+  /** Where this organization's events usually happen. Free text. */
+  default_location?: string;
+  /**
+   * Who to reach about logistics on the day. Free text — nothing sends to it,
+   * nothing treats it as an address, and it grants no consent.
+   */
+  logistics_contact?: string;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/host/organization` — this Event Host's own
+ * organization, `volunteer`-only server-side.
+ *
+ * Rejects with {@link ApiRequestError} carrying `host_organization_not_found`
+ * when the caller has none in this unit — including one that files into a
+ * different unit, which answers the same way on purpose. A `403` means the
+ * caller is not an Event Host here; a Connector is refused by design because
+ * they hold the wider directory below.
+ */
+export async function fetchOwnHostOrganization(
+  unitId: string,
+): Promise<HostOwnOrganization> {
+  return requestJson<HostOwnOrganization>(
+    `/v1/units/${encodeURIComponent(unitId)}/host/organization`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PUT /v1/units/{unit_id}/host/organization` — create or re-describe it.
+ *
+ * A `PUT` because the URL names one resource — the caller's organization in
+ * this unit — and this replaces its description. `201` when this call created
+ * it and wrote the caller's self-asserted member row, `200` when it updated a
+ * description that was already there; a caller may render the difference but
+ * the body is the stored row either way.
+ *
+ * Rejects with {@link ApiRequestError} carrying
+ * `host_organization_name_taken` (another host already created this name in
+ * this unit — joining is a grant nobody can make yet) or
+ * `host_organization_unit_conflict` (the caller's one organization files into
+ * a different department, and moving it would move every other member). Both
+ * `409`s are rendered from the server's message; neither is a retry.
+ */
+export async function upsertOwnHostOrganization(
+  unitId: string,
+  payload: HostOrganizationUpsertPayload,
+): Promise<HostOwnOrganization> {
+  return requestJson<HostOwnOrganization>(
+    `/v1/units/${encodeURIComponent(unitId)}/host/organization`,
+    { method: "PUT", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/**
+ * The unit's directory of host organizations, as a Speaker Connector reads
+ * it — `admin`/`coordinator` only server-side, disjoint from the host's own
+ * routes by the same argument the request queue draws.
+ *
+ * What it discloses is what each host typed about their own group — name,
+ * department, where they usually meet, who to ask about logistics, and how
+ * many accounts belong. What it does **not** disclose is which accounts, and
+ * it does not say which organization filed which request: the event's
+ * `host_organization_id` stamp is written on filing but published by no read
+ * model, so a caller must not present one row as a request's filer.
+ */
+export interface HostOrganizationDirectory {
+  unit_id: string;
+  organizations: HostOrganizationView[];
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/host-organizations` — the Connector's directory.
+ * Rejects with {@link ApiRequestError} on a 4xx; a `403` is the answer an
+ * Event Host gets, because the directory is every host's record.
+ */
+export async function fetchHostOrganizations(
+  unitId: string,
+): Promise<HostOrganizationDirectory> {
+  return requestJson<HostOrganizationDirectory>(
+    `/v1/units/${encodeURIComponent(unitId)}/host-organizations`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
 //
 // The other end of the arrow from Speaker Requests above. Those are an Event

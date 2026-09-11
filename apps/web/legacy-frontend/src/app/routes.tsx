@@ -111,6 +111,15 @@ const VolunteerMyRequests = lazy(() =>
     default: m.VolunteerMyRequests,
   })),
 );
+// Migration `0036`'s host self-service: the caller's own organization in this
+// unit, read and re-described over `GET`/`PUT .../host/organization`. Both are
+// `volunteer`-only server-side — the Connector's directory is a different,
+// disjoint route, and nothing here reaches for it.
+const VolunteerOrganization = lazy(() =>
+  import("./pages/volunteer/VolunteerOrganization").then((m) => ({
+    default: m.VolunteerOrganization,
+  })),
+);
 const VolunteerProfile = lazy(() =>
   import("./pages/volunteer/VolunteerProfile").then((m) => ({ default: m.VolunteerProfile })),
 );
@@ -307,6 +316,9 @@ export const router = createBrowserRouter([
       // `volunteer`-only server-side, and the page renders a coordinator's or
       // admin's 403 as the answer it is.
       { path: "my-requests", element: withSuspense(<VolunteerMyRequests />) },
+      // Owner decision 4's self-service half: the host describes their own
+      // organization; membership stays self-asserted until a grant exists.
+      { path: "organization", element: withSuspense(<VolunteerOrganization />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],
   },
