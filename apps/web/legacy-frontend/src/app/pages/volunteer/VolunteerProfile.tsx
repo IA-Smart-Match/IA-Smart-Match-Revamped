@@ -1,56 +1,14 @@
-/**
- * Profile — volunteer portal.
- *
- * This page used to load your volunteer profile from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
- *
- * What *is* real on this page comes from two `/v1` routes and nothing else:
- * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
- * the server granted them and the role and unit behind it. Neither is derived
- * in the browser, and no identifier on this page is chosen by it.
- */
-
-import { PortalDatasetUnavailable } from "../../components/PortalContent";
-import { grantedPortal } from "../../components/PortalGate";
-import { usePortalAccess } from "../../hooks/usePortalAccess";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useQuery } from "@tanstack/react-query";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
+import { useAuthorizedUnitId } from "../../hooks/useAuthorizedUnit";
+import { fetchMySpeakerProfile } from "../../../lib/api";
 
 export function VolunteerProfile() {
-  // `GET /v1/me` — the only source of who this is. It throws rather than
-  // substituting a fixture principal, which is the Fix #7 guard.
-  const principal = useAuthenticatedPrincipal();
-  // `GET /v1/me/portals` — the only source of what the server granted them.
-  const portalAccess = usePortalAccess();
-  const grant = grantedPortal(portalAccess, "volunteer");
-
-  // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
-  // no such portal, so reaching here without a grant means the mapping is
-  // still resolving. Render nothing rather than a header about a portal that
-  // may turn out not to be assigned.
-  if (grant === null) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Profile</h1>
-        <p className="text-sm text-muted-foreground">Your volunteer record.</p>
-        <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
-        </p>
-      </header>
-
-      <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Your volunteer profile"
-          endpoints={["/api/portals/volunteers/{id}"]}
-        />
-      </div>
-    </div>
-  );
+  const unitId = useAuthorizedUnitId("volunteer"); const principalKey = usePrincipalKey();
+  const query = useQuery({ queryKey: [principalKey, "speaker-portal", unitId, "profile"], queryFn: () => fetchMySpeakerProfile(unitId!), enabled: Boolean(principalKey && unitId) });
+  if (query.isLoading) return <div className="h-48 animate-pulse rounded-2xl bg-muted" />;
+  if (query.error) return <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8"><h1 className="text-3xl font-semibold">Profile</h1><p role="alert" className="mt-2 text-destructive">{query.error instanceof Error ? query.error.message : "Your profile could not be loaded."}</p></section>;
+  const profile = query.data;
+  if (!profile) return null;
+  return <div className="space-y-6"><header><h1 className="text-3xl font-semibold">Profile</h1><p className="mt-2 text-muted-foreground">The information the Speaker Connector has shared for your engagements.</p></header><section className="rounded-2xl border bg-card p-6 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-2xl font-semibold">{profile.name}</h2><p className="mt-1 text-muted-foreground">{[profile.title, profile.company].filter(Boolean).join(" · ") || "Professional details not provided"}</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">{profile.available ? "Available" : "Availability paused"}</span></div><dl className="mt-6 grid gap-5 sm:grid-cols-2"><div><dt className="text-sm font-semibold">Expertise</dt><dd className="mt-1 text-sm text-muted-foreground">{profile.expertise_topics.length ? profile.expertise_topics.join(", ") : "No topics listed"}</dd></div><div><dt className="text-sm font-semibold">Service regions</dt><dd className="mt-1 text-sm text-muted-foreground">{profile.service_regions.length ? profile.service_regions.join(", ") : profile.home_region ?? "No regions listed"}</dd></div><div><dt className="text-sm font-semibold">Email</dt><dd className="mt-1 text-sm text-muted-foreground">{profile.contact_email ?? "Not provided"}</dd></div><div><dt className="text-sm font-semibold">Phone</dt><dd className="mt-1 text-sm text-muted-foreground">{profile.contact_phone ?? "Not provided"}</dd></div></dl></section></div>;
 }

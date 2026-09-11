@@ -2,12 +2,9 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   House,
   CalendarDays,
-  ClipboardCheck,
   MessageSquare,
-  Users,
   Menu,
   X,
-  Gift,
 } from "lucide-react";
 import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
@@ -17,11 +14,11 @@ import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
+import { SyntheticDataBanner } from "./provenance";
 
 const navigation = [
   { name: "Home", href: "/student-portal", icon: House, exact: true },
   { name: "My Events", href: "/student-portal/events", icon: CalendarDays },
-  { name: "Past Events", href: "/student-portal/history", icon: ClipboardCheck },
   // §§15-16's rating surface, after the events it looks back on. The label
   // says "My" deliberately: the page today can only amend or withdraw a
   // rating this student already left, not find a new speaker to rate for the
@@ -30,8 +27,6 @@ const navigation = [
   // `GET /v1/me/portals`, and the routes behind it are `student`-scoped
   // server-side per request.
   { name: "My speaker feedback", href: "/student-portal/speaker-feedback", icon: MessageSquare },
-  { name: "Connect", href: "/student-portal/connect", icon: Users },
-  { name: "Rewards", href: "/student-portal/rewards", icon: Gift },
 ];
 
 export function StudentLayout() {
@@ -169,6 +164,7 @@ export function StudentLayout() {
         </header>
 
         <main className="p-6 lg:p-8">
+          {import.meta.env.VITE_SMARTMATCH_SHOWCASE_MODE === "true" ? <SyntheticDataBanner className="mb-6" reason="This portal contains synthetic showcase records. They are not real people, events, or responses." /> : null}
           <Outlet />
         </main>
       </div>

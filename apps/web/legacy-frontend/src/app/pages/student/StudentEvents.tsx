@@ -178,7 +178,7 @@ function EventCard({
   onChanged: () => Promise<void>;
 }) {
   const reason = event.calendar.unavailable_reason;
-  const place = [event.location_city, event.location_postal_code].filter(Boolean).join(" ");
+  const place = event.location || [event.location_city, event.location_postal_code].filter(Boolean).join(" ");
 
   // Only "a request is in flight" and "the last one was refused" live here.
   // Neither is a copy of server state: the first is about this browser and the

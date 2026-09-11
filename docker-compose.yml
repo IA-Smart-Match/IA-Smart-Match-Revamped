@@ -358,10 +358,9 @@ services:
   # a default password committed here would be a credential in the repository,
   # and a compose file is the most likely place for one to be copied from.
   #
-  # `--require-all` is deliberately NOT passed. An owner who has filled in only
-  # the coordinator pair should still get a working coordinator login and a
-  # clear report about the other three, rather than a stack that refuses to
-  # finish starting.
+  # The showcase is a four-portal preview, so all four pairs are required. The
+  # seed refuses to finish when one is missing instead of starting a portal the
+  # presenter cannot enter. Values still come only from the untracked `.env`.
   #
   # Same pattern as `seed` above: the API image with its CMD overridden, and
   # both scripts mounted read-only (this one imports seed_pilot's edition guard
@@ -375,6 +374,7 @@ services:
     command:
       - "python"
       - "/home/smartmatch/seed_pilot_logins.py"
+      - "--require-all"
       # --tenant-slug, --unit-path and the rest stay at the script's defaults
       # (pilot / pilot), the same ones `seed` above relies on, so every pilot
       # principal lands in one tenant and one unit.
@@ -411,6 +411,32 @@ services:
         condition: service_completed_successfully
     # Exits 2 when nothing is configured, which is a true report rather than a
     # transient failure to retry.
+    restart: "no"
+
+  seed-showcase:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["python", "/home/smartmatch/seed_showcase.py"]
+    environment:
+      SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      SMARTMATCH_EDITION: dev
+      SMARTMATCH_USE_FIXTURE_PROVIDERS: "true"
+      PYTHONPATH: /home/smartmatch
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tools/seed_pilot.py:/home/smartmatch/seed_pilot.py:ro
+      - ./tools/seed_showcase.py:/home/smartmatch/seed_showcase.py:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+      seed-principals:
+        condition: service_completed_successfully
+      seed-logins:
+        condition: service_completed_successfully
     restart: "no"
 
   # -------------------------------------------------------------------------
@@ -467,6 +493,8 @@ services:
       # is a 401. Better that the API waits than that a stakeholder's first
       # click into the student portal is refused because a race was lost.
       seed-principals:
+        condition: service_completed_successfully
+      seed-showcase:
         condition: service_completed_successfully
 
   # -------------------------------------------------------------------------
@@ -686,7 +714,8 @@ services:
       # runs — which is precisely why it is a short, local-only literal that
       # authenticates nothing outside this network. Same value the curl steps
       # in INSTALL.md send.
-      VITE_SMARTMATCH_BEARER_TOKEN: *compose_api_dev_bearer_token
+      VITE_SMARTMATCH_BEARER_TOKEN: ""
+      VITE_SMARTMATCH_SHOWCASE_MODE: "true"
     ports:
       - "127.0.0.1:5173:5173"
     volumes:

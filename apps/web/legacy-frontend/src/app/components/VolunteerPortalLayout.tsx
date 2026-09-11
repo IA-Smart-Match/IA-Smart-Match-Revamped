@@ -2,10 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   ClipboardList,
-  ListChecks,
-  UserCheck,
   UserCircle,
-  Briefcase,
   Menu,
   X,
 } from "lucide-react";
@@ -17,24 +14,12 @@ import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
+import { SyntheticDataBanner } from "./provenance";
 
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
-  // Customer §12: the Event Host's own capability, backed by a `/v1` route
-  // rather than by the absent legacy portal API — as is the page below it.
-  { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
-  // Customer §6 step 9: the other end of the intake above, so it sits beside
-  // it. `GET .../cba/confirmed-speakers` and the hand-off `POST` are
-  // `admin`/`coordinator` server-side whatever this shell renders — the page
-  // shows the refusal as an answer rather than hiding the control.
-  { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
-  // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
-  // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
-  // server-side, and a different query from the Connector's queue, not a
-  // wider permit on it.
-  { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
-  { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
-  { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
+  { name: "Engagements", href: "/volunteer-portal/assignments", icon: ClipboardList },
+  { name: "Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
 
 export function VolunteerPortalLayout() {
@@ -172,6 +157,7 @@ export function VolunteerPortalLayout() {
         </header>
 
         <main className="p-6 lg:p-8">
+          {import.meta.env.VITE_SMARTMATCH_SHOWCASE_MODE === "true" ? <SyntheticDataBanner className="mb-6" reason="This portal contains synthetic showcase records. They are not real people, events, or responses." /> : null}
           <Outlet />
         </main>
       </div>

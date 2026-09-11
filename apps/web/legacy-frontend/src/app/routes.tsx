@@ -96,24 +96,9 @@ const VolunteerAssignments = lazy(() =>
     default: m.VolunteerAssignments,
   })),
 );
-const VolunteerSpeakerRequest = lazy(() =>
-  import("./pages/volunteer/VolunteerSpeakerRequest").then((m) => ({
-    default: m.VolunteerSpeakerRequest,
-  })),
-);
-const VolunteerConfirmedSpeaker = lazy(() =>
-  import("./pages/volunteer/VolunteerConfirmedSpeaker").then((m) => ({
-    default: m.VolunteerConfirmedSpeaker,
-  })),
-);
 // Customer §12's read side. `GET /v1/units/{unit_id}/host/speaker-requests`
 // closed OQ-CBA-014; see the page's own header for the read it does and the
 // one it must never call.
-const VolunteerMyRequests = lazy(() =>
-  import("./pages/volunteer/VolunteerMyRequests").then((m) => ({
-    default: m.VolunteerMyRequests,
-  })),
-);
 const VolunteerProfile = lazy(() =>
   import("./pages/volunteer/VolunteerProfile").then((m) => ({ default: m.VolunteerProfile })),
 );
@@ -281,19 +266,19 @@ export const router = createBrowserRouter([
       // `speaker_request_intake`, and it is on under both product scopes, so
       // there is nothing here for `whenCapable` to remove. A UI gate is not
       // authorization in any case — the server decides, per request.
-      { path: "speaker-request", element: withSuspense(<VolunteerSpeakerRequest />) },
+      { path: "speaker-request", element: <Navigate to="/volunteer-portal/assignments" replace /> },
       // Customer §6 step 9: the other end of the intake above. Mounted
       // unconditionally for the same reason it is — a route is a claim about
       // what exists, not a permission. `GET .../cba/confirmed-speakers` and the
       // hand-off `POST` beside it are `admin`/`coordinator` server-side
       // whatever the router renders, and the page treats the refusal as an
       // answer rather than hiding the control.
-      { path: "confirmed-speaker", element: withSuspense(<VolunteerConfirmedSpeaker />) },
+      { path: "confirmed-speaker", element: <Navigate to="/volunteer-portal/assignments" replace /> },
       // OQ-CBA-014's read side. Mounted unconditionally like its siblings — a
       // route is a claim about what exists, not a permission. `GET
       // .../host/speaker-requests` is `volunteer`-only server-side, and the
       // page renders a coordinator's or admin's 403 as the answer it is.
-      { path: "my-requests", element: withSuspense(<VolunteerMyRequests />) },
+      { path: "my-requests", element: <Navigate to="/volunteer-portal/assignments" replace /> },
       { path: "assignments", element: withSuspense(<VolunteerAssignments />) },
       { path: "profile", element: withSuspense(<VolunteerProfile />) },
     ],

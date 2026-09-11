@@ -36,7 +36,8 @@ public_router = APIRouter(tags=["events"])
 
 _events = ManualEventRepository()
 _READ_ROLES = frozenset({"admin", "coordinator"})
-_WRITE_ROLES = frozenset({"admin"})
+_WRITE_ROLES = frozenset({"coordinator"})
+_QR_ROLES = frozenset({"admin"})
 _CATEGORIES = frozenset(
     {"hackathon", "datathon", "competition", "guest lecturer event", "school event"}
 )
@@ -61,7 +62,7 @@ class EventWrite(BaseModel):
     time_zone: str | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=500)
     capacity: int | None = Field(default=None, ge=0)
-    volunteer_openings: int | None = Field(default=None, ge=0)
+    volunteer_openings: int | None = Field(default=None, ge=1, le=3)
     volunteer_needs: str | None = Field(default=None, max_length=2000)
     audience: str | None = Field(default=None, max_length=500)
     contact_name: str | None = Field(default=None, max_length=200)
@@ -151,7 +152,7 @@ class EventPatch(BaseModel):
     time_zone: str | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=500)
     capacity: int | None = Field(default=None, ge=0)
-    volunteer_openings: int | None = Field(default=None, ge=0)
+    volunteer_openings: int | None = Field(default=None, ge=1, le=3)
     volunteer_needs: str | None = Field(default=None, max_length=2000)
     audience: str | None = Field(default=None, max_length=500)
     contact_name: str | None = Field(default=None, max_length=200)
@@ -213,7 +214,7 @@ class EventResponse(BaseModel):
     speaker_topics: list[str]
     region: str | None
     status: EventStatus
-    provenance: Literal["observed"] = "observed"
+    provenance: Literal["observed", "synthetic"] = "observed"
     created_at: datetime
     updated_at: datetime
     version: int
@@ -275,7 +276,7 @@ def _looks_like_ip(host: str) -> bool:
 
 
 def _authorize(session: Any, principal: Any, unit_id: uuid.UUID, roles: frozenset[str]) -> None:
-    if roles not in (_READ_ROLES, _WRITE_ROLES):
+    if roles not in (_READ_ROLES, _WRITE_ROLES, _QR_ROLES):
         raise RuntimeError("event routes must use a declared event role set")
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -295,6 +296,7 @@ def _authorize(session: Any, principal: Any, unit_id: uuid.UUID, roles: frozense
 def _event_response(row: Any) -> EventResponse:
     payload = dict(row)
     payload["unit_id"] = payload.pop("owning_unit_id")
+    payload["provenance"] = "synthetic" if payload.get("source_kind") == "synthetic" else "observed"
     return EventResponse.model_validate(payload)
 
 
@@ -372,8 +374,7 @@ def list_events(
         Literal["published", "draft", "all"], Query(alias="status")
     ] = "published",
 ) -> EventListResponse:
-    roles = _READ_ROLES if event_status == "published" else _WRITE_ROLES
-    _authorize(session, principal, unit_id, roles)
+    _authorize(session, principal, unit_id, _READ_ROLES)
     rows = _events.list_events(
         session,
         tenant_id=principal.tenant_id,
@@ -397,8 +398,6 @@ def get_event(
     )
     if row is None:
         raise _not_found()
-    if row["status"] != "published":
-        _authorize(session, principal, unit_id, _WRITE_ROLES)
     return _event_response(row)
 
 
@@ -441,7 +440,16 @@ def update_event(
                 code="stale_event",
                 message="This event changed. Refresh and try again.",
             )
+        if row["status"] == "published":
+            row = _events.sync_student_catalog(session, row=row)
         session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise ApiError(
+            status_code=409,
+            code="event_catalog_conflict",
+            message="This event conflicts with an existing Student catalog event.",
+        ) from exc
     except IntegrityError as exc:
         session.rollback()
         raise ApiError(
@@ -472,17 +480,7 @@ def publish_event(
             code="event_cancelled",
             message="A cancelled event cannot be published again.",
         )
-    required = (
-        "description",
-        "category",
-        "location",
-        "capacity",
-        "volunteer_openings",
-        "volunteer_needs",
-        "audience",
-        "contact_name",
-        "contact_email",
-    )
+    required = ("location", "volunteer_openings")
     missing = [
         key
         for key in required
@@ -490,6 +488,8 @@ def publish_event(
     ]
     if current["time_precision"] == "unresolved":
         missing.append("schedule")
+    if not current["speaker_topics"]:
+        missing.append("speaker_topics")
     if missing:
         raise ApiError(
             status_code=409,
@@ -506,6 +506,15 @@ def publish_event(
         values={"status": "published"},
     )
     assert row is not None
+    try:
+        row = _events.sync_student_catalog(session, row=row)
+    except ValueError as exc:
+        session.rollback()
+        raise ApiError(
+            status_code=409,
+            code="event_catalog_conflict",
+            message="This event conflicts with an existing Student catalog event.",
+        ) from exc
     session.commit()
     return _event_response(row)
 
@@ -518,7 +527,7 @@ def get_feedback_qr(
     unit_id: Annotated[uuid.UUID, Path()],
     event_id: Annotated[uuid.UUID, Path()],
 ) -> FeedbackQrResponse:
-    _authorize(session, principal, unit_id, _WRITE_ROLES)
+    _authorize(session, principal, unit_id, _QR_ROLES)
     event = _events.get_event(
         session, tenant_id=principal.tenant_id, unit_id=unit_id, event_id=event_id
     )
@@ -544,7 +553,7 @@ def put_feedback_qr(
     event_id: Annotated[uuid.UUID, Path()],
 ) -> FeedbackQrResponse:
     charge_quota(session, principal, EVENT_WRITE_RATE_LIMIT)
-    _authorize(session, principal, unit_id, _WRITE_ROLES)
+    _authorize(session, principal, unit_id, _QR_ROLES)
     event = _events.get_event(
         session, tenant_id=principal.tenant_id, unit_id=unit_id, event_id=event_id
     )

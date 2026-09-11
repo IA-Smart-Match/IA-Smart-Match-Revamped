@@ -167,7 +167,7 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: affected.
 #: The merged manual-event and speaker-workflow migrations follow main's
 #: ``0034_cba_meeting`` without changing the legacy matching-weight tables.
-_HEAD_REVISION = "0036_speaker_workflow"
+_HEAD_REVISION = "0037_host_events_showcase"
 
 NEED = "need-weight-settings-1"
 

@@ -1,58 +1,15 @@
-/**
- * Student home — student portal.
- *
- * This page used to load your student profile, recommended events, your next-step prompts from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
- *
- * What *is* real on this page comes from two `/v1` routes and nothing else:
- * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
- * the server granted them and the role and unit behind it. Neither is derived
- * in the browser, and no identifier on this page is chosen by it.
- */
-
-import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/PortalContent";
-import { grantedPortal } from "../../components/PortalGate";
-import { usePortalAccess } from "../../hooks/usePortalAccess";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
+import { CalendarDays, MessageSquare } from "lucide-react";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
+import { useAuthorizedUnitId } from "../../hooks/useAuthorizedUnit";
+import { fetchStudentAgenda, fetchStudentEvents } from "../../../lib/api";
 
 export function StudentHome() {
-  // `GET /v1/me` — the only source of who this is. It throws rather than
-  // substituting a fixture principal, which is the Fix #7 guard.
-  const principal = useAuthenticatedPrincipal();
-  // `GET /v1/me/portals` — the only source of what the server granted them.
-  const portalAccess = usePortalAccess();
-  const grant = grantedPortal(portalAccess, "student");
-
-  // `StudentLayout` already renders `PortalGate` when the server granted
-  // no such portal, so reaching here without a grant means the mapping is
-  // still resolving. Render nothing rather than a header about a portal that
-  // may turn out not to be assigned.
-  if (grant === null) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-6">
-      <PortalIdentityCard me={principal} grant={grant} />
-
-      <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Your student profile"
-          endpoints={["/api/portals/students/{id}"]}
-        />
-        <PortalDatasetUnavailable
-          dataset="Recommended events"
-          endpoints={["/api/portals/students/{id}/recommendations"]}
-        />
-        <PortalDatasetUnavailable
-          dataset="Your next-step prompts"
-          endpoints={["/api/portals/students/{id}/nudge"]}
-        />
-      </div>
-    </div>
-  );
+  const unitId = useAuthorizedUnitId("student"); const principalKey = usePrincipalKey();
+  const events = useQuery({ queryKey: [principalKey, "student-events", unitId], queryFn: () => fetchStudentEvents(unitId!), enabled: Boolean(principalKey && unitId) });
+  const agenda = useQuery({ queryKey: [principalKey, "student-agenda", unitId], queryFn: () => fetchStudentAgenda(unitId!), enabled: Boolean(principalKey && unitId) });
+  if (events.isLoading || agenda.isLoading) return <div className="h-44 animate-pulse rounded-2xl bg-muted" />;
+  if (events.error || agenda.error) return <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8"><h1 className="text-3xl font-semibold">Student home</h1><p role="alert" className="mt-2 text-destructive">Events could not be loaded. Check the API connection and try again.</p></section>;
+  return <div className="space-y-6"><header><h1 className="text-3xl font-semibold">Student home</h1><p className="mt-2 text-muted-foreground">Find upcoming events, keep your registrations together, and share feedback after attending.</p></header><div className="grid gap-4 md:grid-cols-2"><Link to="/student-portal/events" className="rounded-2xl border bg-card p-6 shadow-sm transition hover:border-primary"><CalendarDays className="h-6 w-6 text-primary" /><h2 className="mt-4 text-xl font-semibold">Events</h2><p className="mt-2 text-sm text-muted-foreground">{events.data?.events.length ? `${events.data.events.length} published event${events.data.events.length === 1 ? "" : "s"} available. ${agenda.data?.events.length ?? 0} on your agenda.` : "No published events are available yet."}</p></Link><Link to="/student-portal/speaker-feedback" className="rounded-2xl border bg-card p-6 shadow-sm transition hover:border-primary"><MessageSquare className="h-6 w-6 text-primary" /><h2 className="mt-4 text-xl font-semibold">Speaker feedback</h2><p className="mt-2 text-sm text-muted-foreground">Review feedback you have submitted for speakers at attended events.</p></Link></div></div>;
 }

@@ -181,6 +181,10 @@ seed-pilot-logins: ## Seed the four pilot logins from SMARTMATCH_PILOT_*_EMAIL/_
 	# docs/decisions/pilot-login-decision-2026-09-04.md.
 	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_pilot_logins.py $(SEED_PILOT_LOGIN_ARGS)
 
+.PHONY: seed-showcase
+seed-showcase: ## Seed the development-only four-portal showcase dataset
+	PYTHONPATH="$(DOMAIN_PATH):services/api:tools" $(PY) tools/seed_showcase.py $(SEED_SHOWCASE_ARGS)
+
 .PHONY: seed-pilot-rewards
 seed-pilot-rewards: ## Seed one funded reward item; every value is required — see SEED_PILOT_REWARD_ARGS
 	# Every catalog value — name, points cost, fulfilment cost, budget owner,

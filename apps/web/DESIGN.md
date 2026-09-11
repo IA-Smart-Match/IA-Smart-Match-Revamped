@@ -4,7 +4,7 @@
 
 **Applies to:** `apps/web/legacy-frontend` and any replacement frontend created under `apps/web`
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-10
 
 This file is the implementation contract for people and coding agents changing the Smart Match frontend. Read it before editing a screen, component, route, or frontend API call. Existing code may not satisfy every rule yet; new work must move toward this standard and must not introduce a new exception.
 
@@ -155,7 +155,9 @@ Speaker Connector, Event Host, Speaker, and Student experiences share the same v
 ### Events and feedback QR codes
 
 - Manual event entry is the primary event source. Do not add crawler controls, crawler status, discovery feeds, or background-scraping language to a visible frontend path.
-- Speaker Connectors may create, edit, and publish events. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
+- Event Hosts create, edit, publish, and cancel events. A draft may begin with only an event name; publishing requires the schedule, named time zone, location, speaker topics, and one to three requested speakers.
+- Event creation and speaker requests are one Event Host workflow. After publishing, Smart Match and shortlist submission stay on that event's page. No active frontend writes through the legacy Speaker Request endpoint.
+- Speaker Connectors may read events and manage their feedback QR destinations, but do not create or edit events. Event Hosts must never see feedback destinations or QR management controls.
 - Preserve the event's IANA time zone. Convert a local form time using the selected zone, and display the saved instant in that same named zone.
 - Keep drafts usable when details are incomplete. Publishing must surface the backend's missing-field response without clearing the form.
 - Feedback QR management belongs only on the Speaker Connector event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.

@@ -141,30 +141,23 @@ _PRESENTATION: Final[Mapping[str, RolePresentation]] = MappingProxyType(
             role_label="Student",
             portal_display_name="Student Portal",
         ),
-        # Customer §4: "Volunteer — Event Host when referring to the
-        # event-requesting role", which is what this shell is: the person
-        # asking for a speaker, not the speaker.
         "volunteer": RolePresentation(
+            persona=Persona.SPEAKER,
+            role_label="Speaker",
+            portal_display_name="Speaker Portal",
+        ),
+        "coordinator": RolePresentation(
             persona=Persona.EVENT_HOST,
             role_label="Event Host",
             portal_display_name="Event Host Portal",
-        ),
-        "coordinator": RolePresentation(
-            persona=Persona.SPEAKER_CONNECTOR,
-            role_label="Speaker Connector",
-            # "Connector Dashboard" is the customer's own §4 rename of the
-            # Chapter Admin Dashboard, and `CBA-TERMINOLOGY` shipped that name
-            # in the shell's chrome. Using it here keeps the server the single
-            # naming authority instead of a second one that happens to agree.
-            portal_display_name="Connector Dashboard",
         ),
         # Same persona, distinguishable label. The qualifier is presentation,
         # not a power: ``admin``'s reach is decided by ``smartmatch_authz``
         # exactly as it was before this map existed.
         "admin": RolePresentation(
             persona=Persona.SPEAKER_CONNECTOR,
-            role_label="Speaker Connector (administrator)",
-            portal_display_name="CBA Administration",
+            role_label="Speaker Connector",
+            portal_display_name="Speaker Connector Portal",
         ),
     }
 )

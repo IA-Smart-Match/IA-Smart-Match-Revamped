@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   CalendarDays,
   ClipboardList,
-  Video,
   Menu,
   X,
 } from "lucide-react";
@@ -15,12 +14,12 @@ import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
+import { SyntheticDataBanner } from "./provenance";
 
 const navigation = [
   { name: "Home", href: "/coordinator-portal", icon: LayoutDashboard, exact: true },
-  { name: "My Events", href: "/coordinator-portal/events", icon: CalendarDays },
+  { name: "Events", href: "/coordinator-portal/events", icon: CalendarDays },
   { name: "Speaker handoffs", href: "/coordinator-portal/outreach", icon: ClipboardList },
-  { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
 ];
 
 export function CoordinatorPortalLayout() {
@@ -158,6 +157,7 @@ export function CoordinatorPortalLayout() {
         </header>
 
         <main className="p-6 lg:p-8">
+          {import.meta.env.VITE_SMARTMATCH_SHOWCASE_MODE === "true" ? <SyntheticDataBanner className="mb-6" reason="This portal contains synthetic showcase records. They are not real people, events, or responses." /> : null}
           <Outlet />
         </main>
       </div>

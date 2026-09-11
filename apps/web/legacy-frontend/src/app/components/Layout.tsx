@@ -39,10 +39,9 @@ const navigationSections = [
     label: "MANAGE",
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tooltip: "Overview of metrics and pipeline health" },
-      { name: "Events", href: "/events", icon: CalendarDays, tooltip: "Create and publish events" },
+      { name: "Feedback QR codes", href: "/events", icon: CalendarDays, tooltip: "Connect events to external feedback forms" },
       { name: "Speakers", href: "/volunteers", icon: Users, tooltip: "Manage the available speaker roster" },
       { name: "Invitations", href: "/outreach", icon: ClipboardList, tooltip: "Track speaker invitations" },
-      { name: "Calendar", href: "/calendar", icon: CalendarDays, tooltip: "View and manage event assignments" },
     ],
   },
 ];
@@ -200,10 +199,7 @@ export function Layout() {
 
         {/* Page content */}
         <main className="p-6 lg:p-8">
-          <SyntheticDataBanner
-            className="mb-6"
-            reason="This preview runs on copied legacy screens and fixture-backed /api routes. It is development-only and not the product."
-          />
+          {import.meta.env.VITE_SMARTMATCH_SHOWCASE_MODE === "true" ? <SyntheticDataBanner className="mb-6" reason="This portal contains synthetic showcase records. They are not real people, events, or responses." /> : null}
           <Outlet />
         </main>
       </div>

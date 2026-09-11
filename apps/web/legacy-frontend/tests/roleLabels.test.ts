@@ -36,12 +36,10 @@ test("each stored role carries a complete presentation", () => {
 
 test("the customer's personas are the ones shown", () => {
   assert.equal(visibleRoleLabel("student"), "Student");
-  assert.equal(visibleRoleLabel("volunteer"), "Event Host");
-  assert.equal(visibleRoleLabel("coordinator"), "Speaker Connector");
-  assert.equal(personaForRole("coordinator"), "speaker_connector");
+  assert.equal(visibleRoleLabel("volunteer"), "Speaker");
+  assert.equal(visibleRoleLabel("coordinator"), "Event Host");
+  assert.equal(personaForRole("coordinator"), "event_host");
   assert.equal(personaForRole("admin"), "speaker_connector");
-  // Same persona family, distinguishable label — see
-  // `docs/product/cba-role-presentation.md` OQ-1.
   assert.notEqual(visibleRoleLabel("admin"), visibleRoleLabel("coordinator"));
 });
 

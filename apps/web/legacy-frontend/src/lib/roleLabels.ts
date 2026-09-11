@@ -57,18 +57,15 @@ export const ROLE_PRESENTATION = {
     roleLabel: "Student",
     portalDisplayName: "Student Portal",
   },
-  /** Customer §4: Volunteer → Event Host, for the event-requesting role. */
   volunteer: {
+    persona: "speaker",
+    roleLabel: "Speaker",
+    portalDisplayName: "Speaker Portal",
+  },
+  coordinator: {
     persona: "event_host",
     roleLabel: "Event Host",
     portalDisplayName: "Event Host Portal",
-  },
-  coordinator: {
-    persona: "speaker_connector",
-    roleLabel: "Speaker Connector",
-    // Customer §4's own rename of the Chapter Admin Dashboard, and the name
-    // `CBA-TERMINOLOGY` shipped in this shell's chrome.
-    portalDisplayName: "Connector Dashboard",
   },
   /**
    * Same persona as `coordinator`, distinguishable label. The two stored roles
@@ -78,8 +75,8 @@ export const ROLE_PRESENTATION = {
    */
   admin: {
     persona: "speaker_connector",
-    roleLabel: "Speaker Connector (administrator)",
-    portalDisplayName: "CBA Administration",
+    roleLabel: "Speaker Connector",
+    portalDisplayName: "Speaker Connector Portal",
   },
 } as const;
 

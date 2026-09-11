@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
@@ -15,6 +15,7 @@ from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.speaker_invitations import TERMINAL_STATUSES, can_correct, can_transition
 from smartmatch_domain.speaker_matching import suggest_speakers
 from smartmatch_persistence import schema
+from smartmatch_persistence.manual_events import ManualEventRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from smartmatch_persistence.speaker_workflow import SpeakerWorkflowRepository
 
@@ -25,9 +26,11 @@ from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/units", tags=["speakers"])
 _repo = SpeakerWorkflowRepository()
+_events = ManualEventRepository()
 _ADMIN = frozenset({"admin"})
 _SHARED = frozenset({"admin", "coordinator"})
 _HOST = frozenset({"coordinator"})
+_SPEAKER = frozenset({"volunteer"})
 SPEAKER_WRITE_RATE_LIMIT = RateLimit(
     operation="speaker-workflow.write", max_requests=90, window=timedelta(minutes=1)
 )
@@ -48,7 +51,7 @@ SpeakerEventStatus = Literal[
 
 
 def _authorize(session: Any, principal: Any, unit_id: uuid.UUID, roles: frozenset[str]) -> None:
-    if roles not in (_ADMIN, _SHARED, _HOST):
+    if roles not in (_ADMIN, _SHARED, _HOST, _SPEAKER):
         raise RuntimeError("speaker routes must use a declared speaker role set")
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -142,6 +145,119 @@ class SpeakerListResponse(BaseModel):
     total: int
     roster_version: int | None = None
     published_at: datetime | None = None
+
+
+class SpeakerPortalProfile(BaseModel):
+    id: uuid.UUID
+    name: str
+    title: str | None
+    company: str | None
+    board_role: str | None
+    expertise_topics: list[str]
+    home_region: str | None
+    service_regions: list[str]
+    contact_email: str | None
+    contact_phone: str | None
+    available: bool
+
+
+class SpeakerPortalEngagement(BaseModel):
+    id: uuid.UUID
+    event_id: uuid.UUID
+    event_title: str
+    event_status: str
+    status: SpeakerEventStatus
+    starts_at: datetime | None
+    on_date: date | None
+    time_zone: str | None
+    location: str | None
+
+
+_SPEAKER_VISIBLE_STATUSES = frozenset(
+    {
+        "handed_off",
+        "awaiting_final_confirmation",
+        "confirmed",
+        "withdrawn",
+        "attended",
+        "did_not_attend",
+        "event_cancelled",
+    }
+)
+
+
+def _speaker_for_account(session: Any, principal: Any, unit_id: uuid.UUID) -> Any:
+    row = session.execute(
+        sa.select(schema.speaker).where(
+            schema.speaker.c.tenant_id == principal.tenant_id,
+            schema.speaker.c.owning_unit_id == unit_id,
+            schema.speaker.c.account_id == principal.user_id,
+            schema.speaker.c.active.is_(True),
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        raise ApiError(
+            status_code=404,
+            code="speaker_profile_not_linked",
+            message="No active speaker profile is linked to this account.",
+        )
+    return row
+
+
+@router.get("/{unit_id}/speaker-portal/profile", response_model=SpeakerPortalProfile)
+def get_my_speaker_profile(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+) -> SpeakerPortalProfile:
+    _authorize(session, principal, unit_id, _SPEAKER)
+    return SpeakerPortalProfile.model_validate(
+        _speaker_for_account(session, principal, unit_id)
+    )
+
+
+@router.get(
+    "/{unit_id}/speaker-portal/engagements", response_model=list[SpeakerPortalEngagement]
+)
+def list_my_speaker_engagements(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+) -> list[SpeakerPortalEngagement]:
+    _authorize(session, principal, unit_id, _SPEAKER)
+    speaker_row = _speaker_for_account(session, principal, unit_id)
+    rows = session.execute(
+        sa.select(
+            schema.speaker_event.c.id,
+            schema.speaker_event.c.event_id,
+            schema.speaker_event.c.status,
+            schema.managed_event.c.title.label("event_title"),
+            schema.managed_event.c.status.label("event_status"),
+            schema.managed_event.c.starts_at,
+            schema.managed_event.c.on_date,
+            schema.managed_event.c.time_zone,
+            schema.managed_event.c.location,
+        )
+        .join(
+            schema.managed_event,
+            sa.and_(
+                schema.managed_event.c.tenant_id == schema.speaker_event.c.tenant_id,
+                schema.managed_event.c.owning_unit_id == schema.speaker_event.c.owning_unit_id,
+                schema.managed_event.c.id == schema.speaker_event.c.event_id,
+            ),
+        )
+        .where(
+            schema.speaker_event.c.tenant_id == principal.tenant_id,
+            schema.speaker_event.c.owning_unit_id == unit_id,
+            schema.speaker_event.c.speaker_id == speaker_row["id"],
+            schema.speaker_event.c.status.in_(_SPEAKER_VISIBLE_STATUSES),
+        )
+        .order_by(
+            schema.managed_event.c.starts_at.asc().nullslast(),
+            schema.managed_event.c.on_date.asc().nullslast(),
+        )
+    ).mappings()
+    return [SpeakerPortalEngagement.model_validate(row) for row in rows]
 
 
 def _speaker(row: Any, *, private: bool) -> SpeakerResponse | PublicSpeakerResponse:
@@ -748,7 +864,7 @@ def cancel_event(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)],
 ) -> list[SpeakerEventResponse]:
     charge_quota(session, principal, SPEAKER_WRITE_RATE_LIMIT)
-    _authorize(session, principal, unit_id, _ADMIN)
+    _authorize(session, principal, unit_id, _HOST)
     event = _repo_event(session, principal.tenant_id, unit_id, event_id)
     if not event:
         raise ApiError(status_code=404, code="event_not_found", message="No such event.")
@@ -797,6 +913,9 @@ def cancel_event(
                     idempotency_key=f"{idempotency_key}:{record['id']}",
                     note=body.reason,
                 )
+        cancelled = _repo_event(session, principal.tenant_id, unit_id, event_id)
+        assert cancelled is not None
+        _events.unpublish_student_catalog(session, row=cancelled)
     session.commit()
     return [
         _record_response(session, principal, unit_id, row)

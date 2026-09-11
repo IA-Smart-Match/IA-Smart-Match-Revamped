@@ -777,7 +777,7 @@ OPERATIONS: tuple[Operation, ...] = (
         authorizer="_authorize",
         roles_constant="_WRITE_ROLES",
         authorizer_module=None,
-        required_roles=frozenset({"admin"}),
+        required_roles=frozenset({"coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
         require_membership=True,
@@ -803,7 +803,7 @@ OPERATIONS: tuple[Operation, ...] = (
         authorizer="_authorize",
         roles_constant="_WRITE_ROLES",
         authorizer_module=None,
-        required_roles=frozenset({"admin"}),
+        required_roles=frozenset({"coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
         require_membership=True,
@@ -816,7 +816,7 @@ OPERATIONS: tuple[Operation, ...] = (
         authorizer="_authorize",
         roles_constant="_WRITE_ROLES",
         authorizer_module=None,
-        required_roles=frozenset({"admin"}),
+        required_roles=frozenset({"coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
         require_membership=True,
@@ -827,7 +827,7 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
         module="smartmatch_api.routers.events",
         authorizer="_authorize",
-        roles_constant="_WRITE_ROLES",
+        roles_constant="_QR_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin"}),
         resource_type="org_unit",
@@ -840,7 +840,7 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
         module="smartmatch_api.routers.events",
         authorizer="_authorize",
-        roles_constant="_WRITE_ROLES",
+        roles_constant="_QR_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin"}),
         resource_type="org_unit",
@@ -854,6 +854,32 @@ OPERATIONS: tuple[Operation, ...] = (
     # assigned Event Host role; shared handoff reads/actions are available to
     # both collaborating roles and apply record-level ownership checks where
     # the operation requires them.
+    Operation(
+        key="speaker_portal.profile.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-portal/profile",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SPEAKER",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
+    Operation(
+        key="speaker_portal.engagements.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-portal/engagements",
+        module="smartmatch_api.routers.speakers",
+        authorizer="_authorize",
+        roles_constant="_SPEAKER",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+    ),
     Operation(
         key="speakers.create",
         method="POST",
@@ -1029,9 +1055,9 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/v1/units/{unit_id}/events/{event_id}/cancel",
         module="smartmatch_api.routers.speakers",
         authorizer="_authorize",
-        roles_constant="_ADMIN",
+        roles_constant="_HOST",
         authorizer_module=None,
-        required_roles=frozenset({"admin"}),
+        required_roles=frozenset({"coordinator"}),
         resource_type="org_unit",
         unit_scoped=True,
         require_membership=True,
@@ -7321,6 +7347,15 @@ def _role_variant(reference: str, *, admin: bool, coordinator: bool) -> dict[str
     return row
 
 
+def _speaker_self_variant(reference: str) -> dict[str, Cell]:
+    """Build the unit-scoped rectangle for authenticated Speaker self-service."""
+    row = _role_variant(reference, admin=False, coordinator=False)
+    row["volunteer_at_owning_unit"] = permit(
+        why="the Speaker may read only the profile linked to their verified account"
+    )
+    return row
+
+
 # The manual-event merge replaced the crawler-backed quarantine operation and
 # added unit-scoped event, roster, matching, and handoff operations. Operations
 # sharing one declared role set intentionally share the same policy rectangle;
@@ -7338,9 +7373,6 @@ for _operation_key in (
     MATRIX[_operation_key] = _role_variant("events.read", admin=True, coordinator=True)
 
 for _operation_key in (
-    "events.create",
-    "events.update",
-    "events.publish",
     "events.feedback_qr.read",
     "events.feedback_qr.update",
     "speakers.create",
@@ -7348,16 +7380,25 @@ for _operation_key in (
     "speakers.update",
     "speaker_roster.publish",
     "speaker_events.correct",
-    "speaker_events.event.cancel",
 ):
     MATRIX[_operation_key] = _role_variant("events.read", admin=True, coordinator=False)
 
 for _operation_key in (
+    "events.create",
+    "events.update",
+    "events.publish",
     "speaker_match.run",
     "speaker_match.shortlist",
     "speaker_events.attendance.close",
+    "speaker_events.event.cancel",
 ):
     MATRIX[_operation_key] = _role_variant("events.read", admin=False, coordinator=True)
+
+for _operation_key in (
+    "speaker_portal.profile.read",
+    "speaker_portal.engagements.read",
+):
+    MATRIX[_operation_key] = _speaker_self_variant("events.read")
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 

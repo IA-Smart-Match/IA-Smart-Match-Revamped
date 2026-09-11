@@ -16,9 +16,13 @@ test("manual event routes use the canonical unit-scoped API", () => {
   assert.match(api, /\/v1\/units\/\$\{encodeURIComponent\(unitId\)\}\/events/);
   assert.match(routes, /path: "events"/);
   assert.match(routes, /path: "opportunities", element: <Navigate to="\/events" replace/);
-  assert.match(events, /Save draft/);
-  assert.match(events, /Publish event/);
-  assert.match(coordinatorEvents, /fetchManualEvents\(unitId!, "published"\)/);
+  assert.doesNotMatch(events, /Save draft|Publish event|createManualEvent|updateManualEvent/);
+  assert.match(coordinatorEvents, /Create an event and request speakers/);
+  assert.match(coordinatorEvents, /Save draft/);
+  assert.match(coordinatorEvents, /Publish event/);
+  assert.match(coordinatorEvents, /fetchManualEvents\(unitId!, "all"\)/);
+  assert.match(coordinatorEvents, /runSpeakerMatch/);
+  assert.match(coordinatorEvents, /submitSpeakerShortlist/);
   assert.doesNotMatch(coordinatorEvents, /feedback-qr|destination_url|QRCodeCard/);
 });
 

@@ -128,7 +128,7 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``speaker_profile`` — this file's surface is untouched.
 #: The merged manual-event and speaker-workflow migrations follow main's
 #: ``0034_cba_meeting`` without changing this legacy contact surface.
-_HEAD_REVISION = "0036_speaker_workflow"
+_HEAD_REVISION = "0037_host_events_showcase"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a

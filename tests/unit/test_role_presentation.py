@@ -68,16 +68,11 @@ def test_every_stored_role_has_exactly_one_presentation() -> None:
 def test_the_customer_personas_are_the_ones_shown() -> None:
     """Customer §2's four personas, over the roles that exist today."""
     assert visible_role_label("student") == "Student"
-    assert visible_role_label("volunteer") == "Event Host"
-    assert visible_role_label("coordinator") == "Speaker Connector"
-    # Both connector-side roles present as the same persona family, and the
-    # administrator qualifier keeps the two stored roles distinguishable to a
-    # reader — see `docs/product/cba-role-presentation.md` for the ambiguity
-    # this records rather than resolves.
-    assert persona_for_role("coordinator") is Persona.SPEAKER_CONNECTOR
+    assert visible_role_label("volunteer") == "Speaker"
+    assert visible_role_label("coordinator") == "Event Host"
+    assert persona_for_role("coordinator") is Persona.EVENT_HOST
     assert persona_for_role("admin") is Persona.SPEAKER_CONNECTOR
-    assert visible_role_label("admin") != visible_role_label("coordinator")
-    assert "Speaker Connector" in (visible_role_label("admin") or "")
+    assert visible_role_label("admin") == "Speaker Connector"
 
 
 def test_no_ia_west_or_chapter_wording_survives_in_a_visible_label() -> None:
@@ -101,16 +96,9 @@ def test_an_unmapped_role_gets_no_persona_and_no_label() -> None:
             presentation_for_role(unknown)
 
 
-def test_the_speaker_persona_exists_and_no_stored_role_grants_it() -> None:
-    """Speakers are represented as contact records, not as login accounts.
-
-    Customer §2 names Speaker as a persona, so the vocabulary carries it. No
-    ``membership.role`` maps to it, because inventing a role to satisfy a
-    label would be exactly the thing this track forbids — the persona is
-    named and left unmapped until an approved decision creates the role.
-    """
+def test_the_volunteer_role_presents_as_the_speaker_persona() -> None:
     assert Persona.SPEAKER in set(Persona)
-    assert all(persona_for_role(role) is not Persona.SPEAKER for role in KNOWN_ROLES)
+    assert persona_for_role("volunteer") is Persona.SPEAKER
 
 
 def test_a_visible_label_is_never_a_role_an_authorizer_accepts() -> None:

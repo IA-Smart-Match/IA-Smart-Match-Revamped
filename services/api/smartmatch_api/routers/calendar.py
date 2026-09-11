@@ -303,7 +303,16 @@ def download_event_invite(
             schema.event.c.ends_at,
             schema.event.c.time_precision,
             schema.event.c.quarantined_tag_count,
-        ).where(
+            schema.managed_event.c.location.label("managed_location"),
+        )
+        .outerjoin(
+            schema.managed_event,
+            sa.and_(
+                schema.managed_event.c.tenant_id == schema.event.c.tenant_id,
+                schema.managed_event.c.catalog_event_id == schema.event.c.id,
+            ),
+        )
+        .where(
             schema.event.c.tenant_id == principal.tenant_id,
             schema.event.c.host_org_unit_id == unit_id,
             schema.event.c.id == event_id,
@@ -358,6 +367,7 @@ def download_event_invite(
         ends_at=row.ends_at,
         generated_at=utc_now(),
         description=row.description,
+        location=row.managed_location,
         uid=_invite_uid(row.id),
     )
 

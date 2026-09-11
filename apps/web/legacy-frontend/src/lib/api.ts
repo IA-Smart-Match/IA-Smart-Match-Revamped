@@ -3157,6 +3157,7 @@ export interface StudentEvent {
   is_virtual: boolean;
   location_city: string | null;
   location_postal_code: string | null;
+  location: string | null;
   tags: string[];
   /**
    * True when you hold an active registration for this event **or** are
@@ -4471,7 +4472,7 @@ export interface ManualEvent {
   speaker_topics: string[];
   region: string | null;
   status: ManualEventStatus;
-  provenance: "observed";
+  provenance: "observed" | "synthetic";
   created_at: string;
   updated_at: string;
   version: number;
@@ -4529,6 +4530,24 @@ export interface SpeakerProfileInput {
   contact_phone?: string | null;
   available: boolean;
   active: boolean;
+}
+
+export interface SpeakerPortalProfile extends SpeakerProfile {
+  contact_email: string | null;
+  contact_phone: string | null;
+  available: boolean;
+}
+
+export interface SpeakerPortalEngagement {
+  id: string;
+  event_id: string;
+  event_title: string;
+  event_status: ManualEventStatus;
+  status: SpeakerEventStatus;
+  starts_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
 }
 
 export interface MatchSuggestion
@@ -4690,6 +4709,22 @@ export async function fetchSpeakers(
   return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speakers`, undefined, {
     authenticated: true,
   });
+}
+
+export async function fetchMySpeakerProfile(unitId: string): Promise<SpeakerPortalProfile> {
+  return requestJson(`/v1/units/${encodeURIComponent(unitId)}/speaker-portal/profile`, undefined, {
+    authenticated: true,
+  });
+}
+
+export async function fetchMySpeakerEngagements(
+  unitId: string,
+): Promise<SpeakerPortalEngagement[]> {
+  return requestJson(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-portal/engagements`,
+    undefined,
+    { authenticated: true },
+  );
 }
 
 export async function createSpeaker(

@@ -58,7 +58,7 @@ REVISION = "0033_event_filed_by"
 #: makes is that an unrecorded filer stays unrecorded through *every* later
 #: revision, not merely through the one that added the column. Extending the
 #: chain is therefore a deliberate edit here.
-HEAD_REVISION = "0036_speaker_workflow"
+HEAD_REVISION = "0037_host_events_showcase"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

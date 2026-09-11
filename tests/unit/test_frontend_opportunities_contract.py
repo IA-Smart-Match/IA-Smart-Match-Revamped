@@ -238,15 +238,8 @@ def test_pipeline_conversion_guard_ignores_unrelated_value_division() -> None:
     assert _frontend_value_divisions(unrelated_source) == []
 
 
-def test_dashboard_reads_registered_opportunities_without_fabricating() -> None:
-    """O4b: registered metric name + drill-down, no browser-side merge.
-
-    Flipped at O4 from ``test_dashboard_does_not_fabricate_opportunities_count``.
-    The forbidden-pattern half is kept verbatim and extended with the merges O4
-    removed; the "still imports OPPORTUNITIES_UNKNOWN_REASON" half is replaced
-    by the positive subscription assertions, since the dashboard now reads the
-    metric instead of importing a constant that explained why it could not.
-    """
+def test_dashboard_reads_canonical_unit_data_without_fabricating() -> None:
+    """The Connector dashboard uses authenticated unit APIs and fails soft."""
     source = _read(DASHBOARD_PAGE)
 
     for pattern in DASHBOARD_OPPORTUNITIES_FORBIDDEN_PATTERNS:
@@ -254,15 +247,19 @@ def test_dashboard_reads_registered_opportunities_without_fabricating() -> None:
             f"Dashboard still contains fabricated opportunities pattern: {pattern!r}"
         )
 
-    # Reads the registered metric and drills into the same owning query.
-    assert "useUnitMetrics" in source
-    assert "OPPORTUNITIES_METRIC_NAME" in source
-    assert "accountableMetricFromSummary" in source
-    assert "openDrilldown(metricName)" in source
-    assert "MetricDrilldownSheet" in source
-
-    # An unreadable register still degrades to an accountable unknown.
-    assert "unavailableOpportunitiesMetric" in source
+    assert 'useAuthorizedUnitId("admin")' in source
+    for adapter in (
+        "fetchManualEvents",
+        "fetchSpeakers",
+        "fetchSpeakerEvents",
+        "fetchUnitSpeakerFeedbackSummary",
+        "fetchAttendanceSummary",
+    ):
+        assert adapter in source
+    assert "Promise.allSettled" in source
+    assert "Unavailable" in source
+    assert "/api/calendar/" not in source
+    assert "/api/feedback/stats" not in source
 
     for pattern in ZERO_COERCION_PATTERNS:
         assert pattern not in source, f"Dashboard coerces an unmeasured value to zero: {pattern!r}"

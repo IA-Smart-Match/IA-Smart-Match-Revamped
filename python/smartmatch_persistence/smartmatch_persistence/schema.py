@@ -2728,6 +2728,7 @@ managed_event = sa.Table(
     sa.Column("cancelled_at", _TS, nullable=True),
     sa.Column("cancelled_by", _UUID, nullable=True),
     sa.Column("cancellation_reason", sa.Text, nullable=True),
+    sa.Column("catalog_event_id", _UUID, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="managed_event_pkey"),
@@ -2738,6 +2739,7 @@ managed_event = sa.Table(
     sa.UniqueConstraint(
         "tenant_id", "owning_unit_id", "idempotency_key", name="uq_managed_event_idempotency"
     ),
+    sa.UniqueConstraint("tenant_id", "catalog_event_id", name="uq_managed_event_catalog_event"),
     sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
     sa.ForeignKeyConstraint(
         ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
@@ -2757,6 +2759,12 @@ managed_event = sa.Table(
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
     ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "catalog_event_id"],
+        ["event.tenant_id", "event.id"],
+        ondelete="RESTRICT",
+        name="fk_managed_event_catalog_event",
+    ),
     sa.CheckConstraint(
         f"category IS NULL OR category IN ({_MANAGED_EVENT_CATEGORIES})",
         name="ck_managed_event_category",
@@ -2768,7 +2776,9 @@ managed_event = sa.Table(
     sa.CheckConstraint(
         "status IN ('draft', 'published', 'cancelled')", name="ck_managed_event_status"
     ),
-    sa.CheckConstraint("source_kind = 'manual'", name="ck_managed_event_source_kind"),
+    sa.CheckConstraint(
+        "source_kind IN ('manual', 'synthetic')", name="ck_managed_event_source_kind"
+    ),
     sa.CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_managed_event_capacity"),
     sa.CheckConstraint(
         "volunteer_openings IS NULL OR volunteer_openings >= 0",
@@ -2790,13 +2800,11 @@ managed_event = sa.Table(
         "ends_at IS NULL OR ends_at > starts_at", name="ck_managed_event_end_after_start"
     ),
     sa.CheckConstraint(
-        "status <> 'published' OR (time_precision <> 'unresolved' AND category IS NOT NULL "
-        "AND description IS NOT NULL AND btrim(description) <> '' AND location IS NOT NULL "
-        "AND btrim(location) <> '' AND capacity IS NOT NULL AND volunteer_openings IS NOT NULL "
-        "AND volunteer_needs IS NOT NULL AND btrim(volunteer_needs) <> '' "
-        "AND audience IS NOT NULL AND btrim(audience) <> '' AND contact_name IS NOT NULL "
-        "AND btrim(contact_name) <> '' AND contact_email IS NOT NULL "
-        "AND btrim(contact_email) <> '')",
+        "status <> 'published' OR (time_precision <> 'unresolved' "
+        "AND location IS NOT NULL AND btrim(location) <> '' "
+        "AND volunteer_openings BETWEEN 1 AND 3 "
+        "AND jsonb_typeof(speaker_topics) = 'array' "
+        "AND jsonb_array_length(speaker_topics) > 0)",
         name="ck_managed_event_publishable",
     ),
 )
@@ -2824,6 +2832,7 @@ speaker = sa.Table(
     sa.Column("tenant_id", _UUID, nullable=False),
     sa.Column("owning_unit_id", _UUID, nullable=False),
     sa.Column("created_by", _UUID, nullable=False),
+    sa.Column("account_id", _UUID, nullable=True),
     sa.Column("name", sa.Text, nullable=False),
     sa.Column("title", sa.Text, nullable=True),
     sa.Column("company", sa.Text, nullable=True),
@@ -2841,6 +2850,9 @@ speaker = sa.Table(
     sa.PrimaryKeyConstraint("id", name="speaker_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_speaker_tenant_id"),
     sa.UniqueConstraint("tenant_id", "owning_unit_id", "id", name="uq_speaker_tenant_unit_id"),
+    sa.UniqueConstraint(
+        "tenant_id", "owning_unit_id", "account_id", name="uq_speaker_unit_account"
+    ),
     sa.ForeignKeyConstraint(
         ["tenant_id", "owning_unit_id"], ["org_unit.tenant_id", "org_unit.id"], ondelete="RESTRICT"
     ),
@@ -2848,6 +2860,12 @@ speaker = sa.Table(
         ["tenant_id", "created_by"],
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "account_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_account",
     ),
     sa.CheckConstraint("btrim(name) <> ''", name="ck_speaker_name"),
 )

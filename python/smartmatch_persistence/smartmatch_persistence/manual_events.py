@@ -8,10 +8,12 @@ from collections.abc import Mapping
 from typing import Any
 
 import sqlalchemy as sa
+from smartmatch_domain.events import DateOnlyTime, ExactTime, normalize_title, resolved_date
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
+from smartmatch_persistence.events import EventRepository, ORIGIN_COORDINATOR_ENTRY
 
 __all__ = ["ManualEventRepository"]
 
@@ -113,6 +115,98 @@ class ManualEventRepository:
             .values(**values, version=expected_version + 1, updated_at=sa.func.now())
             .returning(*schema.managed_event.c)
         ).mappings().one_or_none()
+
+    def sync_student_catalog(self, session: Session, *, row: Mapping[str, Any]) -> RowMapping:
+        """Project one published managed event into the existing Student catalog."""
+        precision = str(row["time_precision"])
+        if precision == "exact":
+            event_time = ExactTime(
+                starts_at=row["starts_at"], time_zone=row["time_zone"], ends_at=row["ends_at"]
+            )
+        elif precision == "date_only":
+            event_time = DateOnlyTime(on_date=row["on_date"], time_zone=row["time_zone"])
+        else:
+            raise ValueError("event_not_publishable")
+
+        catalog_id = row.get("catalog_event_id")
+        if catalog_id is None:
+            outcome = EventRepository().upsert_returning_outcome(
+                session,
+                tenant_id=row["tenant_id"],
+                host_org_unit_id=row["owning_unit_id"],
+                title=row["title"],
+                event_time=event_time,
+                origin=ORIGIN_COORDINATOR_ENTRY,
+                description=row["description"],
+                filed_by_user_id=row["created_by"],
+            )
+            linked = session.execute(
+                sa.select(schema.managed_event.c.id).where(
+                    schema.managed_event.c.tenant_id == row["tenant_id"],
+                    schema.managed_event.c.catalog_event_id == outcome.event_id,
+                    schema.managed_event.c.id != row["id"],
+                )
+            ).first()
+            if linked is not None:
+                raise ValueError("catalog_event_conflict")
+            catalog_id = outcome.event_id
+            session.execute(
+                sa.update(schema.managed_event)
+                .where(
+                    schema.managed_event.c.tenant_id == row["tenant_id"],
+                    schema.managed_event.c.id == row["id"],
+                )
+                .values(catalog_event_id=catalog_id)
+            )
+        else:
+            values: dict[str, Any] = {
+                "title": row["title"],
+                "normalized_title": normalize_title(row["title"]),
+                "description": row["description"],
+                "resolved_date": resolved_date(event_time),
+                "starts_at": getattr(event_time, "starts_at", None),
+                "ends_at": getattr(event_time, "ends_at", None),
+                "on_date": getattr(event_time, "on_date", None),
+                "time_zone": row["time_zone"],
+                "time_precision": precision,
+                "updated_at": sa.func.now(),
+            }
+            updated = session.execute(
+                sa.update(schema.event)
+                .where(
+                    schema.event.c.tenant_id == row["tenant_id"],
+                    schema.event.c.id == catalog_id,
+                    schema.event.c.host_org_unit_id == row["owning_unit_id"],
+                )
+                .values(**values)
+            )
+            if updated.rowcount != 1:
+                raise ValueError("catalog_event_conflict")
+
+        EventRepository().publish(
+            session, tenant_id=row["tenant_id"], event_id=catalog_id
+        )
+        refreshed = self.get_event(
+            session,
+            tenant_id=row["tenant_id"],
+            unit_id=row["owning_unit_id"],
+            event_id=row["id"],
+        )
+        assert refreshed is not None
+        return refreshed
+
+    def unpublish_student_catalog(self, session: Session, *, row: Mapping[str, Any]) -> None:
+        catalog_id = row.get("catalog_event_id")
+        if catalog_id is None:
+            return
+        session.execute(
+            sa.update(schema.event)
+            .where(
+                schema.event.c.tenant_id == row["tenant_id"],
+                schema.event.c.id == catalog_id,
+            )
+            .values(publication_status="unpublished", updated_at=sa.func.now())
+        )
 
     def get_qr(
         self, session: Session, *, tenant_id: uuid.UUID, event_id: uuid.UUID

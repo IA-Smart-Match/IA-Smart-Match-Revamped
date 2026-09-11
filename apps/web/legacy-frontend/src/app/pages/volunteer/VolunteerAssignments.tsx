@@ -1,56 +1,13 @@
-/**
- * Assignments — volunteer portal.
- *
- * This page used to load your assignments from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
- *
- * What *is* real on this page comes from two `/v1` routes and nothing else:
- * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
- * the server granted them and the role and unit behind it. Neither is derived
- * in the browser, and no identifier on this page is chosen by it.
- */
+import { useQuery } from "@tanstack/react-query";
+import { CalendarDays, MapPin } from "lucide-react";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
+import { useAuthorizedUnitId } from "../../hooks/useAuthorizedUnit";
+import { fetchMySpeakerEngagements, type SpeakerEventStatus } from "../../../lib/api";
 
-import { PortalDatasetUnavailable } from "../../components/PortalContent";
-import { grantedPortal } from "../../components/PortalGate";
-import { usePortalAccess } from "../../hooks/usePortalAccess";
-import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+const labels: Record<SpeakerEventStatus, string> = { not_emailed_yet: "Not Emailed Yet", awaiting_response: "Awaiting Response", declined: "Declined", ready_for_handoff: "Ready for Handoff", handed_off: "Handed Off", awaiting_final_confirmation: "Awaiting Final Confirmation", confirmed: "Confirmed", withdrawn: "Withdrawn", attended: "Attended", did_not_attend: "Did Not Attend", event_cancelled: "Event Cancelled" };
 
 export function VolunteerAssignments() {
-  // `GET /v1/me` — the only source of who this is. It throws rather than
-  // substituting a fixture principal, which is the Fix #7 guard.
-  const principal = useAuthenticatedPrincipal();
-  // `GET /v1/me/portals` — the only source of what the server granted them.
-  const portalAccess = usePortalAccess();
-  const grant = grantedPortal(portalAccess, "volunteer");
-
-  // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
-  // no such portal, so reaching here without a grant means the mapping is
-  // still resolving. Render nothing rather than a header about a portal that
-  // may turn out not to be assigned.
-  if (grant === null) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Assignments</h1>
-        <p className="text-sm text-muted-foreground">Events you have been matched to.</p>
-        <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
-        </p>
-      </header>
-
-      <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Your assignments"
-          endpoints={["/api/portals/volunteers/{id}/assignments"]}
-        />
-      </div>
-    </div>
-  );
+  const unitId = useAuthorizedUnitId("volunteer"); const principalKey = usePrincipalKey();
+  const query = useQuery({ queryKey: [principalKey, "speaker-portal", unitId, "engagements"], queryFn: () => fetchMySpeakerEngagements(unitId!), enabled: Boolean(principalKey && unitId) });
+  return <div className="space-y-6"><header><h1 className="text-3xl font-semibold">Engagements</h1><p className="mt-2 text-muted-foreground">Events that have been handed to you for confirmation or attendance.</p></header>{query.isLoading ? <div className="h-32 animate-pulse rounded-2xl bg-muted" /> : null}{query.error ? <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-destructive">{query.error instanceof Error ? query.error.message : "Your engagements could not be loaded."}</p> : null}<div className="grid gap-4 lg:grid-cols-2">{(query.data ?? []).map((item) => <article key={item.id} className="rounded-2xl border bg-card p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><h2 className="text-xl font-semibold">{item.event_title}</h2><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{labels[item.status]}</span></div><p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />{item.starts_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: item.time_zone ?? undefined }).format(new Date(item.starts_at)) : item.on_date ? `${item.on_date} · All day` : "Schedule not set"}</p><p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><MapPin className="h-4 w-4" />{item.location ?? "Location not provided"}</p></article>)}</div>{!query.isLoading && !query.error && !query.data?.length ? <div className="rounded-2xl border border-dashed p-10 text-center text-muted-foreground">No engagements have been handed to you yet.</div> : null}</div>;
 }

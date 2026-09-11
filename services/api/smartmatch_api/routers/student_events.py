@@ -348,6 +348,9 @@ class StudentEventSummary(BaseModel):
     is_virtual: bool
     location_city: str | None = None
     location_postal_code: str | None = None
+    location: str | None = Field(
+        default=None, description="The Event Host's display location for a managed event."
+    )
     tags: list[str] = Field(description="Mapped vocabulary terms. Never a quarantined value.")
     on_my_agenda: bool = Field(
         description=(
@@ -611,6 +614,7 @@ def _summary(
         is_virtual=row.is_virtual,
         location_city=row.location_city,
         location_postal_code=row.location_postal_code,
+        location=row.managed_location,
         tags=tags,
         on_my_agenda=on_my_agenda,
         registration=_registration_view(registration),
@@ -632,7 +636,18 @@ _EVENT_COLUMNS: Final[tuple[Any, ...]] = (
     schema.event.c.is_virtual,
     schema.event.c.location_city,
     schema.event.c.location_postal_code,
+    schema.managed_event.c.location.label("managed_location"),
 )
+
+
+def _with_managed_event(query: Any) -> Any:
+    return query.outerjoin(
+        schema.managed_event,
+        sa.and_(
+            schema.managed_event.c.tenant_id == schema.event.c.tenant_id,
+            schema.managed_event.c.catalog_event_id == schema.event.c.id,
+        ),
+    )
 
 
 def _mapped_terms(
@@ -763,7 +778,7 @@ def browse_student_events(
     ).scalar_one()
 
     listed = session.execute(
-        sa.select(*_EVENT_COLUMNS)
+        _with_managed_event(sa.select(*_EVENT_COLUMNS))
         .where(
             *owned_by_this_unit,
             published,
@@ -899,7 +914,7 @@ def list_student_agenda(
     ).scalar_one()
 
     listed = session.execute(
-        sa.select(*_EVENT_COLUMNS)
+        _with_managed_event(sa.select(*_EVENT_COLUMNS))
         .where(*mine, ~unresolved)
         .order_by(schema.event.c.resolved_date, schema.event.c.id)
         .limit(MAX_ROWS + 1)

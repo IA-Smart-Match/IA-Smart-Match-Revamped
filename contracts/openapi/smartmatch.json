@@ -742,7 +742,8 @@
           "volunteer_openings": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "maximum": 3.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -896,8 +897,11 @@
             "title": "On Date"
           },
           "provenance": {
-            "const": "observed",
             "default": "observed",
+            "enum": [
+              "observed",
+              "synthetic"
+            ],
             "title": "Provenance",
             "type": "string"
           },
@@ -1215,7 +1219,8 @@
           "volunteer_openings": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "maximum": 3.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -4533,6 +4538,216 @@
         "title": "SpeakerPatch",
         "type": "object"
       },
+      "SpeakerPortalEngagement": {
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_status": {
+            "title": "Event Status",
+            "type": "string"
+          },
+          "event_title": {
+            "title": "Event Title",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "on_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Date"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "status": {
+            "enum": [
+              "not_emailed_yet",
+              "awaiting_response",
+              "declined",
+              "ready_for_handoff",
+              "handed_off",
+              "awaiting_final_confirmation",
+              "confirmed",
+              "withdrawn",
+              "attended",
+              "did_not_attend",
+              "event_cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "event_title",
+          "event_status",
+          "status",
+          "starts_at",
+          "on_date",
+          "time_zone",
+          "location"
+        ],
+        "title": "SpeakerPortalEngagement",
+        "type": "object"
+      },
+      "SpeakerPortalProfile": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "board_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Role"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "expertise_topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expertise Topics",
+            "type": "array"
+          },
+          "home_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Home Region"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "service_regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Regions",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "title",
+          "company",
+          "board_role",
+          "expertise_topics",
+          "home_region",
+          "service_regions",
+          "contact_email",
+          "contact_phone",
+          "available"
+        ],
+        "title": "SpeakerPortalProfile",
+        "type": "object"
+      },
       "SpeakerRequestCreate": {
         "description": "One Speaker Request, as an Event Host fills it in (customer \u00a712).\n\nNote what is **not** here: no tenant, no host org unit, no actor, no source\nURL, no publication status. The first three come from the verified principal\nand the path; the fourth does not exist for a request a person typed; the\nfifth is not a host's to set.\n\nThe temporal fields are ADR-0010's, not a single nullable timestamp. A host\nwho knows the date but not yet the hour sends ``on_date`` and gets a\n``date_only`` request, which is the honest description of what they said \u2014\nrather than midnight in some zone, which is the fabrication ADR-0010 exists\nto stop. ``time_zone`` is required at both precisions and is the event's own\nzone, never the browser's.",
         "properties": {
@@ -5193,6 +5408,18 @@
           "is_virtual": {
             "title": "Is Virtual",
             "type": "boolean"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Event Host's display location for a managed event.",
+            "title": "Location"
           },
           "location_city": {
             "anyOf": [
@@ -13322,6 +13549,268 @@
         "summary": "How students rated this unit's speakers, pooled",
         "tags": [
           "student-speaker-feedback"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-portal/engagements": {
+      "get": {
+        "operationId": "list_my_speaker_engagements_v1_units__unit_id__speaker_portal_engagements_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpeakerPortalEngagement"
+                  },
+                  "title": "Response List My Speaker Engagements V1 Units  Unit Id  Speaker Portal Engagements Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List My Speaker Engagements",
+        "tags": [
+          "speakers"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-portal/profile": {
+      "get": {
+        "operationId": "get_my_speaker_profile_v1_units__unit_id__speaker_portal_profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerPortalProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Get My Speaker Profile",
+        "tags": [
+          "speakers"
         ]
       }
     },
