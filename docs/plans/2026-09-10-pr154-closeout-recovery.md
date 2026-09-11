@@ -26,7 +26,7 @@ Recovery completed each branch, then merged all five into `feat/frontend-dev-res
 
 ## Verified state (measured, not assumed)
 
-- PR #154: OPEN, MERGEABLE, CI 10/10 green at `fd3fb128`; head now `5003b514` (CI pending at writing — a 3-line React state fix).
+- PR #154: OPEN, MERGEABLE, CI 10/10 green at `6bc875f2`. Post-writing commits: `bf517563` (feedback cohort — 12 speakers now publish ratings), `0706ca78` (dataset one-shot receives the embedding flag it reads), `d5240148`/`fd3fb128` (ruff format), `6bc875f2` (flag-plumbing test now derives reader services from tools/ mounts — dataset legitimately reads the flag for the verifier capability check).
 - Local suite at merge: 5239 pytest (non-integration) + 106 frontend + tsc + vite build green; new integration tests green against a scratch DB.
 - Review stack `smartmatch_pr154` (web :15173, api :18080) runs `2bb23f82`, DB at migration `0036`.
 - `verify_pilot_dataset` exits **0**: all 19 counted tables populated; 13/13 portal surfaces above per-login floors; 21/21 cross-table checks OK. `top-up-pilot-dataset` run twice — second run changed nothing (the re-runnability fix, proven).
