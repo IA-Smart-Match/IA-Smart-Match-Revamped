@@ -496,15 +496,17 @@ def seed_student_feedback(
 
     attendance = AttendanceRepository()
     for event in events:
-        attendance.record_attendance(
+        if attendance.record_attendance(
             session,
             tenant_id=tenant_id,
             owning_unit_id=unit_id,
             subject_id=student_id,
             event_id=event.event_id,
             method=SYNTHETIC_ATTENDANCE_METHOD,
-        )
-        report.attendances_recorded += 1
+        ).created:
+            # The counter counts this run's writes, not its checks — on a
+            # re-run the row already exists and the report must not claim it.
+            report.attendances_recorded += 1
     session.commit()
 
     index = 0
