@@ -102,7 +102,7 @@ _OwningQuery = Callable[[Session, uuid.UUID, uuid.UUID, MetricDefinition], _Metr
 #: stage, or the right-looking wrong column, instead of failing loudly. An
 #: explicit table has no such derivation to get subtly wrong, and
 #: :func:`_pipeline_funnel_rows_v1` fails closed with a ``RuntimeError`` — the
-#: same posture :func:`evidence_for` already takes on a missing owning-query
+#: same posture :func:`_evidence_for` already takes on a missing owning-query
 #: adapter — when a metric bound to ``pipeline_funnel_rows_v1`` is not a key
 #: here.
 _PIPELINE_STAGE_COLUMNS: Final[dict[str, sa.ColumnElement[Any]]] = {
@@ -157,7 +157,7 @@ def _pipeline_funnel_rows_v1(
         stage_column = _PIPELINE_STAGE_COLUMNS[metric.canonical_name]
     except KeyError as exc:  # fail closed: an unmapped Pipeline metric must not
         # silently measure the wrong stage (or none at all) instead of
-        # refusing to answer, the same posture evidence_for takes on a
+        # refusing to answer, the same posture _evidence_for takes on a
         # missing owning-query adapter.
         raise RuntimeError(
             f"No pipeline stage column mapped for metric {metric.canonical_name!r}; "
@@ -402,7 +402,7 @@ _DRILL_DOWN_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 _TENANT_WIDE_AGGREGATE_ROLES: Final[frozenset[str]] = frozenset({"admin"})
 
 
-def authorize_aggregate_read(
+def _authorize_aggregate_read(
     session: Session,
     principal: CurrentPrincipal,
     unit_id: uuid.UUID,
@@ -455,11 +455,11 @@ def _authorize_drill_down_read(
     still passed alongside it: it has no observable effect once
     ``required_roles`` is non-empty (a bare grant is already refused by the
     required-roles check first), but it keeps this authorizer's shape
-    consistent with :func:`authorize_aggregate_read` and with what the
+    consistent with :func:`_authorize_aggregate_read` and with what the
     decision record actually authorizes — membership, not mere resource
     reach, admin/coordinator role notwithstanding.
 
-    No ``tenant_wide_roles`` here, unlike :func:`authorize_aggregate_read`.
+    No ``tenant_wide_roles`` here, unlike :func:`_authorize_aggregate_read`.
     §4's scope bullet reads "``admin``: unrestricted within tenant for
     aggregates; drill-down per row above", and the row above restricts
     ``metrics.drill_down`` by *role* (``admin``, ``coordinator``) without
@@ -486,7 +486,7 @@ def _authorize_drill_down_read(
     )
 
 
-def evidence_for(
+def _evidence_for(
     session: Session,
     tenant_id: uuid.UUID,
     unit_id: uuid.UUID,
@@ -518,12 +518,12 @@ def evidence_for(
 MetricSurface = Literal["all", "cba"]
 
 
-def register_for(surface: MetricSurface) -> tuple[MetricDefinition, ...]:
+def _register_for(surface: MetricSurface) -> tuple[MetricDefinition, ...]:
     """The register this request is asking for. Neither view is mutated."""
     return cba_metric_register() if surface == "cba" else METRIC_REGISTER
 
 
-def metric_summary(
+def _summary(
     unit_id: uuid.UUID,
     metric: MetricDefinition,
     evidence: _MetricEvidence,
@@ -544,7 +544,7 @@ def metric_summary(
     )
 
 
-NOT_MODIFIED_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
+_NOT_MODIFIED_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
     status.HTTP_304_NOT_MODIFIED: {
         "description": (
             "Not Modified: the payload named by If-None-Match is still current. "
@@ -577,7 +577,7 @@ def _etag_matches(if_none_match: str | None, etag: str) -> bool:
     return False
 
 
-def conditional_json_response(payload_model: BaseModel, request: Request) -> Response:
+def _conditional_json_response(payload_model: BaseModel, request: Request) -> Response:
     """Serve ``payload_model`` with revalidation headers, honoring If-None-Match.
 
     The ETag is a weak hash of the exact bytes returned, computed by
@@ -611,7 +611,7 @@ def conditional_json_response(payload_model: BaseModel, request: Request) -> Res
 @router.get(
     "/{unit_id}/metrics",
     response_model=MetricsResponse,
-    responses=NOT_MODIFIED_RESPONSE,
+    responses=_NOT_MODIFIED_RESPONSE,
     summary="List accountable metrics for a unit",
 )
 def list_metrics(
@@ -627,7 +627,7 @@ def list_metrics(
     ``If-None-Match`` header must never let an unauthorized or unknown caller
     learn that a 304-eligible representation exists. Any active unit
     membership with a role may read aggregates (a bare ``resource_grant`` is
-    refused) — see :func:`authorize_aggregate_read`.
+    refused) — see :func:`_authorize_aggregate_read`.
 
     ``surface`` selects which product's view of the register to return and
     changes nothing else: the same owning query measures each metric either
@@ -635,24 +635,24 @@ def list_metrics(
     :data:`MetricSurface` for why the narrower view is a parameter rather than
     the default.
     """
-    authorize_aggregate_read(session, principal, unit_id)
+    _authorize_aggregate_read(session, principal, unit_id)
     metrics = [
-        metric_summary(
+        _summary(
             unit_id,
             metric,
-            evidence_for(session, principal.tenant_id, unit_id, metric),
+            _evidence_for(session, principal.tenant_id, unit_id, metric),
             surface,
         )
-        for metric in register_for(surface)
+        for metric in _register_for(surface)
     ]
     response_model = MetricsResponse(unit_id=unit_id, metrics=metrics)
-    return conditional_json_response(response_model, request)
+    return _conditional_json_response(response_model, request)
 
 
 @router.get(
     "/{unit_id}/metrics/{metric_name}/drill-down",
     response_model=MetricDrillDownResponse,
-    responses=NOT_MODIFIED_RESPONSE,
+    responses=_NOT_MODIFIED_RESPONSE,
     summary="Drill into an accountable metric",
 )
 def metric_drill_down(
@@ -682,7 +682,7 @@ def metric_drill_down(
     _authorize_drill_down_read(session, principal, unit_id)
     metric = get_metric(metric_name)
     if metric is None or metric.canonical_name not in {
-        entry.canonical_name for entry in register_for(surface)
+        entry.canonical_name for entry in _register_for(surface)
     }:
         raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -690,7 +690,7 @@ def metric_drill_down(
             message="No such registered metric.",
         )
 
-    evidence = evidence_for(session, principal.tenant_id, unit_id, metric)
+    evidence = _evidence_for(session, principal.tenant_id, unit_id, metric)
     response_model = MetricDrillDownResponse(
         unit_id=unit_id,
         name=metric.canonical_name,
@@ -699,4 +699,4 @@ def metric_drill_down(
         unknown_reason=evidence.unknown_reason,
         rows=list(evidence.rows),
     )
-    return conditional_json_response(response_model, request)
+    return _conditional_json_response(response_model, request)

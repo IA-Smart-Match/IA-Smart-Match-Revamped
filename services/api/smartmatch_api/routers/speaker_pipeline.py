@@ -2,8 +2,8 @@
 
 This router adds no measurement. It calls the *same* owning queries
 ``smartmatch_api.routers.metrics`` already binds each registered metric to
-(:func:`~smartmatch_api.routers.metrics.evidence_for`), under the *same*
-authorization (:func:`~smartmatch_api.routers.metrics.authorize_aggregate_read`),
+(:func:`~smartmatch_api.routers.metrics._evidence_for`), under the *same*
+authorization (:func:`~smartmatch_api.routers.metrics._authorize_aggregate_read`),
 and hands the resulting values to
 :func:`smartmatch_domain.speaker_pipeline.build_speaker_pipeline` for shaping.
 A number served here and the same number served by ``GET
@@ -54,15 +54,31 @@ from smartmatch_domain.speaker_pipeline import (
 )
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession
+
+# Imported under their own names, underscores and all, rather than renamed in
+# `routers/metrics.py` to make this import read more tidily.
+#
+# The underscore marks these private to the *package*, not unreachable from a
+# sibling module, and reaching for them here is the whole point: this route
+# must authorize and measure through the identical objects `metrics.py` uses,
+# not through equivalents of them.
+#
+# Renaming them was tried and was wrong, for a reason worth recording rather
+# than rediscovering: `tests/authz/test_policy_matrix.py` matches an operation
+# to its authorization runner by the authorizer's *name*, so renaming
+# `_authorize_aggregate_read` quietly moved both metric routes outside that
+# matrix's coverage until the matrix itself was edited to follow. A public
+# alias has the same defect with an extra indirection — two names for one
+# permit, and a reader or a grep that finds only one of them.
 from smartmatch_api.routers.metrics import (
-    NOT_MODIFIED_RESPONSE,
+    _NOT_MODIFIED_RESPONSE,
     MetricSummary,
     MetricSurface,
-    authorize_aggregate_read,
-    conditional_json_response,
-    evidence_for,
-    metric_summary,
-    register_for,
+    _authorize_aggregate_read,
+    _conditional_json_response,
+    _evidence_for,
+    _register_for,
+    _summary,
 )
 
 router = APIRouter(prefix="/v1/units", tags=["metrics"])
@@ -161,13 +177,13 @@ class SpeakerPipelineResponse(BaseModel):
 
 
 def _definitions(surface: MetricSurface) -> dict[str, MetricDefinition]:
-    return {metric.canonical_name: metric for metric in register_for(surface)}
+    return {metric.canonical_name: metric for metric in _register_for(surface)}
 
 
 @router.get(
     "/{unit_id}/speaker-pipeline",
     response_model=SpeakerPipelineResponse,
-    responses=NOT_MODIFIED_RESPONSE,
+    responses=_NOT_MODIFIED_RESPONSE,
     summary="The Speaker Pipeline funnel, conversions and insights for a unit",
 )
 def speaker_pipeline(
@@ -189,14 +205,14 @@ def speaker_pipeline(
     conversion that would have used it carries an ``unavailable_reason``
     instead of a rate. Nothing here substitutes a zero for an absence.
     """
-    authorize_aggregate_read(session, principal, unit_id)
+    _authorize_aggregate_read(session, principal, unit_id)
 
     definitions = _definitions(_SURFACE)
     summaries: list[MetricSummary] = []
     values: dict[str, int | None] = {}
-    for metric in register_for(_SURFACE):
-        evidence = evidence_for(session, principal.tenant_id, unit_id, metric)
-        summaries.append(metric_summary(unit_id, metric, evidence, _SURFACE))
+    for metric in _register_for(_SURFACE):
+        evidence = _evidence_for(session, principal.tenant_id, unit_id, metric)
+        summaries.append(_summary(unit_id, metric, evidence, _SURFACE))
         values[metric.canonical_name] = evidence.value
 
     by_name = {summary.name: summary for summary in summaries}
@@ -263,7 +279,7 @@ def speaker_pipeline(
             for insight in shaped.insights
         ],
     )
-    return conditional_json_response(response_model, request)
+    return _conditional_json_response(response_model, request)
 
 
 #: Re-exported so a reader of this module can see which stages it claims

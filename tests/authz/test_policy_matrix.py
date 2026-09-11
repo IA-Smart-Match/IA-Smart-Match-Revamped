@@ -744,6 +744,35 @@ OPERATIONS: tuple[Operation, ...] = (
         tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
         tenant_wide_roles=frozenset({"admin"}),
     ),
+    # The same register, presented as a funnel, and deliberately the *same*
+    # authorizer object rather than an equivalent one: ``authorizer_module``
+    # points back at ``routers.metrics``, so this row and ``metrics.read``
+    # above assert against one function. Two aggregate reads of the same six
+    # numbers could otherwise drift apart on who may call them, and the drift
+    # would be invisible — each row would go on passing against its own copy.
+    #
+    # Every cell is therefore identical to ``metrics.read``'s, which is the
+    # claim being made: this route measures nothing ``metrics.read`` does not
+    # already measure, so it must be reachable by exactly the same principals.
+    # The ratified metrics-authorization decision's §4 is the authority for all
+    # of it, unchanged — any active unit membership with a role, a bare
+    # ``resource_grant`` refused, and ``admin`` unrestricted within the tenant
+    # for aggregates.
+    Operation(
+        key="metrics.speaker_pipeline",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-pipeline",
+        module="smartmatch_api.routers.speaker_pipeline",
+        authorizer="_authorize_aggregate_read",
+        roles_constant=None,
+        authorizer_module="smartmatch_api.routers.metrics",
+        required_roles=frozenset(),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+        tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
+        tenant_wide_roles=frozenset({"admin"}),
+    ),
     Operation(
         key="metrics.drill_down",
         method="GET",
@@ -2072,7 +2101,7 @@ INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset()
 #: is the direct inverse of
 #: :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`,
 #: proving the same shape of grant is refused here where it used to be admitted.
-MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
+MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read", "metrics.speaker_pipeline"})
 
 #: Operations that permit a role *outside* the resource's own subtree — the one
 #: deliberate exception to the unit scoping
@@ -2096,7 +2125,14 @@ MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
 #: :func:`test_a_tenant_wide_role_reaches_a_unit_its_own_path_does_not_cover`
 #: and its precedence limits by
 #: :func:`test_a_tenant_wide_role_never_outranks_suspension_tenant_or_an_explicit_deny`.
-TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
+#: ``metrics.speaker_pipeline`` joins it for one reason and no other: it calls
+#: the identical ``authorize_aggregate_read``, so it has the identical reach.
+#: This is not a second permit — it is the same permit, seen through a second
+#: route, and the table lists it so that the code and this file cannot disagree
+#: about which routes carry it.
+TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset(
+    {"metrics.read", "metrics.speaker_pipeline"}
+)
 
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
@@ -7839,6 +7875,23 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
     },
 }
+
+#: The Speaker Pipeline read is ``metrics.read``'s permit seen through a second
+#: route, so it is given the same row object rather than a copy of it.
+#:
+#: A copy is the tempting thing to write and the wrong thing to have. Both
+#: routes call the identical ``_authorize_aggregate_read`` — the matrix's own
+#: ``authorizer``/``authorizer_module`` columns say so, and
+#: ``tests/contract/test_speaker_pipeline_api.py`` pins the two to identical
+#: counts — so any cell where the two rows disagreed would be a claim that one
+#: function decides two different things. Sharing the object makes that
+#: disagreement unrepresentable: narrowing or widening the permit edits one
+#: row and both routes' expectations move with it.
+#:
+#: Every test below reads ``MATRIX[operation.key]`` and runs the *real*
+#: authorizer for each shape, so this alias asserts nothing by itself. It says
+#: which outcomes are expected, and the runner still has to produce them.
+MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
