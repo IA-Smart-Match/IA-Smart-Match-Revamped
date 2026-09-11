@@ -8,7 +8,10 @@ host, or an administrator gets a real session token in ``sessionStorage`` — an
 if the fixture outranks it, every ``/v1`` request still authenticates as the
 coordinator. Nothing downstream is wrong in that state and nothing reports an
 error: ``GET /v1/me/portals`` truthfully answers "coordinator" and
-``pages/Home.tsx`` truthfully forwards to ``/coordinator-portal``. The sign-in
+``pages/Home.tsx`` truthfully forwards to ``/coordinator-portal``. (An
+administrator now lands in that same shell *legitimately* — one persona, one
+door — which is precisely why the student and event-host halves below are the
+ones that still catch the fixture bug.) The sign-in
 appears to succeed and changes nothing, which is the fake-success shape applied
 to identity.
 
@@ -136,25 +139,34 @@ def test_home_navigates_to_the_server_reported_path_and_composes_none() -> None:
         )
 
 
-def test_each_compose_dev_principal_opens_a_distinct_portal_path() -> None:
+def test_each_compose_dev_principal_lands_where_its_own_role_says() -> None:
     """The server side is not the fault, and this is what says so.
 
-    Four seeded principals, four stored roles, four different shells. If this
-    ever collapses, the symptom is identical to the credential bug above and
-    the fix is somewhere else entirely — so the two are separated here rather
-    than left to be told apart by clicking.
+    Four seeded principals, four stored roles, and each landing decided by its
+    *own* role rather than by the bundle's fixture. If this ever collapses,
+    the symptom is identical to the credential bug above and the fix is
+    somewhere else entirely — so the two are separated here rather than left
+    to be told apart by clicking.
+
+    Four roles are now **three** shells, on purpose: ``coordinator`` and
+    ``admin`` are one persona and land in one connector dashboard, with
+    Administration a section inside it rather than a portal of its own. That
+    is a deliberate merge, so what is pinned is the partition itself — which
+    tokens share a landing and which must not — and not a bare "all different"
+    count, which would pass again the moment two more collapsed by accident.
     """
     home_paths = {
         principal.token: _PORTAL_FOR_ROLE[principal.role][1] for principal in COMPOSE_DEV_PRINCIPALS
     }
 
-    assert len(set(home_paths.values())) == len(home_paths), (
-        f"two compose dev principals share a portal path: {home_paths}"
-    )
-    coordinator_paths = [
-        token for token, path in home_paths.items() if path == "/coordinator-portal"
-    ]
-    assert coordinator_paths == ["compose-api"], (
-        "only the seeded coordinator token may resolve to /coordinator-portal, "
-        f"but these do: {coordinator_paths}"
-    )
+    assert home_paths == {
+        # One persona, one shell. `compose-admin` is still a separate account
+        # with a separate, tenant-wide role; what it shares is the door.
+        "compose-api": "/coordinator-portal",
+        "compose-admin": "/coordinator-portal",
+        # And these two are still emphatically their own, which is the half of
+        # the original assertion that still carries the fixture bug's weight:
+        # a student who lands in the connector dashboard is the bug.
+        "compose-student": "/student-portal",
+        "compose-host": "/volunteer-portal",
+    }, f"the compose principals no longer land where their stored roles say: {home_paths}"

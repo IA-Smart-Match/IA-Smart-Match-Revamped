@@ -347,7 +347,7 @@ which prints exactly one line per token:
 == compose-host
   volunteer    -> Event Host Portal at /volunteer-portal
 == compose-admin
-  admin        -> CBA Administration at /dashboard
+  admin        -> Connector Dashboard at /coordinator-portal
 ```
 
 | Bearer token | Signs in as | Stored role | Portal | Home path |
@@ -355,7 +355,28 @@ which prints exactly one line per token:
 | `compose-api` | `compose-pilot-coordinator@example.invalid` | `coordinator` | Connector Dashboard | `/coordinator-portal` |
 | `compose-student` | `compose-pilot-student@example.invalid` | `student` | Student Portal | `/student-portal` |
 | `compose-host` | `compose-pilot-volunteer@example.invalid` | `volunteer` | Event Host Portal | `/volunteer-portal` |
-| `compose-admin` | `compose-pilot-admin@example.invalid` | `admin` | CBA Administration | `/dashboard` |
+| `compose-admin` | `compose-pilot-admin@example.invalid` | `admin` | Connector Dashboard (**with Administration**) | `/coordinator-portal` |
+
+**Four roles, three portals, and that is correct.** `coordinator` and `admin`
+are one persona — the Speaker Connector — and land in one shell. There is no
+separate administration dashboard: Administration is a *section* of the
+Connector Dashboard, shown when the signed-in account actually holds `admin`
+on `GET /v1/me`. So `compose-admin` and `compose-api` open the same URL and do
+not see the same thing, which is the point; `/dashboard` is no longer a portal
+home path. The two roles keep genuinely different reach in the API (`admin` is
+tenant-wide for aggregates, `coordinator` is subtree-scoped), and each portal
+descriptor now reports `roles` — every role you hold over that portal — plus a
+`roles` list on each unit, so the UI can tell "in the connector shell" from
+"is an administrator" without guessing.
+
+The owner-supplied `/login` accounts follow the same rule and go one step
+further: **both** connector logins (`SMARTMATCH_PILOT_COORDINATOR_*` and
+`SMARTMATCH_PILOT_ADMIN_*`) are seeded with **both** memberships, so either
+address signs in to the identical Connector Dashboard with Administration
+visible. They remain two accounts with two passwords because sign-in is keyed
+on `user_account.email` and an account holds one credential; what is merged is
+the persona, not the credential. `student` and `volunteer` are unchanged and
+hold one role each.
 
 These are **not credentials** and must never be treated as any. They have no
 password, no expiry and no revocation, they authenticate nothing outside this

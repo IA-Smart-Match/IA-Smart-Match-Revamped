@@ -3720,7 +3720,7 @@
             "title": "Default Portal"
           },
           "portals": {
-            "description": "One entry per active, role-bearing membership whose role maps to a portal. Empty when the caller holds none.",
+            "description": "One entry per *portal* the caller's active, role-bearing memberships open \u2014 never two entries for one shell, however many memberships opened it. Ordered `coordinator`, `volunteer`, `student`. Empty when the caller holds no membership that opens a portal.",
             "items": {
               "$ref": "#/components/schemas/PortalDescriptor"
             },
@@ -3899,22 +3899,30 @@
             "type": "string"
           },
           "org_unit_path": {
-            "description": "The org-unit subtree the granting membership covers, as an ltree path.",
+            "description": "The org-unit subtree the granting membership covers, as an ltree path. One real membership's path \u2014 the same row `role` came from \u2014 never a merge of several. It is **not** a summary of everything this portal reaches: for that, read `units`, and read each unit's own `roles` for what is held over it.",
             "title": "Org Unit Path",
             "type": "string"
           },
           "portal": {
-            "description": "Stable portal identifier: `student`, `coordinator`, `volunteer`, or `admin`.",
+            "description": "Stable portal identifier: `student`, `coordinator`, or `volunteer`. There is no separate `admin` portal: the stored `admin` role opens the connector shell, and holding it is read from `GET /v1/me`'s memberships.",
             "title": "Portal",
             "type": "string"
           },
           "role": {
-            "description": "The `membership.role` that opened this portal \u2014 the row an administrator wrote, echoed back so the UI can name it truthfully. It is never a value the caller supplied.",
+            "description": "The `membership.role` that opened this portal \u2014 the row an administrator wrote, echoed back so the UI can name it truthfully. It is never a value the caller supplied. When several of the caller's memberships open this same portal, it is the highest of them by reach (`admin` > `coordinator` > `volunteer` > `student`), and `org_unit_path` is that same row's path.",
             "title": "Role",
             "type": "string"
           },
+          "roles": {
+            "description": "Every stored `membership.role` the caller holds that opens this portal, highest reach first \u2014 `role` is simply the first of them. Present because one shell can now be opened by more than one role (`coordinator` and `admin` are one persona), and a reader that saw only the winner could not tell a connector who is also an administrator from one who is not.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
           "units": {
-            "description": "Every org unit at or below `org_unit_path`, shallowest first \u2014 the units this membership authorizes the caller over. Empty when the granted path contains no unit row, which is reported rather than filled in.",
+            "description": "Every org unit the memberships opening this portal authorize the caller over: the union of their subtrees, de-duplicated and ordered by path then id, so ancestors precede descendants and the order never varies between requests. Empty when no granted path contains a unit row, which is reported rather than filled in.",
             "items": {
               "$ref": "#/components/schemas/PortalUnit"
             },
@@ -3927,6 +3935,7 @@
           "display_name",
           "home_path",
           "role",
+          "roles",
           "org_unit_path",
           "units",
           "default_unit_id"
@@ -3947,6 +3956,14 @@
             "title": "Path",
             "type": "string"
           },
+          "roles": {
+            "description": "The stored `membership.role`s the caller actually holds **over this unit** \u2014 the roles whose granted subtree contains it \u2014 highest reach first. Reported per unit rather than only per portal because the two genuinely differ: an account that is `coordinator` over one subtree and `admin` over another opens one shell, and a single portal-level role would label every unit in the union with the stronger of the two. A route asked about the weaker unit would then refuse something the UI had shown as permitted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
           "unit_id": {
             "description": "The `unit_id` every `/v1/units/{unit_id}/...` route takes. Resolved by the server from the granting membership's path; a client never constructs or supplies one.",
             "format": "uuid",
@@ -3963,7 +3980,8 @@
           "unit_id",
           "path",
           "unit_type",
-          "display_name"
+          "display_name",
+          "roles"
         ],
         "title": "PortalUnit",
         "type": "object"

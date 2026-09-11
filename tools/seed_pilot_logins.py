@@ -26,9 +26,27 @@ Partial configuration — one of the two variables set — is an **error**, not 
 skip. It is far more likely to be a typo in a variable name than a decision,
 and treating it as a decision would answer a misconfiguration with a shrug.
 
+## Two logins, one connector persona
+
+``coordinator`` and ``admin`` are one persona (``role_presentation``) landing
+in one shell (``routers/portals.py``), so both connector logins carry **both**
+memberships and are the same thing to the product: one account each, two
+``membership`` rows each, one identical Connector Dashboard with the
+Administration section visible. They remain two accounts with two credentials
+because login is keyed on ``user_account.email`` and an account holds one
+``pilot_credential`` — so the alternative would be retiring one of the two
+addresses the owner already has, which is the owner's call and not this
+file's. Until then, either address signs in to the same surface.
+
+Reconciliation is upwards only (``seed_pilot._ensure_membership_set``): an
+account seeded before this change gains the row it is missing on the next run,
+without anything existing being rewritten, and a changed email is still a hard
+refusal.
+
 ## The role is the seed's to assign, never the login's
 
-Each entry below carries a fixed ``role`` written into a ``membership`` row.
+Each entry below carries a fixed ``role`` — and, for the connector logins, an
+``additional_roles`` set — written into ``membership`` rows.
 That is the whole shape of the system: an administrator (here, this operator
 tool) writes the role; sign-in proves *who*; ``smartmatch_authz`` decides
 *what*. Nothing about the role travels through ``POST /v1/auth/login`` in
@@ -83,6 +101,9 @@ class RoleCredential:
     Attributes:
         role: The ``membership.role`` this login is granted. Fixed here, so it
             is a property of the seed rather than of anything a caller sends.
+        additional_roles: Further roles the same account holds over the same
+            path. One account may legitimately hold several — see the module
+            docstring on the two connector logins.
         subject: The stable synthetic ``external_subject`` for the account.
         email_var: Environment variable holding the account's address.
         password_var: Environment variable holding the password to store.
@@ -92,6 +113,12 @@ class RoleCredential:
     subject: str
     email_var: str
     password_var: str
+    additional_roles: tuple[str, ...] = ()
+
+    @property
+    def roles(self) -> tuple[str, ...]:
+        """Every role this login holds, primary first."""
+        return (self.role, *self.additional_roles)
 
 
 #: The four roles the pilot needs a working login for.
@@ -101,8 +128,11 @@ class RoleCredential:
 #: gated on ``student`` alone (``routers/rewards.py``), so without this entry
 #: no login in the system can demonstrate rewards at all.
 ROLE_CREDENTIALS: tuple[RoleCredential, ...] = (
+    # The two connector logins are the *same persona* and hold the *same two
+    # roles*. See the module docstring: one shell, two QA credentials.
     RoleCredential(
         role="coordinator",
+        additional_roles=("admin",),
         subject="pilot-login-coordinator",
         email_var="SMARTMATCH_PILOT_COORDINATOR_EMAIL",
         password_var="SMARTMATCH_PILOT_COORDINATOR_PASSWORD",
@@ -115,6 +145,7 @@ ROLE_CREDENTIALS: tuple[RoleCredential, ...] = (
     ),
     RoleCredential(
         role="admin",
+        additional_roles=("coordinator",),
         subject="pilot-login-admin",
         email_var="SMARTMATCH_PILOT_ADMIN_EMAIL",
         password_var="SMARTMATCH_PILOT_ADMIN_PASSWORD",
@@ -244,6 +275,11 @@ def seed_role_logins(
             subject=entry.subject,
             email=email,
             role=entry.role,
+            # Upwards-only reconciliation (``seed_pilot._ensure_membership_set``):
+            # an account seeded before this change gains the row it is missing
+            # on the next run, without its account, email, or existing
+            # membership being touched.
+            additional_roles=entry.additional_roles,
         )
 
         tenant_id = connection.execute(
@@ -265,7 +301,10 @@ def seed_role_logins(
             RoleOutcome(
                 role=entry.role,
                 created=True,
-                reason=f"login ready for {email} (role assigned server-side as {entry.role!r})",
+                reason=(
+                    f"login ready for {email} (roles assigned server-side as "
+                    f"{', '.join(repr(role) for role in entry.roles)})"
+                ),
             )
         )
 
