@@ -330,6 +330,26 @@ export function VolunteerSpeakerRequest() {
           </Link>
           .
         </p>
+        {/*
+          Migration `0036`'s stamp, made legible at the point it takes effect:
+          the create path records the filer's own organization on the event
+          row (`host_organization_id`) when they have one in this unit — and
+          publishes it on no read path yet, so the honest claim is "recorded",
+          not "the Connector can see it". A host who has not described one
+          files exactly as before — the stamp stays absent, which is "none
+          recorded", never "they have none".
+        */}
+        <p className="text-sm text-muted-foreground">
+          If you have{" "}
+          <Link
+            to="/volunteer-portal/organization"
+            className="font-semibold text-primary underline"
+          >
+            described your organization
+          </Link>
+          , requests you file are stamped with it — recorded on the request, though no screen
+          publishes that link to the Connector yet.
+        </p>
       </header>
 
       {unitId === null ? (
