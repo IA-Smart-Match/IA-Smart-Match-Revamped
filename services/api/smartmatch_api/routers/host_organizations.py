@@ -67,7 +67,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Path, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_persistence.host_organizations import (
     HostOrganizationMembershipRow,
@@ -182,6 +182,24 @@ class HostOrganizationUpsert(BaseModel):
             "treats it as an address, and it grants no consent."
         ),
     )
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_blank(cls, value: str) -> str:
+        """Refuse a name that is only whitespace, as ``min_length`` cannot.
+
+        ``"   "`` is three characters and passes ``min_length=1``; the
+        repository then trims it to ``""``, which
+        ``ck_host_organization_name_shape`` refuses — and the ``IntegrityError``
+        would surface as ``409 host_organization_name_taken``, an answer that
+        claims another host holds a name nobody holds. A blank name is a
+        malformed request, so it is refused here as a 422 like every other
+        field-level failure. The value is returned untrimmed: the repository
+        owns storage trimming.
+        """
+        if not value.strip():
+            raise ValueError("name must not be blank")
+        return value
 
 
 class HostOrganizationView(BaseModel):

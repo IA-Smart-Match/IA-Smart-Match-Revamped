@@ -416,6 +416,13 @@ class HostOrganizationRepository:
                 member.c.tenant_id == schema.host_organization.c.tenant_id,
                 member.c.organization_id == schema.host_organization.c.id,
             )
+            # Explicit correlation, not the automatic kind: the membership
+            # query's outer FROM is a join that itself contains the member
+            # table, and auto-correlation would strip *this* select's only
+            # FROM clause into it and leave the count with nothing to count
+            # from. Naming the organization says "correlate to that row and
+            # that row only".
+            .correlate(schema.host_organization)
             .scalar_subquery()
         )
 
