@@ -378,9 +378,12 @@ export function CoordinatorMatchRuns() {
       if (requestedRequestId !== null) {
         if (queue.requests.some((request) => request.request_id === requestedRequestId)) {
           setSelectedRequestId(requestedRequestId);
+          setRequestParamMiss(false);
         } else {
           setRequestParamMiss(true);
         }
+      } else {
+        setRequestParamMiss(false);
       }
     } catch (cause) {
       setLoadError(
