@@ -672,3 +672,79 @@ def test_a_blank_organization_name_is_refused(engine: Engine):
                 _organization(conn, seeded["tenant_id"], seeded["unit_id"], "   ")
 
     assert "ck_host_organization_name_shape" in str(raised.value)
+
+
+@pytest.mark.parametrize("column", ["department", "default_location", "logistics_contact"])
+def test_a_blank_descriptive_field_is_refused(engine: Engine, column: str):
+    """``ck_host_organization_<column>_shape``: whitespace is not an answer.
+
+    All three descriptive columns are nullable on purpose — a host who has not
+    said which department they sit in has *not said it*, and NULL carries that.
+    A blank string is the one value that reads as an answer while saying
+    nothing, which is exactly what each column's constraint exists to refuse.
+    """
+    with scratch_database(engine) as url:
+        alembic(url, REVISION_BEFORE, expect_success=True)
+
+        with connected(url) as scratch:
+            seeded = _seed(scratch)
+            alembic(url, "head", expect_success=True)
+
+            with pytest.raises(DBAPIError) as raised, scratch.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO host_organization "
+                        f"(id, tenant_id, unit_id, name, {column}) "
+                        "VALUES (:id, :tid, :unit, 'Accounting Society', '   ')"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "tid": seeded["tenant_id"],
+                        "unit": seeded["unit_id"],
+                    },
+                )
+
+    assert f"ck_host_organization_{column}_shape" in str(raised.value)
+
+
+def test_a_fully_described_organization_is_stored(engine: Engine):
+    """The permitted half for the descriptive columns: real values land.
+
+    The NULL half is already made by every ``_organization`` call above — none
+    of them sets a descriptive field — so what remains to prove is that a host
+    who *does* answer all three is stored, not refused.
+    """
+    with scratch_database(engine) as url:
+        alembic(url, REVISION_BEFORE, expect_success=True)
+
+        with connected(url) as scratch:
+            seeded = _seed(scratch)
+            alembic(url, "head", expect_success=True)
+
+            organization_id = uuid.uuid4()
+            with scratch.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO host_organization "
+                        "(id, tenant_id, unit_id, name, department, "
+                        " default_location, logistics_contact) "
+                        "VALUES (:id, :tid, :unit, 'Accounting Society', "
+                        "        'Finance', 'Wyatt Hall 204', 'Sam — sam@example.edu')"
+                    ),
+                    {
+                        "id": organization_id,
+                        "tid": seeded["tenant_id"],
+                        "unit": seeded["unit_id"],
+                    },
+                )
+
+            with scratch.connect() as conn:
+                stored = conn.execute(
+                    text(
+                        "SELECT department, default_location, logistics_contact "
+                        "FROM host_organization WHERE id = :id"
+                    ),
+                    {"id": organization_id},
+                ).one()
+
+    assert stored == ("Finance", "Wyatt Hall 204", "Sam — sam@example.edu")

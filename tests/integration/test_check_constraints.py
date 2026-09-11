@@ -683,6 +683,28 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("event_feedback_qr", "ck_event_feedback_qr_destination_shape"): (
         "CHECK (((length(btrim(destination_url)) > 0) AND (length(destination_url) <= 2048)))"
     ),
+    # --- The Event Host's organization (migration 0036) -------------------
+    #
+    # Exercised in test_host_organization_migration.py, the revision's own
+    # integration file, rather than duplicated here — the same convention as
+    # the 0035 side tables above. The event-side constraint mirrors
+    # ``ck_event_filed_by_manual_origin``: a crawl has no affiliation for the
+    # same reason it has no filer.
+    ("event", "ck_event_host_organization_manual_origin"): (
+        "CHECK (((host_organization_id IS NULL) OR (origin = 'coordinator_entry'::text)))"
+    ),
+    ("host_organization", "ck_host_organization_name_shape"): (
+        "CHECK (((length(btrim(name)) > 0) AND (length(name) <= 200)))"
+    ),
+    ("host_organization", "ck_host_organization_department_shape"): (
+        "CHECK (((department IS NULL) OR (length(btrim(department)) > 0)))"
+    ),
+    ("host_organization", "ck_host_organization_default_location_shape"): (
+        "CHECK (((default_location IS NULL) OR (length(btrim(default_location)) > 0)))"
+    ),
+    ("host_organization", "ck_host_organization_logistics_contact_shape"): (
+        "CHECK (((logistics_contact IS NULL) OR (length(btrim(logistics_contact)) > 0)))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -1225,6 +1247,37 @@ BEHAVIOURAL_COVERAGE = {
         "so a blank is the only way a destinationless QR could be stored — it would print "
         "and scan perfectly and then redirect a visitor to nothing. The permitted half is "
         "::test_a_well_formed_qr_is_stored"
+    ),
+    # --- The Event Host's organization (migration 0036) -------------------
+    ("event", "ck_event_host_organization_manual_origin"): (
+        "0036 added, test_host_organization_migration.py"
+        "::test_an_extracted_event_cannot_be_given_an_organization — a crawled row "
+        "refuses an affiliation on UPDATE, the mirror of ck_event_filed_by_manual_origin. "
+        "The permitted half is the stamped coordinator_entry row in "
+        "::test_the_downgrade_returns_the_pre_0036_state_and_keeps_the_events"
+    ),
+    ("host_organization", "ck_host_organization_name_shape"): (
+        "0036 added, test_host_organization_migration.py"
+        "::test_a_blank_organization_name_is_refused, which inserts '   '. The permitted "
+        "half is every _organization() call in that file — each writes a real name — "
+        "and ::test_a_fully_described_organization_is_stored reads the stored row back"
+    ),
+    ("host_organization", "ck_host_organization_department_shape"): (
+        "0036 added, test_host_organization_migration.py"
+        "::test_a_blank_descriptive_field_is_refused[department]. The column is nullable "
+        "so that 'not said' is NULL rather than an empty statement — a blank is the one "
+        "value that reads as an answer while saying nothing. Permitted half: "
+        "::test_a_fully_described_organization_is_stored"
+    ),
+    ("host_organization", "ck_host_organization_default_location_shape"): (
+        "0036 added, test_host_organization_migration.py"
+        "::test_a_blank_descriptive_field_is_refused[default_location]. Permitted half: "
+        "::test_a_fully_described_organization_is_stored"
+    ),
+    ("host_organization", "ck_host_organization_logistics_contact_shape"): (
+        "0036 added, test_host_organization_migration.py"
+        "::test_a_blank_descriptive_field_is_refused[logistics_contact]. Permitted half: "
+        "::test_a_fully_described_organization_is_stored"
     ),
 }
 
