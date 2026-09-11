@@ -155,17 +155,94 @@ them. `KEEP_RUNNING=1` leaves the API and worker up to click through.
 make verify-pilot-dataset
 ```
 
-Read-only. It counts every table a demo reads from for the pilot tenant, prints
-them aligned so a *block* of zeros in the middle is visible, names the writer
-that should have filled each, and exits non-zero on any empty one.
+Read-only. Run it before assuming a screen is broken, and after any manual
+seeding. It makes three passes and any one of them fails the run:
 
-Run it before assuming a screen is broken, and after any manual seeding.
+1. **Counts.** Every table a demo reads from, for the pilot tenant, printed
+   aligned so a *block* of zeros in the middle is visible, with the writer that
+   should have filled each beside it.
+2. **Per-portal surfaces.** The same tables counted **as the account that signs
+   in**, because a tenant-wide count of `point_ledger_entry` saying 182 and a
+   blank student rewards screen are both true at once when all 182 belong to
+   `synthetic-student:*` accounts nobody can sign in as. Each surface carries a
+   floor; below it the line reads `THIN` rather than `EMPTY`, because a list
+   with one row on it is a screenshot of a bug.
+3. **Cross-table checks.** Twenty questions that need two tables to answer:
+   every event a match run was driven from has invitations composed for it;
+   every invitation names a speaker on this unit's §13 roster; every student
+   rating is backed by *that* student's attendance at *that* event; every point
+   ledger entry names an attendance or a redemption that exists. Each prints a
+   population beside its violations, and **a population of zero fails as
+   `VACUOUS`** — "every invitation names a roster speaker" is trivially true of
+   no invitations, and a check that can only pass is not a check.
+
+**Whose rows.** The person-scoped surfaces default to the `pilot-login-*`
+accounts — the four `@`-addressed logins a reviewer types into the sign-in form.
+`--subjects fixture` counts the `compose-pilot-*` accounts the local
+`SMARTMATCH_DEV_PRINCIPALS` bearer tokens resolve to instead, for a stack driven
+by tokens and no browser. The default used to be the fixtures, and the
+consequence was a report calling the student portal healthy while
+`student@` saw a blank page.
 
 It counts **rows**, never measurements. An empty `review_item` table is a
 broken import path and reporting it as zero is correct. A speaker whose topic
 relevance is unknown, or a student whose balance is unknown, is not counted here
 at all and must never render as `0` — that is ADR-0011 rule 1, and a deliberate
 fraction of every generated run is in exactly that state on purpose.
+
+---
+
+## 3b. Topping up instead of rebuilding
+
+Everything above rebuilds from an empty database, and that is the right answer
+to "this dataset is wrong". It is the wrong answer to "this dataset is *fine*,
+and five tables are still empty" — which is the ordinary state of a tenant the
+compose `dataset` one-shot generated, because that one-shot passes
+`--feedback-students 0` and because nothing in the generator writes
+`event_registration`, `cba_meeting`, `reward_item` or `redemption` at all.
+
+```bash
+export SMARTMATCH_PILOT_STUDENT_EMAIL=...      # the same two variables
+export SMARTMATCH_PILOT_STUDENT_PASSWORD=...   # `make seed-pilot-logins` used
+make top-up-pilot-dataset PILOT_DATASET_API_BASE=http://127.0.0.1:8080
+```
+
+**Required before it will run:** a migrated database with a generated tenant, a
+**running API** (the ratings go through the student's own route), the four
+`pilot-login-*` accounts from `make seed-pilot-logins`, and those two
+environment variables. There is no default password in this repository and this
+target invents none; an unset variable is a refusal naming the variable. The
+generator's bearer token is *not* needed — nothing here goes through a
+`SMARTMATCH_DEV_PRINCIPALS` fixture.
+
+It chains three steps, all additive and idempotent, none of which creates an
+account:
+
+| Step | Fills | Idempotent because |
+| --- | --- | --- |
+| `seed-pilot-engagement` | `reward_item`, `redemption`, `event_registration`, `cba_meeting`, one host-filed Speaker Request, and the student's attendance + credits | catalog rows with identical values are verified repeats and changed ones are refusals; `uq_point_ledger_entry_attendance_credit`; registration's natural key; meetings matched on `(unit, title)` |
+| `seed-pilot-student-feedback` | `student_speaker_feedback`, as `student@`, through `POST /v1/auth/login` then the student route | the rating's natural key is `(tenant, student, event, speaker)`, so a resubmission is an edit and answers `200` |
+| `verify-pilot-dataset` | nothing — it reads | read-only |
+
+Run it twice and the second run changes no row.
+
+**The values are illustrative.** The catalogue is transcribed from
+`docs/pilot-data/rewards-catalog-worksheet.md`; the three redemptions, four
+meetings and the host-filed request are a plausible history, not a record of
+anything that happened. Changing a price means editing the worksheet row and
+`seed_pilot_engagement.WORKSHEET_ITEMS` together.
+
+**`outreach_send` and `event_feedback_qr` stay empty and that is correct.**
+Composing an invitation and dispatching one are different acts and the dispatch
+gate (G4) has not opened, so a seeded send would be a record of an email nobody
+sent; a feedback QR is created by a coordinator pressing a button.
+`verify-pilot-dataset` does not count either, so neither fails the run.
+
+**The feedback window will bite you here too.** The student route refuses a
+rating more than seven days past the event's anchor, so the top-up rates only
+at events still inside the window. On a tenant whose `CALENDAR_ANCHOR` has aged
+more than a week into the past, every generated event is closed and the step
+refuses with that explanation rather than writing nothing quietly. See §5.
 
 ---
 
@@ -384,6 +461,11 @@ SEED_PILOT_REWARD_ARGS="--name '<row>' --points-cost <n> --fulfilment-cost <n> \
 The attendance-derived balances are real regardless. `verify-pilot-dataset`
 will keep reporting `reward_item` as empty, and should — an operator who *did*
 supply a row and got nothing needs that failure.
+
+`make top-up-pilot-dataset` (§3b) seeds the worksheet's five rows in one call
+and opens three redemptions against them, in three different states. Those
+values are illustrative and the worksheet is still the one place a real price
+is written down; the top-up transcribes it rather than replacing it.
 
 ### A quarter of the roster can never be invited, on purpose
 
