@@ -101,42 +101,42 @@ export interface StageTint {
  */
 export const STAGE_TINTS: Record<string, StageTint> = {
   pipeline_matched: {
-    band: "bg-sky-400/90 dark:bg-sky-500/80",
+    band: "bg-sky-300/80 dark:bg-sky-500/60",
     bandText: "text-sky-950 dark:text-sky-50",
     card: "bg-sky-50 dark:bg-sky-950/40",
     icon: "text-sky-600 dark:text-sky-300",
     bar: "bg-sky-500 dark:bg-sky-400",
   },
   pipeline_contacted: {
-    band: "bg-emerald-400/90 dark:bg-emerald-500/80",
+    band: "bg-emerald-300/80 dark:bg-emerald-500/60",
     bandText: "text-emerald-950 dark:text-emerald-50",
     card: "bg-emerald-50 dark:bg-emerald-950/40",
     icon: "text-emerald-600 dark:text-emerald-300",
     bar: "bg-emerald-500 dark:bg-emerald-400",
   },
   pipeline_confirmed: {
-    band: "bg-violet-400/90 dark:bg-violet-500/80",
+    band: "bg-violet-300/80 dark:bg-violet-500/60",
     bandText: "text-violet-950 dark:text-violet-50",
     card: "bg-violet-50 dark:bg-violet-950/40",
     icon: "text-violet-600 dark:text-violet-300",
     bar: "bg-violet-500 dark:bg-violet-400",
   },
   pipeline_attended: {
-    band: "bg-rose-400/90 dark:bg-rose-500/80",
+    band: "bg-rose-300/80 dark:bg-rose-500/60",
     bandText: "text-rose-950 dark:text-rose-50",
     card: "bg-rose-50 dark:bg-rose-950/40",
     icon: "text-rose-600 dark:text-rose-300",
     bar: "bg-rose-500 dark:bg-rose-400",
   },
   opportunities: {
-    band: "bg-amber-400/90 dark:bg-amber-500/80",
+    band: "bg-amber-300/80 dark:bg-amber-500/60",
     bandText: "text-amber-950 dark:text-amber-50",
     card: "bg-amber-50 dark:bg-amber-950/40",
     icon: "text-amber-600 dark:text-amber-300",
     bar: "bg-amber-500 dark:bg-amber-400",
   },
   pending_review_items: {
-    band: "bg-indigo-400/90 dark:bg-indigo-500/80",
+    band: "bg-indigo-300/80 dark:bg-indigo-500/60",
     bandText: "text-indigo-950 dark:text-indigo-50",
     card: "bg-indigo-50 dark:bg-indigo-950/40",
     icon: "text-indigo-600 dark:text-indigo-300",

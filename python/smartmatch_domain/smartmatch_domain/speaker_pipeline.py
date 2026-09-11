@@ -223,8 +223,13 @@ class Conversion:
 
     from_metric: str
     to_metric: str
-    #: Screen-reader and panel label, e.g. "Matched to Invited".
+    #: Panel label, e.g. "Speakers matched → Speakers invited". The arrow is
+    #: visual shorthand and is deliberately not what a screen reader gets:
+    #: "→" is announced inconsistently across readers, and in some it is
+    #: silent, which would collapse two stage names into one phrase.
     label: str
+    #: The same relation in prose, for ``aria-label`` and any text equivalent.
+    accessible_label: str
     numerator: int | None
     denominator: int | None
     rate_pct: float | None
@@ -331,6 +336,10 @@ def _build_conversions(
                 from_metric=upstream,
                 to_metric=downstream,
                 label=(
+                    f"{_stage_label(display_names, upstream)} → "
+                    f"{_stage_label(display_names, downstream)}"
+                ),
+                accessible_label=(
                     f"{_stage_label(display_names, upstream)} to "
                     f"{_stage_label(display_names, downstream)}"
                 ),

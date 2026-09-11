@@ -94,7 +94,7 @@ function ConversionAnnotation({ conversion }: { conversion: SpeakerPipelineConve
   return (
     <p className="px-1 text-center text-[11px] leading-4 text-muted-foreground">
       <span className="font-semibold text-foreground">{conversion.display}</span>{" "}
-      <span>{conversion.label.toLowerCase()}</span>
+      <span>{conversion.accessible_label.toLowerCase()}</span>
       {conversion.unavailable_reason ? (
         <>
           {" — "}

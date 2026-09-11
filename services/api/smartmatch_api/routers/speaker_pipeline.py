@@ -109,7 +109,8 @@ class ConversionOut(BaseModel):
 
     from_metric: str
     to_metric: str
-    label: str
+    label: str = Field(description="Panel label using an arrow; not for a screen reader.")
+    accessible_label: str = Field(description="The same relation in prose, for aria-label.")
     numerator: int | None
     denominator: int | None
     rate_pct: float | None
@@ -243,6 +244,7 @@ def speaker_pipeline(
                 from_metric=conversion.from_metric,
                 to_metric=conversion.to_metric,
                 label=conversion.label,
+                accessible_label=conversion.accessible_label,
                 numerator=conversion.numerator,
                 denominator=conversion.denominator,
                 rate_pct=conversion.rate_pct,

@@ -2127,7 +2127,10 @@ export interface SpeakerPipelineStage {
 export interface SpeakerPipelineConversion {
   from_metric: string;
   to_metric: string;
+  /** Panel label using an arrow. Visual shorthand — never an `aria-label`. */
   label: string;
+  /** The same relation in prose, which is what a screen reader is given. */
+  accessible_label: string;
   numerator: number | null;
   denominator: number | null;
   rate_pct: number | null;

@@ -32,18 +32,27 @@ function ConversionRateRow({ conversion }: { conversion: SpeakerPipelineConversi
 
   return (
     <li className="border-b border-border/60 py-2 last:border-b-0">
-      <div className="flex items-center gap-3">
-        <span className="min-w-0 flex-1 truncate text-sm text-foreground">{conversion.label}</span>
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+      {/*
+        The label takes its own line and wraps rather than being truncated: a
+        conversion between two stages whose names are both elided reads as a
+        conversion between nothing and nothing. The arrow form is visual only;
+        the bar's `aria-label` uses the server's prose label, because "→" is
+        announced inconsistently and in some readers not at all.
+      */}
+      <p className="text-sm leading-5 text-foreground">{conversion.label}</p>
+      <div className="mt-1 flex items-center gap-3">
+        <span className="w-12 shrink-0 text-sm font-semibold tabular-nums text-foreground">
           {conversion.display}
         </span>
         <span
-          className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted"
+          className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
           role="img"
           aria-label={
             measured
-              ? `${conversion.label}: ${conversion.display}.`
-              : `${conversion.label}: no rate. ${conversion.unavailable_reason ?? ""}`.trim()
+              ? `${conversion.accessible_label}: ${conversion.display}.`
+              : `${conversion.accessible_label}: no rate. ${
+                  conversion.unavailable_reason ?? ""
+                }`.trim()
           }
         >
           <span
