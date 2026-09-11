@@ -12,8 +12,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const landing = readFileSync(new URL("../src/app/pages/LandingPage.tsx", import.meta.url), "utf8");
-const adminLayout = readFileSync(new URL("../src/app/components/Layout.tsx", import.meta.url), "utf8");
-const hostLayout = readFileSync(
+/**
+ * The one Speaker Connector shell.
+ *
+ * There used to be two, and this file read both: `Layout.tsx` for the stored
+ * `admin` role and `CoordinatorPortalLayout.tsx` for `coordinator`. They were
+ * never two jobs — `role_presentation.py` maps both roles onto the Speaker
+ * Connector persona — so `Layout.tsx` is deleted and its addresses redirect
+ * here. The brand assertions that used to be split across the two are made
+ * once, against the shell that survived.
+ */
+const connectorLayout = readFileSync(
   new URL("../src/app/components/CoordinatorPortalLayout.tsx", import.meta.url),
   "utf8",
 );
@@ -53,11 +62,50 @@ test("landing page still describes the in-scope product", () => {
 });
 
 test("visible role names use the approved Smart Match terminology", () => {
-  assert.match(adminLayout, /Speaker Connector/);
-  assert.match(hostLayout, /Event Host/);
+  // The Connector shell names the persona it serves. It no longer says "Event
+  // Host": that persona is the *volunteer* shell's (customer §4 renamed
+  // Volunteer → Event Host), and the coordinator shell saying it was a
+  // leftover from before `admin` and `coordinator` were reconciled into one
+  // Speaker Connector.
+  assert.match(connectorLayout, /Speaker Connector/);
   assert.match(speakerLayout, /Speaker portal/);
   assert.match(landing, /Event Hosts/);
-  assert.doesNotMatch(adminLayout, />\s*IA Admin\s*</);
+  assert.doesNotMatch(connectorLayout, />\s*IA Admin\s*</);
+});
+
+test("the Connector shell is one shell for both stored Speaker Connector roles", () => {
+  // The brand on screen is the portal descriptor's own `display_name`, which
+  // both `coordinator` and `admin` resolve to through the one
+  // role-presentation map — not a literal chosen in the component.
+  assert.match(connectorLayout, /Connector Dashboard/);
+  assert.match(connectorLayout, /label=\{grant\.display_name\}/);
+  // One gate for both roles: the portal grant, never a role read in the
+  // browser. `hasActiveRole` decides only which nav *group* is drawn.
+  assert.match(connectorLayout, /grantedPortal\(portalAccess, "coordinator"\)/);
+  assert.doesNotMatch(connectorLayout, /grantedPortal\([^)]*"admin"\)/);
+  assert.match(connectorLayout, /hasActiveRole\(session\.me, "admin"\)/);
+  // The admin shell had no sign-out at all. Its successor does.
+  assert.match(connectorLayout, /Sign out/);
+});
+
+test("the Connector shell offers the Option A navigation groups", () => {
+  for (const group of ["Inbox", "Coordinate", "People", "Administration"]) {
+    assert.match(connectorLayout, new RegExp(`label: "${group}"`), `missing nav group ${group}`);
+  }
+  for (const item of [
+    "Home",
+    "Speaker requests",
+    "Review queue",
+    "Events",
+    "Run a match",
+    "Invitations",
+    "Meetings",
+    "Speakers",
+    "Contact channels",
+    "Matching weights",
+  ]) {
+    assert.match(connectorLayout, new RegExp(`name: "${item}"`), `missing nav item ${item}`);
+  }
 });
 
 test("landing page uses the CPP logo and a dynamic copyright year", () => {
@@ -67,9 +115,15 @@ test("landing page uses the CPP logo and a dynamic copyright year", () => {
   assert.match(landing, /Cal Poly Pomona\. All rights reserved\./);
 });
 
-test("landing and administrator headings use the simplified hierarchy", () => {
+test("landing and Connector headings use the simplified hierarchy", () => {
   assert.doesNotMatch(landing, /Volunteer coordination made clearer|A straightforward process/i);
-  assert.doesNotMatch(adminLayout, /currentPage\.icon.*text-\[#/);
+  // The original assertion banned a hard-coded hex on the deleted admin
+  // shell's page-title strip. That strip is gone — `DESIGN.md` forbids a
+  // desktop top bar repeating the page name the sidebar already shows — so
+  // the successor assertion is the general rule it was an instance of: the
+  // shell styles itself from semantic tokens, never a literal colour.
+  assert.doesNotMatch(connectorLayout, /currentPage\.icon/);
+  assert.doesNotMatch(connectorLayout, /#[0-9a-fA-F]{3,8}\b/);
 });
 
 test("brand typography and colors have fallbacks", () => {
