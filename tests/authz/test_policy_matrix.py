@@ -1333,6 +1333,73 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The three host-organization operations (migration ``0036``, PR #154,
+    # owner decision 4). They split on the same line the Speaker Request rows
+    # above do, and the split means the same thing: ``{volunteer}`` reads and
+    # writes *its own* organization, ``{admin, coordinator}`` reads the unit's
+    # directory of them, and the two sets are **disjoint**.
+    #
+    # The reason is the reason §13 gives about the request queue. The
+    # directory carries every host's organization for the unit, so a host
+    # reading it would learn which other groups are asking; the own-routes
+    # carry exactly one organization — the caller's — so a Connector reading
+    # them would learn nothing the directory does not already say.
+    #
+    # ``host_organization.read_own`` and ``host_organization.upsert_own`` name
+    # role sets that agree today, and they are still two operations with two
+    # authorizers and two constants. A read and a write are two decisions, and
+    # one call site taking the set as an argument would be the one place both
+    # could be widened from — ``tests/authz/test_route_roles.py``'s rule,
+    # applied to a pair that happens to agree rather than to one that does not.
+    #
+    # **None of these rows is what decides whose requests a host sees.** That
+    # is still ``event.filed_by_user_id`` (migration ``0033``), and owner
+    # decision 4 says so in as many words: organization modelled now,
+    # enforcement per-user. Two hosts in one organization see nothing of each
+    # other's filings, and no row in this file grants them anything.
+    #
+    # No ``require_membership`` on any of the three: every role set is
+    # non-empty, so ``evaluate`` refuses a bare ``resource_grant`` on the
+    # required-roles check before the membership question is reached (S-007).
+    # No ``tenant_wide_roles``: an organization is a record in one unit's own
+    # directory, and the metrics decision's §4 — this repository's only
+    # tenant-wide artifact — is about aggregate reads.
+    Operation(
+        key="host_organization.read_own",
+        method="GET",
+        path="/v1/units/{unit_id}/host/organization",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_read_own",
+        roles_constant="_HOST_ORGANIZATION_READ_OWN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="host_organization.upsert_own",
+        method="PUT",
+        path="/v1/units/{unit_id}/host/organization",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_write_own",
+        roles_constant="_HOST_ORGANIZATION_WRITE_OWN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="host_organization.list",
+        method="GET",
+        path="/v1/units/{unit_id}/host-organizations",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_list",
+        roles_constant="_HOST_ORGANIZATION_LIST_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
     # ``{student}`` and nothing else, which makes them the only rows in this file
     # whose role set contains ``student`` — everywhere else in this matrix
@@ -5364,6 +5431,283 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # The three host-organization rows (migration `0036`, owner decision 4).
+    # `read_own` and `upsert_own` are identical cell for cell, and that is the
+    # finding rather than a shortcut: they gate on the same persona doing the
+    # same thing to the same row, and there is no principal one admits that
+    # the other refuses. They are written out twice anyway, for the reason the
+    # five contact-management rows below are: the rectangle is the artifact a
+    # reviewer reads, and the day a write is restricted more tightly than a
+    # read the diff has to show which cell moved.
+    #
+    # The cell to compare against all three is `speaker_request.list_own`:
+    # `volunteer_at_owning_unit` permits, everything else denies, and the two
+    # `admin`/`coordinator` denials are deliberate rather than gaps.
+    #
+    # Read the `volunteer_at_owning_unit` note before building on any of this:
+    # the permit says this principal may *call* the route, never that the rows
+    # it returns are anybody's in particular.
+    "host_organization.read_own": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "the same shape `speaker_request.list_own` has, and the same "
+                "reason: `admin` is not in the role set because the "
+                "directory (`host_organization.list`) is strictly wider and "
+                "already theirs. This route would tell them only which of the "
+                "unit's organizations they personally created"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell a reviewer should read first. A Speaker Connector "
+                "reads every host organization in the unit through the "
+                "directory; refusing them the host's own view costs them "
+                "nothing and keeps this route about the Event Host persona "
+                "customer §4 names. `evaluate` refuses on the required-roles "
+                "check — the membership is active at exactly the owning unit, "
+                "so the role is the only thing left"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role and wrong path; either alone would refuse it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong path. No `tenant_wide_roles` here for "
+                "the reason the Speaker Request rows give: an organization is "
+                "a record in one unit's own directory"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, "
+                "calendar and feedback. A Student does not host events, so "
+                "there is no organization of theirs for this route to be "
+                "about. The membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the cell this card exists for. Customer §4 maps the stored "
+                "`volunteer` role onto the **Event Host** persona, and an "
+                "Event Host may read the organization they described. The "
+                "permit is the smaller half of the rule: it says this "
+                "principal may call the route, and the route then returns the "
+                "organization whose member row carries this principal's own "
+                "user id and no other. Nothing from the request selects whose "
+                "organization comes back — there is no `?user_id=`, and there "
+                "must never be one (MM-A01). The route additionally answers "
+                "404 when that organization files into a different unit, "
+                "which `evaluate` cannot express and "
+                "`tests/contract/test_host_organizations_api.py` asserts"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    "host_organization.upsert_own": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "the same shape `speaker_request.list_own` has, and the same "
+                "reason: `admin` is not in the role set because the "
+                "directory (`host_organization.list`) is strictly wider and "
+                "already theirs. This route would tell them only which of the "
+                "unit's organizations they personally created"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell a reviewer should read first. A Speaker Connector "
+                "reads every host organization in the unit through the "
+                "directory; refusing them the host's own view costs them "
+                "nothing and keeps this route about the Event Host persona "
+                "customer §4 names. `evaluate` refuses on the required-roles "
+                "check — the membership is active at exactly the owning unit, "
+                "so the role is the only thing left"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role and wrong path; either alone would refuse it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong path. No `tenant_wide_roles` here for "
+                "the reason the Speaker Request rows give: an organization is "
+                "a record in one unit's own directory"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, "
+                "calendar and feedback. A Student does not host events, so "
+                "there is no organization of theirs for this route to be "
+                "about. The membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the write half of the same cell. An Event Host describes "
+                "their own organization; the route writes the member row with "
+                "`granted_by_user_id = NULL`, which records that nobody "
+                "granted this membership. The permit is not the whole rule: "
+                "the name is still held to a case-folded uniqueness within "
+                "the unit and the caller is still refused an organization "
+                "that files into another department — facts about rows rather "
+                "than about a principal, so `evaluate` cannot express them "
+                "and `tests/contract/test_host_organizations_api.py` asserts "
+                "them. Note what this permit does **not** do: it grants the "
+                "caller nothing beyond this row. Two hosts in one "
+                "organization still see nothing of each other's Speaker "
+                "Requests, because `speaker_request.list_own`'s predicate is "
+                "`filed_by_user_id` and has no organization arm"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "describing an organization queues no job — it writes the row "
+                "in the request's own transaction — so the actor half of the "
+                "shape is inert and what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "host_organization.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the Speaker Connector persona. A Connector reading an "
+                "incoming Speaker Request needs to know which group is "
+                "asking, and customer §13 makes working that queue theirs"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "an organization is filed under the unit it files into "
+                "(`host_organization.unit_id`), and a sibling department's "
+                "coordinator does not cover it — the same scoping "
+                "`speaker_request.list` applies to the queue it answers"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`admin` is a required role here and the membership is "
+                "active, so the only thing refusing this principal is the "
+                "path. No committed artifact makes a host organization "
+                "tenant-wide, so the authorizer passes no `tenant_wide_roles`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student nothing on this surface. The "
+                "membership is active at exactly the owning unit, so the role "
+                "is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell that carries the decision. The directory holds every "
+                "host's organization in the unit, and handing one host the "
+                "others' is the widening the narrower reading exists to "
+                "prevent — the same asymmetry `speaker_request.list` draws "
+                "against `speaker_request.create`. A host reads their own "
+                "through `host_organization.read_own` above, which is a "
+                "different query rather than a wider permit"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
     # The five contact-management rows (customer §13). They are identical to
     # each other, cell for cell, and that is the finding rather than a
     # shortcut: all five are the Speaker Connector acting on their own unit's
@@ -7834,6 +8178,24 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # in `tests/contract/test_manual_events_api.py`.
         "_authorize_write",
         "_authorize_read",
+        # The twenty-eighth, twenty-ninth and thirtieth
+        # (`routers/host_organizations.py`), on the same terms as every name
+        # before them: load the unit, then make exactly this call against that
+        # row's path. Three names for three operations — the read and the
+        # write of a host's own organization, and the Connector's directory —
+        # and the first two share a role set without sharing a call site, for
+        # the reason the Speaker Request trio gives.
+        #
+        # What these runners cannot express, and what is therefore not a
+        # policy decision here: the own-routes act on the row whose member is
+        # `principal.user_id` and on no other, and the read answers 404 when
+        # that row's organization files into a different unit. `evaluate` has
+        # no concept of a self-scope, so both halves are asserted over HTTP in
+        # `tests/contract/test_host_organizations_api.py` — the division of
+        # labour `_authorize_invite_read` already uses.
+        "_authorize_host_organization_read_own",
+        "_authorize_host_organization_write_own",
+        "_authorize_host_organization_list",
     ):
         assert_allowed(
             resolved.principal,

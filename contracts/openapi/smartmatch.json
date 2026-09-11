@@ -2655,6 +2655,194 @@
         "title": "FeedbackSubmission",
         "type": "object"
       },
+      "HostOrganizationListResponse": {
+        "description": "The unit's organizations, as a Speaker Connector reads them.",
+        "properties": {
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/HostOrganizationView"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "truncated": {
+            "description": "True when more organizations exist than the response cap returns.",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "organizations",
+          "truncated"
+        ],
+        "title": "HostOrganizationListResponse",
+        "type": "object"
+      },
+      "HostOrganizationUpsert": {
+        "description": "One organization, as an Event Host describes it.\n\nNote what is **not** here: no tenant, no unit, no user, no organization\nid, and no member list. The first three come from the verified principal\nand the path; the fourth is decided by whether this account already has an\norganization; the fifth is a membership grant and nothing in this release\ncan make one.",
+        "properties": {
+          "default_location": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where this organization's events usually happen. Free text.",
+            "title": "Default Location"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The department inside the organization, when there is one. Omit it, or send an empty string to clear it \u2014 either is stored as 'they did not say' rather than as a blank.",
+            "title": "Department"
+          },
+          "logistics_contact": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who to reach about logistics on the day. Free text, and deliberately not a contact channel: nothing sends to it, nothing treats it as an address, and it grants no consent.",
+            "title": "Logistics Contact"
+          },
+          "name": {
+            "description": "What the organization is called. Stored trimmed. Must be unique within the unit, case-insensitively: two rows for one club would split its requests with nothing to say they belong together.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "HostOrganizationUpsert",
+        "type": "object"
+      },
+      "HostOrganizationView": {
+        "description": "One organization, read back from the row that was written.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Location"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "logistics_contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logistics Contact"
+          },
+          "member_count": {
+            "description": "How many accounts belong to this organization. A count, never the accounts: who belongs to an organization is a second question and neither of these surfaces answers it.",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "format": "uuid",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "unit_id": {
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "organization_id",
+          "name",
+          "member_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "HostOrganizationView",
+        "type": "object"
+      },
+      "HostOwnOrganizationResponse": {
+        "description": "The caller's organization, plus what this caller's own place in it is.",
+        "properties": {
+          "member_since": {
+            "description": "When this account joined the organization.",
+            "format": "date-time",
+            "title": "Member Since",
+            "type": "string"
+          },
+          "organization": {
+            "$ref": "#/components/schemas/HostOrganizationView"
+          },
+          "self_asserted": {
+            "description": "True when this membership was asserted by the member rather than granted by a coordinator. Every membership is self-asserted in this release; nothing can grant one yet.",
+            "title": "Self Asserted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "organization",
+          "self_asserted",
+          "member_since"
+        ],
+        "title": "HostOwnOrganizationResponse",
+        "type": "object"
+      },
       "ImportRequest": {
         "description": "An import submission.\n\nDeliberately carries no tenant, actor, or timestamp. All three are derived\nserver-side; accepting them from the body is the caller-supplied-identity\npattern archived as MM-A01.\n\nExactly one of ``source_reference`` and ``rows`` must be present \u2014\n``create_import`` rejects both and neither with an ``ApiError``. They name\nthe import's content two different ways and are not equally capable:\n``source_reference`` points at content in object storage this release still\ncannot read (a live import against it is refused, as before);\n``rows`` carries the content already parsed, in the request body itself,\nwhich is what lets a live import actually succeed. See\n``smartmatch_worker.handlers.handle_import_create`` for what each does.\n\nThe ``oneOf`` below is what makes that exclusivity a *documented* part of\nthe contract rather than a rule only ``create_import`` enforces at\nruntime \u2014 a generated client, or a human reading the OpenAPI document, can\nsee it without reading this docstring. It does not replace the runtime\ncheck: ``oneOf`` describes the shape a request should take, and\n``create_import`` is still what actually rejects both or neither, in the\nAPI's own stable error envelope rather than in whatever validator a\ngenerated client's own OpenAPI tooling produces from this schema.",
         "oneOf": [
@@ -10350,6 +10538,393 @@
         "summary": "Publish Event",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/host-organizations": {
+      "get": {
+        "description": "Return this unit's host organizations, by folded name (Speaker Connector).\n\nWhat this discloses is what a host typed about their own group: its name,\nits department, where they usually meet, who to ask about logistics, and\nhow many accounts belong to it. What it does **not** disclose is *which*\naccounts \u2014 no member list, no email, no name of a person. A Connector who\nneeds to reach a host reaches them through the request they filed.\n\nReads :data:`MAX_ROWS` + 1 rows so ``truncated`` is answered by the same\nquery rather than by a second count whose filters could drift from this\none's.\n\nRaises:\n    ApiError: 403 when the caller is not a Speaker Connector in this unit\n        \u2014 an Event Host included, since the directory is every host's\n        record; 404 when the unit is not this tenant's; 429 when the\n        minute's quota is spent.",
+        "operationId": "list_host_organizations_v1_units__unit_id__host_organizations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostOrganizationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List the organizations that file Speaker Requests into this unit",
+        "tags": [
+          "host-organizations"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/host/organization": {
+      "get": {
+        "description": "Return the organization **this caller** belongs to in this unit.\n\nThe only predicate on identity is ``principal.user_id``. There is\ndeliberately no ``?user_id=`` parameter: an id a caller supplies is\ncaller-selected identity (MM-A01), and it would be convenient in exactly\nthe way that defect always is.\n\nA host whose organization files into a **different** unit gets the same\n404 as a host with no organization at all. That is not a lost distinction\n\u2014 it is the honest answer to the question this URL asks, which is \"what is\nmy organization *in this department*\". Publishing \"you have one, but\nelsewhere\" from a route the caller was authorized against one unit for\nwould report the existence of a row in a department nobody authorized them\nagainst.\n\nCharges :data:`HOST_ORGANIZATION_READ_RATE_LIMIT`. Quota first, then\nauthorization, then any row (ADR-0015).\n\nRaises:\n    ApiError: 403 when the caller is not an Event Host in this unit \u2014 a\n        coordinator included, since they hold the wider directory; 404\n        when the unit is not this tenant's, or when this caller has no\n        organization here; 429 when the minute's quota is spent.",
+        "operationId": "read_own_organization_v1_units__unit_id__host_organization_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostOwnOrganizationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "This account has no organization in this unit \u2014 either none at all, or one that files into a different department. Both answer `host_organization_not_found`."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read this Event Host's organization",
+        "tags": [
+          "host-organizations"
+        ]
+      },
+      "put": {
+        "description": "Describe the organization this Event Host is asking on behalf of.\n\n``201``: this call created the organization and wrote the caller's member\nrow with ``granted_by_user_id = NULL`` \u2014 self-asserted, because nothing in\nthis release can grant a membership.\n\n``200``: the caller already belonged to an organization in this unit and\nthis call updated its description. The member row is untouched:\nre-describing your club is not re-joining it.\n\nA ``PUT`` rather than a ``POST`` because the URL names one resource \u2014 *the\ncaller's organization in this unit* \u2014 and this replaces its description.\nIt is idempotent in the way that matters: sending the same body twice\nleaves one organization with those values, and the status code says which\nof the two calls created it.\n\n``409`` in two distinguishable shapes, and neither is a case this route\nshould guess its way through:\n\n* ``host_organization_name_taken`` \u2014 another host already created an\n  organization with this folded name in this unit. Adding the caller to it\n  would be granting a membership, which nothing in this release is\n  entitled to do.\n* ``host_organization_unit_conflict`` \u2014 the caller's one organization\n  files into a different department. Moving it would move every other\n  member with it, and none of them asked.\n\nQuota is charged first, before the unit is loaded and before authorization\nruns (ADR-0015).\n\nRaises:\n    ApiError: 403 when the caller is not an Event Host in this unit; 404\n        when the unit is not this tenant's; 409 in the two shapes above;\n        429 when the minute's quota is spent.",
+        "operationId": "upsert_own_organization_v1_units__unit_id__host_organization_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostOrganizationUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The caller's existing organization was updated."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostOwnOrganizationResponse"
+                }
+              }
+            },
+            "description": "A new organization was created and the caller joined it."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Either this unit already holds an organization with this name (`host_organization_name_taken`), or the caller's one organization files into a different unit (`host_organization_unit_conflict`)."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Create or update this Event Host's organization",
+        "tags": [
+          "host-organizations"
         ]
       }
     },

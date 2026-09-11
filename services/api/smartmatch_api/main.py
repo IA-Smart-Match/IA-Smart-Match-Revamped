@@ -54,6 +54,7 @@ from smartmatch_api.routers import (
     cba_invitations,
     engagement,
     events,
+    host_organizations,
     imports,
     jobs,
     manual_events,
@@ -343,6 +344,25 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # A host filing a request is a person stating a new intention, and it has no
     # review queue in front of it — see `routers/speaker_requests.py`.
     (speaker_requests.router, Capability.SPEAKER_REQUEST_INTAKE),
+    # The Event Host's own organization and the Connector's directory of them
+    # (migration 0036). `SPEAKER_REQUEST_INTAKE` rather than a capability of
+    # its own, and the argument is the one the student-registration line above
+    # makes rather than the one the line it sits under makes.
+    #
+    # That capability's own docstring says what it covers: "An Event Host
+    # filing a Speaker Request, and a Speaker Connector reading the queue of
+    # them." An organization is the "on behalf of" half of exactly that
+    # filing, and a deployment with intake off has no page these routes could
+    # be opened from -- the host portal is the request form and the record of
+    # what was requested. A separate flag would make "hosts may file requests
+    # but may not say who they are" a supported configuration, which is a
+    # degraded state rather than a smaller product.
+    #
+    # Not `SPEAKER_CONTACT_MANAGEMENT`: that is the Connector's roster of
+    # *professionals* they might send to. This is the other side of the table
+    # entirely -- who is asking, not who might answer -- and no route here
+    # reads or writes a contact_channel, an address, or a consent.
+    (host_organizations.router, Capability.SPEAKER_REQUEST_INTAKE),
     # The other side of the same match: a Speaker Connector's roster of
     # professional contacts (customer §13, and §§7-8 for the correction). Its
     # own capability rather than a share of the line above it, because the two
