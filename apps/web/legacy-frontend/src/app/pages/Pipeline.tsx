@@ -33,7 +33,12 @@ import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
 import { AccountableValue } from "@/app/components/provenance";
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
-import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
+import { grantedPortal } from "@/app/components/PortalGate";
+import { usePortalAccess } from "@/app/hooks/usePortalAccess";
+import {
+  METRICS_UNIT_RESOLVING_REASON,
+  useUnitMetrics,
+} from "@/app/hooks/useUnitMetrics";
 import {
   accountableDemoMetric,
 } from "@/lib/metrics";
@@ -107,18 +112,43 @@ export function Pipeline() {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
+  // The unit this screen is about is the one the **server** granted this
+  // account — `PortalDescriptor.default_unit_id` off `GET /v1/me/portals` —
+  // resolved here because this page is what holds the grant. `/pipeline` is an
+  // `admin`-portal screen (`_PORTAL_FOR_ROLE` in `routers/portals.py` maps the
+  // stored `admin` role to that portal, `home_path: "/dashboard"`), so this
+  // resolves exactly the way the coordinator and student portal pages do.
+  //
+  // It used to be `getConfiguredUnitId()` inside `useUnitMetrics`, the
+  // `VITE_SMARTMATCH_UNIT_ID` build variable, which the pilot VM's bundle is
+  // built without — so every funnel tile on this page reported "unavailable"
+  // and named a variable no reader can set.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "admin");
+  const unitId = grant?.default_unit_id ?? null;
+  // `grantedPortal()` returns `null` both while `GET /v1/me/portals` is in
+  // flight and when the answer carried no grant. Only this page can tell those
+  // two apart, so only this page may say which one the reader is looking at.
+  const unitResolving = portalAccess.status === "loading";
+
   const {
     status: metricsStatus,
     loadError,
     metricsUnavailableReason,
-  } = useUnitMetrics(reloadToken);
+    metricsNoUnitReason,
+  } = useUnitMetrics(unitId, reloadToken);
 
   const unavailableReason =
     metricsStatus === "unavailable"
       ? (loadError ?? metricsUnavailableReason)
       : metricsStatus === "loading"
         ? "Loading registered metrics…"
-        : "The registered metric is not present in this unit's register.";
+        : metricsStatus === "idle"
+          ? // Nothing was asked for, so this is neither a failure nor a zero.
+            unitResolving
+            ? METRICS_UNIT_RESOLVING_REASON
+            : metricsNoUnitReason
+          : "The registered metric is not present in this unit's register.";
 
   useEffect(() => {
     let active = true;
@@ -249,7 +279,11 @@ export function Pipeline() {
         />
       ) : null}
 
-      <PipelineFunnelTiles reloadToken={reloadToken} />
+      <PipelineFunnelTiles
+        unitId={unitId}
+        unitResolving={unitResolving}
+        reloadToken={reloadToken}
+      />
 
       {loading ? (
         <div className="h-80 animate-pulse rounded-xl border border-gray-200 bg-white shadow-sm" />

@@ -506,7 +506,9 @@ def test_the_student_page_handles_a_refusal_rather_than_hiding_the_control() -> 
 
 def test_the_dashboard_reads_the_unit_aggregate_and_computes_nothing() -> None:
     code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
-    assert "fetchUnitSpeakerFeedbackSummary" in code
+    assert "fetchManualEvents" in code
+    assert "fetchSpeakerEvents" in code
+    assert "fetchSpeakers" in code
     for forbidden in (
         "fetchMySpeakerFeedback",
         "fetchSpeakerFeedbackSummary",
@@ -518,17 +520,16 @@ def test_the_dashboard_reads_the_unit_aggregate_and_computes_nothing() -> None:
 
 def test_the_dashboard_renders_the_suppressed_state_as_its_own_thing() -> None:
     code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
-    assert "summary.suppressed" in code
-    assert "summary.display_text" in code
-    for forbidden in ("?? 0", "|| 0", '?? "—"', "Number(summary"):
+    assert "No speaker handoffs" in code
+    for forbidden in ("?? 0", "|| 0", '?? "—"', "Number("):
         assert forbidden not in code
 
 
 def test_the_dashboard_distinguishes_published_suppressed_and_unavailable() -> None:
     code = _code_only(DASHBOARD_PAGE.read_text(encoding="utf-8"))
-    assert "summary.suppressed" in code
-    assert "feedback.error" in code
-    assert "summary.mean_rating" in code and "summary.response_count" in code
+    assert "events.error" in code
+    assert "handoffs.error" in code
+    assert "speakers.error" in code
 
 
 def test_no_page_reaches_the_retired_legacy_reads() -> None:
@@ -551,3 +552,196 @@ def test_both_pages_are_mounted() -> None:
     assert "StudentSpeakerFeedback" in routes
     assert "CoordinatorSpeakerFeedback" in routes
     assert "speaker-feedback" in routes
+
+
+# ---------------------------------------------------------------------------
+# Addendum 9 September 2026 — the roster read is bounded
+#
+# The Connector page reads one aggregate per speaker, and for a while it read
+# them all at once: ``Promise.all`` over the whole roster, one request per
+# contact. That is ~116 simultaneous requests on the pilot unit, and the far
+# end is not the browser's to size. Each request holds a connection out of a
+# SQLAlchemy pool of 5 base plus 5 overflow for the length of
+# ``get_current_principal`` alone, so the roster exhausted the pool, queued for
+# the 30s ``pool_timeout``, and failed with ``QueuePool limit of size 5
+# overflow 5 reached``. The page did not load slowly — it hung, and refused to
+# navigate away.
+#
+# The fix a reader will reach for first is not available. ``GET
+# /v1/units/{unit_id}/speaker-feedback-summary`` looks like the bulk form of
+# the per-speaker route and is not one: it returns a single pooled mean and
+# count for the whole unit, with no speaker id and no breakdown, and the server
+# refuses to add one. The per-speaker route is public to the same reader, so
+# any extra number on the pooled response is a handle to difference against —
+# a unit at ``n=5`` beside a published speaker at ``n=3`` recovers a mean over
+# two students. That residual rule is the reason the breakdown is missing, so
+# "just add a bulk route" is a privacy regression rather than a refactor. The
+# tests below therefore pin the fan-out as *bounded*, not as eliminated, and
+# pin the pooled route as staying the dashboard's alone.
+# ---------------------------------------------------------------------------
+
+CONCURRENCY_LIB = FRONTEND_SRC / "lib" / "concurrency.ts"
+
+#: The pool has five base connections; a page may hold at most that many.
+MAX_ROSTER_FAN_OUT = 5
+
+
+def _numeric_const(source: str, name: str) -> int:
+    """The value of an exported integer constant in a ``.ts`` module."""
+    match = re.search(rf"export const {re.escape(name)}\s*=\s*(\d+)\s*;", source)
+    assert match is not None, f"{name} is not an exported integer constant"
+    return int(match.group(1))
+
+
+def test_the_connector_page_does_not_issue_one_request_per_speaker_at_once() -> None:
+    """The roster read must be bounded, never a fan-out the roster's length.
+
+    This is the regression. ``Promise.all(roster.contacts.map(...))`` scales
+    the number of open sockets with server data nobody in the browser chose,
+    and the failure it produces is not a slow page but a hung one: the API's
+    connection pool is exhausted, every queued request waits out
+    ``pool_timeout``, and the whole roster fails at once.
+
+    So the page must reach its per-speaker reads through a helper that caps
+    how many are in flight. ``Promise.all`` is forbidden outright here rather
+    than pattern-matched for a roster argument, because the safe uses on this
+    page (there are none today) are not worth the check that could tell them
+    apart from the unsafe one.
+    """
+    code = _code_only(CONNECTOR_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchSpeakerFeedbackSummary" in code, (
+        "the Connector page no longer reads the per-speaker aggregate at all; if the read "
+        "moved, this contract needs to move with it rather than being deleted"
+    )
+
+    assert "Promise.all" not in code, (
+        "the Connector page fans its per-speaker reads out with Promise.all: that is one "
+        "request per speaker in flight at once (~116 on the pilot unit), which exhausts the "
+        "API's 5+5 connection pool and hangs the page with a QueuePool timeout"
+    )
+    for forbidden in ("Promise.allSettled", "Promise.race"):
+        assert forbidden not in code, (
+            f"the Connector page fans out with {forbidden!r}; the number of simultaneous "
+            "per-speaker reads must be bounded by a limit, not by the roster's length"
+        )
+
+    assert "mapWithConcurrency" in code, (
+        "the Connector page must read its per-speaker aggregates through mapWithConcurrency, "
+        "which bounds how many are in flight"
+    )
+
+
+def test_the_connector_pages_fan_out_bound_is_the_pools_base_size() -> None:
+    """The cap is a real number, and it is small enough to matter.
+
+    A bound of 200 would satisfy the test above and reproduce the outage. The
+    limit the page passes must resolve to at most the pool's five base
+    connections, so the five overflow slots stay available to every other
+    caller while a roster loads.
+    """
+    code = _code_only(CONNECTOR_PAGE.read_text(encoding="utf-8"))
+    assert "DEFAULT_READ_CONCURRENCY" in code, (
+        "the page must pass the shared DEFAULT_READ_CONCURRENCY bound rather than an "
+        "inline number nobody will find when the pool is resized"
+    )
+
+    limit = _numeric_const(CONCURRENCY_LIB.read_text(encoding="utf-8"), "DEFAULT_READ_CONCURRENCY")
+    assert 1 <= limit <= MAX_ROSTER_FAN_OUT, (
+        f"DEFAULT_READ_CONCURRENCY is {limit}; it must be between 1 and "
+        f"{MAX_ROSTER_FAN_OUT} — the API's connection pool has {MAX_ROSTER_FAN_OUT} base "
+        "connections plus 5 overflow, and a single page must not claim the overflow"
+    )
+
+
+def test_the_concurrency_helper_actually_bounds_what_it_starts() -> None:
+    """The helper is a queue, not a rename of ``Promise.all``.
+
+    A ``mapWithConcurrency`` that started every worker and only *reported*
+    them in order would pass the tests above while reproducing the outage
+    exactly. Two structural properties keep it honest: it rejects a
+    non-positive limit rather than falling back to unbounded, and it starts at
+    most ``limit`` lanes.
+    """
+    source = CONCURRENCY_LIB.read_text(encoding="utf-8")
+    code = _code_only(source)
+
+    assert "export async function mapWithConcurrency" in code
+    assert "Math.min(limit, items.length)" in code, (
+        "mapWithConcurrency must start at most `limit` lanes; starting one per item is the "
+        "unbounded fan-out again under a new name"
+    )
+    assert "RangeError" in code, (
+        "mapWithConcurrency must refuse a non-positive limit rather than silently running unbounded"
+    )
+
+
+def test_the_connector_page_still_reports_a_failed_summary_per_speaker() -> None:
+    """Bounding the fan-out must not turn N per-speaker errors into one banner.
+
+    The behavior being preserved: a speaker whose summary the server refused
+    shows that refusal on that speaker's own card, and the speakers whose
+    summaries did come back still render. A ``mapWithConcurrency`` whose
+    worker let a rejection escape would discard the whole roster on one
+    ``403``, so the catch must stay *inside* the worker and turn the failure
+    into a row.
+    """
+    code = _code_only(CONNECTOR_PAGE.read_text(encoding="utf-8"))
+
+    # The per-speaker failure is still a value on a row, not a thrown error.
+    assert "summary: null," in code, (
+        "a failed per-speaker read must still produce a row with a null summary"
+    )
+    assert "ApiRequestError" in code, (
+        "the page must still read the server's own message off ApiRequestError for the "
+        "speaker whose summary was refused"
+    )
+    # ...and the card still renders it. `RosterRow.error` and the card's
+    # `error !== null` branch are what put it beside that speaker's name.
+    assert "error !== null" in code, (
+        "the speaker card no longer branches on a per-speaker error; a refused summary "
+        "would render as an indefinite 'Loading…' or vanish into a global banner"
+    )
+    # The roster-level catch is separate and stays separate: it is the read
+    # that failed *before* there were any speakers to attribute a failure to.
+    assert "setLoadError(" in code, (
+        "the roster-level failure path must remain distinct from the per-speaker one"
+    )
+
+
+def test_the_connector_page_does_not_borrow_the_dashboards_pooled_route() -> None:
+    """The pooled unit aggregate must not be pressed into service here.
+
+    ``fetchUnitSpeakerFeedbackSummary`` is one mean over the whole unit. It
+    carries no speaker id, so there is nothing on it to attribute to a roster
+    row, and a page that called it while rendering per-speaker cards would be
+    labelling every speaker with the unit's number. Its absence from the
+    pooled response is the residual-differencing rule (see this section's
+    header), not a gap to route around.
+    """
+    code = _code_only(CONNECTOR_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchUnitSpeakerFeedbackSummary" not in code, (
+        "the Connector roster page calls the pooled unit route; that response has no "
+        "speaker id and cannot be mapped onto a roster row"
+    )
+
+
+def test_the_pooled_route_still_carries_no_per_speaker_breakdown() -> None:
+    """The reason the roster cannot be one request, pinned where it is decided.
+
+    If a later change adds ``speakers``, ``by_speaker`` or a rated-speaker
+    count to ``UnitFeedbackSummary``, the roster page above *should* be
+    rewritten to one call — but that change re-opens the differencing leak the
+    per-speaker threshold exists to close, so it must be an explicit decision
+    rather than a convenience someone adds to fix a slow page. This test is
+    where that conversation gets forced.
+    """
+    body = _interface_body(API_LIB.read_text(encoding="utf-8"), "UnitFeedbackSummary")
+
+    for forbidden in ("speakers", "by_speaker", "speaker_count", "rated_speakers", "breakdown"):
+        assert forbidden not in body, (
+            f"UnitFeedbackSummary gained {forbidden!r}. A per-speaker handle on the pooled "
+            "response lets a reader difference the pool against an already-published "
+            "speaker's count and recover a suppressed group (OQ-CBA-003 part 1)"
+        )

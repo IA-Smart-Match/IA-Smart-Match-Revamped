@@ -35,7 +35,17 @@ WorkingDirectory=/opt/smartmatch/app
 # actually running rather than the `vm-unknown` default.
 EnvironmentFile=-/opt/smartmatch/release.env
 
-ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --remove-orphans
+# SHARED LOCK: scripts/vm/deploy.sh serializes itself on a flock over
+# $SMARTMATCH_LOCK_FILE (default ${SMARTMATCH_STATE_DIR:-/opt/smartmatch}/deploy.lock).
+# This unit's ExecStart must take that SAME lock file, or a boot can race an
+# in-flight deployment and drive `docker compose` from two writers at once.
+# The path is hardcoded to /opt/smartmatch/deploy.lock because a systemd
+# ExecStart line does not expand shell variables; if either side's default
+# ever changes, update the other to match. `--wait 1500` bounds the wait
+# comfortably under TimeoutStartSec below, so a stuck deployment fails this
+# unit's start with a clear timeout (flock's own nonzero exit) instead of an
+# infinite hang.
+ExecStart=/usr/bin/flock --wait 1500 /opt/smartmatch/deploy.lock /usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --remove-orphans
 
 # `stop`, never `down`, and never `-v`. `down` would remove the containers and
 # `down -v` would discard the database volume; a machine reboot must do

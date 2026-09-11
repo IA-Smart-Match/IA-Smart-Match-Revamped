@@ -103,11 +103,27 @@ before running it, or point `DATABASE` at a database of your own.
 1. **Preflight** — interpreter, `psql`, a live PostgreSQL.
 2. **Computes the dev-principal map** *before starting anything*. `Settings`
    reads `SMARTMATCH_DEV_PRINCIPALS` once at process start, so a token added
-   after the API is up authenticates as nobody and answers `401`. The map is
-   the coordinator's token plus one per feedback student, derived from
+   after the API is up authenticates as nobody and answers `401`. Three
+   sources, merged: the **four portal principals** from
+   `tools/seed_pilot_principals.COMPOSE_DEV_PRINCIPALS` (`compose-api`,
+   `compose-student`, `compose-host`, `compose-admin` — imported, never
+   restated), the operator-configurable coordinator the generator
+   authenticates as, and one token per feedback student from
    `pilot_dataset_plan.feedback_dev_principals()`.
+
+   The four portal principals were **missing** from this map until
+   2026-09-09, which is worth naming because the failure was silent: step 4
+   below seeds the student, Event Host and admin rows, so a rebuild produced
+   three good accounts that no token reached, and three of the four portals
+   answered `401` to a stakeholder who had just been told the appliance was
+   rebuilt. `tests/unit/test_reset_pilot_dataset_principals.py` now executes
+   the script's own snippet and compares it against that table, so the two
+   halves cannot drift apart again.
 3. **Drop, recreate,** and `make migrate`.
-4. **`make seed-pilot`**, **`make seed-pilot-principals`**,
+4. **`make seed-pilot`** (twice — once for the operator-configurable
+   coordinator, once for `compose-pilot-coordinator`, which the compose `seed`
+   one-shot owns under `docker compose` and which `seed-pilot-principals`
+   deliberately never seeds), **`make seed-pilot-principals`**,
    **`make seed-pilot-logins`** — the existing targets, reused rather than
    restated. Step 1 dropped `pilot_credential` along with everything else, so
    the logins step is **not optional**: it sources the four owner-supplied
@@ -289,9 +305,9 @@ Each of the three match runs, on the fixture path:
 ```
   request 1 (Hackathon)      scoring mode cba-virtual-1
     candidates named        100
-    scored candidates         6
+    scored candidates         5
     unscorable candidates    56   (reported, never zeroed)
-    excluded candidates      38   (never evaluated)
+    excluded candidates      39   (never evaluated)
     portfolio status     optimal
     shortlist                 3 speakers
     invitations composed      0
@@ -301,8 +317,14 @@ Each of the three match runs, on the fixture path:
 
 Requests 2 and 3 are identical in these counts and differ in their targets and
 in which speakers they shortlist — scorability is decided by §9 and §19, which
-the targets do not move, so the same six candidates are scorable in all three
+the targets do not move, so the same five candidates are scorable in all three
 and the ranking among them differs.
+
+These are the numbers recorded in
+`docs/architecture/decisions/ADR-0017-offline-embedding-topic-semantics.md`
+from this same generator (PR #112), and they are the arithmetic
+`tools/pilot_dataset_plan.py` states in its own comment above
+`SPEAKER_REQUEST_COUNT`: "A hundred yields five." `5 + 56 + 39 = 100`.
 
 The generator's own report is longer and is the thing to read when a number
 looks wrong: it prints, per speaker request, the scored / unscorable / excluded

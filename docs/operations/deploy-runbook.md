@@ -4,13 +4,40 @@
 which deployment steps do not exist yet. Written for whoever holds a psql prompt
 against a database that matters.
 
-**Nothing in this repository is deployed.** There is no registry, no running
-instance, and no applied infrastructure. That is not a gap this document papers
-over — the sections below marked *not yet applicable* say what is missing and
-what would have to exist first, rather than describing a procedure for
-infrastructure nobody can run it against. The only procedure here that has a
-real target today is the migration procedure, because a local or CI PostgreSQL
-is a real target.
+**Nothing in this repository is deployed to managed cloud infrastructure.**
+There is no registry, no Cloud Run service, no Cloud SQL instance, and no
+applied Terraform. That is not a gap this document papers over — the sections
+below marked *not yet applicable* say what is missing and what would have to
+exist first, rather than describing a procedure for infrastructure nobody can
+run it against.
+
+**One qualification, added after this document's opening was checked against
+reality.** This file used to say flatly that there is "no running instance".
+That is no longer true, and the distinction matters to anyone holding a psql
+prompt. A single GCE VM runs the `docker compose` appliance against a real
+PostgreSQL container carrying synthetic pilot data, reachable at
+`https://pilot.plated.blog` through a Cloudflare Tunnel — see
+[`vm-deploy.md`](vm-deploy.md) for what that machine is and how a commit
+actually reaches it. Every "not yet applicable" row below still stands, because
+each is about *managed cloud* infrastructure that genuinely does not exist; but
+"nothing is running" is not a safe assumption to migrate under.
+
+The practical consequence for this runbook is that the migration procedure now
+has three real targets rather than two: a local PostgreSQL, CI's service
+container, and the VM's `db` container. The third differs from the first two in
+a way worth naming, though the direction of the difference has changed since
+this was last written. **The deployment path in use on that VM now takes a
+backup before it migrates.** `scripts/vm/deploy.sh:267-321` runs `pg_dump
+--clean --if-exists` before anything moves, with the deployment stopped
+outright if the dump fails, and that script — via
+[`promote.yml`](../../.github/workflows/promote.yml) and
+[`deploy.yml`](../../.github/workflows/deploy.yml) — is now the one
+authoritative path a commit takes to reach that VM; see
+[`vm-deploy.md`](vm-deploy.md) for the full procedure. A migration reaching
+that VM therefore does have backup material behind it. What that backup does
+and does not let an operator do is the subject of the
+[rollback section](#rollback) below — the dump is not a rollback mechanism on
+its own, and restoring it is never automatic.
 
 The companion document is [`containers.md`](containers.md), which covers
 building and running the two service images.
@@ -197,6 +224,64 @@ A revision must be independently safe under a rolling deploy, because during a
 rollout the old and the new release both run against whatever schema is
 currently applied. That requirement is what makes "the database sits at any
 revision" an acceptable state, and it is a review rule for every new revision.
+
+### Application rollback vs. database rollback — these are different things
+
+The VM deployment path (`scripts/vm/deploy.sh`, described end to end in
+[`vm-deploy.md`](vm-deploy.md)) gives two different rollback capabilities that
+must not be conflated. One is automatic; the other does not exist.
+
+**Application rollback — automatic, and also available by hand.**
+
+* *Automatic.* If a deployment's health checks fail, `deploy.sh` checks out
+  the previous SHA, rebuilds, and re-runs the health suite against it — and
+  still exits non-zero so the CI job is reported as failed even though the VM
+  recovered. This is a rollback of *code*, running against whatever schema is
+  currently applied. It is safe only because of the rolling-deploy safety rule
+  above: every revision must already be compatible with the release before
+  it, so the previous code can run against a schema a migration just changed.
+* *Manual.* Promote an earlier commit to `deploy` (via
+  [`promote.yml`](../../.github/workflows/promote.yml) with that commit as
+  `source_ref`, subject to its fast-forward-only push) and let `deploy.yml`
+  redeploy it the ordinary way.
+
+**Database rollback — not automatic, and not supported by these forward-only
+migrations.**
+
+`deploy.sh` takes a `pg_dump --clean --if-exists` before every migration and
+refuses to migrate if the dump fails — that is backup material, not a
+rollback mechanism. It never runs `alembic downgrade`, and it never restores
+that dump automatically. Nothing in this deployment path undoes a migration.
+Restoring a pre-migration dump is a **deliberate, manual, destructive
+operation**: an operator would have to identify the correct dump under
+`/opt/smartmatch/backups`, stop the application containers, and restore it by
+hand against the `db` container. Nothing in this repository automates that
+restore, and nothing should attempt it without a person deciding to.
+
+The dumps are retained 14 deep (`scripts/vm/deploy.sh`'s
+`SMARTMATCH_BACKUP_RETAIN` default), rotating out older ones automatically so
+the disk does not fill. Retention bounds how far back a manual restore can
+reach — a dump older than the 14 most recent deployments is gone.
+
+**The case that matters:** if a deployment included a migration and its
+health checks then failed, the automatic application rollback puts the
+*previous code* back — but the schema is not rolled back with it. The
+database is left at the new migration's schema while the old code runs
+against it. Whether that is safe depends entirely on the rolling-deploy
+safety rule above holding for that revision. It is exactly why that rule is
+a review requirement for every new revision, and exactly why "the deployment
+rolled back and recovered" is not the same claim as "the database is back
+where it started."
+
+### The one destructive path, clearly fenced off
+
+`scripts/reset_pilot_dataset.sh` drops and recreates the database
+(`DROP DATABASE IF EXISTS`, then a fresh `createdb`, migrate, and reseed) so
+that the pilot dataset can be rebuilt from empty. **It is never part of a
+normal deploy** — `deploy.sh` never calls it, and no CI workflow calls it.
+Nothing about the rollback discussion above involves it. Anyone reaching for
+it should be reaching for it deliberately, on a database whose current
+contents they intend to discard.
 
 ---
 

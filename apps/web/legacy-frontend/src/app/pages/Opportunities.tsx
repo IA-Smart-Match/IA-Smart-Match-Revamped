@@ -14,7 +14,12 @@
 import { AlertCircle, Briefcase } from "lucide-react";
 
 import { AccountableValue, MetricDrilldownSheet } from "@/app/components/provenance";
-import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
+import { grantedPortal } from "@/app/components/PortalGate";
+import { usePortalAccess } from "@/app/hooks/usePortalAccess";
+import {
+  METRICS_UNIT_RESOLVING_REASON,
+  useUnitMetrics,
+} from "@/app/hooks/useUnitMetrics";
 import {
   accountableMetricFromSummary,
   MATCHING_UNAVAILABLE_REASON,
@@ -24,18 +29,39 @@ import {
 } from "@/lib/metrics";
 
 export function Opportunities() {
+  // The unit this screen is about is the one the **server** granted this
+  // account — `PortalDescriptor.default_unit_id` off `GET /v1/me/portals` —
+  // resolved here because this page is what holds the grant. `/dashboard` and
+  // its sibling admin routes are the `admin` portal's own screens
+  // (`_PORTAL_FOR_ROLE` in `routers/portals.py` maps the stored `admin` role
+  // to `home_path: "/dashboard"`), so this resolves exactly the way the
+  // coordinator and student portal pages do.
+  //
+  // It used to be `getConfiguredUnitId()` inside `useUnitMetrics`, the
+  // `VITE_SMARTMATCH_UNIT_ID` build variable. On the pilot VM that variable is
+  // unset, so this page reported the register unavailable — and told the
+  // reader to set a build variable — without issuing a single request.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "admin");
+  const unitId = grant?.default_unit_id ?? null;
+  // `grantedPortal()` returns `null` both while `GET /v1/me/portals` is in
+  // flight and when the answer carried no grant. Only this page can tell those
+  // two apart, so only this page may say which one the reader is looking at.
+  const unitResolving = portalAccess.status === "loading";
+
   const {
     metricsByName,
     status,
     loadError,
     metricsUnavailableReason,
+    metricsNoUnitReason,
     openDrilldown,
     drilldownOpen,
     setDrilldownOpen,
     drilldownLoading,
     drilldownError,
     drilldown,
-  } = useUnitMetrics();
+  } = useUnitMetrics(unitId);
 
   const summary = metricsByName[OPPORTUNITIES_METRIC_NAME];
   const unavailableReason =
@@ -43,7 +69,14 @@ export function Opportunities() {
       ? (loadError ?? metricsUnavailableReason)
       : status === "loading"
         ? "Loading the registered opportunities metric…"
-        : OPPORTUNITIES_UNKNOWN_REASON;
+        : status === "idle"
+          ? // Not "unavailable" and not zero: nothing was asked for. Which of
+            // the two no-unit facts this is, the page knows and the hook does
+            // not.
+            unitResolving
+            ? METRICS_UNIT_RESOLVING_REASON
+            : metricsNoUnitReason
+          : OPPORTUNITIES_UNKNOWN_REASON;
 
   const opportunitiesMetric = summary
     ? accountableMetricFromSummary(summary, {

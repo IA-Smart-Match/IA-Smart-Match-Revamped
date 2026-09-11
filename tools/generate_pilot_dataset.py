@@ -102,17 +102,42 @@ through the product's own routes, in customer §19's own order:
 3. **A Speaker Request, filed** through
    ``POST /v1/units/{unit_id}/speaker-requests``. It is a real ``event`` row with
    real ``speaker_request_classification`` targets, and it is what supplies §9's
-   description text and §11's virtual/physical switch. Virtual, because the
-   generated roster carries no postal codes and a physical run would answer with
-   a pool nobody has located.
+   description text and §11's virtual/physical switch.
+
+   **Every dated seeded event is filed this way**, not only the three requests
+   built for the match runs. The coordinator's queue reads
+   ``origin = 'coordinator_entry'`` and nothing else, so a seeded calendar event
+   is offered as selectable whether or not anyone filed it — and one with no §7
+   or §8 target scores ``None`` on 55% of the default model's weight and can only
+   answer ``match_run_insufficient_scorable_candidates``. Filing them through the
+   route rather than inserting the classification rows is deliberate:
+   ``SpeakerRequestDraft`` is where "at least one sector, at least one role, no
+   repeats, released codes only, a place iff physical" is decided, and a seed
+   that writes behind it can write every shape the API refuses.
+
+   Both virtual and physical requests are seeded, so ``cba-virtual-1`` and
+   ``cba-physical-1`` are both reachable. That is a change: the roster used to
+   carry no postal codes at all, which made Proximity — 30% of the physical model
+   — an honest ``unknown`` for all 100 profiles and every physical run
+   all-unscorable. The professionals import now states ``location_city`` and
+   ``location_postal_code``, both already declared by
+   ``docs/pilot-data/columns.yaml`` and both mapped by
+   ``pipeline_provisioning``, using ZIPs the OQ-CBA-024 centroid table actually
+   names. ``UNKNOWN_LOCATION_SHARE`` of the roster is still deliberately left
+   unlocated, because the ``unknown`` branch is a state the product is supposed
+   to be able to show.
 4. **The run itself**, submitted with ids the API handed back rather than ids
    this tool derived from a name.
 
 What the shortlist actually looks like, stated in advance
 ----------------------------------------------------------
 Most of the named pool drops out, and not because of anything in this file.
-This tool calls ``build_semantic_topic_provider`` with no
-``use_local_embedding`` keyword, so it gets the fixture semantic-topic
+This tool builds no topic provider at all — the name
+``build_semantic_topic_provider`` appears nowhere in it as a call. The **API
+process this tool submits its match run to** makes that call, in
+``smartmatch_api.routers.match_runs._topic_provider``, which passes
+``use_local_embedding=settings.cba_topic_local_embedding_enabled``. Left
+unset that is ``False``, so the API gets the fixture semantic-topic
 provider, which holds no recordings: a speaker carrying ``topic_text`` scores
 ``unknown`` on customer §9, ADR-0011 rule 1 makes their composite ``None``,
 and they are reported as *unscorable* rather than shortlisted — while a
@@ -123,8 +148,10 @@ minority. This was tracked as OQ-CBA-061; ADR-0017 dissolved it on 7
 September 2026 by approving an offline, in-process embedding model
 (`docs/plans/open-questions/cba-phase-deferred.md`), removing the cause
 rather than answering it as a separate question. That model is reached only
-by passing ``use_local_embedding=True``, which this generator does not do, so
-the fixture path and the counts described above are unchanged.
+when the API is started with ``SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED``
+set — nothing this generator passes can reach it, and nothing it passes can
+prevent it either. The counts described above are the ones an API running
+without that variable produces.
 
 Every one of those counts is printed at the end of a run rather than smoothed
 over. Stripping the seed's topic text would make the demo look fuller and is
@@ -389,6 +416,15 @@ SPEAKER_REQUEST_TARGETS: Final[int] = 2
 #: :func:`submit_match_run`.
 SPEAKER_REQUEST_COUNT: Final[int] = 3
 
+#: Seconds between Speaker Request filings when the whole calendar is filed.
+#: ``SPEAKER_REQUEST_WRITE_RATE_LIMIT`` is thirty a minute, and this is the same
+#: number :data:`CLASSIFICATION_PACE_SECONDS` is, for the same reason: a tool
+#: that hammers a limiter and recovers from the ``429`` is a tool that hides how
+#: close it is running to it. Sixty filings therefore take about two minutes,
+#: which is a real cost and the honest one — the alternative is writing
+#: ``speaker_request_classification`` rows behind the route that validates them.
+SPEAKER_REQUEST_PACE_SECONDS: Final[float] = 2.05
+
 #: Seconds between match-run submissions. There is no per-unit match-run rate
 #: limit to stay under; this exists so three runs against the same roster do not
 #: arrive inside one second and contend on the same rows. A pace, not a retry.
@@ -521,6 +557,9 @@ class RunReport:
     events_unresolved: int = 0
     events_quarantined: int = 0
     events_published: int = 0
+    events_filed_as_requests: int = 0
+    events_unfilable: int = 0
+    events_virtual: int = 0
     review_items_submitted: int = 0
     review_items_accepted: int = 0
     review_items_rejected: int = 0
@@ -566,6 +605,9 @@ class RunReport:
             f"  unresolved date           {self.events_unresolved} (deliberate, ADR-0010)",
             f"  quarantined tags          {self.events_quarantined} (deliberate)",
             f"  published                 {self.events_published}",
+            f"  virtual                   {self.events_virtual} (the rest score Proximity)",
+            f"  filed as Speaker Requests {self.events_filed_as_requests} (§7/§8 targets on file)",
+            f"  unfilable, no date        {self.events_unfilable} (deliberate, ADR-0010)",
             f"review items submitted      {self.review_items_submitted}",
             f"  accepted                  {self.review_items_accepted}",
             f"  rejected                  {self.review_items_rejected}",
@@ -726,6 +768,18 @@ def professionals_rows(planned: Sequence[ProfessionalPlan]) -> list[dict[str, st
             row["primary_industry_code"] = person.industry_code
         if person.role_code is not None:
             row["primary_role_code"] = person.role_code
+        # The two cells customer §10 actually reads. Both are declared optional
+        # in `docs/pilot-data/columns.yaml` and both are mapped by
+        # `pipeline_provisioning._PROFESSIONAL_PROFILE_KEYS`; `metro_region`,
+        # which this row has always carried, is mapped by neither and reaches
+        # nothing in `services/`. Absent rather than blank for the professional
+        # this plan deliberately left unlocated (`UNKNOWN_LOCATION_SHARE`), on
+        # the same rule the classification cells above follow: an absent column
+        # is an absent record and a blank one is a record that says nothing.
+        if person.city is not None:
+            row["location_city"] = person.city
+        if person.postal_code is not None:
+            row["location_postal_code"] = person.postal_code
         rows.append(row)
     return rows
 
@@ -949,6 +1003,25 @@ def write_professionals(
     return tuple(subject_ids)
 
 
+def event_description(event: EventPlan) -> str:
+    """The one description an event carries, whichever writer states it.
+
+    Named rather than inlined twice because two writers state it now:
+    :func:`write_events` on the ``event`` row, and
+    :func:`event_speaker_request_body` on the Speaker Request filed *onto that
+    same row* through ADR-0012's identity key. Two spellings would mean the
+    filing silently rewrote the description a moment after the calendar wrote
+    it, and §9 compares a speaker's topic evidence against exactly this string —
+    so which of the two won would decide the topic factor.
+
+    The wording is unchanged from what the generator has always written, and
+    ``tests/unit/test_topic_fixture_pilot_coverage.py`` reads this literal out of
+    this file's source text to build the pairs it reasons about. Rewording it is
+    a change to that file's premise, not a copy edit.
+    """
+    return f"Synthetic pilot {event.category.lower()} session."
+
+
 def _event_time(event: EventPlan) -> EventTime:
     """The ADR-0010 temporal value for one planned event.
 
@@ -998,7 +1071,10 @@ def write_events(
             title=event.title,
             event_time=_event_time(event),
             origin=ORIGIN_COORDINATOR_ENTRY,
-            description=f"Synthetic pilot {event.category.lower()} session.",
+            description=event_description(event),
+            is_virtual=event.is_virtual,
+            location_city=event.location_city,
+            location_postal_code=event.location_postal_code,
         )
         repository.record_tags(
             session,
@@ -1324,6 +1400,63 @@ def speaker_request_body(
     }
 
 
+def event_speaker_request_body(event: EventPlan) -> dict[str, Any]:
+    """The ``POST /v1/units/{unit_id}/speaker-requests`` body for one seeded event.
+
+    This is the fix for the defect this module used to ship: the calendar wrote
+    63 ``event`` rows, three of which were ever filed as Speaker Requests, and
+    the coordinator's queue reads ``origin = 'coordinator_entry'`` and nothing
+    else — so the other 60 sat there looking selectable while
+    ``score_industry_match`` and ``score_role_match`` returned ``None`` for
+    every one of them and ADR-0011 turned the whole pool unscorable.
+
+    Filed rather than inserted, and that distinction is the whole design. The
+    targets could have been written straight into
+    ``speaker_request_classification``; they are not, because
+    :class:`~smartmatch_domain.speaker_requests.SpeakerRequestDraft` is the only
+    thing that enforces "at least one industry, at least one role, no repeats,
+    released codes only, a place iff physical", and a seed that writes rows the
+    API itself would have refused mints exactly the class of half-valid record
+    this change exists to remove.
+
+    Filing does not create a *second* row beside the calendar event. ADR-0012's
+    identity key is host unit, folded title and resolved date; this body restates
+    the event's own title and date, so the filing resolves **onto** the row
+    :func:`write_events` already wrote and answers ``200``. That is why
+    ``description`` comes from :func:`event_description` rather than being
+    composed here — a different string would silently rewrite the calendar's.
+
+    Raises:
+        GeneratorError: ``event`` carries no resolvable date, so it has no
+            ADR-0012 identity key and cannot be filed at all. Callers filter on
+            ``EventPlan.resolved`` rather than relying on this; it is here so the
+            case cannot be reached silently.
+    """
+    if event.on_date is None:
+        raise GeneratorError(
+            f"event {event.index} ({event.title!r}) has no resolvable date, so it has no "
+            "ADR-0012 identity key and POST /speaker-requests would refuse it (400). "
+            "An undated event is planned with targets anyway — see EventPlan — but it "
+            "cannot be filed until it has a date."
+        )
+    body: dict[str, Any] = {
+        "title": event.title,
+        "time_zone": PILOT_TIME_ZONE,
+        "on_date": event.on_date.isoformat(),
+        "is_virtual": event.is_virtual,
+        "industry_codes": list(event.industry_codes),
+        "role_codes": list(event.role_codes),
+        "description": event_description(event),
+    }
+    # Named only when there is one. `ck_event_virtual_has_no_location` and
+    # customer §11 refuse a place on a virtual request, and the draft refuses a
+    # physical one without: the two branches are not symmetric decorations.
+    if not event.is_virtual:
+        body["location_city"] = event.location_city
+        body["location_postal_code"] = event.location_postal_code
+    return body
+
+
 def match_run_body(
     *,
     speaker_request_id: uuid.UUID,
@@ -1405,6 +1538,70 @@ def file_speaker_request(
         f"({'filed' if status == 201 else 'already filed, updated'})"
     )
     return request_id
+
+
+def file_event_speaker_requests(
+    *,
+    api_base: str,
+    bearer_token: str,
+    unit_id: uuid.UUID,
+    planned: Sequence[EventPlan],
+    report: RunReport,
+) -> int:
+    """File every dated seeded event as a real Speaker Request, and count them.
+
+    One ``POST`` per event, through the route a coordinator's own form posts to,
+    because that route is where the rules live: ``SpeakerRequestDraft`` refuses a
+    request with no sector, no role, a repeated target, an unreleased code, a
+    virtual request carrying a place or a physical one carrying none. Writing the
+    ``speaker_request_classification`` rows directly would be one statement
+    faster and would be able to write every one of those refused shapes.
+
+    Each call answers ``200``, not ``201``, on a first run as well as a re-run:
+    :func:`write_events` has already written the ``event`` row, and ADR-0012's
+    identity key — host unit, folded title, resolved date — resolves this filing
+    onto it. Both are accepted for the same reason
+    :func:`file_speaker_request` accepts both.
+
+    Undated events are skipped and counted rather than filed. They have no
+    identity key (ADR-0010 rule 2), the route answers ``400`` for them, and
+    papering over that with a fabricated date is the defect the whole
+    ``unresolved`` state exists to prevent.
+
+    Returns:
+        How many events were filed.
+    """
+    filed = 0
+    skipped = 0
+    for event in planned:
+        if not event.resolved:
+            skipped += 1
+            continue
+        status, payload = _request(
+            method="POST",
+            url=f"{api_base}/v1/units/{unit_id}/speaker-requests",
+            bearer_token=bearer_token,
+            body=event_speaker_request_body(event),
+        )
+        if status not in (200, 201) or not isinstance(payload, dict):
+            raise GeneratorError(
+                f"POST /v1/units/{unit_id}/speaker-requests answered {status} for seeded "
+                f"event {event.title!r}: {payload}. Nothing is retried and nothing is "
+                "skipped: a seeded event the filing route refuses is one this generator "
+                "planned wrong, and leaving it in the coordinator's queue unfiled is "
+                "exactly the state this phase exists to remove."
+            )
+        filed += 1
+        time.sleep(SPEAKER_REQUEST_PACE_SECONDS)
+
+    report.events_filed_as_requests = filed
+    report.events_unfilable = skipped
+    report.events_virtual = sum(1 for event in planned if event.is_virtual)
+    print(
+        f"generate-pilot-dataset: filed {filed} seeded events as Speaker Requests "
+        f"({skipped} skipped, no resolvable date)"
+    )
+    return filed
 
 
 def list_speaker_contacts(
@@ -2496,6 +2693,37 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         report=report,
     )
 
+    # -- Phase A.5b: the seeded calendar's own Speaker Requests -------------
+    #
+    # `GET /v1/units/{unit_id}/speaker-requests` — the coordinator's incoming
+    # queue and the picker the match-run screen uses — filters on
+    # `origin = 'coordinator_entry'` and nothing else, and `event.origin` has a
+    # closed two-value vocabulary. A seeded calendar event is therefore
+    # indistinguishable from a filed Speaker Request on the only column the queue
+    # reads, so every one of them was already offered to a coordinator as
+    # selectable. Until this phase existed they were selectable and unscorable:
+    # no §7 sector, no §8 role category, `score_industry_match` and
+    # `score_role_match` both `None`, and ADR-0011 makes one unknown factor an
+    # unknown composite — a guaranteed `match_run_insufficient_scorable_candidates`
+    # for anyone who picked one.
+    #
+    # This phase does not hide them; it makes them true. Each dated event is
+    # filed as a real Speaker Request through the real route, which resolves onto
+    # the `event` row Phase B already wrote (ADR-0012's identity key) and stamps
+    # the targets the matcher needs. The queue keeps every row it had and every
+    # row in it now answers a run.
+    #
+    # After Phase A.5 rather than before: the review step there is what makes a
+    # speaker matchable, and filing requests against a roster nobody has reviewed
+    # would produce a queue of valid requests with nobody to score.
+    file_event_speaker_requests(
+        api_base=api_base,
+        bearer_token=args.bearer_token,
+        unit_id=unit_id,
+        planned=events,
+        report=report,
+    )
+
     # -- Phase A.6: several Speaker Requests, a run each, a batch each ------
     #
     # Several rather than one, because the invitations surface composes against
@@ -2555,6 +2783,16 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
         "evidence, then a separate recorded transition to `active_candidate`, which a "
         "create may never assert. The evidence string names this dataset and its reserved "
         ".invalid domain rather than citing a form submission that does not exist."
+    )
+    report.notes.append(
+        "every dated seeded event is now a filed Speaker Request with §7 and §8 targets, "
+        "not a bare calendar row. The coordinator's queue filters on origin alone, so those "
+        "events were always offered as selectable; before this they were also guaranteed to "
+        "answer `match_run_insufficient_scorable_candidates`, because a request naming no "
+        "sector and no role scores None on 55% of the default model's weight and ADR-0011 "
+        "makes one unknown factor an unknown composite. They are filed through "
+        "POST /speaker-requests rather than written into speaker_request_classification, so "
+        "every row here is one the API itself would have accepted."
     )
     report.notes.append(
         "NO invitation batch was dispatched, and none was meant to be. Composing writes "

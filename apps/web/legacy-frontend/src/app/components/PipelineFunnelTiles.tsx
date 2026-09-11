@@ -18,7 +18,10 @@ import {
   type PipelineFunnelMetricName,
   unavailablePipelineMetric,
 } from "@/lib/metrics";
-import { useUnitMetrics } from "@/app/hooks/useUnitMetrics";
+import {
+  METRICS_UNIT_RESOLVING_REASON,
+  useUnitMetrics,
+} from "@/app/hooks/useUnitMetrics";
 import { isCapabilityEnabled } from "@/lib/productScope";
 
 const TILE_ICONS: Record<PipelineFunnelMetricName, LucideIcon> = {
@@ -30,8 +33,8 @@ const TILE_ICONS: Record<PipelineFunnelMetricName, LucideIcon> = {
 };
 
 const TILE_ICON_CLASS: Record<PipelineFunnelMetricName, string> = {
-  pipeline_matched: "bg-primary/10 text-primary",
-  pipeline_contacted: "bg-primary/10 text-primary",
+  pipeline_matched: "bg-blue-100 text-blue-600",
+  pipeline_contacted: "bg-blue-100 text-blue-600",
   pipeline_confirmed: "bg-green-100 text-green-600",
   pipeline_attended: "bg-orange-100 text-orange-600",
   pipeline_member_inquiry: "bg-indigo-100 text-indigo-600",
@@ -73,14 +76,42 @@ const FUNNEL_GRID_CLASS: Record<number, string> = {
 };
 
 export interface PipelineFunnelTilesProps {
+  /**
+   * The unit the server granted the signed-in account
+   * (`grantedPortal(portalAccess, "admin")?.default_unit_id ?? null`), or
+   * `null` while `GET /v1/me/portals` is in flight or the grant carries no
+   * unit.
+   *
+   * **Required, and deliberately not optional.** This component has no page of
+   * its own and no grant of its own: it is rendered inside `Dashboard.tsx` and
+   * `Pipeline.tsx`, and only they know which unit their screen is about. An
+   * optional prop defaulting to `null` would let a future third caller mount
+   * the funnel with no unit and get five silently unknown tiles — a caller's
+   * ignorance rendered as an empty state instead of caught at compile time. A
+   * required `string | null` makes it a type error to mount these tiles
+   * without having answered the question, while still letting the honest
+   * `null` through.
+   *
+   * It replaces `getConfiguredUnitId()` inside `useUnitMetrics`, the
+   * `VITE_SMARTMATCH_UNIT_ID` build variable that is unset on the deployed
+   * pilot VM — so on that deployment every tile read "unavailable" and named a
+   * build variable at a reader who cannot set one.
+   */
+  unitId: string | null;
+  /**
+   * Which flavour of `unitId === null` this is: `true` while the portal
+   * mapping is still being read, `false` once it has settled. The two are
+   * different sentences on screen, and neither one is "there is none".
+   */
+  unitResolving?: boolean;
   reloadToken?: number;
-  unitId?: string | null;
   className?: string;
 }
 
 export function PipelineFunnelTiles({
-  reloadToken = 0,
   unitId,
+  unitResolving = false,
+  reloadToken = 0,
   className,
 }: PipelineFunnelTilesProps) {
   const {
@@ -88,13 +119,14 @@ export function PipelineFunnelTiles({
     status,
     loadError,
     metricsUnavailableReason,
+    metricsNoUnitReason,
     drilldownOpen,
     setDrilldownOpen,
     drilldownLoading,
     drilldownError,
     drilldown,
     openDrilldown,
-  } = useUnitMetrics(reloadToken, unitId);
+  } = useUnitMetrics(unitId, reloadToken);
 
   function metricForStage(metricName: PipelineFunnelMetricName) {
     const summary = metricsByName[metricName];
@@ -107,12 +139,21 @@ export function PipelineFunnelTiles({
       });
     }
 
+    // Four states, kept four sentences. `"idle"` splits in two because
+    // `unitId === null` is two different facts (see `unitResolving`), and
+    // neither of them is the fifth thing a tile must never say — that the
+    // count is zero. Every branch here still produces an *unaccountable
+    // unknown* via `unavailablePipelineMetric`, per ADR-0011 rule 1.
     const fallbackReason =
       status === "unavailable"
         ? (loadError ?? metricsUnavailableReason)
         : status === "loading"
           ? "Loading registered metrics…"
-          : "Registered metric is not available.";
+          : status === "idle"
+            ? unitResolving
+              ? METRICS_UNIT_RESOLVING_REASON
+              : metricsNoUnitReason
+            : "Registered metric is not available.";
 
     return unavailablePipelineMetric(metricName, fallbackReason);
   }

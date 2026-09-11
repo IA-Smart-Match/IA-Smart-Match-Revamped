@@ -44,7 +44,19 @@ Compose publishes ports on **loopback only** (`127.0.0.1`). That is why a collea
 
 The Vite proxy in `apps/web/legacy-frontend/vite.config.ts` targets **`http://127.0.0.1:8000`**, which matches `make run-api`, **not** compose’s `:8080`. If you use compose, change both `/api` and `/v1` `target` values to `http://127.0.0.1:8080` for that demo (revert afterward; do not commit a demo-only port unless product agrees).
 
-The same split trips up `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` (ADR-0017's offline embedding model for §9 topic scoring, off by default — see the `.env` inventory below). `make run-api` reads it from `.env`, so the host-run path both matches the proxy above and picks up this flag from the same file. Compose does not read `.env` for it — `docker-compose.yml` passes it through with an explicit `${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}` default — so a compose run only turns it on if you `export` it in the shell that runs `docker compose up`.
+`SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` (ADR-0017's offline embedding model for §9 topic scoring, off by default — see the `.env` inventory below) is read by **the API process only**. That is not a gap: the API scores a match run and the worker solves it, so `rank_cba_candidates` runs in `services/api/smartmatch_api/routers/match_runs.py` and the worker receives utilities that are already final. There is nothing to set on the worker, and `docker-compose.yml`'s `worker` block says so.
+
+Both run paths read it from the same file. `make run-api` reads `.env` directly; compose passes it through as `${SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED:-false}`, and because that is an interpolated reference rather than a hard-set literal, compose resolves it from **the shell environment and from a `.env` file in the project directory**, with the shell winning. So either works:
+
+```bash
+# durable — survives the next deploy
+echo 'SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true' >> .env && docker compose up -d api
+
+# one invocation only
+SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true docker compose up -d api
+```
+
+On the appliance, prefer `.env`. `scripts/vm/deploy.sh` runs `docker compose up` from a systemd service rather than from an operator's shell, so an exported value is gone by the next deploy and the API silently returns to the fixture path — with no error, and no difference visible anywhere except the scored/unscorable counts.
 
 ---
 
@@ -135,6 +147,22 @@ This is **not** a GCP deployment. It is a hosted *session* of your laptop.
 compose stack, plus a **named Cloudflare Tunnel** and **Access** email
 allowlist — [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md).
 
+**That VM now exists, and it is the standing stakeholder link.** It answers at
+`https://pilot.plated.blog`, from a `docker compose` stack in a home-directory
+checkout tracking `main`, updated by hand over IAP. Two things follow for a
+reader of this guide. First, Path A above is still the right answer for a demo
+you are driving yourself from your own machine, and nothing here is superseded
+by the VM's existence. Second, if the demo you want is the one already up, you
+do not need Path A at all — you need the deployment procedure, which is in
+[`vm-deploy.md`](vm-deploy.md) along with an honest account of what that path
+does and does not guarantee. In particular: the appliance on the VM serves a
+Vite dev server behind the tunnel, `/api/health` there reports a fixed `dev`
+rather than a commit, and pushing to the `deploy` branch does **not** update it
+— the `pilot-vm` GitHub environment is empty, so the deployment workflow stops
+at its own configuration gate before it authenticates. Whether that gets closed
+by correcting the runbook or by bootstrapping the machine is an open decision
+recorded in that same file, and not one this guide settles.
+
 ---
 
 ## Path B — Google Cloud as people imagine it (not runnable from this repo yet)
@@ -188,7 +216,7 @@ For a Friday UI demo, skip waiting on IdP. Use Path A. Tell Wang: this is a **sy
 
 ## `.env` inventory — what `.env.example` has vs what the code reads
 
-Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. Compose **ignores** `.env` for the values it hard-sets in `docker-compose.yml`.
+Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. Compose **hard-sets** most of these in `docker-compose.yml`, and a hard-set literal is not overridable from `.env`; the values compose passes through as `${VAR:-default}` — `SMARTMATCH_RELEASE` and `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` — are interpolated, and those it does resolve from `.env`.
 
 ### In `.env.example` (enough for host API)
 
@@ -197,7 +225,7 @@ Copy `.env.example` → `.env` for **host** `make run-api` / `make run-worker`. 
 | `SMARTMATCH_EDITION` | Yes (keep `dev`) | Non-dev refuses `SMARTMATCH_DEV_PRINCIPALS` |
 | `SMARTMATCH_DATABASE_URL` | Yes | Default matches compose/native Postgres |
 | `SMARTMATCH_USE_FIXTURE_PROVIDERS` | Yes (`true`) | Setting `false` does **not** enable live providers; construction fails |
-| `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` | Optional (default `false`) | Off keeps the recorded-fixture §9 topic comparator and today's dropout behaviour. On routes that seam to ADR-0017's offline, in-process embedding model instead — no vendor, no network call, and still not a live provider. `make run-api` reads this from `.env`; compose does not (see below) |
+| `SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED` | Optional (default `false`) | Off keeps the recorded-fixture §9 topic comparator and today's dropout behaviour. On routes that seam to ADR-0017's offline, in-process embedding model instead — no vendor, no network call, and still not a live provider. Read by the **API process only** — the worker solves over utilities the API already scored. Both `make run-api` and compose pick it up from `.env` (see §above) |
 | `SMARTMATCH_DEV_PRINCIPALS` | Yes for authenticated API without compose | JSON `{"token":"subject"}`; every subject must be one that `make seed-pilot` / `make seed-pilot-principals` created, or that token resolves to nobody and 401s. Compose already sets all four — see "Pre-loaded pilot principals" below |
 | `SMARTMATCH_EMAIL_API_KEY` | Leave empty | Outreach (G4) not implemented |
 | `SMARTMATCH_ROUTES_API_KEY` | Leave empty | Routes adapter not live |

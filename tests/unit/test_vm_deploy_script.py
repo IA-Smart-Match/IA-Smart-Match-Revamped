@@ -80,6 +80,14 @@ case "$all" in
     echo "${DOCKER_STUB_MIGRATE_EXIT:-0}"
     exit 0
     ;;
+  *"ps -a --format {{.State}} seed-logins"*)
+    echo "${DOCKER_STUB_SEED_LOGINS_STATE:-exited}"
+    exit 0
+    ;;
+  *"ps -a --format {{.ExitCode}} seed-logins"*)
+    echo "${DOCKER_STUB_SEED_LOGINS_EXIT:-0}"
+    exit 0
+    ;;
   *" build"*)
     exit "${DOCKER_STUB_BUILD_EXIT:-0}"
     ;;
@@ -419,6 +427,19 @@ def test_a_failed_migration_rolls_back_and_names_the_forward_only_policy(
     assert vm.metadata()["rolled_back"] is True
 
 
+def test_a_failed_seed_logins_rolls_back_and_fails_the_deployment(
+    vm: Deployment,
+) -> None:
+    """seed-logins is outside migrate's reach; a non-zero exit must still fail."""
+    result = vm.run(DOCKER_STUB_SEED_LOGINS_EXIT="1")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert "seed-logins" in output
+    assert vm.head() == vm.previous_sha  # type: ignore[attr-defined]
+    assert vm.metadata()["rolled_back"] is True
+
+
 def test_rollback_leaves_the_branch_fast_forwardable(vm: Deployment) -> None:
     """After a rollback the next deployment must still be a fast-forward.
 
@@ -530,6 +551,38 @@ def test_the_script_never_calls_alembic_directly() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
     assert "alembic" not in code
+
+
+def test_down_v_never_appears_in_the_deploy_script_source() -> None:
+    """Static guarantee, independent of any run: the discard-the-database
+    command must never appear in the script at all, on any path."""
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+    assert "down -v" not in code
+    assert "compose down" not in code
+
+
+def test_the_script_asserts_seed_logins_succeeded() -> None:
+    """The deploy fails a deployment where seed-logins did not exit 0."""
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert "seed-logins" in source
+    assert "seed_logins_state" in source and "seed_logins_exit" in source
+
+
+def test_the_unit_and_the_script_share_the_same_lock_path() -> None:
+    """The boot unit's flock and the script's own flock must guard one file."""
+    deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    unit_source = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(encoding="utf-8")
+
+    # The script's default: ${SMARTMATCH_STATE_DIR:-/opt/smartmatch}/deploy.lock
+    assert 'LOCK_FILE="${SMARTMATCH_LOCK_FILE:-${STATE_DIR}/deploy.lock}"' in deploy_source
+    assert 'STATE_DIR="${SMARTMATCH_STATE_DIR:-/opt/smartmatch}"' in deploy_source
+
+    # The unit hardcodes the same resolved default path and wraps its
+    # ExecStart in flock over it.
+    exec_start = next(line for line in unit_source.splitlines() if line.startswith("ExecStart="))
+    assert "/usr/bin/flock" in exec_start
+    assert "/opt/smartmatch/deploy.lock" in exec_start
 
 
 def test_the_systemd_unit_stops_rather_than_downs() -> None:

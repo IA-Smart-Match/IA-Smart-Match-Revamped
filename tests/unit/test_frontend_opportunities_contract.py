@@ -239,7 +239,7 @@ def test_pipeline_conversion_guard_ignores_unrelated_value_division() -> None:
 
 
 def test_dashboard_reads_canonical_unit_data_without_fabricating() -> None:
-    """The Connector dashboard uses authenticated unit APIs and fails soft."""
+    """The admin dashboard retains the registered metric/drill-down contract."""
     source = _read(DASHBOARD_PAGE)
 
     for pattern in DASHBOARD_OPPORTUNITIES_FORBIDDEN_PATTERNS:
@@ -247,19 +247,12 @@ def test_dashboard_reads_canonical_unit_data_without_fabricating() -> None:
             f"Dashboard still contains fabricated opportunities pattern: {pattern!r}"
         )
 
-    assert 'useAuthorizedUnitId("admin")' in source
-    for adapter in (
-        "fetchManualEvents",
-        "fetchSpeakers",
-        "fetchSpeakerEvents",
-        "fetchUnitSpeakerFeedbackSummary",
-        "fetchAttendanceSummary",
-    ):
-        assert adapter in source
-    assert "Promise.allSettled" in source
-    assert "Unavailable" in source
-    assert "/api/calendar/" not in source
-    assert "/api/feedback/stats" not in source
+    assert "useUnitMetrics" in source
+    assert "OPPORTUNITIES_METRIC_NAME" in source
+    assert "accountableMetricFromSummary" in source
+    assert "openDrilldown(metricName)" in source
+    assert "MetricDrilldownSheet" in source
+    assert "unavailableOpportunitiesMetric" in source
 
     for pattern in ZERO_COERCION_PATTERNS:
         assert pattern not in source, f"Dashboard coerces an unmeasured value to zero: {pattern!r}"

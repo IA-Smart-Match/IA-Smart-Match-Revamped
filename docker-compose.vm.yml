@@ -47,6 +47,35 @@ services:
       # keeps a hand-run `docker compose up` on the VM honest rather than
       # letting it claim a release it does not have.
       SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-vm-unknown}
+      # No fixture bearer token authenticates anything on this machine.
+      #
+      # docker-compose.yml says of its dev principals that they "authenticate
+      # nothing outside this compose network". That is true of a laptop. It is
+      # false here, and dangerously so: a Cloudflare Tunnel publishes this
+      # compose network to the public internet, and this repository is PUBLIC,
+      # so the token literals in the base file are world-readable — as was the
+      # copy the browser bundle carried. Anyone who could read the file could
+      # present one of those tokens and be answered as the seeded coordinator,
+      # student, host or admin, without ever seeing /login.
+      #
+      # An EMPTY MAP, not an empty string. `dev_principals` is typed
+      # `dict[str, str]` with `default_factory=dict` (services/api/
+      # smartmatch_api/config.py), so pydantic-settings JSON-decodes this value:
+      # "{}" parses to an empty dict, while "" would raise inside json.loads and
+      # crash the API at startup — which the deployment health gate would answer
+      # by rolling back to the very release this override exists to retire.
+      #
+      # Settings._validate_isolation is guarded by `if self.dev_principals:`, so
+      # an empty map skips that validator entirely and boots under any edition.
+      # FixtureTokenVerifier.verify then finds nothing for any token and raises,
+      # which dependencies.py renders as a clean 401 `unauthenticated`.
+      #
+      # Password login is untouched: dependencies.py resolves a real DB-backed
+      # session token BEFORE it ever consults the fixture verifier.
+      #
+      # Local `docker compose up` (base file only) is deliberately unchanged —
+      # the fixture identities remain exactly as they were for development.
+      SMARTMATCH_DEV_PRINCIPALS: "{}"
 
   worker:
     restart: unless-stopped
@@ -65,3 +94,24 @@ services:
 
   web:
     restart: unless-stopped
+    environment:
+      # The bundle this VM serves carries no credential of its own.
+      #
+      # The base file bakes the `compose-api` fixture token in here, which made
+      # the shipped JavaScript itself a copy of a coordinator credential: read
+      # the bundle, read the token. Emptying it is the other half of the api
+      # override above — clearing the server's map stops the token being
+      # accepted, and clearing this stops it being handed out.
+      #
+      # An empty STRING is correct here, unlike SMARTMATCH_DEV_PRINCIPALS above.
+      # This one is a plain string, and apps/web/legacy-frontend/src/lib/
+      # bearerToken.ts already treats a blank value as absent: resolveBearerToken
+      # returns `usableCredential(sessionToken) ?? usableCredential(envToken)`,
+      # and usableCredential() maps a whitespace-only string to null. So the app
+      # simply sends no Authorization header until someone actually signs in.
+      # No frontend source change is needed, and none was made.
+      #
+      # The visible consequence is intended: a visitor to the public hostname is
+      # now anonymous until they log in at /login. That is the point — the pilot
+      # keeps frictionless click-through to the sign-in page, not past it.
+      VITE_SMARTMATCH_BEARER_TOKEN: ""

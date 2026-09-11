@@ -122,7 +122,21 @@ sudo usermod -aG docker "$USER"
 
 Log out and SSH back in so `docker` works without sudo.
 
-### 6. Clone and start compose
+### 6. Clone and start compose — SUPERSEDED
+
+> **This procedure is superseded.** It describes the home-directory checkout
+> that the pilot VM ran before it was bootstrapped to the canonical
+> `/opt/smartmatch` layout. That cutover is done: `/opt/smartmatch/app` is now
+> the deployment checkout, owned by the dedicated `smartmatch` system user, and
+> `scripts/vm/deploy.sh` — reached through
+> [`promote.yml`](../../.github/workflows/promote.yml) and
+> [`deploy.yml`](../../.github/workflows/deploy.yml), or run by hand as
+> `sudo -u smartmatch /opt/smartmatch/app/scripts/vm/deploy.sh` — is now the one
+> authoritative way a commit reaches the VM. See
+> [`vm-deploy.md`](vm-deploy.md) for that procedure. The steps below are kept
+> only as the historical record of how this VM was originally stood up; do not
+> follow them on a machine that already has the canonical layout, and do not
+> use them to stand up a new one.
 
 ```bash
 mkdir -p ~/src && cd ~/src
@@ -154,7 +168,27 @@ npx vite --host 127.0.0.1 --port 5173
 Do **not** bind Vite or compose published ports to `0.0.0.0`. Tunnel to
 `127.0.0.1` only.
 
-Restart compose after reboot:
+Restart compose after reboot — SUPERSEDED:
+
+> **This unit is superseded by `scripts/vm/smartmatch.service`.** The
+> canonical layout installs and enables that unit instead, which runs as the
+> `smartmatch` system user against `/opt/smartmatch/app` and shares a `flock`
+> at `/opt/smartmatch/deploy.lock` with `deploy.sh` so a boot cannot race a
+> deployment. Do not install `smartmatch-compose.service` alongside it — two
+> boot-time units racing to bring up the same compose project is exactly the
+> failure mode the shared lock exists to prevent. See
+> [`vm-deploy.md`](vm-deploy.md) for the current unit.
+>
+> **A related mechanism has been removed outright and must not be recreated.**
+> A cron job previously ran every five minutes doing
+> `git reset --hard origin/production-VM` plus a rebuild against this
+> home-directory checkout. It raced any other deploy — CI's, or a human's — by
+> design, because nothing serialized it against them. It has been removed: its
+> script is disabled at `/usr/local/bin/smartmatch-deploy-check.sh.disabled`,
+> and the `production-VM` branch no longer exists upstream. If a boot-time or
+> polling mechanism is ever wanted again beyond `smartmatch.service`, it must
+> take the same `/opt/smartmatch/deploy.lock` that `deploy.sh` and
+> `smartmatch.service` already share — not run outside it.
 
 ```bash
 sudo tee /etc/systemd/system/smartmatch-compose.service >/dev/null <<'EOF'
@@ -178,7 +212,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now smartmatch-compose.service
 ```
 
-Replace `YOUR_USER` with the Linux user that owns the clone.
+Replace `YOUR_USER` with the Linux user that owns the clone. Kept for history
+only — see the superseded notice above.
 
 ---
 
@@ -305,8 +340,71 @@ click.
 
 ---
 
+## This is the guide the live pilot VM was originally built from — SUPERSEDED as a description of today's machine
+
+Worth knowing if you arrived here from [`vm-deploy.md`](vm-deploy.md) and are
+wondering which of the two VM documents describes reality today: **it is now
+`vm-deploy.md`, not this one.**
+
+Two sessions inspected the running instance on 9 September 2026 and reported a
+`docker compose` stack running out of a clone in a user's home directory under
+`~/src/IA-Smart-Match-Revamped`, checked out on `main`, behind a named
+Cloudflare Tunnel — which is precisely the shape Part 1 step 6 and Part 2 of
+this guide build. That was the state of the machine at the time. It is not the
+state of the machine now: the `/opt/smartmatch/app` layout that
+`vm-deploy.md` describes has since been bootstrapped onto that VM, with its
+`smartmatch` service user and its automated deployment on a push through
+[`promote.yml`](../../.github/workflows/promote.yml). The home-directory
+checkout still exists on disk as a fallback, but it is no longer the
+deployment path — see [Clone and start compose](#6-clone-and-start-compose--superseded)
+above.
+
+Three details of the instance still differ from the placeholder values used
+throughout this guide, and remain worth having in front of you before you copy
+a command out of it — these did not change with the cutover:
+
+| This guide says | The live instance is |
+|---|---|
+| `smartmatch-pilot` | `smartmatch` |
+| `--zone=us-west1-a` | `us-west2-c` |
+| `pilot.YOURDOMAIN` | `pilot.plated.blog` |
+
+The hostname is the one corroborated in-repository at
+`apps/web/legacy-frontend/vite.config.ts:39`, where it appears in Vite's
+`allowedHosts` so that the dev server accepts the `Host` header this tunnel
+forwards. The instance name and zone are observations from those two sessions;
+nothing in the repository records them, which is why the placeholders above
+survived this long.
+
+**What this guide remains the only record of** is Part 2 and Part 3 below: how
+the named Cloudflare Tunnel and the Access application in front of it were
+built. That is not superseded, and it cannot be replaced by anything in
+`vm-deploy.md` or anywhere else in this repository, because the tunnel's
+hostname-to-origin mapping is managed in the Cloudflare Zero Trust dashboard,
+not in git. Only a bare token exists on the VM, at `/etc/cloudflared/token` —
+there is no `config.yml` checked in anywhere, because there is no `config.yml`
+on the VM at all. If that mapping were ever lost, rebuilding it means
+repeating Part 2 and Part 3 by hand in the dashboard: recreate the named
+tunnel, re-add the public hostname rule, reinstall the token on the VM, and
+reattach the Access policy. This document is the only place that procedure is
+written down, which is exactly why it is kept rather than deleted.
+
+What this guide does **not** cover, and `vm-deploy.md` now does, is the
+operational consequence of running the appliance on the canonical layout: what
+a deployment to this VM consists of end to end, why the release identity now
+comes from `/api/health` reporting the deployed SHA, and what the scripted
+`scripts/vm/deploy.sh` path gives that the superseded hand-run procedure above
+did not — a backup before every migration, a refusal on a dirty tree, an
+automatic application rollback. That was an open decision recorded here for
+the program owner; it has since been made, and made in favor of the scripted
+path.
+
+---
+
 ## Related
 
+- The live VM's real deployment path, and the open decision about it:
+  [`vm-deploy.md`](vm-deploy.md)
 - Stakeholder vs Cloud Run: [`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md)
 - Classroom vs `dev`: [`../decisions/f5-deploy-target-note-2026-09-03.md`](../decisions/f5-deploy-target-note-2026-09-03.md)
 - Compose appliance: [`containers.md`](containers.md), `docker-compose.yml`
