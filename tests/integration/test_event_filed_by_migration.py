@@ -62,7 +62,15 @@ REVISION = "0033_event_filed_by"
 #: ``0034_cba_meeting``. It creates the three manual-event side tables and
 #: writes nothing to ``event``, so it cannot invent a filer for a row that had
 #: none, and the claim below still holds through it.
-HEAD_REVISION = "0035_manual_event_detail"
+#: Moved again by PR #154's host-organization card:
+#: ``0036_host_organization`` chains to ``0035_manual_event_detail``. It is the
+#: first later revision that touches ``event`` at all -- it ADDs the nullable
+#: ``host_organization_id`` -- and it is an ADD COLUMN with no server default
+#: and no UPDATE, so it writes no value into any existing row and cannot
+#: invent a filer either. The claim below still holds through it, and
+#: :func:`test_the_upgrade_writes_no_row_at_all` is what proves that rather
+#: than this comment.
+HEAD_REVISION = "0036_host_organization"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

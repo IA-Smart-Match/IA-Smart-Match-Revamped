@@ -171,11 +171,17 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: nothing here about a unit's weights, its revision log, or who last
 #: changed them is affected.
 #: Moved again by the manual-events card: ``0035_manual_event_detail`` chains
-#: to ``0034_cba_meeting`` and is now the head. It only creates the three
-#: manual-event side tables and alters nothing that already existed, so
-#: nothing here about a unit's weights, its revision log, or who last changed
-#: them is affected.
-_HEAD_REVISION = "0035_manual_event_detail"
+#: to ``0034_cba_meeting``. It only creates the three manual-event side tables
+#: and alters nothing that already existed, so nothing here about a unit's
+#: weights, its revision log, or who last changed them is affected.
+#: Moved again by PR #154's host-organization card:
+#: ``0036_host_organization`` chains to ``0035_manual_event_detail`` and is now
+#: the head. It creates ``host_organization`` and
+#: ``host_organization_member`` and adds one nullable column to ``event``
+#: (``host_organization_id``). It touches ``match_weight_setting`` and
+#: ``match_weight_setting_revision`` not at all, so this file's surface is
+#: untouched by it as well.
+_HEAD_REVISION = "0036_host_organization"
 
 NEED = "need-weight-settings-1"
 
