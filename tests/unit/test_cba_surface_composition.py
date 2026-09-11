@@ -269,9 +269,7 @@ class TestRouteComposition:
             'customer §4 says "Rewards / points — Keep"; the route must stay mounted'
         )
 
-    @pytest.mark.parametrize(
-        "path_literal", sorted(RETIRED_ADMIN_ADDRESSES.keys())
-    )
+    @pytest.mark.parametrize("path_literal", sorted(RETIRED_ADMIN_ADDRESSES.keys()))
     def test_preserved_admin_addresses_still_resolve(self, path_literal: str) -> None:
         """Every preserved admin address redirects to a mounted successor.
 
@@ -352,12 +350,8 @@ class TestNavigationComposition:
             "the consented outreach page lost its navigation entry entirely"
         )
 
-    @pytest.mark.parametrize(
-        "retired,successor", sorted(RETIRED_ADMIN_NAV.items())
-    )
-    def test_preserved_navigation_entries_remain(
-        self, retired: str, successor: str
-    ) -> None:
+    @pytest.mark.parametrize("retired,successor", sorted(RETIRED_ADMIN_NAV.items()))
+    def test_preserved_navigation_entries_remain(self, retired: str, successor: str) -> None:
         """Every admin-shell nav entry's successor is still in the sidebar.
 
         The entry moved shells and addresses with the consolidation; what may

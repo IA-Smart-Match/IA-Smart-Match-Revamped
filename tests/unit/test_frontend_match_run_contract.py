@@ -373,9 +373,7 @@ def test_the_shortlist_stays_reachable_inside_the_connector_shell() -> None:
     )
 
     redirects = (FRONTEND_SRC / "app" / "legacyRedirects.ts").read_text(encoding="utf-8")
-    ai_matching = re.search(
-        r'from:\s*"/ai-matching"\s*,\s*to:\s*"([^"]+)"([^}]*)}', redirects
-    )
+    ai_matching = re.search(r'from:\s*"/ai-matching"\s*,\s*to:\s*"([^"]+)"([^}]*)}', redirects)
     assert ai_matching is not None, "the /ai-matching redirect is missing"
     assert '"run"' in ai_matching.group(0), (
         "/ai-matching must forward its ?run= parameter to the successor route"

@@ -213,8 +213,7 @@ def test_the_event_host_portal_keeps_its_customer_approved_name() -> None:
     two shells.
     """
     assert portal_display_name_for_role("volunteer") == "Event Host Portal", (
-        "customer §4: Volunteer — Event Host when referring to the "
-        "event-requesting role"
+        "customer §4: Volunteer — Event Host when referring to the event-requesting role"
     )
     assert "{grant.display_name}" in _read("app/components/VolunteerPortalLayout.tsx")
 
