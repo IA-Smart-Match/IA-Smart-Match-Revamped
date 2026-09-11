@@ -438,20 +438,48 @@ def test_the_statistics_surface_says_feedback_does_not_feed_matching() -> None:
 def test_the_statistics_surface_names_the_statistics_the_api_cannot_answer() -> None:
     """A remaining gap is reported, never filled in by the browser.
 
-    Addendum 7 September 2026 closed the unit-feedback gap this test used to
-    pin: the surface now *reads* the unit aggregate through its own route
-    rather than merely naming the absence of one. The review queue is a
-    different, still-open gap — there is no route that lists review items, so
-    the queue stays undrawable even though its *size* is a registered metric —
-    and an empty list there would be a claim about the data when the truth is
-    a claim about the API.
+    Addendum 7 September 2026 closed the unit-feedback gap this test first
+    pinned: the surface *reads* the unit aggregate through its own route rather
+    than merely naming the absence of one.
+
+    Addendum 10 September 2026 closed the second. This test used to require the
+    string ``GET /v1/review-items`` on the page, because the review queue was
+    undrawable — size measurable as a registered metric, items unlistable. That
+    is no longer true. ``GET /v1/units/{unit_id}/review-items``
+    (``routers/review.py``) exists, ``CoordinatorReviewQueue`` renders it, and
+    the home page now counts its pending items and links to them. Continuing to
+    require the old sentence would require the page to keep telling a Connector
+    that a working page does not exist — the fabricated-equivalence defect
+    pointed the other way.
+
+    So the assertion is inverted rather than dropped: the page must NOT claim
+    the list route is missing, and must read it. The invariant this test exists
+    for is unchanged — a gap is named and never filled in by the browser — and
+    the one genuinely open gap on this surface is asserted below, in the match
+    runs row.
     """
     code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
     text = STATS_PAGE.read_text(encoding="utf-8")
 
-    assert "GET /v1/review-items" in text, (
-        "the surface must name the missing list route rather than drawing an empty queue"
+    assert "GET /v1/review-items</code>" not in text, (
+        "the surface still claims the review-item list route is missing; it exists and "
+        "CoordinatorReviewQueue renders it"
     )
+    assert "fetchReviewItems" in code, (
+        "the surface must read the review queue it links to, so the count and the page "
+        "cannot disagree"
+    )
+    assert "/coordinator-portal/review-queue" in code, (
+        "the pending-review count must link through to the queue it counts"
+    )
+
+    # The one gap that is still real on this surface: match runs are fetched
+    # one at a time by id and nothing enumerates them, so the action queue row
+    # carries no number and says why.
+    assert "has no route that lists them" in text, (
+        "the match-runs row must say why it carries no count rather than showing a zero"
+    )
+
     assert "fetchUnitSpeakerFeedbackSummary" in code, (
         "the surface must read the unit feedback aggregate rather than merely naming its absence"
     )
@@ -547,21 +575,32 @@ def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
     way: the reader is told a capability is absent while the page holds its
     answer.
 
-    Meeting bookings is the one coordinator dataset with no ``/v1`` route today,
-    so it keeps its panel. Deleting that one alongside the others would turn a
-    named absence into an unnamed one.
+    Addendum 10 September 2026: Meeting bookings used to be the one coordinator
+    dataset with no ``/v1`` route, so this test required its panel to stay.
+    ``GET``/``POST /v1/units/{unit_id}/meetings`` (migration ``0034``) are live
+    and ``CoordinatorMeetings`` has been reading and writing them, so the panel
+    was claiming an absence over a working route — exactly what this test
+    forbids for the other three. It joins them rather than keeping an
+    exemption, and the surface now renders no unavailable panel at all.
     """
     text = STATS_PAGE.read_text(encoding="utf-8")
     code = _code_only(text)
 
-    for retired in ("Your coordinator profile", "Hosted events and staffing", "Outreach threads"):
+    for retired in (
+        "Your coordinator profile",
+        "Hosted events and staffing",
+        "Outreach threads",
+        "Meeting bookings",
+    ):
         assert f'dataset="{retired}"' not in code, (
             f"the surface still renders an unavailable panel for {retired!r}, which it now "
             "reads from /v1"
         )
 
-    assert 'dataset="Meeting bookings"' in code, (
-        "meeting bookings has no /v1 answer yet; its absence stays named rather than silent"
+    assert "PortalDatasetUnavailable" not in code, (
+        "every dataset this surface once called absent is now served by /v1; an unavailable "
+        "panel left standing beside a working read is the same fabricated-equivalence defect "
+        "pointed the other way"
     )
 
 
