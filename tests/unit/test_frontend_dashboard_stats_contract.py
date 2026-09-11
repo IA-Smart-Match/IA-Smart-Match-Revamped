@@ -47,6 +47,31 @@ STATS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.t
 TOOLTIP_PRIMITIVE = FRONTEND_SRC / "app" / "components" / "ui" / "tooltip.tsx"
 WEB_PACKAGE_JSON = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "package.json"
 
+#: The Speaker Pipeline section, which now carries the register read and the
+#: funnel this file used to find inline on :data:`STATS_PAGE`.
+#:
+#: Splitting the page weakened no rule below; it moved where each one has to be
+#: checked. A guard that kept scanning only the page would go on passing while
+#: the arithmetic it forbids moved one import away, which is the failure mode
+#: these constants exist to close. Every property is therefore asserted against
+#: :func:`_surface_code` — the page *and* the section — unless the property is
+#: specifically about the page itself (its portal grant, its other reads, the
+#: gaps it names).
+PIPELINE_DIR = FRONTEND_SRC / "app" / "components" / "speakerPipeline"
+PIPELINE_LIB = FRONTEND_SRC / "lib" / "speakerPipeline.ts"
+
+
+def _surface_sources() -> list[Path]:
+    """Every file that renders part of the Connector's statistics surface."""
+    components = sorted(PIPELINE_DIR.glob("*.tsx"))
+    assert components, "the Speaker Pipeline section has no components to scan"
+    return [STATS_PAGE, PIPELINE_LIB, *components]
+
+
+def _surface_code() -> str:
+    """The whole surface's source, comments stripped, as one string to scan."""
+    return "\n".join(_code_only(path.read_text(encoding="utf-8")) for path in _surface_sources())
+
 
 def _code_only(source: str) -> str:
     """Strip JSDoc blocks and line comments before scanning.
@@ -173,12 +198,25 @@ def test_the_statistics_surface_reads_both_owning_queries() -> None:
     ``test_frontend_unit_metrics_granted_unit.py``. Which surface a Connector
     reaches is why this test targets the Connector's own landing page, and that
     reason stands on the portal grant alone.
-    """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
 
-    assert "fetchCbaUnitMetrics" in code
-    assert "fetchAttendanceSummary" in code
-    assert "default_unit_id" in code, (
+    The register read is now ``fetchSpeakerPipeline`` rather than
+    ``fetchCbaUnitMetrics``, and that is a narrowing rather than a loosening:
+    ``GET /v1/units/{unit_id}/speaker-pipeline`` measures every metric in the
+    CBA view of the register through the *same* owning queries
+    ``/metrics?surface=cba`` uses — ``tests/contract/test_speaker_pipeline_api.py``
+    pins the two routes to identical counts — and additionally carries the
+    conversions and insights server-side, so the browser is given *less* to
+    compute than before, not more. Keeping both reads on one screen would have
+    been two requests for the same six numbers.
+    """
+    code = _surface_code()
+    page = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchSpeakerPipeline" in code, (
+        "the registered metrics must be read through a server route, not assembled here"
+    )
+    assert "fetchAttendanceSummary" in page
+    assert "default_unit_id" in page, (
         "the unit must come from the server's portal grant, never from a build variable"
     )
 
@@ -188,24 +226,78 @@ def test_the_statistics_surface_computes_nothing() -> None:
 
     Every figure has one owning server query (ADR-0011 rule 3). A browser that
     folded two responses together would be publishing an eighth metric that no
-    query owns and that nothing can drill into.
+    query owns and that nothing can drill into. That now includes the
+    conversion rates: they are computed in ``smartmatch_domain.speaker_pipeline``
+    and arrive already rounded, so a ``toFixed`` or a ``* 100`` anywhere on
+    this surface is a second definition of a published number.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _surface_code()
 
     for forbidden in (
         "reduce(",
         "toFixed",
         "Math.round",
-        "Math.max",
-        "Math.min",
         "average",
         " += ",
         ".length +",
+        "* 100",
+        "/ 100",
     ):
         assert forbidden not in code, (
             f"the statistics surface computes {forbidden!r}; every number it shows must be "
             "one the server chose to send"
         )
+
+
+#: The two places a clamp is legitimate, and what each one clamps.
+#:
+#: ``Math.min``/``Math.max`` are banned everywhere else on this surface for the
+#: reason above. These two files may use them because what they bound is a CSS
+#: width in a ``style`` attribute — a *drawing*, not a figure — and the test
+#: below proves the distinction rather than trusting it: neither file may print
+#: a percentage it computed, and every percentage either one renders comes from
+#: a server field. `speakerPipeline.ts`'s own module docstring states the same
+#: rule ("the clamp it applies is the reason it must never be used as a value").
+_GEOMETRY_CLAMP_FILES = frozenset({"speakerPipeline.ts", "ConversionRatesCard.tsx"})
+
+
+def test_only_css_geometry_is_clamped_and_it_is_never_printed() -> None:
+    """A clamped band width must not be able to reach the screen as a figure.
+
+    A funnel band at 1% of the baseline is drawn at a legible minimum width, so
+    the drawn width and the measured share deliberately disagree. That is fine
+    for a picture and a lie as a number, which is why the measured share is
+    printed from the server's ``share_display`` and the clamped one only ever
+    lands in ``style``.
+    """
+    for path in _surface_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        if path.name not in _GEOMETRY_CLAMP_FILES:
+            for forbidden in ("Math.max", "Math.min"):
+                assert forbidden not in code, (
+                    f"{path.name} clamps with {forbidden!r}; only the two geometry files may, "
+                    "and only for a CSS width"
+                )
+            continue
+
+        for line in code.splitlines():
+            if "Math.min" not in line and "Math.max" not in line:
+                continue
+            assert "width" in line.lower() or "return Math" in line, (
+                f"{path.name} clamps something that is not a width: {line.strip()!r}"
+            )
+
+    # Every literal percent sign on the surface is a CSS unit inside a template
+    # string or a clip-path, never a percentage rendered as text.
+    for path in _surface_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        for number, line in enumerate(code.splitlines(), start=1):
+            if "%" not in line:
+                continue
+            assert "`" in line or "polygon(" in line, (
+                f"{path.name}:{number} renders a literal percentage as text: {line.strip()!r}; "
+                "a percentage a reader sees must come from a server field"
+            )
 
 
 def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
@@ -216,7 +308,7 @@ def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
     answer is none", which is the one substitution this whole register exists to
     prevent — and it reads as deliberate to everyone downstream.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _surface_code()
 
     for forbidden in ("?? 0", "|| 0", "Number("):
         assert forbidden not in code, (
@@ -226,6 +318,9 @@ def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
 
     assert "unknown_reason" in code, (
         "a metric with no value must render the server's reason rather than a bare dash"
+    )
+    assert "Not measured" in code, (
+        "an unmeasured metric must be visibly distinct from a measured zero"
     )
 
 
@@ -358,16 +453,58 @@ def test_the_hover_affordance_adds_no_dependency() -> None:
     )
 
 
-def test_the_statistics_surface_renders_no_percentage() -> None:
-    """OQ-CBA-005 keeps percentages off CBA surfaces.
+def test_no_match_score_percentage_and_none_computed_in_the_browser() -> None:
+    """OQ-CBA-005, read for what it decides rather than by analogy.
 
-    A funnel of counts is where a "conversion rate" appears, and a percentage
-    beside a speaker count is the same shape as the match percentage OQ-CBA-005
-    forbids — with the added problem that computing one would need division the
-    surface is not allowed to do.
+    The ratified answer (``docs/plans/open-questions/cba-phase-deferred.md``,
+    OQ-CBA-005) is about **ranked candidates**: "Rank internally; show
+    factor-level provenance and Topic reasoning; do not show a prominent
+    overall percentage", scoped to "optional match-result presentation change;
+    not ranking itself". What it forbids is a score *about a person* — the
+    number that would let a Connector read "87%" beside a speaker's name and
+    treat it as that speaker's worth.
+
+    This test used to enforce that with a blanket ``"%" not in code``, which
+    was the right guard while the page had no server-owned percentage of any
+    kind and any percent sign on it would necessarily have been computed here.
+    The Speaker Pipeline section changes the second half of that: a conversion
+    rate is not a score about anyone, it is owned by one server definition
+    (``smartmatch_domain.speaker_pipeline``), it arrives already rounded, and
+    it can be drilled to the two counts it divides. The blanket ban is
+    therefore replaced by the two rules that carry its intent, both of which
+    are *stricter* than a text search for "%" since they hold across the whole
+    section rather than one file:
+
+    1. no match-score percentage reaches this surface at all, and
+    2. no percentage on it is computed in the browser — every one is a server
+       field (``display``, ``share_display``).
+
+    Whether the customer wants funnel conversion rates on a CBA screen at all
+    is a product question for the CBA product owner, not one this test can
+    settle; if the answer is no, the fix is to stop the server sending them,
+    not to filter them out in the browser.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
-    assert "%" not in code, "the statistics surface renders a percentage"
+    code = _surface_code()
+
+    for forbidden in (
+        "match_score",
+        "matchScore",
+        "match rate",
+        "overall score",
+        "score_pct",
+        "scorePercent",
+    ):
+        assert forbidden.lower() not in code.lower(), (
+            f"the statistics surface renders {forbidden!r}; OQ-CBA-005 keeps an overall match "
+            "score off the UI, and a funnel card is exactly where one would appear"
+        )
+
+    # Every percentage a reader sees is a server field. `display` and
+    # `share_display` are the two the payload carries; a surface that formatted
+    # its own would need arithmetic `test_the_statistics_surface_computes_nothing`
+    # already forbids, so this is the positive half of the same rule.
+    assert "share_display" in code, "the funnel must print the server's rendering of each share"
+    assert ".display" in code, "the conversion rows must print the server's rendering of each rate"
 
 
 def test_the_statistics_surface_shows_no_individual_student_rating() -> None:
