@@ -68,6 +68,33 @@ it: a membership can be granted over a path that no ``org_unit`` row occupies.
 That is reported as the absence it is. Inventing a unit to fill the field
 would hand a portal an id that every authorized route would then refuse.
 
+## One descriptor per portal, merged deterministically
+
+Two stored roles may open the *same* shell: ``coordinator`` and ``admin`` are
+one persona (``smartmatch_domain.role_presentation``), and since the CBA pivot
+they land in one place. An account holding both therefore has two memberships
+contributing to one portal, and the response carries **one** descriptor for it,
+not two — a list with the same shell twice would make the UI ask which one to
+open, a question with no meaning.
+
+Merging is total and order-independent, because ``membership`` rows arrive in
+no defined order (``smartmatch_persistence.principals`` issues no ``ORDER BY``)
+and an answer that depended on which row the database handed back first would
+be a different response for the same account on two consecutive requests. So:
+
+* ``role`` is the highest the caller actually holds for that portal, by the
+  fixed precedence in :data:`_ROLE_PRIORITY`. It is still a stored string off a
+  real row, never a merged fiction.
+* ``org_unit_path`` is that same winning row's ``granted_path``, so the role
+  and the path a reader sees came from *one* membership rather than from two
+  spliced together.
+* ``units`` is the union over every contributing membership, de-duplicated by
+  ``unit_id`` and sorted by ``(path, unit_id)`` — the caller is authorized over
+  all of them, and dropping the ones that came from the losing row would report
+  less access than the server will actually honour.
+* ``portals`` is ordered by :data:`_PORTAL_ORDER`, and ``default_portal`` is
+  the first of them.
+
 ## What an unmapped role does, and why nothing is invented for it
 
 :data:`_PORTAL_FOR_ROLE` maps exactly the four roles this pilot seeds. A
@@ -112,13 +139,29 @@ class PortalUnit(BaseModel):
     path: str = Field(description="The unit's own ltree path.")
     unit_type: str = Field(description="The unit's type, e.g. `program`.")
     display_name: str = Field(description="The unit's human-readable name.")
+    roles: list[str] = Field(
+        description=(
+            "The stored `membership.role`s the caller actually holds **over this "
+            "unit** — the roles whose granted subtree contains it — highest reach "
+            "first. Reported per unit rather than only per portal because the two "
+            "genuinely differ: an account that is `coordinator` over one subtree and "
+            "`admin` over another opens one shell, and a single portal-level role "
+            "would label every unit in the union with the stronger of the two. A "
+            "route asked about the weaker unit would then refuse something the UI "
+            "had shown as permitted."
+        )
+    )
 
 
 class PortalDescriptor(BaseModel):
     """One portal the caller's server-assigned roles actually open."""
 
     portal: str = Field(
-        description="Stable portal identifier: `student`, `coordinator`, `volunteer`, or `admin`."
+        description=(
+            "Stable portal identifier: `student`, `coordinator`, or `volunteer`. There is "
+            "no separate `admin` portal: the stored `admin` role opens the connector "
+            "shell, and holding it is read from `GET /v1/me`'s memberships."
+        )
     )
     display_name: str = Field(
         description=(
@@ -138,17 +181,36 @@ class PortalDescriptor(BaseModel):
         description=(
             "The `membership.role` that opened this portal — the row an administrator "
             "wrote, echoed back so the UI can name it truthfully. It is never a value "
-            "the caller supplied."
+            "the caller supplied. When several of the caller's memberships open this "
+            "same portal, it is the highest of them by reach (`admin` > `coordinator` "
+            "> `volunteer` > `student`), and `org_unit_path` is that same row's path."
+        )
+    )
+    roles: list[str] = Field(
+        description=(
+            "Every stored `membership.role` the caller holds that opens this portal, "
+            "highest reach first — `role` is simply the first of them. Present because "
+            "one shell can now be opened by more than one role (`coordinator` and "
+            "`admin` are one persona), and a reader that saw only the winner could not "
+            "tell a connector who is also an administrator from one who is not."
         )
     )
     org_unit_path: str = Field(
-        description="The org-unit subtree the granting membership covers, as an ltree path."
+        description=(
+            "The org-unit subtree the granting membership covers, as an ltree path. One "
+            "real membership's path — the same row `role` came from — never a merge of "
+            "several. It is **not** a summary of everything this portal reaches: for "
+            "that, read `units`, and read each unit's own `roles` for what is held "
+            "over it."
+        )
     )
     units: list[PortalUnit] = Field(
         description=(
-            "Every org unit at or below `org_unit_path`, shallowest first — the units "
-            "this membership authorizes the caller over. Empty when the granted path "
-            "contains no unit row, which is reported rather than filled in."
+            "Every org unit the memberships opening this portal authorize the caller "
+            "over: the union of their subtrees, de-duplicated and ordered by path then "
+            "id, so ancestors precede descendants and the order never varies between "
+            "requests. Empty when no granted path contains a unit row, which is "
+            "reported rather than filled in."
         )
     )
     default_unit_id: uuid.UUID | None = Field(
@@ -170,8 +232,10 @@ class MyPortalsResponse(BaseModel):
 
     portals: list[PortalDescriptor] = Field(
         description=(
-            "One entry per active, role-bearing membership whose role maps to a portal. "
-            "Empty when the caller holds none."
+            "One entry per *portal* the caller's active, role-bearing memberships open "
+            "— never two entries for one shell, however many memberships opened it. "
+            "Ordered `coordinator`, `volunteer`, `student`. Empty when the caller holds "
+            "no membership that opens a portal."
         )
     )
     default_portal: str | None = Field(
@@ -195,10 +259,19 @@ class MyPortalsResponse(BaseModel):
 #: this way is what stops the wire from naming the same person one thing in a
 #: portal header and another in a sidebar chip.
 #:
-#: ``admin`` maps to the administration surface, which the frontend mounts on a
-#: pathless layout route whose first page is ``/dashboard`` — hence a home path
-#: that is not ``/admin-portal``. The path is reported by the server precisely
-#: so that mismatch lives in one place rather than in every shell.
+#: ``admin`` and ``coordinator`` map to the **same** portal, because they are
+#: the same persona (``smartmatch_domain.role_presentation``) and, since the
+#: CBA pivot, the same shell: there is no separate administration surface to
+#: land in, only an Administration section inside the connector shell that the
+#: frontend shows when the caller holds ``admin``. Mapping ``admin`` to its own
+#: portal at ``/dashboard`` is what split one person across two shells, and
+#: what made an account holding both roles land in whichever membership the
+#: database returned first.
+#:
+#: The table is therefore many-to-one over roles, and the merge in
+#: :func:`get_my_portals` is what makes that safe. Two roles that share a portal
+#: must agree about its home path — asserted at import below, so a future row
+#: cannot introduce a portal with two homes.
 #:
 #: The keys are the **stored** ``membership.role`` strings, unchanged by the
 #: CBA pivot. A permanent rename is a separate, deferred decision; presenting a
@@ -208,8 +281,61 @@ _PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str]]] = {
     "student": ("student", "/student-portal"),
     "coordinator": ("coordinator", "/coordinator-portal"),
     "volunteer": ("volunteer", "/volunteer-portal"),
-    "admin": ("admin", "/dashboard"),
+    # Not ``("admin", "/dashboard")``: see the note above. A held ``admin``
+    # role is still visible to the frontend — it is on ``GET /v1/me``'s
+    # ``memberships[].role`` — and that, not a second portal, is what reveals
+    # the Administration section.
+    "admin": ("coordinator", "/coordinator-portal"),
 }
+
+#: Stored roles in descending precedence, used when one portal is opened by
+#: more than one of the caller's memberships. Highest wins the descriptor's
+#: ``role`` and ``org_unit_path``.
+#:
+#: The order is by *reach*, which is the only ordering that does not lose
+#: information: ``admin`` is tenant-wide where ``coordinator`` is subtree-scoped
+#: (``smartmatch_authz.policy``), so reporting ``coordinator`` for an account
+#: that also holds ``admin`` would understate a role the server did assign,
+#: while the reverse never overstates one it did not — the descriptor only
+#: echoes rows, and every route still authorizes for itself.
+_ROLE_PRIORITY: Final[tuple[str, ...]] = ("admin", "coordinator", "volunteer", "student")
+
+#: The order portals are listed in, and therefore which one ``default_portal``
+#: names. Fixed here rather than left to membership order, because
+#: ``smartmatch_persistence.principals`` loads memberships with no ``ORDER BY``:
+#: an account holding two roles would otherwise land somewhere different on two
+#: consecutive sign-ins, which is the landing bug in its purest form.
+_PORTAL_ORDER: Final[tuple[str, ...]] = ("coordinator", "volunteer", "student")
+
+if set(_ROLE_PRIORITY) != set(_PORTAL_FOR_ROLE):  # pragma: no cover - import-time assertion
+    # A role with no precedence could not be merged deterministically, and a
+    # precedence for a role that opens nothing is a rule nothing reads.
+    raise RuntimeError(
+        "role precedence and portal routing disagree about the stored roles: "
+        f"{sorted(_ROLE_PRIORITY)} vs {sorted(_PORTAL_FOR_ROLE)}"
+    )
+
+if set(_PORTAL_ORDER) != {portal for portal, _home in _PORTAL_FOR_ROLE.values()}:
+    # pragma: no cover - import-time assertion
+    # A portal with no place in the order would be listed nondeterministically
+    # (or not at all), which is exactly what the order exists to prevent.
+    raise RuntimeError(
+        "portal ordering and portal routing disagree about the portals: "
+        f"{sorted(_PORTAL_ORDER)} vs "
+        f"{sorted({portal for portal, _home in _PORTAL_FOR_ROLE.values()})}"
+    )
+
+_HOMES_PER_PORTAL: Final[dict[str, set[str]]] = {}
+for _portal, _home in _PORTAL_FOR_ROLE.values():
+    _HOMES_PER_PORTAL.setdefault(_portal, set()).add(_home)
+if any(len(homes) != 1 for homes in _HOMES_PER_PORTAL.values()):  # pragma: no cover
+    # Two roles sharing a portal but disagreeing about where it lives would
+    # make the merged descriptor's `home_path` depend on which role won, i.e.
+    # on data rather than on routing. Refused at import instead.
+    raise RuntimeError(
+        "one portal is mounted at two different home paths: "
+        f"{ {portal: sorted(homes) for portal, homes in _HOMES_PER_PORTAL.items()} }"
+    )
 
 if set(_PORTAL_FOR_ROLE) != set(KNOWN_ROLES):  # pragma: no cover - import-time assertion
     # Routing and presentation must cover the same stored roles. A role with a
@@ -222,50 +348,116 @@ if set(_PORTAL_FOR_ROLE) != set(KNOWN_ROLES):  # pragma: no cover - import-time 
     )
 
 
-def _descriptor_for(
-    session: Session, *, tenant_id: uuid.UUID, membership: Membership
-) -> PortalDescriptor | None:
-    """The portal a single membership opens, or ``None`` when its role maps to none.
+def _winning_membership(memberships: list[Membership]) -> Membership:
+    """The membership whose role and path the merged descriptor reports.
 
-    Resolves the membership's path to real ``org_unit`` rows so the descriptor
+    Highest role by :data:`_ROLE_PRIORITY`, ties broken by the lowest
+    ``granted_path``. The tie-break is not cosmetic: two ``coordinator``
+    memberships over different subtrees are a real case, and without it the
+    reported ``org_unit_path`` would be whichever row the database returned
+    first.
+    """
+    return min(
+        memberships,
+        key=lambda membership: (
+            _ROLE_PRIORITY.index(membership.role),
+            str(membership.granted_path),
+        ),
+    )
+
+
+def _ordered_roles(roles: set[str]) -> list[str]:
+    """Stored roles in :data:`_ROLE_PRIORITY` order — highest reach first.
+
+    A fixed order rather than the order rows arrived in, for the same reason
+    the portal list has one: the same account must produce the same bytes on
+    two consecutive requests.
+    """
+    return [role for role in _ROLE_PRIORITY if role in roles]
+
+
+def _merged_units(
+    session: Session, *, tenant_id: uuid.UUID, memberships: list[Membership]
+) -> list[PortalUnit]:
+    """Every unit the contributing memberships cover, once each, with its own roles.
+
+    The union, not the winner's alone: the caller is authorized over all of
+    them, and reporting only the units under the higher-precedence grant would
+    hide access the routes will in fact honour — the mirror image of listing a
+    portal that every route refuses.
+
+    Each unit carries the roles **actually granted over it**, accumulated from
+    every membership whose subtree contains it. That is the part a portal-level
+    role cannot express: a caller who is ``coordinator`` over one subtree and
+    ``admin`` over another holds one shell and two different reaches, and
+    stamping the descriptor's winning role onto every unit would claim
+    tenant-wide authority over units where only the subtree-scoped grant
+    exists. The UI would then offer an action the route refuses, which is the
+    fake-success shape applied to access.
+
+    De-duplicated by ``unit_id`` because two granted paths may overlap, and
+    ordered by ``(path, unit_id)`` so the same account gets the same list on
+    every request. Ancestors still precede their descendants, since an ltree
+    path sorts before any path it prefixes.
+    """
+    # Rows and roles are accumulated first and the descriptors built once,
+    # rather than a model being constructed and then patched: a half-filled
+    # `PortalUnit` that is correct only after a later loop is a shape a future
+    # early return can ship.
+    rows: dict[uuid.UUID, tuple[str, str, str]] = {}
+    roles_by_unit: dict[uuid.UUID, set[str]] = {}
+    for membership in memberships:
+        for unit in units_in_subtree(
+            session, tenant_id=tenant_id, path=str(membership.granted_path)
+        ):
+            rows.setdefault(unit.id, (unit.path, unit.unit_type, unit.display_name))
+            roles_by_unit.setdefault(unit.id, set()).add(membership.role)
+
+    return sorted(
+        (
+            PortalUnit(
+                unit_id=unit_id,
+                path=path,
+                unit_type=unit_type,
+                display_name=display_name,
+                roles=_ordered_roles(roles_by_unit[unit_id]),
+            )
+            for unit_id, (path, unit_type, display_name) in rows.items()
+        ),
+        key=lambda unit: (unit.path, str(unit.unit_id)),
+    )
+
+
+def _descriptor_for(
+    session: Session, *, tenant_id: uuid.UUID, portal: str, memberships: list[Membership]
+) -> PortalDescriptor:
+    """The single descriptor for one portal, merged over every membership opening it.
+
+    Resolves the memberships' paths to real ``org_unit`` rows so the descriptor
     carries the ids unit-scoped routes require. The lookup is scoped to the
     caller's own tenant inside :func:`~smartmatch_api.units.units_in_subtree`,
-    and the path comes from a ``membership`` row rather than from the request.
+    and every path comes from a ``membership`` row rather than from the request.
     """
-    mapped = _PORTAL_FOR_ROLE.get(membership.role)
-    if mapped is None:
-        # Resolved only for a role that maps to a portal: an unmapped role
-        # produces no descriptor, so querying units for it would be work whose
-        # result nothing can read.
-        return None
-
-    portal, home_path = mapped
-    # Never ``None`` here: the import-time check above pins the two tables to
-    # the same stored roles, and this line is only reached for a mapped one.
-    display_name = portal_display_name_for_role(membership.role)
+    winner = _winning_membership(memberships)
+    # Never ``None`` here: the import-time checks above pin routing,
+    # precedence, and presentation to the same stored roles, and this line is
+    # only reached for a role that mapped to ``portal``.
+    display_name = portal_display_name_for_role(winner.role)
     if display_name is None:  # pragma: no cover - excluded by the import-time check
-        # Unreachable while the two tables agree, and raised rather than
-        # softened to a placeholder if they somehow do not: a portal listed
-        # under an invented name is the one failure mode this route refuses to
-        # produce.
-        raise RuntimeError(f"no portal display name for stored role {membership.role!r}")
-    granted_path = str(membership.granted_path)
-    units = [
-        PortalUnit(
-            unit_id=unit.id,
-            path=unit.path,
-            unit_type=unit.unit_type,
-            display_name=unit.display_name,
-        )
-        for unit in units_in_subtree(session, tenant_id=tenant_id, path=granted_path)
-    ]
+        # Unreachable while the tables agree, and raised rather than softened
+        # to a placeholder if they somehow do not: a portal listed under an
+        # invented name is the one failure mode this route refuses to produce.
+        raise RuntimeError(f"no portal display name for stored role {winner.role!r}")
+
+    units = _merged_units(session, tenant_id=tenant_id, memberships=memberships)
 
     return PortalDescriptor(
         portal=portal,
         display_name=display_name,
-        home_path=home_path,
-        role=membership.role,
-        org_unit_path=granted_path,
+        home_path=_PORTAL_FOR_ROLE[winner.role][1],
+        role=winner.role,
+        roles=_ordered_roles({membership.role for membership in memberships}),
+        org_unit_path=str(winner.granted_path),
         units=units,
         default_unit_id=units[0].unit_id if units else None,
     )
@@ -296,8 +488,11 @@ def get_my_portals(principal: CurrentPrincipal, session: DbSession) -> MyPortals
     """
     now = utc_now()
 
-    descriptors: list[PortalDescriptor] = []
-    seen: set[str] = set()
+    # Grouped by portal before anything is built, because the merge below is
+    # over *all* of a portal's memberships at once. Collecting first and
+    # deciding second is what makes the answer independent of the order the
+    # rows arrived in.
+    opening: dict[str, list[Membership]] = {}
     for membership in principal.principal.memberships:
         if not membership.is_active_at(now):
             continue
@@ -306,17 +501,21 @@ def get_my_portals(principal: CurrentPrincipal, session: DbSession) -> MyPortals
         # and it must not open a door.
         if not membership.role.strip():
             continue
-        descriptor = _descriptor_for(session, tenant_id=principal.tenant_id, membership=membership)
-        # De-duplicated by portal, not by membership: two coordinator
-        # memberships over different subtrees are two grants of the same shell,
-        # and listing the shell twice would make the UI ask which one to open —
-        # a question with no meaning, since the shell is the same either way.
-        # The first is kept, so the reported `org_unit_path` is a real covering
-        # grant rather than a merged fiction.
-        if descriptor is None or descriptor.portal in seen:
+        mapped = _PORTAL_FOR_ROLE.get(membership.role)
+        if mapped is None:
             continue
-        seen.add(descriptor.portal)
-        descriptors.append(descriptor)
+        opening.setdefault(mapped[0], []).append(membership)
+
+    descriptors = [
+        _descriptor_for(
+            session,
+            tenant_id=principal.tenant_id,
+            portal=portal,
+            memberships=opening[portal],
+        )
+        for portal in _PORTAL_ORDER
+        if portal in opening
+    ]
 
     return MyPortalsResponse(
         portals=descriptors,

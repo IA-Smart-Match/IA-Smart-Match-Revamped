@@ -16,7 +16,7 @@
  *
  */
 import { useEffect, useState } from "react";
-import { AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -313,15 +313,10 @@ export function Pipeline() {
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-blue-500">
-              <TrendingUp className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-semibold text-gray-900">
-              Pipeline Tracking{isMockData && <DemoModeBadge />}
-            </h1>
-          </div>
-          <p className="text-gray-600">
+          <h1 className="mb-2 text-3xl font-semibold text-foreground">
+            Pipeline tracking{isMockData && <DemoModeBadge />}
+          </h1>
+          <p className="text-muted-foreground">
             Funnel stages read from the registered metrics API. Each tile drills down to exactly the
             rows its aggregate was calculated from.
           </p>
@@ -365,18 +360,18 @@ export function Pipeline() {
       />
 
       {loading ? (
-        <div className="h-80 animate-pulse rounded-xl border border-gray-200 bg-white shadow-sm" />
+        <div className="h-80 animate-pulse rounded-xl border border-border bg-card shadow-sm" />
       ) : (
         <>
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
             <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-xl font-semibold text-gray-900">QR ROI Tracking</h3>
-                <p className="mt-1 text-sm text-gray-600">
+                <h3 className="text-xl font-semibold text-foreground">QR ROI Tracking</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   Referral codes, scans, and downstream conversion signals from the QR contract.
                 </p>
               </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <span className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-primary">
                 {availabilityPill(
                   qrAvailable,
                   qrStats.total_generated,
@@ -387,59 +382,59 @@ export function Pipeline() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Codes generated</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Codes generated</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={qrCodesGenerated}
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Deterministic referral assets created.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Deterministic referral assets created.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Total scans</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Total scans</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={qrTotalScans}
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Tracks the redirect endpoint activity.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Tracks the redirect endpoint activity.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Conversions</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Conversions</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={qrConversions}
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Membership-interest outcomes attributed to QR.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Scan-to-conversion</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Scan-to-conversion</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={qrConversionRate}
                     formatNumber={(value) => `${Math.round(value * 100)}%`}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Rollup efficiency across all referrals.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Rollup efficiency across all referrals.</p>
               </div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-xl border border-gray-200 bg-slate-50 p-4">
+              <div className="rounded-xl border border-border bg-muted p-4">
                 <div className="mb-4 flex items-center justify-between">
-                  <h4 className="font-semibold text-gray-900">Top referral history</h4>
-                  <span className="text-xs uppercase tracking-wide text-gray-500">scan volume</span>
+                  <h4 className="font-semibold text-foreground">Top referral history</h4>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">scan volume</span>
                 </div>
                 <div className="space-y-3">
                   {qrTopEntries.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
+                    <div className="rounded-lg border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
                       {qrAvailable
                         ? "QR rows will appear here once the backend emits referral assets."
                         : "QR analytics are unavailable, so no referral history can be listed."}
@@ -448,19 +443,19 @@ export function Pipeline() {
                     qrTopEntries.map((entry) => (
                       <div
                         key={entry.referral_code}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-white bg-white px-4 py-3 shadow-sm"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-white bg-card px-4 py-3 shadow-sm"
                       >
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-gray-900">{entry.speaker_name}</p>
-                          <p className="truncate text-sm text-gray-600">
+                          <p className="truncate font-medium text-foreground">{entry.speaker_name}</p>
+                          <p className="truncate text-sm text-muted-foreground">
                             {entry.event_name || "Event pending"} · {entry.referral_code}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-gray-900">
+                          <p className="text-sm font-semibold text-foreground">
                             {entry.scan_count === null ? "Unknown" : entry.scan_count} scans
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             {entry.conversion_count === null ? "Unknown" : entry.conversion_count}{" "}
                             conversions
                           </p>
@@ -471,9 +466,9 @@ export function Pipeline() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <h4 className="mb-4 font-semibold text-gray-900">ROI notes</h4>
-                <div className="space-y-3 text-sm text-gray-600">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <h4 className="mb-4 font-semibold text-foreground">ROI notes</h4>
+                <div className="space-y-3 text-sm text-muted-foreground">
                   <p>
                     Referral codes stay deterministic per speaker-event pair, so repeated outreach
                     can reuse the same attribution key.
@@ -491,15 +486,15 @@ export function Pipeline() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
             <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-xl font-semibold text-gray-900">Continuous Improvement</h3>
-                <p className="mt-1 text-sm text-gray-600">
+                <h3 className="text-xl font-semibold text-foreground">Continuous Improvement</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   Feedback-driven acceptance, pain-score, and weight-shift telemetry for the matcher.
                 </p>
               </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <span className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-primary">
                 {availabilityPill(
                   feedbackAvailable,
                   feedbackStats.total_feedback,
@@ -510,50 +505,50 @@ export function Pipeline() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Feedback rows</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Feedback rows</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={feedbackRows}
                     formatNumber={(value) => value.toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">Coordinator submissions captured so far.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Coordinator submissions captured so far.</p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Acceptance rate</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Acceptance rate</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={feedbackAcceptance}
                     formatNumber={(value) => `${Math.round(value * 100)}%`}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Accept vs. decline signal from the feedback loop.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Pain score</p>
-                <p className="mt-2 text-3xl font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Pain score</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">
                   <AccountableValue
                     metric={feedbackPain}
                     formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
                   />
                 </p>
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Tracks how much correction pressure the matcher is under.
                 </p>
               </div>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-                <p className="text-sm font-medium text-blue-700">Lead shift</p>
-                <p className="mt-2 text-lg font-semibold text-gray-900">
+              <div className="rounded-xl border border-border bg-accent/70 p-4">
+                <p className="text-sm font-medium text-primary">Lead shift</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
                   {leadAdjustment
                     ? formatFactorName(leadAdjustment.factor)
                     : feedbackAvailable
                       ? "No shift yet"
                       : "Unknown"}
                 </p>
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {leadAdjustment
                     ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
                     : feedbackAvailable
@@ -564,13 +559,13 @@ export function Pipeline() {
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-xl border border-gray-200 bg-slate-50 p-4">
+              <div className="rounded-xl border border-border bg-muted p-4">
                 <div className="mb-4 flex items-center justify-between">
-                  <h4 className="font-semibold text-gray-900">Acceptance trend</h4>
-                  <span className="text-xs uppercase tracking-wide text-gray-500">feedback loop</span>
+                  <h4 className="font-semibold text-foreground">Acceptance trend</h4>
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">feedback loop</span>
                 </div>
                 {feedbackStats.trend.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
+                  <div className="rounded-lg border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
                     {feedbackAvailable
                       ? "Trend rows will appear here once feedback is submitted from the coordinator workflow."
                       : "Feedback optimizer stats are unavailable, so there is no trend to plot."}
@@ -583,14 +578,14 @@ export function Pipeline() {
                         acceptance_percent: Math.round(point.acceptance_rate * 100),
                       }))}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
                       <Line
                         type="monotone"
                         dataKey="acceptance_percent"
-                        stroke="#2563eb"
+                        stroke="var(--chart-1)"
                         strokeWidth={3}
                         name="Acceptance %"
                       />
@@ -599,11 +594,11 @@ export function Pipeline() {
                 )}
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <h4 className="mb-4 font-semibold text-gray-900">Weight-shift watchlist</h4>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <h4 className="mb-4 font-semibold text-foreground">Weight-shift watchlist</h4>
                 <div className="space-y-3">
                   {feedbackStats.recommended_adjustments.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-gray-300 bg-slate-50 p-4 text-sm text-gray-600">
+                    <div className="rounded-lg border border-dashed border-border bg-muted p-4 text-sm text-muted-foreground">
                       {feedbackAvailable
                         ? "The optimizer has not proposed any bounded weight changes yet."
                         : "Feedback optimizer stats are unavailable."}
@@ -612,18 +607,18 @@ export function Pipeline() {
                     feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
                       <div
                         key={adjustment.factor}
-                        className="rounded-lg border border-gray-200 bg-slate-50 px-4 py-3"
+                        className="rounded-lg border border-border bg-muted px-4 py-3"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-medium text-gray-900">
+                          <p className="font-medium text-foreground">
                             {formatFactorName(adjustment.factor)}
                           </p>
-                          <span className="text-sm font-semibold text-blue-700">
+                          <span className="text-sm font-semibold text-primary">
                             {adjustment.delta > 0 ? "+" : ""}
                             {(adjustment.delta * 100).toFixed(1)} pts
                           </span>
                         </div>
-                        <p className="mt-2 text-sm text-gray-600">{adjustment.rationale}</p>
+                        <p className="mt-2 text-sm text-muted-foreground">{adjustment.rationale}</p>
                       </div>
                     ))
                   )}
@@ -634,9 +629,9 @@ export function Pipeline() {
         </>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-gray-900">Host breakdown not shown here</h2>
-        <div className="mt-3 space-y-3 text-sm leading-6 text-gray-600">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-foreground">Host breakdown not shown here</h2>
+        <div className="mt-3 space-y-3 text-sm leading-6 text-muted-foreground">
           <p>
             The per-host funnel table and bar chart used to be assembled in the browser by joining
             legacy <code>/api</code> pipeline rows against the events CSV. That join produced stage

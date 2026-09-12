@@ -102,6 +102,7 @@ from smartmatch_domain.speaker_requests import (
     SpeakerRequestDraft,
     SpeakerRequestError,
 )
+from smartmatch_persistence.host_organizations import HostOrganizationRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from smartmatch_persistence.speaker_requests import SpeakerRequestRepository, SpeakerRequestRow
 from sqlalchemy.orm import Session
@@ -114,6 +115,13 @@ from smartmatch_api.utils import utc_now
 router = APIRouter(prefix="/v1/units", tags=["speaker-requests"])
 
 _requests: Final[SpeakerRequestRepository] = SpeakerRequestRepository()
+
+#: Migration 0036. Used on the create path for one purpose -- reading the
+#: filer's own organization so a **newly created** request can record which
+#: organization it was filed under -- and on no read path here. It cannot
+#: widen a read: it has no method that returns another account's rows, and
+#: every read below still filters on ``filed_by_user_id``.
+_organizations: Final[HostOrganizationRepository] = HostOrganizationRepository()
 
 #: Who may file a Speaker Request. Customer §12 gives the capability to the
 #: **Event Host**, which ``smartmatch_domain.role_presentation`` maps onto the
@@ -681,6 +689,36 @@ def create_speaker_request(
         # would be a column that means "the filer, unless it was a coordinator".
         filed_by_user_id=principal.user_id,
     )
+
+    # Migration 0036: record which organization this request was filed under,
+    # and only when this call **created** the row.
+    #
+    # `result.created is False` means ADR-0012's identity key resolved this
+    # onto a request already filed -- same unit, same folded title, same date
+    # -- and `EventRepository.upsert_returning_outcome` keeps the first filer
+    # on that path. Stamping there would let a resubmission move a request
+    # from the organization it was filed under to the resubmitter's
+    # organization today, which is the reconstruction `0033` declined to make
+    # about filers. OQ-CBA-065 (a resubmission by a *different* host under the
+    # same identity key) is open and out of scope for this card; nothing here
+    # resolves it, and leaving the stamp alone is the behaviour that does not
+    # pretend to.
+    #
+    # A host with no organization files exactly as before: the column stays
+    # NULL, which means "no organization was recorded" and never "they have
+    # none".
+    if result.created:
+        membership = _organizations.membership_for_user(
+            session, tenant_id=principal.tenant_id, user_id=principal.user_id
+        )
+        if membership is not None and membership.organization.unit_id == host_org_unit_id:
+            _organizations.stamp_event(
+                session,
+                tenant_id=principal.tenant_id,
+                event_id=result.event_id,
+                organization_id=membership.organization.organization_id,
+            )
+
     session.commit()
 
     row = _requests.get(session, tenant_id=principal.tenant_id, event_id=result.event_id)

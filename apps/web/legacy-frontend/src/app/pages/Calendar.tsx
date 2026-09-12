@@ -25,15 +25,10 @@
  */
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle,
-  Building2,
-  CalendarDays,
-  CalendarOff,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
   Clock3,
-  MapPin,
   RefreshCw,
   ShieldCheck,
   Users,
@@ -59,6 +54,20 @@ import {
   calendarSourceProvenance,
   calendarSyntheticReason,
 } from "@/lib/calendarProvenance";
+import {
+  DayDetailView,
+  FailureState,
+  MonthGridView,
+  UnavailableState,
+  WeekAgendaView,
+  coverageTone,
+  formatCount,
+  formatPercent,
+  recoveryFill,
+  recoveryTone,
+  sameDay,
+  type DayCell,
+} from "./CalendarSections";
 
 /**
  * Reads a human message off a thrown value without assuming a specific error
@@ -105,67 +114,11 @@ function isRetiredRoute(reason: unknown): boolean {
   );
 }
 
-/**
- * The designed "this data source does not exist" state.
- *
- * Distinct from {@link FailureState} on purpose, and deliberately without a
- * Retry button: offering one would imply the data is coming back on this
- * build, which it is not.
- */
-function UnavailableState({ title, message }: { title: string; message: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-300 bg-slate-50 p-8">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
-        <CalendarOff className="h-5 w-5 text-slate-600" aria-hidden="true" />
-      </div>
-      <p className="mt-3 text-center text-sm font-semibold text-slate-800">{title}</p>
-      <p className="mx-auto mt-2 max-w-2xl text-center text-sm leading-6 text-slate-600">
-        {message}
-      </p>
-    </div>
-  );
-}
-
-function FailureState({
-  title = "We couldn't load this data",
-  message,
-  onRetry,
-}: {
-  title?: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-rose-100">
-        <AlertTriangle className="h-5 w-5 text-rose-600" />
-      </div>
-      <p className="mt-3 text-sm font-semibold text-rose-800">{title}</p>
-      <p className="mt-1 text-sm text-rose-700">{message}</p>
-      {onRetry ? (
-        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" />
-          Retry
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
 type CalendarView = "month" | "week" | "day";
 type CoverageFilter = "all" | "covered" | "open";
 
-interface DayCell {
-  key: string;
-  date: Date | null;
-}
-
 const parseLocalDate = parseCalendarDate;
 const dateKey = calendarDateKey;
-
-function sameDay(left: Date, right: Date) {
-  return dateKey(left) === dateKey(right);
-}
 
 function startOfWeek(date: Date) {
   const result = new Date(date);
@@ -201,55 +154,6 @@ function buildMonthCells(date: Date): DayCell[] {
   }
 
   return cells;
-}
-
-function coverageTone(status: CalendarEventSummary["coverage_status"]) {
-  switch (status) {
-    case "covered":
-      return "border-blue-200 bg-blue-50 text-blue-800";
-    case "partial":
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case "needs_coverage":
-      return "border-rose-200 bg-rose-50 text-rose-800";
-    default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
-  }
-}
-
-function recoveryTone(status: CalendarAssignmentSummary["recovery_status"]) {
-  switch (status) {
-    case "Available":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "Needs Rest":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "Rest Recommended":
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
-  }
-}
-
-function recoveryFill(status: CalendarAssignmentSummary["recovery_status"]) {
-  switch (status) {
-    case "Available":
-      return "bg-emerald-500";
-    case "Needs Rest":
-      return "bg-amber-500";
-    case "Rest Recommended":
-      return "bg-rose-500";
-    default:
-      return "bg-slate-400";
-  }
-}
-
-// ADR-0011: a null fatigue/count means no evidence, not a measured zero — it
-// renders as "Unknown", never as "0%" or "0".
-function formatPercent(value: number | null) {
-  return value === null ? "Unknown" : `${Math.round(value * 100)}%`;
-}
-
-function formatCount(value: number | null) {
-  return value === null ? "Unknown" : `${value}`;
 }
 
 /** Renders a 0..1 ratio as a whole-number percentage for `AccountableValue`. */
@@ -510,9 +414,9 @@ export function Calendar() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="h-10 w-64 animate-pulse rounded bg-slate-200" />
-        <div className="h-24 animate-pulse rounded-3xl border border-slate-200 bg-white shadow-sm" />
-        <div className="h-[540px] animate-pulse rounded-3xl border border-slate-200 bg-white shadow-sm" />
+        <div className="h-10 w-64 animate-pulse rounded bg-muted" />
+        <div className="h-24 animate-pulse rounded-3xl border border-border bg-card shadow-sm" />
+        <div className="h-[540px] animate-pulse rounded-3xl border border-border bg-card shadow-sm" />
       </div>
     );
   }
@@ -521,10 +425,7 @@ export function Calendar() {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="space-y-2">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-            Master calendar
-          </p>
-          <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
+          <h1 className="text-3xl font-semibold text-foreground">Coordinator scheduling view</h1>
         </div>
         {feedRetired ? (
           <UnavailableState
@@ -545,11 +446,8 @@ export function Calendar() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-          Master calendar
-        </p>
-        <h1 className="text-3xl font-semibold text-slate-900">Coordinator scheduling view</h1>
-        <p className="text-slate-600">
+        <h1 className="text-3xl font-semibold text-foreground">Coordinator scheduling view</h1>
+        <p className="text-muted-foreground">
           Track coverage, assignment overlays, and volunteer recovery without leaving the calendar.
           Dates are shown in {viewerTimeZone()}; the retired feed carries no per-event zone, so no
           event time on this page is rendered in the event&apos;s own zone yet (ADR-0010).
@@ -566,61 +464,61 @@ export function Calendar() {
         {/* Every tile below routes its value through `AccountableValue`, so a
             number the page could not measure renders as "Unknown" with the
             reason attached rather than as a confident 0 (ADR-0011 rule 1). */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Coverage rate</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Coverage rate</p>
+          <p className="mt-2 text-3xl font-semibold text-foreground">
             <AccountableValue metric={coverageRateMetric} formatNumber={formatRatioPercent} />
           </p>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             {metrics.covered === null
               ? "Coverage is unknown while the calendar feed is unavailable."
               : `${metrics.covered} event${metrics.covered === 1 ? "" : "s"} already covered`}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Needs coverage</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Needs coverage</p>
+          <p className="mt-2 text-3xl font-semibold text-foreground">
             <AccountableValue metric={needsCoverageMetric} />
           </p>
-          <p className="mt-1 text-sm text-slate-600">Open windows that still need a volunteer</p>
+          <p className="mt-1 text-sm text-muted-foreground">Open windows that still need a volunteer</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Average fatigue</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Average fatigue</p>
+          <p className="mt-2 text-3xl font-semibold text-foreground">
             <AccountableValue metric={averageFatigueMetric} formatNumber={formatRatioPercent} />
           </p>
-          <p className="mt-1 text-sm text-slate-600">Recovery posture from assignment overlays</p>
+          <p className="mt-1 text-sm text-muted-foreground">Recovery posture from assignment overlays</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">On cooldown</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">On cooldown</p>
+          <p className="mt-2 text-3xl font-semibold text-foreground">
             <AccountableValue metric={cooldownMetric} />
           </p>
-          <p className="mt-1 text-sm text-slate-600">Volunteers that should be left untouched</p>
+          <p className="mt-1 text-sm text-muted-foreground">Volunteers that should be left untouched</p>
         </div>
       </div>
 
-      <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white">
               <CalendarRange className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">
                 {periodLabel} · {viewerTimeZone()}
               </p>
-              <h2 className="text-2xl font-semibold text-slate-900">
+              <h2 className="text-2xl font-semibold text-foreground">
                 {view === "month" ? "Month grid" : view === "week" ? "Week agenda" : "Day detail"}
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Coverage badges are derived from the coordinator-facing calendar contract.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+            <div className="inline-flex rounded-full border border-border bg-muted p-1">
               {(["month", "week", "day"] as CalendarView[]).map((candidate) => (
                 <button
                   key={candidate}
@@ -628,8 +526,8 @@ export function Calendar() {
                   onClick={() => setView(candidate)}
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     view === candidate
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-white"
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-muted-foreground hover:bg-card"
                   }`}
                 >
                   {candidate[0].toUpperCase() + candidate.slice(1)}
@@ -637,11 +535,11 @@ export function Calendar() {
               ))}
             </div>
 
-            <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+            <div className="inline-flex rounded-full border border-border bg-card p-1 shadow-sm">
               <button
                 type="button"
                 onClick={() => movePeriod(-1)}
-                className="rounded-full p-2 text-slate-600 transition hover:bg-slate-100"
+                className="rounded-full p-2 text-muted-foreground transition hover:bg-muted"
                 aria-label="Previous period"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -649,14 +547,14 @@ export function Calendar() {
               <button
                 type="button"
                 onClick={jumpToToday}
-                className="rounded-full px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                className="rounded-full px-4 py-2 text-sm font-medium text-foreground/80 transition hover:bg-muted"
               >
                 Today
               </button>
               <button
                 type="button"
                 onClick={() => movePeriod(1)}
-                className="rounded-full p-2 text-slate-600 transition hover:bg-slate-100"
+                className="rounded-full p-2 text-muted-foreground transition hover:bg-muted"
                 aria-label="Next period"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -666,7 +564,7 @@ export function Calendar() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+          <div className="inline-flex rounded-full border border-border bg-muted p-1">
             {(["all", "covered", "open"] as CoverageFilter[]).map((candidate) => (
               <button
                 key={candidate}
@@ -674,16 +572,16 @@ export function Calendar() {
                 onClick={() => setCoverageFilter(candidate)}
                 className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                   coverageFilter === candidate
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-white"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-card"
                 }`}
               >
                 {candidate === "all" ? "All events" : candidate === "covered" ? "Covered" : "Needs coverage"}
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-medium text-blue-700">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-accent px-3 py-1 font-medium text-primary">
               <ShieldCheck className="h-4 w-4" />
               IA covered
             </span>
@@ -708,422 +606,36 @@ export function Calendar() {
       ) : null}
 
       {view === "month" ? (
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="grid grid-cols-7 gap-3">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
-              <div key={label} className="pb-2 text-center text-sm font-semibold text-slate-600">
-                {label}
-              </div>
-            ))}
-
-            {monthCells.map((cell) =>
-              cell.date ? (
-                <button
-                  key={cell.key}
-                  type="button"
-                  onClick={() => {
-                    setFocusDate(cell.date ?? focusDate);
-                    setView("day");
-                  }}
-                  className={`group min-h-[145px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                    sameDay(cell.date, new Date())
-                      ? "border-blue-200 bg-blue-50/70"
-                      : "border-slate-200 bg-slate-50/60"
-                  }`}
-                >
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <span
-                      className={`text-base font-semibold ${
-                        sameDay(cell.date, new Date()) ? "text-blue-700" : "text-slate-900"
-                      }`}
-                    >
-                      {cell.date.getDate()}
-                    </span>
-                    {eventByDate.get(dateKey(cell.date))?.length ? (
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 shadow-sm">
-                        {eventByDate.get(dateKey(cell.date))?.length}
-                        {eventByDate.get(dateKey(cell.date))?.length === 1 ? " event" : " events"}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-2">
-                    {(eventByDate.get(dateKey(cell.date)) ?? []).slice(0, 2).map((event) => (
-                      <div
-                        key={event.event_id}
-                        className={`rounded-xl border px-3 py-2 ${coverageTone(event.coverage_status)}`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-[12px] font-semibold">{event.event_name}</p>
-                          <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold">
-                            {event.assignment_count} assigned
-                          </span>
-                        </div>
-                        <p className="mt-1 truncate text-[11px] opacity-80">
-                          {event.coverage_label}
-                        </p>
-                      </div>
-                    ))}
-                    {(eventByDate.get(dateKey(cell.date))?.length ?? 0) > 2 ? (
-                      <p className="text-xs font-medium text-slate-500">
-                        +{(eventByDate.get(dateKey(cell.date))?.length ?? 0) - 2} more windows
-                      </p>
-                    ) : null}
-                  </div>
-                </button>
-              ) : (
-                <div key={cell.key} className="min-h-[145px] rounded-2xl border border-transparent" />
-              ),
-            )}
-          </div>
-
-          {/*
-            ADR-0010 / DESIGN.md §1.8: an event whose date does not resolve
-            "renders as unresolved, not as a guess". These rows used to be
-            dropped into today's cell by a `new Date()` fallback, which made a
-            record with no date indistinguishable from one happening today.
-            They are named here instead, outside the grid.
-          */}
-          {unresolvedEvents.length || unresolvedAssignments.length ? (
-            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <div className="flex items-start gap-3">
-                <AlertTriangle
-                  className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-amber-900">
-                    Not placed on the calendar: {unresolvedEvents.length} event
-                    {unresolvedEvents.length === 1 ? "" : "s"}
-                    {unresolvedAssignments.length
-                      ? ` and ${unresolvedAssignments.length} assignment overlay${unresolvedAssignments.length === 1 ? "" : "s"}`
-                      : ""}{" "}
-                    with an unresolved date
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-amber-800">
-                    These records carry no date that resolves, so no day cell can honestly claim
-                    them. They are listed here rather than guessed onto a date.
-                  </p>
-                  <ul className="mt-3 space-y-1 text-sm text-amber-900">
-                    {unresolvedEvents.slice(0, 8).map((event) => (
-                      <li key={`unresolved-${event.event_id}`} className="truncate">
-                        {event.event_name || "Untitled event"} · {event.region} · date unresolved
-                      </li>
-                    ))}
-                    {unresolvedEvents.length > 8 ? (
-                      <li className="font-medium">
-                        +{unresolvedEvents.length - 8} more with unresolved dates
-                      </li>
-                    ) : null}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <MonthGridView
+          monthCells={monthCells}
+          eventByDate={eventByDate}
+          unresolvedEvents={unresolvedEvents}
+          unresolvedAssignments={unresolvedAssignments}
+          onSelectDay={(date) => {
+            setFocusDate(date);
+            setView("day");
+          }}
+        />
       ) : null}
 
       {view === "week" ? (
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="grid gap-3 lg:grid-cols-7">
-            {weekDays.map((day) => {
-              const dayEvents = filteredEvents.filter((event) => {
-                const parsed = parseLocalDate(event.event_date);
-                return parsed ? sameDay(parsed, day) : false;
-              });
-
-              return (
-                <button
-                  key={dateKey(day)}
-                  type="button"
-                  onClick={() => {
-                    setFocusDate(day);
-                    setView("day");
-                  }}
-                  className={`min-h-[320px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                    sameDay(day, new Date()) ? "border-blue-200 bg-blue-50/70" : "border-slate-200 bg-slate-50/60"
-                  }`}
-                >
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        {day.toLocaleDateString("en-US", { weekday: "short" })}
-                      </p>
-                      <p className={`text-lg font-semibold ${sameDay(day, new Date()) ? "text-blue-700" : "text-slate-900"}`}>
-                        {day.getDate()}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
-                      {dayEvents.length}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {dayEvents.slice(0, 3).map((event) => (
-                      <div
-                        key={event.event_id}
-                        className={`rounded-xl border px-3 py-2 ${coverageTone(event.coverage_status)}`}
-                      >
-                        <p className="truncate text-sm font-semibold">{event.event_name}</p>
-                        <p className="mt-1 truncate text-[11px] opacity-80">{event.region}</p>
-                        <div className="mt-2 flex items-center justify-between text-[11px] font-semibold">
-                          <span>{event.coverage_label}</span>
-                          <span>{event.assignment_count} assigned</span>
-                        </div>
-                      </div>
-                    ))}
-                    {dayEvents.length > 3 ? (
-                      <p className="text-xs font-medium text-slate-500">+{dayEvents.length - 3} more</p>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <WeekAgendaView
+          weekDays={weekDays}
+          filteredEvents={filteredEvents}
+          onSelectDay={(date) => {
+            setFocusDate(date);
+            setView("day");
+          }}
+        />
       ) : null}
 
       {view === "day" ? (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-blue-700">
-                  Day detail
-                </p>
-                <h3 className="text-2xl font-semibold text-slate-900">
-                  {focusDate.toLocaleDateString("en-US", {
-                    weekday: "long",
-                    month: "long",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                </h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  The coordinator can see coverage, volunteers, and recovery posture in one place.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Events</p>
-                <p className="text-2xl font-semibold text-slate-900">{selectedDayEvents.length}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {selectedDayEvents.length ? (
-                selectedDayEvents.map((event) => {
-                  const eventAssignments = selectedDayAssignments.filter(
-                    (assignment) =>
-                      assignment.event_id === event.event_id ||
-                      assignment.event_name === event.event_name,
-                  );
-
-                  return (
-                    <article
-                      key={event.event_id}
-                      className={`rounded-3xl border p-5 ${coverageTone(event.coverage_status)}`}
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="text-xl font-semibold text-slate-900">{event.event_name}</h4>
-                            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold shadow-sm">
-                              {event.coverage_label}
-                            </span>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-4 text-sm text-slate-700">
-                            <span className="inline-flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-blue-700" />
-                              {event.region}
-                            </span>
-                            <span className="inline-flex items-center gap-2">
-                              <CalendarDays className="h-4 w-4 text-blue-700" />
-                              {/* A date with no resolvable value says so; it is
-                                  never printed as a raw or guessed string. */}
-                              {parseLocalDate(event.event_date)
-                                ? `${event.event_date} (${viewerTimeZone()})`
-                                : "Date unresolved"}
-                            </span>
-                            <span className="inline-flex items-center gap-2">
-                              <ShieldCheck className="h-4 w-4 text-blue-700" />
-                              {event.assignment_count} assigned
-                            </span>
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            {event.nearby_universities.slice(0, 4).map((campus) => (
-                              <span
-                                key={campus}
-                                className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-xs font-medium text-slate-700"
-                              >
-                                {campus}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
-                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                            Lecture window
-                          </p>
-                          <p className="mt-1 text-lg font-semibold text-slate-900">
-                            {event.suggested_lecture_window}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                          Assignment overlays
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {eventAssignments.length ? (
-                            eventAssignments.slice(0, 4).map((assignment) => (
-                              <span
-                                key={assignment.assignment_id}
-                                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${recoveryTone(
-                                  assignment.recovery_status,
-                                )}`}
-                              >
-                                <span
-                                  className={`h-2.5 w-2.5 rounded-full ${recoveryFill(
-                                    assignment.recovery_status,
-                                  )}`}
-                                />
-                                {assignment.volunteer_name}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600">
-                              No assignment overlay rows
-                            </span>
-                          )}
-                          {eventAssignments.length > 4 ? (
-                            <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600">
-                              +{eventAssignments.length - 4} more
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })
-              ) : (
-                <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-slate-600">
-                  No event windows are scheduled for this day.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-700" />
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Assignment overlays</h3>
-                  <p className="text-sm text-slate-600">
-                    Coverage-aware assignments and recovery status for the selected day.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {selectedDayAssignments.length ? (
-                  selectedDayAssignments.map((assignment) => (
-                    <div
-                      key={assignment.assignment_id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">{assignment.volunteer_name}</p>
-                          <p className="text-sm text-slate-600">
-                            {assignment.volunteer_title || "Board volunteer"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {assignment.event_name} · {assignment.stage}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${recoveryTone(
-                            assignment.recovery_status,
-                          )}`}
-                        >
-                          <span className={`mr-2 h-2.5 w-2.5 rounded-full ${recoveryFill(assignment.recovery_status)}`} />
-                          {assignment.recovery_label}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-3 gap-3">
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                            Fatigue
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-slate-900">
-                            {formatPercent(assignment.volunteer_fatigue)}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                            Recent
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-slate-900">
-                            {formatCount(assignment.recent_assignment_count)}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-white px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                            Cadence
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-slate-900">
-                            {assignment.event_cadence || "n/a"}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-600">
-                    No assignments were found for this day.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-blue-700" />
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Coverage notes</h3>
-                  <p className="text-sm text-slate-600">
-                    Simple labels that help coordinators see where to focus next.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-2">
-                {(selectedDayEvents.length ? selectedDayEvents : filteredEvents.slice(0, 3)).map(
-                  (event) => (
-                    <div
-                      key={`note-${event.event_id}`}
-                      className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-900">{event.event_name}</p>
-                        <p className="text-sm text-slate-600">{event.region}</p>
-                      </div>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-medium ${coverageTone(event.coverage_status)}`}>
-                        {event.coverage_label}
-                      </span>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <DayDetailView
+          focusDate={focusDate}
+          selectedDayEvents={selectedDayEvents}
+          selectedDayAssignments={selectedDayAssignments}
+          filteredEvents={filteredEvents}
+        />
       ) : null}
     </div>
   );

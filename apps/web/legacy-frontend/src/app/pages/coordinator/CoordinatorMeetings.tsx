@@ -378,7 +378,7 @@ export function CoordinatorMeetings() {
             <button
               type="submit"
               disabled={submitting || timeZone === null}
-              className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground disabled:opacity-50"
+              className="min-h-11 inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <CalendarClock className="h-4 w-4" aria-hidden="true" />
               {submitting ? "Recording…" : "Record meeting"}

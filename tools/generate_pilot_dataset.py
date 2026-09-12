@@ -2457,9 +2457,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=FEEDBACK_STUDENT_COUNT,
         help=(
-            "How many of the feedback cohort to create. Each needs a matching entry in the "
-            "API process's SMARTMATCH_DEV_PRINCIPALS, so lowering this is safe and raising "
-            "it above the cohort the plan derives tokens for is refused."
+            f"The feedback cohort: {FEEDBACK_STUDENT_COUNT} (the whole of it) or 0 (skip "
+            "phase C entirely). Nothing in between. Each student needs a matching entry in "
+            "the API process's SMARTMATCH_DEV_PRINCIPALS, read once at startup, so a stack "
+            "carrying no such entries passes 0; a partial cohort is refused rather than "
+            "clamped, because the plan's response shape reaches every rank whatever this "
+            "says and the arithmetic it was chosen for is not a thing to narrow quietly."
         ),
     )
     parser.add_argument(
@@ -2471,7 +2474,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=90,
         help="Review-item poll attempts after an import (2s apart)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # Validated here rather than mid-run: the failure it prevents costs several
+    # minutes of Phase A and Phase B writes before Phase C reaches its first
+    # POST, and the run is then not re-runnable (Phase B resolves rows Phase A
+    # would create). An argument the tool cannot honour must be refused while
+    # refusing it is still free.
+    if args.feedback_students not in (0, FEEDBACK_STUDENT_COUNT):
+        parser.error(
+            f"--feedback-students must be 0 or {FEEDBACK_STUDENT_COUNT}, not "
+            f"{args.feedback_students}: the plan's response shape reaches cohort ranks "
+            f"1..{FEEDBACK_STUDENT_COUNT} whatever this argument says, so a partial cohort "
+            "posts as a student it never created and the API answers 401. Raise "
+            "FEEDBACK_STUDENT_COUNT in tools/pilot_dataset_plan.py if the cohort should "
+            "really be a different size."
+        )
+    return args
 
 
 def _run(args: argparse.Namespace, session: Session) -> RunReport:
@@ -2809,6 +2827,30 @@ def _run(args: argparse.Namespace, session: Session) -> RunReport:
     # After the roster exists, because a rating names a speaker who has to be on
     # it, and after the events exist, because a rating names an event the
     # student has to have attended.
+    #
+    # `--feedback-students 0` skips the phase outright, and that is the whole of
+    # what the flag now does. It cannot narrow the cohort: `build_speaker_feedback`
+    # plans by :data:`FEEDBACK_SPEAKER_RESPONSE_SHAPE`, which reaches ranks 1..8
+    # whatever this argument says, so a run with 1..7 seeded students used to
+    # create that many accounts and then POST as rank 8 anyway — a 401 several
+    # minutes in, after Phase B had already written. `parse_args` refuses those
+    # values rather than clamping the shape, because clamping would change the
+    # residual arithmetic the shape was chosen for (see that function's own
+    # docstring). Skipping is not clamping: it writes no feedback rather than a
+    # different distribution of it, and says so in the report.
+    if args.feedback_students == 0:
+        report.notes.append(
+            "student feedback SKIPPED: --feedback-students 0. No student_speaker_feedback "
+            "row was written, so every per-speaker and unit aggregate is suppressed for "
+            "want of responses — the same answer the API gives a real unit nobody has "
+            "rated, and not a zero. Each rating is a POST a student's own bearer token "
+            "makes, and those tokens have to be in the API process's "
+            "SMARTMATCH_DEV_PRINCIPALS before it booted; the compose `dataset` service "
+            "passes 0 because that stack's map is a fixed four, one per portal. "
+            "scripts/reset_pilot_dataset.sh composes the map itself and runs this phase."
+        )
+        return report
+
     feedback_plan = build_speaker_feedback(seed=args.seed)
     feedback_summary = feedback_plan_summary(feedback_plan)
     report.feedback_withheld = 0  # counted per entry below, not copied from the plan

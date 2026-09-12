@@ -71,15 +71,21 @@ export const ROLE_PRESENTATION = {
     portalDisplayName: "Connector Dashboard",
   },
   /**
-   * Same persona as `coordinator`, distinguishable label. The two stored roles
-   * keep genuinely different reach in `smartmatch_authz`; the qualifier lets a
-   * reader see which row they hold without implying a power the label cannot
-   * grant. See `docs/product/cba-role-presentation.md`.
+   * Same persona as `coordinator`, distinguishable role label, and the *same
+   * portal*. The two stored roles keep genuinely different reach in
+   * `smartmatch_authz`; the qualifier lets a reader see which row they hold
+   * without implying a power the label cannot grant.
+   *
+   * `portalDisplayName` matches `coordinator`'s on purpose: one persona lands
+   * in one shell. `GET /v1/me/portals` maps both roles to the `coordinator`
+   * portal, and Administration is a section inside it — shown when
+   * `hasActiveRole(me, "admin")` (`lib/roles.ts`) — rather than a portal with
+   * a name of its own.
    */
   admin: {
     persona: "speaker_connector",
     roleLabel: "Speaker Connector (administrator)",
-    portalDisplayName: "CBA Administration",
+    portalDisplayName: "Connector Dashboard",
   },
 } as const;
 

@@ -9,6 +9,15 @@
  * mode this whole plan exists to prevent is a matching page that looks like it
  * is working.
  *
+ * ## Where it lives now
+ *
+ * The Connector Dashboard consolidation retired the `/ai-matching` address this
+ * page used to own. The shortlist is the match-runs screen's detail state: a
+ * `?run={id}` on `/coordinator-portal/match-runs` mounts this page in place of
+ * the submission form, and the retired address forwards the parameter across
+ * (`app/legacyRedirects.ts`). A bookmarked `/ai-matching?run={id}` therefore
+ * still opens the run it named.
+ *
  * ## Where runs are submitted, and why not here
  *
  * There is no "run the matcher" form on this page, and there is no longer any
@@ -61,13 +70,15 @@
  * surface got wrong.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { AlertCircle, Info } from "lucide-react";
 
 import { AccountableValue } from "@/app/components/provenance";
+import { grantedPortal } from "@/app/components/PortalGate";
+import { usePortalAccess } from "@/app/hooks/usePortalAccess";
+import { useAuthenticatedPrincipal } from "@/app/hooks/useSession";
 import {
   fetchMatchRun,
-  getConfiguredUnitId,
   hasSmartmatchAuth,
   type MatchCandidateExplanation,
   type MatchFactorExplanation,
@@ -77,19 +88,6 @@ import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/me
 
 /** Query parameter naming which persisted run to read. */
 const RUN_ID_PARAM = "run";
-
-/**
- * Reads the run id from the URL. Returns null rather than a default: there is
- * no "the latest run" to fall back to, and picking one would be this page
- * choosing which recommendation a coordinator sees.
- */
-function readRunIdFromLocation(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const value = new URLSearchParams(window.location.search).get(RUN_ID_PARAM);
-  return value && value.trim().length > 0 ? value.trim() : null;
-}
 
 /**
  * Renders a score exactly as the API measured it.
@@ -116,12 +114,12 @@ function ScoreValue({
   // discriminator for exactly this reason (ADR-0011).
   if (state === "unknown" || value === null) {
     return (
-      <span className="text-gray-500" title={unknownReason}>
+      <span className="text-muted-foreground" title={unknownReason}>
         Unknown
       </span>
     );
   }
-  return <span className="tabular-nums text-gray-900">{formatScore(value)}</span>;
+  return <span className="tabular-nums text-foreground">{formatScore(value)}</span>;
 }
 
 /**
@@ -145,29 +143,29 @@ function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
   // discriminator for exactly this reason (ADR-0011).
   const shownValue = factor.state === "unknown" ? null : factor.value;
   return (
-    <li className="flex flex-col gap-1 border-t border-[#eef2f9] py-2 first:border-t-0">
+    <li className="flex flex-col gap-1 border-t border-border py-2 first:border-t-0">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-medium text-gray-800">
+        <span className="text-sm font-medium text-foreground">
           {factor.display_label}
-          <span className="ml-2 text-xs font-normal text-gray-500">
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
             {factor.kind === "penalty" ? "penalty" : "suitability"} · weight{" "}
             {factor.weight.toFixed(2)}
           </span>
         </span>
         <span className="text-sm font-semibold">
           {shownValue === null ? (
-            <span className="text-gray-500">Unknown</span>
+            <span className="text-muted-foreground">Unknown</span>
           ) : (
-            <span className="tabular-nums text-gray-900">{formatScore(shownValue)}</span>
+            <span className="tabular-nums text-foreground">{formatScore(shownValue)}</span>
           )}
         </span>
       </div>
-      <p className="text-xs leading-5 text-gray-600">
+      <p className="text-xs leading-5 text-muted-foreground">
         {factor.basis}
         {factor.estimate_label ? ` — ${factor.estimate_label}` : ""}
       </p>
       {factor.state === "policy_neutral" ? (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           Stated customer policy, not a measurement
           {factor.policy_id === null
             ? ". The response named no policy id."
@@ -177,12 +175,12 @@ function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
         </p>
       ) : null}
       {factor.zero_classification === "measured_zero" ? (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           Measured zero: the evidence exists and the value really is zero.
         </p>
       ) : null}
       {factor.zero_classification === "unknown" ? (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           No evidence on file. This is not a zero, and it is not counted as one.
         </p>
       ) : null}
@@ -204,9 +202,9 @@ function CandidateCard({
       : "No heuristic score was produced for this candidate.";
 
   return (
-    <li className="rounded-2xl border border-[#d5e0f7] bg-white p-5 shadow-sm">
+    <li className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-lg font-semibold text-gray-900">{candidate.subject_id}</h3>
+        <h3 className="text-lg font-semibold text-foreground">{candidate.subject_id}</h3>
         <p className="text-right">
           <span className="text-2xl font-semibold">
             <ScoreValue
@@ -215,7 +213,7 @@ function CandidateCard({
               unknownReason={unknownReason}
             />
           </span>
-          <span className="ml-2 text-xs uppercase tracking-[0.18em] text-[#005394]/70">
+          <span className="ml-2 text-xs uppercase tracking-[0.18em] text-primary/70">
             {candidate.score_label}
           </span>
         </p>
@@ -226,9 +224,9 @@ function CandidateCard({
           reworded it would be publishing a different claim. Rendered only when
           the response carried one; there is no local default. */}
       {candidate.caption ? (
-        <p className="mt-2 text-sm leading-6 text-gray-700">{candidate.caption}</p>
+        <p className="mt-2 text-sm leading-6 text-foreground/80">{candidate.caption}</p>
       ) : null}
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="mt-1 text-xs text-muted-foreground">
         Factor registry {candidate.registry_version || registryVersion} · formula{" "}
         {candidate.formula_version}
         {candidate.scoring_mode ? ` · mode ${candidate.scoring_mode}` : ""}
@@ -247,24 +245,24 @@ function MatchingUnavailable({ reason }: { reason: string }) {
   const matchingMetric = unavailableMatchingMetric(reason);
   return (
     <div
-      className="rounded-2xl border border-[#d5e0f7] bg-white p-8 shadow-sm"
+      className="rounded-2xl border border-border bg-card p-8 shadow-sm"
       aria-labelledby="matching-unavailable-heading"
     >
       <div className="flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eef4ff] text-[#005394]">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary">
           <AlertCircle className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="space-y-4">
-          <h2 id="matching-unavailable-heading" className="text-2xl font-semibold text-gray-900">
+          <h2 id="matching-unavailable-heading" className="text-2xl font-semibold text-foreground">
             No shortlist to show
           </h2>
-          <p className="text-3xl font-semibold tracking-tight text-gray-900">
+          <p className="text-3xl font-semibold tracking-tight text-foreground">
             <AccountableValue metric={matchingMetric} />
           </p>
-          <p className="text-sm leading-6 text-gray-600">{reason}</p>
-          <p className="text-sm leading-6 text-gray-600">
+          <p className="text-sm leading-6 text-muted-foreground">{reason}</p>
+          <p className="text-sm leading-6 text-muted-foreground">
             This page reads persisted match runs from{" "}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs">
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
               /v1/units/&#123;unit_id&#125;/match-runs/&#123;match_run_id&#125;
             </code>
             . It never fabricates ranks, scores, or percentages when it cannot reach one.
@@ -276,8 +274,22 @@ function MatchingUnavailable({ reason }: { reason: string }) {
 }
 
 export function AIMatching() {
-  const unitId = getConfiguredUnitId();
-  const runId = readRunIdFromLocation();
+  // `GET /v1/me` — the only source of who this is. It throws rather than
+  // substituting a fixture principal, which is the Fix #7 guard.
+  useAuthenticatedPrincipal();
+  // `GET /v1/me/portals` — the only source of the unit this run was recorded
+  // under. Never the `VITE_SMARTMATCH_UNIT_ID` build variable: it is unset on
+  // the deployed bundle, and where it is set it can name a different unit than
+  // the one the server granted this account.
+  const portalAccess = usePortalAccess();
+  const grant = grantedPortal(portalAccess, "coordinator");
+  const unitId = grant?.default_unit_id ?? null;
+  // The run id from the URL. Null rather than a default: there is no "the
+  // latest run" to fall back to, and picking one would be this page choosing
+  // which recommendation a coordinator sees.
+  const [searchParams] = useSearchParams();
+  const runParam = searchParams.get(RUN_ID_PARAM);
+  const runId = runParam !== null && runParam.trim().length > 0 ? runParam.trim() : null;
   const authenticated = hasSmartmatchAuth();
 
   const [run, setRun] = useState<MatchRunRead | null>(null);
@@ -321,7 +333,7 @@ export function AIMatching() {
     );
   } else if (!unitId) {
     body = (
-      <MatchingUnavailable reason="No organizational unit is configured (VITE_SMARTMATCH_UNIT_ID), and match runs are unit-scoped. There is no unit to read a shortlist for." />
+      <MatchingUnavailable reason="The server's portal grant named no unit, and match runs are unit-scoped. There is no unit to read a shortlist for." />
     );
   } else if (!runId) {
     body = (
@@ -331,7 +343,7 @@ export function AIMatching() {
     );
   } else if (loading) {
     body = (
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-8 text-sm text-gray-600 shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-sm">
         Reading match run {runId}…
       </div>
     );
@@ -342,39 +354,39 @@ export function AIMatching() {
   } else {
     body = (
       <div className="space-y-6">
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#005394]/70">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/70">
             Match run
           </p>
-          <h2 className="mt-1 text-xl font-semibold text-gray-900">{run.event_need_id}</h2>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">{run.event_need_id}</h2>
           <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Factor registry</dt>
-              <dd className="text-gray-900">{run.registry_version}</dd>
+              <dt className="text-muted-foreground">Factor registry</dt>
+              <dd className="text-foreground">{run.registry_version}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Score label</dt>
-              <dd className="text-gray-900">{run.score_label}</dd>
+              <dt className="text-muted-foreground">Score label</dt>
+              <dd className="text-foreground">{run.score_label}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Solver</dt>
-              <dd className="text-gray-900">
+              <dt className="text-muted-foreground">Solver</dt>
+              <dd className="text-foreground">
                 {run.solver_name} {run.solver_version}
               </dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Travel estimate</dt>
-              <dd className="text-gray-900">
+              <dt className="text-muted-foreground">Travel estimate</dt>
+              <dd className="text-foreground">
                 {run.route_estimate_source} {run.route_estimate_version}
               </dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Solver verdict</dt>
-              <dd className="text-gray-900">{run.portfolio_status}</dd>
+              <dt className="text-muted-foreground">Solver verdict</dt>
+              <dd className="text-foreground">{run.portfolio_status}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-gray-600">Recorded</dt>
-              <dd className="text-gray-900">{new Date(run.created_at).toLocaleString()}</dd>
+              <dt className="text-muted-foreground">Recorded</dt>
+              <dd className="text-foreground">{new Date(run.created_at).toLocaleString()}</dd>
             </div>
           </dl>
         </div>
@@ -399,14 +411,14 @@ export function AIMatching() {
         )}
 
         {run.unscorable.length > 0 ? (
-          <section className="rounded-2xl border border-[#e5e9f2] bg-[#fafbfe] p-6">
+          <section className="rounded-2xl border border-border bg-muted p-6">
             <div className="flex items-start gap-3">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#005394]" aria-hidden="true" />
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
               <div>
-                <h2 className="text-base font-semibold text-gray-900">
+                <h2 className="text-base font-semibold text-foreground">
                   Not scored — evidence missing
                 </h2>
-                <p className="mt-1 text-sm leading-6 text-gray-600">
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   These candidates were considered and could not be scored, because at least one
                   factor had no evidence on file. They are listed rather than dropped, and they are
                   not scored as zero: an absence is not a low score.
@@ -427,7 +439,7 @@ export function AIMatching() {
 
         {run.considered.length > 0 ? (
           <section>
-            <h2 className="text-base font-semibold text-gray-900">Considered, not shortlisted</h2>
+            <h2 className="text-base font-semibold text-foreground">Considered, not shortlisted</h2>
             <ul className="mt-3 list-none space-y-4">
               {run.considered.map((candidate) => (
                 <CandidateCard
@@ -446,8 +458,8 @@ export function AIMatching() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900">Speaker shortlist</h1>
-        <p className="mt-1 text-gray-600">
+        <h1 className="text-3xl font-semibold text-foreground">Speaker shortlist</h1>
+        <p className="mt-1 text-muted-foreground">
           Two to three speakers per event need, from the approved factor registry. Scores are
           heuristic and are shown as they were measured — never as a percentage, and never with an
           unknown reported as a zero.
@@ -459,7 +471,7 @@ export function AIMatching() {
           // sent from there either.
           <p className="mt-2 text-sm">
             <Link
-              className="font-medium text-blue-700 underline"
+              className="font-medium text-primary underline"
               to={`/coordinator-portal/invitations?run=${encodeURIComponent(runId)}`}
             >
               Compose speaker invitations from this shortlist
