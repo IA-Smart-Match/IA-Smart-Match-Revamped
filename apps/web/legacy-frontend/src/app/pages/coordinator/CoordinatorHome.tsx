@@ -198,7 +198,6 @@ import {
 import {
   ApiRequestError,
   fetchAttendanceSummary,
-  fetchCbaUnitMetrics,
   fetchOutreachDrafts,
   fetchOutreachSends,
   fetchReviewItems,
@@ -207,7 +206,6 @@ import {
   fetchUnitEvents,
   fetchUnitSpeakerFeedbackSummary,
   type AttendanceSummary,
-  type MetricSummary,
   type OutreachDraft,
   type OutreachSendSummary,
   type ReviewItemListResponse,
@@ -218,6 +216,7 @@ import {
   type UnitFeedbackSummary,
 } from "../../../lib/api";
 import { PortalIdentityCard } from "../../components/PortalContent";
+import { SpeakerPipelineSection } from "../../components/speakerPipeline/SpeakerPipelineSection";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
@@ -242,138 +241,6 @@ function describeFailure(cause: unknown, subject: string): string {
   return cause instanceof ApiRequestError
     ? cause.message
     : `${subject} could not be read and the server gave no reason.`;
-}
-
-/**
- * One registered metric, exactly as the register answered for it.
- *
- * Three states, and the middle one is the point of the whole register: a
- * measured number, a measured zero (which prints as `0` and means the query ran
- * and found none), and an unknown carrying the server's `unknown_reason`. There
- * is no fourth branch in which a missing value becomes a zero.
- *
- * ## Why the definition is behind an affordance and the reason is not
- *
- * The card face carries the display name and the value, and nothing else. The
- * `definition` is the register's own sentence about how a metric is counted —
- * `smartmatch_domain/metrics.py` writes it for a reader who has stopped to ask,
- * and the longest of the six runs to about ninety words. Six of those printed
- * on the face pushed the grid past the fold, so the first thing a Connector had
- * to do with their unit's numbers was scroll away from them.
- *
- * It moves behind an info control that opens on **hover and on keyboard
- * focus** — a real `<button>`, not a `<span>` with a mouse handler, because the
- * two are the same control to a mouse and only one of them exists to a keyboard
- * or a screen reader. Radix's `Tooltip` (`components/ui/tooltip.tsx`, already a
- * dependency of this app) gives both from the one trigger, which is why no new
- * component and no new package appears here.
- *
- * The tooltip prints `metric.definition` **verbatim**. Nothing is sliced,
- * clamped or elided: the register is the author of a registered definition, and
- * a browser that shortened one would be publishing a second, shorter definition
- * that no server owns and that nothing can drill into. A definition that is too
- * long is a sentence to rewrite in `metrics.py`, where every surface reading the
- * register gets the rewrite.
- *
- * `unknown_reason` stays on the face. It is not a footnote and it is not
- * optional reading: it is the entire content of an unmeasured metric, and
- * ADR-0011 rule 1 is about exactly this — the reason a number is missing has to
- * arrive with the missing number, not behind a gesture a reader has to guess to
- * make. A definition explains a figure that is on the screen; a reason explains
- * why one is not, and only the first of those can wait for a hover.
- */
-function RegisteredMetricCard({ metric }: { metric: MetricSummary }) {
-  const measured = metric.value !== null;
-
-  return (
-    <li className="rounded-xl border border-border/70 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {metric.display_name}
-        </h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              // Labelled with the metric it belongs to: six controls all
-              // reading "info" are six identical, unusable stops in a screen
-              // reader's list of a page's buttons.
-              aria-label={`How ${metric.display_name} is counted`}
-              className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Info className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs text-left leading-5">
-            {/* The register's sentence, exactly as it was written — no slice,
-                no clamp, no ellipsis. See this component's docstring. */}
-            {metric.definition}
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      {measured ? (
-        <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{metric.value}</p>
-      ) : (
-        <>
-          <p className="mt-1 text-sm font-medium text-foreground">Not measured</p>
-          {/* Inline, never inside the tooltip above: ADR-0011 rule 1, and the
-              reason a number is missing is not a footnote. */}
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">{metric.unknown_reason}</p>
-        </>
-      )}
-    </li>
-  );
-}
-
-/**
- * The registered metrics for this unit, as the CBA product presents them.
- *
- * The `surface=cba` view is the server's: `pipeline_member_inquiry` is absent
- * because `Capability.MEMBER_INQUIRY_NARRATIVE` is off under `ProductScope.CBA`,
- * and the funnel labels are written for a surface whose subject is a speaker.
- * Nothing is filtered or relabelled here, so there is no second copy of that
- * decision to fall out of date.
- */
-function RegisteredMetrics({ state }: { state: Loaded<MetricSummary[]> }) {
-  return (
-    <section className="rounded-2xl border border-border p-6" aria-label="Registered metrics">
-      <div className="flex items-start gap-2">
-        <BarChart3 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <div>
-          <h2 className="font-semibold text-foreground">Where your unit&apos;s work stands</h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Every figure below is counted by the server, and each one is a registered metric with
-            a single owning query behind it. No total, mean or rounding is produced in your
-            browser.
-          </p>
-        </div>
-      </div>
-
-      {state.error !== null ? (
-        <p
-          role="alert"
-          className="mt-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground"
-        >
-          {state.error}
-        </p>
-      ) : state.data === null ? (
-        <p className="mt-4 text-sm text-muted-foreground">
-          {state.settled ? "The register returned nothing." : "Loading…"}
-        </p>
-      ) : state.data.length === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">
-          The server registered no metrics for this unit, so there is nothing to count. This is a
-          statement about the register, not about your unit&apos;s activity.
-        </p>
-      ) : (
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {state.data.map((metric) => (
-            <RegisteredMetricCard key={metric.name} metric={metric} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
 }
 
 /**
@@ -1146,7 +1013,6 @@ export function CoordinatorHome() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [metrics, setMetrics] = useState<Loaded<MetricSummary[]>>(PENDING);
   const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
   const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
   const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
@@ -1164,13 +1030,18 @@ export function CoordinatorHome() {
   const load = useCallback(async () => {
     if (unitId === null) return;
 
-    // Nine independent reads, settled independently. Letting one refusal
+    // Eight independent reads, settled independently. Letting one refusal
     // decide what another section shows would misreport which capability the
     // server actually withheld.
     //
     // The three action-queue reads run first because the queue renders first:
     // the four things a Connector owes are the reason they opened this page,
     // and the metrics below can finish arriving while they read them.
+    //
+    // The registered metrics are not among these reads. `SpeakerPipelineSection`
+    // performs its own single one, because it needs the funnel, the conversions
+    // and the insights the register listing does not carry — and re-reading the
+    // register here would be a second request for numbers already on the screen.
     try {
       const listing = await fetchSpeakerRequests(unitId);
       setSpeakerRequests({ data: listing, error: null, settled: true });
@@ -1200,17 +1071,6 @@ export function CoordinatorHome() {
       setInvitationBatches({
         data: null,
         error: describeFailure(cause, "The invitation batches"),
-        settled: true,
-      });
-    }
-
-    try {
-      const response = await fetchCbaUnitMetrics(unitId);
-      setMetrics({ data: response.metrics, error: null, settled: true });
-    } catch (cause) {
-      setMetrics({
-        data: null,
-        error: describeFailure(cause, "The registered metrics"),
         settled: true,
       });
     }
@@ -1315,7 +1175,7 @@ export function CoordinatorHome() {
           />
           <ThisWeeksEvents state={events} />
 
-          <RegisteredMetrics state={metrics} />
+          <SpeakerPipelineSection unitId={unitId} />
           <AttendanceEvidence state={attendance} />
           <StudentFeedbackPointer state={feedback} />
           <HostedEventsSummary state={events} />
