@@ -22,6 +22,29 @@ against prose. A prototype that provokes a good objection has done its job.
 
 ## What the backend actually implements today
 
+> **STALE AS OF 13 SEPTEMBER 2026 — read the correction below before the table.**
+>
+> The table that follows was written when the contract carried seven operations.
+> **It now carries 83**, and four capabilities the table calls "PLANNED BACKEND —
+> does not exist" have since shipped and are reachable over HTTP:
+>
+> | Row that is now wrong | What actually exists |
+> |---|---|
+> | Matching, match runs, ranked results | `POST /v1/units/{unit_id}/match-runs` on the durable command path; four CBA factors composed by `rank_cba_candidates`; registry `2.0.0-approved-oq-cba-004` |
+> | Attendance, QR check-in | `POST /v1/units/{unit_id}/events/{event_id}/attendance` writes evidence and credits points in the same transaction. QR **check-in** is still unwired (S11 + D8, OQ-E04); the event **feedback** QR ships |
+> | Points ledger, rewards catalog, redemption | All four reward routes ship; the balance is a fold over `point_ledger_entry` |
+> | ICS | `GET /v1/units/{unit_id}/events/{event_id}/invite.ics` ships, and refuses without an end time |
+>
+> Also since shipped: the student browse / agenda / register / cancel surface, the
+> Speaker Pipeline analytics read, manual event filing, and student speaker
+> feedback. **Everything else in the table below still holds** — no live send, no
+> crawler, no calendar API, no deployment, and `ALLOW_LIVE_PROVIDERS` and
+> `ALLOW_CLOUD_DEPLOY` stay false.
+>
+> The correction is recorded here rather than by editing the table, because a
+> prompt that produced a reviewed artifact should stay recoverable — this file's
+> own rule for review notes.
+
 **Read this before writing any prompt, and before believing any screen.** The
 prototype will show a lot of product. Almost none of it exists.
 
@@ -349,6 +372,60 @@ inventing a screen to fill it.
 
 ---
 
+## Prompt 10 — student recommendation feed (added 2026-09-13)
+
+> *[shared prefix]*
+
+Build the student recommendation feed, mobile-first, as an addition to the
+Prompt 2 student experience and **not** a replacement for its agenda or its month
+calendar (customer §15 keeps the calendar at the bottom of the Events page, and
+OQ-CBA-020 keeps its cells non-interactive).
+
+1. **Interest picker** — the closed twelve-term G3 vocabulary
+   (`smartmatch_domain.event_vocabulary`, version `g3-2026-08-29`), presented as
+   tappable chips with a stated minimum. No free text. The screen states what is
+   stored and what is not.
+2. **The feed** — a **bounded** week: full-viewport cards, one event each, CSS
+   scroll-snap, actions in the bottom third, a progress rail, and a **real end
+   card**. Not infinite, and never padded to appear so.
+3. **Per card** — the event's time in its own named IANA zone (a `date_only`
+   event as a date, never midnight); its mapped vocabulary tags with the matched
+   ones distinguished; **one sentence** saying why it was recommended; a
+   provenance label; and what attendance would earn.
+4. **The wildcard** — exactly one card per session drawn from outside the
+   student's declared interests, **visibly labelled as such**, stating the pool it
+   was drawn from. It is never presented as a ranking result.
+5. **Points panel** — the server-authored balance and progress toward the nearest
+   *reachable* reward, with the earning rate marked provisional while D7 is
+   unratified.
+6. **Aggregate demand** — the Connector-facing view of what a unit's students
+   declared, with suppression visible below the threshold.
+7. **The six non-happy states**, each reachable: loading, empty, unknown,
+   partial, denied, failed.
+
+**Exclude, deliberately, and annotate each exclusion with its citation in the
+design notes:**
+
+- **any speaker name or speaker id** — OQ-CBA-064 records that no
+  student-authorized route returns one, and OQ-CBA-051 that no record says who
+  appeared at which event;
+- **any overall score or match percentage** — ADR-0016 Proposal 8 and OQ-CBA-005.
+  Relevance is a sentence plus the matched tags, never a number;
+- **points for scrolling, streaks, or logging in** — ADR-0013 derives every
+  ledger entry from a recorded attendance, and this pack already excludes them;
+- **a progress bar toward an unreachable reward, or a 0% bar** —
+  `engagement-model.md` §4: the honest render is the absence of the line;
+- **the words "discovery" or "feed of discoveries"** — `DESIGN.md` bans discovery
+  and crawler language on visible paths;
+- **infinite recycling of skipped events.**
+
+Backing plans: [`../plans/2026-09-13-w1-student-interest-profile-plan.md`](../plans/2026-09-13-w1-student-interest-profile-plan.md),
+[`../plans/2026-09-13-w2-student-event-ranking-plan.md`](../plans/2026-09-13-w2-student-event-ranking-plan.md),
+[`../plans/2026-09-13-w4-aggregate-demand-signal-plan.md`](../plans/2026-09-13-w4-aggregate-demand-signal-plan.md),
+and the research in [`../plans/research/2026-09-13-engagement-feed-research.md`](../plans/research/2026-09-13-engagement-feed-research.md).
+
+---
+
 ## Coverage table
 
 Every screen named in the prompts above, mapped to the prompt that produces it,
@@ -481,6 +558,20 @@ row, and either way it needs resolving before the UI team reviews the pack.
 | Audit and failure explanation | 8 | FUTURE CONCEPT |
 | Agent-assisted outreach drafting | 8 | FUTURE CONCEPT |
 
+
+### Prompt 10 — student recommendation feed
+
+| Screen | Prompt | Annotation |
+|---|---|---|
+| Interest picker (closed G3 vocabulary) | 10 | PLANNED BACKEND |
+| Bounded weekly feed, snap-scrolled | 10 | PLANNED BACKEND |
+| Event card with why-sentence and matched tags | 10 | PLANNED BACKEND |
+| Wildcard / exploration card | 10 | PLANNED BACKEND |
+| End-of-week card | 10 | PLANNED BACKEND |
+| Points panel with reachable-reward progress | 10 | LIVE CONTRACT (`GET /v1/units/{unit_id}/rewards`) |
+| Aggregate interest demand | 10 | PLANNED BACKEND |
+| The six non-happy states | 10 | — |
+
 **Prompt 9 produces no screens of its own.** It validates and connects the
 screens above and reports what is missing.
 
@@ -542,17 +633,43 @@ should stay recoverable, so append a revision instead.
 
 | Date | Reviewer | Prompt / screen | Note | Disposition |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-09-13 | — (not yet reviewed) | Prompt 10 | Artifact produced and linked below. **The UI team has not reviewed it.** | Open — awaiting review |
 
 ### External artifacts
 
-Fill these in once the prompts have been run. They are blank because nothing has
-been produced, not because someone forgot.
+Prompts 1-9 have still not been run. **Prompt 10 has**, on 13 September 2026, and
+its artifacts are below. Everything else in this table remains blank because
+nothing has been produced, not because someone forgot.
 
 | Artifact | Location |
 |---|---|
-| Shareable prototype link | *not yet produced* |
-| Selected screenshots | *not yet produced* |
-| Flow map | *not yet produced* |
-| Screen inventory returned by the tool | *not yet produced* |
-| Accessibility notes returned by the tool | *not yet produced* |
+| Shareable prototype link (Prompt 10) | <https://claude.ai/code/artifact/455cb0c9-4223-46b4-9382-3cb546feff35> — "This Week at CBA" |
+| Screen inventory (Prompt 10) | The eight rows in the Prompt 10 coverage table above. The prototype's own screen switcher enumerates them, and every screen it shows maps to a row |
+| Flow map (Prompt 10) | Interests -> feed -> register, and feed -> end card -> points. Both are clickable in the artifact. The aggregate-demand screen is a Connector surface and joins no student flow |
+| Accessibility notes (Prompt 10) | Below |
+| Selected screenshots | *not yet produced* — the link is live, so a reviewer can take their own |
+| Prompts 1-9 artifacts | *not yet produced* |
+
+#### Prompt 10 — accessibility notes
+
+- **Keyboard complete.** The feed is focusable and Up/Down move one card at a
+  time; every chip, tab and action is a real `<button>` with a visible
+  CPP-Green focus ring at 3px with 2px offset.
+- **Touch targets** are 44px minimum on every control, and the two card actions
+  sit in the bottom third of the card, reachable one-handed.
+- **`prefers-reduced-motion: reduce`** collapses every transition, animation and
+  smooth scroll. **No information depends on animation** — the loading skeleton
+  carries a visually hidden "Loading this week's events" for screen readers.
+- **Both themes** are token-defined: the bare `:root` carries the full light
+  palette from `theme.css`, redefined under `prefers-color-scheme: dark` guarded
+  against an explicit light choice, and again under `[data-theme="dark"]`.
+- **Not color-alone.** The wildcard carries a text badge, not just a gold border;
+  suppressed demand rows are labelled "withheld" as well as hatched; the matched
+  tags differ in weight as well as fill.
+- **No horizontal overflow** at 360 / 768 / 1024 / 1440. The one wide element per
+  section is a table in its own `overflow-x: auto` container.
+- **Known gap, unresolved:** the scroll-snap feed has not been tested against a
+  screen reader's virtual cursor. Snap containers are a known weak point, and a
+  real implementation should be verified with NVDA and VoiceOver before it is
+  called AA. This is exactly the kind of finding the pack asks for rather than
+  papers over.
