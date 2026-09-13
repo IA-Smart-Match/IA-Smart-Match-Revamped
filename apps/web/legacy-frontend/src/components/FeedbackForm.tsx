@@ -131,35 +131,35 @@ export function FeedbackForm({
   };
 
   return (
-    <section className={`rounded-3xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}>
+    <section className={`rounded-3xl border border-border bg-card p-6 shadow-sm ${className}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent text-primary">
               <MessageSquareHeart className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-              <p className="text-sm text-slate-600">{description}</p>
+              <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+              <p className="text-sm text-muted-foreground">{description}</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event</p>
-          <p className="mt-1 font-semibold text-slate-900">{eventName}</p>
+        <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Event</p>
+          <p className="mt-1 font-semibold text-foreground">{eventName}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Volunteer</p>
-          <p className="mt-1 font-semibold text-slate-900">{speakerName}</p>
+        <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Volunteer</p>
+          <p className="mt-1 font-semibold text-foreground">{speakerName}</p>
         </div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">Decision</label>
+          <label className="mb-2 block text-sm font-medium text-foreground/80">Decision</label>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -167,7 +167,7 @@ export function FeedbackForm({
               className={`rounded-2xl border px-4 py-3 text-sm font-medium ${
                 decision === "accept"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-slate-200 bg-white text-slate-600"
+                  : "border-border bg-card text-muted-foreground"
               }`}
             >
               Accept
@@ -178,7 +178,7 @@ export function FeedbackForm({
               className={`rounded-2xl border px-4 py-3 text-sm font-medium ${
                 decision === "decline"
                   ? "border-rose-200 bg-rose-50 text-rose-700"
-                  : "border-slate-200 bg-white text-slate-600"
+                  : "border-border bg-card text-muted-foreground"
               }`}
             >
               Decline
@@ -187,13 +187,13 @@ export function FeedbackForm({
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label className="mb-2 block text-sm font-medium text-foreground/80">
             Coordinator rating
           </label>
           <select
             value={coordinatorRating}
             onChange={(event) => setCoordinatorRating(event.target.value)}
-            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="w-full rounded-2xl border border-border px-4 py-3 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
           >
             {["5", "4", "3", "2", "1"].map((rating) => (
               <option key={rating} value={rating}>
@@ -207,13 +207,13 @@ export function FeedbackForm({
       {decision === "decline" ? (
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Decline reason</label>
+            <label className="mb-2 block text-sm font-medium text-foreground/80">Decline reason</label>
             <select
               value={declineReason}
               onChange={(event) =>
                 setDeclineReason(event.target.value as (typeof declineReasons)[number])
               }
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-2xl border border-border px-4 py-3 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             >
               {declineReasons.map((reason) => (
                 <option key={reason} value={reason}>
@@ -223,26 +223,26 @@ export function FeedbackForm({
             </select>
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
+            <label className="mb-2 block text-sm font-medium text-foreground/80">Notes</label>
             <textarea
               value={declineNotes}
               onChange={(event) => setDeclineNotes(event.target.value)}
               rows={3}
               placeholder="Add any context leadership would want later."
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-2xl border border-border px-4 py-3 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </div>
         </div>
       ) : (
         <div className="mt-5 grid gap-4 md:grid-cols-[1fr_auto]">
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Outcome stage</label>
+            <label className="mb-2 block text-sm font-medium text-foreground/80">Outcome stage</label>
             <select
               value={eventOutcome}
               onChange={(event) =>
                 setEventOutcome(event.target.value as (typeof positiveOutcomes)[number]["value"])
               }
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-2xl border border-border px-4 py-3 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             >
               {positiveOutcomes.map((outcome) => (
                 <option key={outcome.value} value={outcome.value}>
@@ -251,21 +251,21 @@ export function FeedbackForm({
               ))}
             </select>
           </div>
-          <label className="mt-8 inline-flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <label className="mt-8 inline-flex items-center gap-3 rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-foreground/80">
             <input
               type="checkbox"
               checked={membershipInterest}
               onChange={(event) => setMembershipInterest(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
             />
             Membership interest captured
           </label>
         </div>
       )}
 
-      <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3">
-        <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Submission context</p>
-        <p className="mt-1 text-sm text-slate-700">
+      <div className="mt-5 rounded-2xl border border-primary/20 bg-accent/70 px-4 py-3">
+        <p className="text-xs uppercase tracking-[0.18em] text-primary">Submission context</p>
+        <p className="mt-1 text-sm text-foreground/80">
           Match score at submission: <span className="font-semibold">{Math.round(matchScore * 100)}%</span>
         </p>
       </div>
@@ -293,7 +293,7 @@ export function FeedbackForm({
           type="button"
           onClick={() => void handleSubmit()}
           disabled={submitting}
-          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-3 font-medium text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Send className="h-4 w-4" />
           {submitting ? "Submitting..." : "Submit Feedback"}
@@ -302,7 +302,7 @@ export function FeedbackForm({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-2xl border border-slate-300 px-5 py-3 font-medium text-slate-700 transition hover:bg-slate-50"
+            className="rounded-2xl border border-border px-5 py-3 font-medium text-foreground/80 transition hover:bg-muted"
           >
             Cancel
           </button>

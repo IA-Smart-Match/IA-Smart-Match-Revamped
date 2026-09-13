@@ -61,6 +61,25 @@ export function drilldownQueryKey(
 }
 
 /**
+ * The general principal-scoped cache key: `[principalKey, resource, ...params]`.
+ *
+ * `metricsQueryKey`/`drilldownQueryKey` above predate this factory and keep
+ * their named forms; every other resource keys through here so the first
+ * segment is always the principal and the second is always the route's own
+ * name for what it reads (`"speaker-requests"`, `"unit-events"`, ...). Two
+ * pages reading the same route with the same params share one cache entry —
+ * that sharing is what lets a shell's badge count pre-warm the page behind
+ * its link.
+ */
+export function scopedQueryKey(
+  principalKey: PrincipalKey,
+  resource: string,
+  ...params: readonly unknown[]
+): readonly unknown[] {
+  return [principalKey, resource, ...params] as const;
+}
+
+/**
  * Builds the app's shared {@link QueryClient}.
  *
  * - `staleTime: 30_000` -- ADR-0011 forbids presenting a stale value as
@@ -87,6 +106,17 @@ export function createAppQueryClient(): QueryClient {
         staleTime: 30_000,
         refetchOnWindowFocus: false,
         retry: shouldRetryQuery,
+        // `navigator.onLine` is a guess, not a measurement — it answers true
+        // on plenty of networks with no route anywhere, and can answer false
+        // for a moment during page load or a sleep/wake. Under the default
+        // `networkMode: "online"` a query that tries to fetch in that moment
+        // parks at `fetchStatus: "paused"` and only an `online` event resumes
+        // it — if the browser already fired that event, the query sits paused
+        // forever and the page shows its loading state indefinitely. This app
+        // would rather attempt the read and render the server's answer (or a
+        // real fetch error, which every page already renders honestly) than
+        // trust the guess.
+        networkMode: "always",
       },
     },
   });

@@ -49,7 +49,7 @@
  * argument again. A Connector who wants to know now asks now, and a poll would
  * imply this surface knows when something changed, which it does not.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   dispatchSpeakerInvitationBatch,
@@ -61,6 +61,7 @@ import {
   type SpeakerInvitationBatchSummary,
   type SpeakerInvitationDispatchResponse,
 } from "../../lib/api";
+import { useScopedQuery } from "./useScopedQuery";
 
 export type InvitationsStatus = "idle" | "loading" | "ready" | "unavailable";
 
@@ -128,57 +129,43 @@ export function useSpeakerInvitations(unitId: string | null): UseSpeakerInvitati
   const unresolved = unitId === null;
   const enabled = !unresolved && hasSmartmatchAuth();
 
-  const [status, setStatus] = useState<InvitationsStatus>(
-    enabled ? "loading" : unresolved ? "idle" : "unavailable",
-  );
-  const [batches, setBatches] = useState<SpeakerInvitationBatchSummary[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(
-    enabled || unresolved ? null : INVITATIONS_UNAVAILABLE_REASON,
-  );
   const [openBatch, setOpenBatch] = useState<SpeakerInvitationBatch | null>(null);
   const [openBatchError, setOpenBatchError] = useState<string | null>(null);
   const [dispatchState, setDispatchState] = useState<DispatchState>("idle");
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [lastDispatch, setLastDispatch] = useState<SpeakerInvitationDispatchResponse | null>(null);
 
-  useEffect(() => {
-    if (unitId === null) {
-      // Nothing to ask for, and no claim to make about what exists. The caller
-      // owns the difference between "still resolving" and "no unit granted".
-      setStatus("idle");
-      setLoadError(null);
-      return;
-    }
-    if (!enabled) {
-      setStatus("unavailable");
-      setLoadError(INVITATIONS_UNAVAILABLE_REASON);
-      return;
-    }
+  // The batches listing through the shared cache — the same slot
+  // `CoordinatorHome`'s action-queue read uses, so the dashboard's count is
+  // this page's warm-up. A failed read renders as "unavailable", never as
+  // "no batches": an empty list is a claim, and a read that failed is not in
+  // a position to make it.
+  const batchesQuery = useScopedQuery({
+    resource: "invitation-batches",
+    params: [unitId],
+    queryFn: () => fetchSpeakerInvitationBatches(unitId as string),
+    enabled,
+  });
 
-    let cancelled = false;
-    setStatus("loading");
-    setLoadError(null);
-
-    fetchSpeakerInvitationBatches(unitId)
-      .then((response) => {
-        if (cancelled) return;
-        setBatches(response.batches);
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // Left empty rather than populated with anything, and reported as
-        // "unavailable" rather than as "no batches": an empty list is a claim,
-        // and a read that failed is not in a position to make it.
-        setBatches([]);
-        setLoadError(describeError(error));
-        setStatus("unavailable");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, unitId]);
+  const status: InvitationsStatus = unresolved
+    ? "idle"
+    : !enabled
+      ? "unavailable"
+      : batchesQuery.isPending
+        ? "loading"
+        : batchesQuery.isError
+          ? "unavailable"
+          : "ready";
+  const batches: SpeakerInvitationBatchSummary[] = batchesQuery.isSuccess
+    ? batchesQuery.data.batches
+    : [];
+  const loadError = unresolved
+    ? null
+    : !enabled
+      ? INVITATIONS_UNAVAILABLE_REASON
+      : batchesQuery.isError
+        ? describeError(batchesQuery.error)
+        : null;
 
   const openBatchById = useCallback(
     async (batchId: string) => {

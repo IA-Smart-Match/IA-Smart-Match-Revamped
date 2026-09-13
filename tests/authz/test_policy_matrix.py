@@ -407,6 +407,17 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "invented token, which is what stops the route being an oracle for "
         "whether an address is on our list."
     ),
+    ("GET", "/q/{public_token}"): (
+        "The feedback-QR redirect a printed code points at. Reached by "
+        "whoever scans the code — a student, a guest, anybody with no "
+        "account — so the opaque public token in the path is the whole of "
+        "the authorization, the same shape `GET /u/{token}` and `GET "
+        "/i/{token}` use for the same reason. It records only the QR's own "
+        "id and the open time (decision doc, 2026-09-07: no cookie, IP, "
+        "user agent, or referrer), and it is active only for a published "
+        "event — an inactive or unknown token gets an identical 404 rather "
+        "than disclosing which."
+    ),
     ("GET", "/i/{token}"): (
         "The accept-or-decline page an invitation links to, and the exact "
         "counterpart of ``GET /u/{token}``: reached from an email by somebody "
@@ -726,6 +737,35 @@ OPERATIONS: tuple[Operation, ...] = (
         authorizer="_authorize_aggregate_read",
         roles_constant=None,
         authorizer_module=None,
+        required_roles=frozenset(),
+        resource_type="org_unit",
+        unit_scoped=True,
+        require_membership=True,
+        tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
+        tenant_wide_roles=frozenset({"admin"}),
+    ),
+    # The same register, presented as a funnel, and deliberately the *same*
+    # authorizer object rather than an equivalent one: ``authorizer_module``
+    # points back at ``routers.metrics``, so this row and ``metrics.read``
+    # above assert against one function. Two aggregate reads of the same six
+    # numbers could otherwise drift apart on who may call them, and the drift
+    # would be invisible — each row would go on passing against its own copy.
+    #
+    # Every cell is therefore identical to ``metrics.read``'s, which is the
+    # claim being made: this route measures nothing ``metrics.read`` does not
+    # already measure, so it must be reachable by exactly the same principals.
+    # The ratified metrics-authorization decision's §4 is the authority for all
+    # of it, unchanged — any active unit membership with a role, a bare
+    # ``resource_grant`` refused, and ``admin`` unrestricted within the tenant
+    # for aggregates.
+    Operation(
+        key="metrics.speaker_pipeline",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-pipeline",
+        module="smartmatch_api.routers.speaker_pipeline",
+        authorizer="_authorize_aggregate_read",
+        roles_constant=None,
+        authorizer_module="smartmatch_api.routers.metrics",
         required_roles=frozenset(),
         resource_type="org_unit",
         unit_scoped=True,
@@ -1322,6 +1362,73 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The three host-organization operations (migration ``0036``, PR #154,
+    # owner decision 4). They split on the same line the Speaker Request rows
+    # above do, and the split means the same thing: ``{volunteer}`` reads and
+    # writes *its own* organization, ``{admin, coordinator}`` reads the unit's
+    # directory of them, and the two sets are **disjoint**.
+    #
+    # The reason is the reason §13 gives about the request queue. The
+    # directory carries every host's organization for the unit, so a host
+    # reading it would learn which other groups are asking; the own-routes
+    # carry exactly one organization — the caller's — so a Connector reading
+    # them would learn nothing the directory does not already say.
+    #
+    # ``host_organization.read_own`` and ``host_organization.upsert_own`` name
+    # role sets that agree today, and they are still two operations with two
+    # authorizers and two constants. A read and a write are two decisions, and
+    # one call site taking the set as an argument would be the one place both
+    # could be widened from — ``tests/authz/test_route_roles.py``'s rule,
+    # applied to a pair that happens to agree rather than to one that does not.
+    #
+    # **None of these rows is what decides whose requests a host sees.** That
+    # is still ``event.filed_by_user_id`` (migration ``0033``), and owner
+    # decision 4 says so in as many words: organization modelled now,
+    # enforcement per-user. Two hosts in one organization see nothing of each
+    # other's filings, and no row in this file grants them anything.
+    #
+    # No ``require_membership`` on any of the three: every role set is
+    # non-empty, so ``evaluate`` refuses a bare ``resource_grant`` on the
+    # required-roles check before the membership question is reached (S-007).
+    # No ``tenant_wide_roles``: an organization is a record in one unit's own
+    # directory, and the metrics decision's §4 — this repository's only
+    # tenant-wide artifact — is about aggregate reads.
+    Operation(
+        key="host_organization.read_own",
+        method="GET",
+        path="/v1/units/{unit_id}/host/organization",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_read_own",
+        roles_constant="_HOST_ORGANIZATION_READ_OWN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="host_organization.upsert_own",
+        method="PUT",
+        path="/v1/units/{unit_id}/host/organization",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_write_own",
+        roles_constant="_HOST_ORGANIZATION_WRITE_OWN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"volunteer"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="host_organization.list",
+        method="GET",
+        path="/v1/units/{unit_id}/host-organizations",
+        module="smartmatch_api.routers.host_organizations",
+        authorizer="_authorize_host_organization_list",
+        roles_constant="_HOST_ORGANIZATION_LIST_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
     # ``{student}`` and nothing else, which makes them the only rows in this file
     # whose role set contains ``student`` — everywhere else in this matrix
@@ -1883,6 +1990,78 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    Operation(
+        key="manual_event.create",
+        method="POST",
+        path="/v1/units/{unit_id}/events",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_write",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="manual_event.read",
+        method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_read",
+        roles_constant="_READ_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="manual_event.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/events/{event_id}",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_write",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="manual_event.publish",
+        method="POST",
+        path="/v1/units/{unit_id}/events/{event_id}/publish",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_write",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="manual_event.feedback_qr.read",
+        method="GET",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_write",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="manual_event.feedback_qr.write",
+        method="PUT",
+        path="/v1/units/{unit_id}/events/{event_id}/feedback-qr",
+        module="smartmatch_api.routers.manual_events",
+        authorizer="_authorize_write",
+        roles_constant="_WRITE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
 )
 
 #: Operations that intentionally reach the policy's ungated grant path — S-007
@@ -1922,7 +2101,7 @@ INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset()
 #: is the direct inverse of
 #: :func:`test_a_bare_resource_grant_satisfies_an_intentionally_ungated_operation`,
 #: proving the same shape of grant is refused here where it used to be admitted.
-MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
+MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read", "metrics.speaker_pipeline"})
 
 #: Operations that permit a role *outside* the resource's own subtree — the one
 #: deliberate exception to the unit scoping
@@ -1946,7 +2125,14 @@ MEMBERSHIP_ONLY_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
 #: :func:`test_a_tenant_wide_role_reaches_a_unit_its_own_path_does_not_cover`
 #: and its precedence limits by
 #: :func:`test_a_tenant_wide_role_never_outranks_suspension_tenant_or_an_explicit_deny`.
-TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset({"metrics.read"})
+#: ``metrics.speaker_pipeline`` joins it for one reason and no other: it calls
+#: the identical ``authorize_aggregate_read``, so it has the identical reach.
+#: This is not a second permit — it is the same permit, seen through a second
+#: route, and the table lists it so that the code and this file cannot disagree
+#: about which routes carry it.
+TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset(
+    {"metrics.read", "metrics.speaker_pipeline"}
+)
 
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
@@ -5281,6 +5467,283 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
     },
+    # The three host-organization rows (migration `0036`, owner decision 4).
+    # `read_own` and `upsert_own` are identical cell for cell, and that is the
+    # finding rather than a shortcut: they gate on the same persona doing the
+    # same thing to the same row, and there is no principal one admits that
+    # the other refuses. They are written out twice anyway, for the reason the
+    # five contact-management rows below are: the rectangle is the artifact a
+    # reviewer reads, and the day a write is restricted more tightly than a
+    # read the diff has to show which cell moved.
+    #
+    # The cell to compare against all three is `speaker_request.list_own`:
+    # `volunteer_at_owning_unit` permits, everything else denies, and the two
+    # `admin`/`coordinator` denials are deliberate rather than gaps.
+    #
+    # Read the `volunteer_at_owning_unit` note before building on any of this:
+    # the permit says this principal may *call* the route, never that the rows
+    # it returns are anybody's in particular.
+    "host_organization.read_own": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "the same shape `speaker_request.list_own` has, and the same "
+                "reason: `admin` is not in the role set because the "
+                "directory (`host_organization.list`) is strictly wider and "
+                "already theirs. This route would tell them only which of the "
+                "unit's organizations they personally created"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell a reviewer should read first. A Speaker Connector "
+                "reads every host organization in the unit through the "
+                "directory; refusing them the host's own view costs them "
+                "nothing and keeps this route about the Event Host persona "
+                "customer §4 names. `evaluate` refuses on the required-roles "
+                "check — the membership is active at exactly the owning unit, "
+                "so the role is the only thing left"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role and wrong path; either alone would refuse it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong path. No `tenant_wide_roles` here for "
+                "the reason the Speaker Request rows give: an organization is "
+                "a record in one unit's own directory"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, "
+                "calendar and feedback. A Student does not host events, so "
+                "there is no organization of theirs for this route to be "
+                "about. The membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the cell this card exists for. Customer §4 maps the stored "
+                "`volunteer` role onto the **Event Host** persona, and an "
+                "Event Host may read the organization they described. The "
+                "permit is the smaller half of the rule: it says this "
+                "principal may call the route, and the route then returns the "
+                "organization whose member row carries this principal's own "
+                "user id and no other. Nothing from the request selects whose "
+                "organization comes back — there is no `?user_id=`, and there "
+                "must never be one (MM-A01). The route additionally answers "
+                "404 when that organization files into a different unit, "
+                "which `evaluate` cannot express and "
+                "`tests/contract/test_host_organizations_api.py` asserts"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
+    "host_organization.upsert_own": {
+        "admin_at_org_root": deny(
+            "no_grant",
+            why=(
+                "the same shape `speaker_request.list_own` has, and the same "
+                "reason: `admin` is not in the role set because the "
+                "directory (`host_organization.list`) is strictly wider and "
+                "already theirs. This route would tell them only which of the "
+                "unit's organizations they personally created"
+            ),
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell a reviewer should read first. A Speaker Connector "
+                "reads every host organization in the unit through the "
+                "directory; refusing them the host's own view costs them "
+                "nothing and keeps this route about the Event Host persona "
+                "customer §4 names. `evaluate` refuses on the required-roles "
+                "check — the membership is active at exactly the owning unit, "
+                "so the role is the only thing left"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="wrong role and wrong path; either alone would refuse it",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong path. No `tenant_wide_roles` here for "
+                "the reason the Speaker Request rows give: an organization is "
+                "a record in one unit's own directory"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student browsing, registration, "
+                "calendar and feedback. A Student does not host events, so "
+                "there is no organization of theirs for this route to be "
+                "about. The membership is active at the owning unit, so the "
+                "role is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": permit(
+            why=(
+                "the write half of the same cell. An Event Host describes "
+                "their own organization; the route writes the member row with "
+                "`granted_by_user_id = NULL`, which records that nobody "
+                "granted this membership. The permit is not the whole rule: "
+                "the name is still held to a case-folded uniqueness within "
+                "the unit and the caller is still refused an organization "
+                "that files into another department — facts about rows rather "
+                "than about a principal, so `evaluate` cannot express them "
+                "and `tests/contract/test_host_organizations_api.py` asserts "
+                "them. Note what this permit does **not** do: it grants the "
+                "caller nothing beyond this row. Two hosts in one "
+                "organization still see nothing of each other's Speaker "
+                "Requests, because `speaker_request.list_own`'s predicate is "
+                "`filed_by_user_id` and has no organization arm"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why=(
+                "describing an organization queues no job — it writes the row "
+                "in the request's own transaction — so the actor half of the "
+                "shape is inert and what remains is a role-less member"
+            ),
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why=(
+                "the actor half is inert for the reason above; what is left "
+                "is a deny on the unit, which beats inheritance"
+            ),
+        ),
+    },
+    "host_organization.list": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "the Speaker Connector persona. A Connector reading an "
+                "incoming Speaker Request needs to know which group is "
+                "asking, and customer §13 makes working that queue theirs"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "an organization is filed under the unit it files into "
+                "(`host_organization.unit_id`), and a sibling department's "
+                "coordinator does not cover it — the same scoping "
+                "`speaker_request.list` applies to the queue it answers"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "`admin` is a required role here and the membership is "
+                "active, so the only thing refusing this principal is the "
+                "path. No committed artifact makes a host organization "
+                "tenant-wide, so the authorizer passes no `tenant_wide_roles`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "customer §15 gives a Student nothing on this surface. The "
+                "membership is active at exactly the owning unit, so the role "
+                "is the only thing refusing it"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell that carries the decision. The directory holds every "
+                "host's organization in the unit, and handing one host the "
+                "others' is the widening the narrower reading exists to "
+                "prevent — the same asymmetry `speaker_request.list` draws "
+                "against `speaker_request.create`. A host reads their own "
+                "through `host_organization.read_own` above, which is a "
+                "different query rather than a wider permit"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
     # The five contact-management rows (customer §13). They are identical to
     # each other, cell for cell, and that is the finding rather than a
     # shortcut: all five are the Speaker Connector acting on their own unit's
@@ -7058,7 +7521,377 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="the actor half is inert; what is left is a deny on the unit",
         ),
     },
+    "manual_event.create": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="a student has no part in filing or editing a unit's own events",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "manual_event.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="a coordinator may read a published event for their own unit",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "a sibling department's coordinator has no business reading "
+                "this unit's events; no `tenant_wide_roles` is passed"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="`student` is not in this operation's role set",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "manual_event.update": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="a student has no part in filing or editing a unit's own events",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "manual_event.publish": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="a student has no part in filing or editing a unit's own events",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "manual_event.feedback_qr.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="a student has no part in filing or editing a unit's own events",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    "manual_event.feedback_qr.write": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "manual event writes are admin-only; a unit coordinator does "
+                "not file events on this surface"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "wrong role and wrong department; no `tenant_wide_roles` is "
+                "passed for this operation"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the role is right and the department is not; a manual event "
+                "carries its own `host_org_unit_id`"
+            ),
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="a student has no part in filing or editing a unit's own events",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="`volunteer` is not in this operation's role set",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
 }
+
+#: The Speaker Pipeline read is ``metrics.read``'s permit seen through a second
+#: route, so it is given the same row object rather than a copy of it.
+#:
+#: A copy is the tempting thing to write and the wrong thing to have. Both
+#: routes call the identical ``_authorize_aggregate_read`` — the matrix's own
+#: ``authorizer``/``authorizer_module`` columns say so, and
+#: ``tests/contract/test_speaker_pipeline_api.py`` pins the two to identical
+#: counts — so any cell where the two rows disagreed would be a claim that one
+#: function decides two different things. Sharing the object makes that
+#: disagreement unrepresentable: narrowing or widening the permit edits one
+#: row and both routes' expectations move with it.
+#:
+#: Every test below reads ``MATRIX[operation.key]`` and runs the *real*
+#: authorizer for each shape, so this alias asserts nothing by itself. It says
+#: which outcomes are expected, and the runner still has to produce them.
+MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
@@ -7378,6 +8211,44 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # `_authorize_invite_read` already uses.
         "_authorize_meeting_write",
         "_authorize_meeting_read",
+        # The twenty-sixth and twenty-seventh (`routers/manual_events.py`), on
+        # the same terms: load the unit, then make exactly this call against
+        # that row's path — `_authorize_write` with `_WRITE_ROLES`
+        # (`{admin}`) for every write plus both feedback-QR routes,
+        # `_authorize_read` with `_READ_ROLES` (`{admin, coordinator}`) for
+        # reading one event. Both delegate to one private `_authorize`
+        # helper that takes the role set as a parameter — unlike the meeting
+        # pair above, this module's read and write roles genuinely differ
+        # (a coordinator reads; only an admin writes), so a shared call site
+        # is safe here in the one direction that matters: the role set is
+        # supplied by the two public names this list checks, not discovered
+        # by `_authorize` itself.
+        #
+        # What the matrix cannot see: a draft event additionally requires
+        # `_WRITE_ROLES` even on the read route (`get_event`), the publish
+        # route's required-fields check, and the idempotency-key replay —
+        # none of those are policy decisions, and all are asserted over HTTP
+        # in `tests/contract/test_manual_events_api.py`.
+        "_authorize_write",
+        "_authorize_read",
+        # The twenty-eighth, twenty-ninth and thirtieth
+        # (`routers/host_organizations.py`), on the same terms as every name
+        # before them: load the unit, then make exactly this call against that
+        # row's path. Three names for three operations — the read and the
+        # write of a host's own organization, and the Connector's directory —
+        # and the first two share a role set without sharing a call site, for
+        # the reason the Speaker Request trio gives.
+        #
+        # What these runners cannot express, and what is therefore not a
+        # policy decision here: the own-routes act on the row whose member is
+        # `principal.user_id` and on no other, and the read answers 404 when
+        # that row's organization files into a different unit. `evaluate` has
+        # no concept of a self-scope, so both halves are asserted over HTTP in
+        # `tests/contract/test_host_organizations_api.py` — the division of
+        # labour `_authorize_invite_read` already uses.
+        "_authorize_host_organization_read_own",
+        "_authorize_host_organization_write_own",
+        "_authorize_host_organization_list",
     ):
         assert_allowed(
             resolved.principal,

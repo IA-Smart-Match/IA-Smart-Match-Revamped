@@ -45,7 +45,44 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 STATS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.tsx"
 TOOLTIP_PRIMITIVE = FRONTEND_SRC / "app" / "components" / "ui" / "tooltip.tsx"
+
+#: Where one metric card is rendered, now that the six of them are the Speaker
+#: Pipeline section's KPI row rather than an inline component on the page.
+#:
+#: The card's contract below is unchanged and is still asserted in full: the
+#: definition behind a real focusable ``<button>``, rendered once and only
+#: inside the tooltip; the name and the value on the card face; the server's
+#: ``unknown_reason`` inline and never in the tooltip; no truncation; and no
+#: second tooltip dependency. Only the file holding that contract moved, and
+#: this constant moves with it — a guard left pointing at the page would go on
+#: passing against a card that is no longer there.
+METRIC_CARD = FRONTEND_SRC / "app" / "components" / "speakerPipeline" / "PipelineMetricGrid.tsx"
 WEB_PACKAGE_JSON = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "package.json"
+
+#: The Speaker Pipeline section, which now carries the register read and the
+#: funnel this file used to find inline on :data:`STATS_PAGE`.
+#:
+#: Splitting the page weakened no rule below; it moved where each one has to be
+#: checked. A guard that kept scanning only the page would go on passing while
+#: the arithmetic it forbids moved one import away, which is the failure mode
+#: these constants exist to close. Every property is therefore asserted against
+#: :func:`_surface_code` — the page *and* the section — unless the property is
+#: specifically about the page itself (its portal grant, its other reads, the
+#: gaps it names).
+PIPELINE_DIR = FRONTEND_SRC / "app" / "components" / "speakerPipeline"
+PIPELINE_LIB = FRONTEND_SRC / "lib" / "speakerPipeline.ts"
+
+
+def _surface_sources() -> list[Path]:
+    """Every file that renders part of the Connector's statistics surface."""
+    components = sorted(PIPELINE_DIR.glob("*.tsx"))
+    assert components, "the Speaker Pipeline section has no components to scan"
+    return [STATS_PAGE, PIPELINE_LIB, *components]
+
+
+def _surface_code() -> str:
+    """The whole surface's source, comments stripped, as one string to scan."""
+    return "\n".join(_code_only(path.read_text(encoding="utf-8")) for path in _surface_sources())
 
 
 def _code_only(source: str) -> str:
@@ -159,12 +196,11 @@ def test_api_lib_reads_attendance_evidence_as_the_server_counted_it() -> None:
 def test_the_statistics_surface_reads_both_owning_queries() -> None:
     """The Connector's own landing surface carries the statistics.
 
-    Not ``Dashboard.tsx``: that is the ``admin`` portal's own home screen
-    (``_PORTAL_FOR_ROLE`` maps the stored ``admin`` role to
-    ``home_path: "/dashboard"``), and a pilot Connector holding only a
-    ``coordinator`` membership never reaches it. The unit here comes from
-    ``GET /v1/me/portals``, which is the only source of a unit id this account
-    is entitled to.
+    Not ``Dashboard.tsx``: that was the retired admin shell's home screen, and
+    it is mounted nowhere now — ``admin`` and ``coordinator`` are one persona
+    and ``/dashboard`` redirects to ``/coordinator-portal``. The unit here
+    comes from ``GET /v1/me/portals``, which is the only source of a unit id
+    this account is entitled to.
 
     This paragraph used to add "and it scopes itself by the
     ``VITE_SMARTMATCH_UNIT_ID`` build variable". That was true when it was
@@ -174,12 +210,25 @@ def test_the_statistics_surface_reads_both_owning_queries() -> None:
     ``test_frontend_unit_metrics_granted_unit.py``. Which surface a Connector
     reaches is why this test targets the Connector's own landing page, and that
     reason stands on the portal grant alone.
-    """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
 
-    assert "fetchCbaUnitMetrics" in code
-    assert "fetchAttendanceSummary" in code
-    assert "default_unit_id" in code, (
+    The register read is now ``fetchSpeakerPipeline`` rather than
+    ``fetchCbaUnitMetrics``, and that is a narrowing rather than a loosening:
+    ``GET /v1/units/{unit_id}/speaker-pipeline`` measures every metric in the
+    CBA view of the register through the *same* owning queries
+    ``/metrics?surface=cba`` uses — ``tests/contract/test_speaker_pipeline_api.py``
+    pins the two routes to identical counts — and additionally carries the
+    conversions and insights server-side, so the browser is given *less* to
+    compute than before, not more. Keeping both reads on one screen would have
+    been two requests for the same six numbers.
+    """
+    code = _surface_code()
+    page = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+
+    assert "fetchSpeakerPipeline" in code, (
+        "the registered metrics must be read through a server route, not assembled here"
+    )
+    assert "fetchAttendanceSummary" in page
+    assert "default_unit_id" in page, (
         "the unit must come from the server's portal grant, never from a build variable"
     )
 
@@ -189,16 +238,17 @@ def test_the_statistics_surface_computes_nothing() -> None:
 
     Every figure has one owning server query (ADR-0011 rule 3). A browser that
     folded two responses together would be publishing an eighth metric that no
-    query owns and that nothing can drill into.
+    query owns and that nothing can drill into. That now includes the
+    conversion rates: they are computed in ``smartmatch_domain.speaker_pipeline``
+    and arrive already rounded, so a ``toFixed`` or a ``* 100`` anywhere on
+    this surface is a second definition of a published number.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _surface_code()
 
     for forbidden in (
         "reduce(",
         "toFixed",
         "Math.round",
-        "Math.max",
-        "Math.min",
         "average",
         " += ",
         ".length +",
@@ -207,6 +257,70 @@ def test_the_statistics_surface_computes_nothing() -> None:
             f"the statistics surface computes {forbidden!r}; every number it shows must be "
             "one the server chose to send"
         )
+
+    # A blanket ban on ``* 100`` was tried here and was wrong: this page also
+    # does date arithmetic (``60 * 60 * 1000``), which has nothing to do with a
+    # percentage and which a text search cannot tell apart. The rule that
+    # actually matters is narrower and stronger — the *percentage fields* are
+    # never operands. A rate is published already computed and already rounded,
+    # so any arithmetic applied to one here is a second definition of it.
+    for field in ("rate_pct", "share_of_baseline_pct"):
+        for operator in ("*", "/", "+", "-", "%"):
+            assert f"{field} {operator}" not in code, (
+                f"the statistics surface computes with {field!r}; a published rate arrives "
+                "rounded and is rendered from the server's own `display`/`share_display`"
+            )
+
+
+#: The two places a clamp is legitimate, and what each one clamps.
+#:
+#: ``Math.min``/``Math.max`` are banned everywhere else on this surface for the
+#: reason above. These two files may use them because what they bound is a CSS
+#: width in a ``style`` attribute — a *drawing*, not a figure — and the test
+#: below proves the distinction rather than trusting it: neither file may print
+#: a percentage it computed, and every percentage either one renders comes from
+#: a server field. `speakerPipeline.ts`'s own module docstring states the same
+#: rule ("the clamp it applies is the reason it must never be used as a value").
+_GEOMETRY_CLAMP_FILES = frozenset({"speakerPipeline.ts", "ConversionRatesCard.tsx"})
+
+
+def test_only_css_geometry_is_clamped_and_it_is_never_printed() -> None:
+    """A clamped band width must not be able to reach the screen as a figure.
+
+    A funnel band at 1% of the baseline is drawn at a legible minimum width, so
+    the drawn width and the measured share deliberately disagree. That is fine
+    for a picture and a lie as a number, which is why the measured share is
+    printed from the server's ``share_display`` and the clamped one only ever
+    lands in ``style``.
+    """
+    for path in _surface_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        if path.name not in _GEOMETRY_CLAMP_FILES:
+            for forbidden in ("Math.max", "Math.min"):
+                assert forbidden not in code, (
+                    f"{path.name} clamps with {forbidden!r}; only the two geometry files may, "
+                    "and only for a CSS width"
+                )
+            continue
+
+        for line in code.splitlines():
+            if "Math.min" not in line and "Math.max" not in line:
+                continue
+            assert "width" in line.lower() or "return Math" in line, (
+                f"{path.name} clamps something that is not a width: {line.strip()!r}"
+            )
+
+    # Every literal percent sign on the surface is a CSS unit inside a template
+    # string or a clip-path, never a percentage rendered as text.
+    for path in _surface_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        for number, line in enumerate(code.splitlines(), start=1):
+            if "%" not in line:
+                continue
+            assert "`" in line or "polygon(" in line, (
+                f"{path.name}:{number} renders a literal percentage as text: {line.strip()!r}; "
+                "a percentage a reader sees must come from a server field"
+            )
 
 
 def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
@@ -217,7 +331,7 @@ def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
     answer is none", which is the one substitution this whole register exists to
     prevent — and it reads as deliberate to everyone downstream.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _surface_code()
 
     for forbidden in ("?? 0", "|| 0", "Number("):
         assert forbidden not in code, (
@@ -227,6 +341,9 @@ def test_the_statistics_surface_never_coerces_an_unknown_to_zero() -> None:
 
     assert "unknown_reason" in code, (
         "a metric with no value must render the server's reason rather than a bare dash"
+    )
+    assert "Not measured" in code, (
+        "an unmeasured metric must be visibly distinct from a measured zero"
     )
 
 
@@ -246,7 +363,7 @@ def test_a_metric_definition_opens_from_a_real_focusable_button() -> None:
     control at all to a keyboard or a screen reader. Radix's ``Tooltip`` opens
     on both from a single trigger, which is why this needs no new component.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     assert "TooltipTrigger" in code and "TooltipContent" in code, (
         "the definition must be rendered through the tooltip primitive this app already has"
@@ -272,7 +389,7 @@ def test_the_card_face_carries_the_name_and_the_value_and_no_definition() -> Non
     A definition left on the face *as well* would defeat the whole change while
     passing a check that only asked whether a tooltip existed.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     assert code.count("metric.definition") == 1, (
         "the registered definition is rendered exactly once — inside the tooltip"
@@ -294,7 +411,7 @@ def test_the_definition_is_rendered_verbatim() -> None:
     is a sentence to rewrite in ``metrics.py``, where every reader of the
     register gets the rewrite.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
 
     for forbidden in (
         "definition.slice",
@@ -330,7 +447,7 @@ def test_an_unmeasured_metric_states_its_reason_on_the_card_face() -> None:
     gesture a reader has to guess to make would leave "Not measured" standing
     alone, which is the bare dash this register exists to prevent.
     """
-    source = STATS_PAGE.read_text(encoding="utf-8")
+    source = METRIC_CARD.read_text(encoding="utf-8")
     code = _code_only(source)
 
     assert "metric.unknown_reason" in code
@@ -347,7 +464,7 @@ def test_the_hover_affordance_adds_no_dependency() -> None:
     one — would be a new supply-chain entry and a second set of focus and
     dismissal behaviours to keep correct, bought for a card header.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    code = _code_only(METRIC_CARD.read_text(encoding="utf-8"))
     manifest = json.loads(WEB_PACKAGE_JSON.read_text(encoding="utf-8"))
 
     assert "components/ui/tooltip" in code, (
@@ -359,16 +476,58 @@ def test_the_hover_affordance_adds_no_dependency() -> None:
     )
 
 
-def test_the_statistics_surface_renders_no_percentage() -> None:
-    """OQ-CBA-005 keeps percentages off CBA surfaces.
+def test_no_match_score_percentage_and_none_computed_in_the_browser() -> None:
+    """OQ-CBA-005, read for what it decides rather than by analogy.
 
-    A funnel of counts is where a "conversion rate" appears, and a percentage
-    beside a speaker count is the same shape as the match percentage OQ-CBA-005
-    forbids — with the added problem that computing one would need division the
-    surface is not allowed to do.
+    The ratified answer (``docs/plans/open-questions/cba-phase-deferred.md``,
+    OQ-CBA-005) is about **ranked candidates**: "Rank internally; show
+    factor-level provenance and Topic reasoning; do not show a prominent
+    overall percentage", scoped to "optional match-result presentation change;
+    not ranking itself". What it forbids is a score *about a person* — the
+    number that would let a Connector read "87%" beside a speaker's name and
+    treat it as that speaker's worth.
+
+    This test used to enforce that with a blanket ``"%" not in code``, which
+    was the right guard while the page had no server-owned percentage of any
+    kind and any percent sign on it would necessarily have been computed here.
+    The Speaker Pipeline section changes the second half of that: a conversion
+    rate is not a score about anyone, it is owned by one server definition
+    (``smartmatch_domain.speaker_pipeline``), it arrives already rounded, and
+    it can be drilled to the two counts it divides. The blanket ban is
+    therefore replaced by the two rules that carry its intent, both of which
+    are *stricter* than a text search for "%" since they hold across the whole
+    section rather than one file:
+
+    1. no match-score percentage reaches this surface at all, and
+    2. no percentage on it is computed in the browser — every one is a server
+       field (``display``, ``share_display``).
+
+    Whether the customer wants funnel conversion rates on a CBA screen at all
+    is a product question for the CBA product owner, not one this test can
+    settle; if the answer is no, the fix is to stop the server sending them,
+    not to filter them out in the browser.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
-    assert "%" not in code, "the statistics surface renders a percentage"
+    code = _surface_code()
+
+    for forbidden in (
+        "match_score",
+        "matchScore",
+        "match rate",
+        "overall score",
+        "score_pct",
+        "scorePercent",
+    ):
+        assert forbidden.lower() not in code.lower(), (
+            f"the statistics surface renders {forbidden!r}; OQ-CBA-005 keeps an overall match "
+            "score off the UI, and a funnel card is exactly where one would appear"
+        )
+
+    # Every percentage a reader sees is a server field. `display` and
+    # `share_display` are the two the payload carries; a surface that formatted
+    # its own would need arithmetic `test_the_statistics_surface_computes_nothing`
+    # already forbids, so this is the positive half of the same rule.
+    assert "share_display" in code, "the funnel must print the server's rendering of each share"
+    assert ".display" in code, "the conversion rows must print the server's rendering of each rate"
 
 
 def test_the_statistics_surface_shows_no_individual_student_rating() -> None:
@@ -438,20 +597,48 @@ def test_the_statistics_surface_says_feedback_does_not_feed_matching() -> None:
 def test_the_statistics_surface_names_the_statistics_the_api_cannot_answer() -> None:
     """A remaining gap is reported, never filled in by the browser.
 
-    Addendum 7 September 2026 closed the unit-feedback gap this test used to
-    pin: the surface now *reads* the unit aggregate through its own route
-    rather than merely naming the absence of one. The review queue is a
-    different, still-open gap — there is no route that lists review items, so
-    the queue stays undrawable even though its *size* is a registered metric —
-    and an empty list there would be a claim about the data when the truth is
-    a claim about the API.
+    Addendum 7 September 2026 closed the unit-feedback gap this test first
+    pinned: the surface *reads* the unit aggregate through its own route rather
+    than merely naming the absence of one.
+
+    Addendum 10 September 2026 closed the second. This test used to require the
+    string ``GET /v1/review-items`` on the page, because the review queue was
+    undrawable — size measurable as a registered metric, items unlistable. That
+    is no longer true. ``GET /v1/units/{unit_id}/review-items``
+    (``routers/review.py``) exists, ``CoordinatorReviewQueue`` renders it, and
+    the home page now counts its pending items and links to them. Continuing to
+    require the old sentence would require the page to keep telling a Connector
+    that a working page does not exist — the fabricated-equivalence defect
+    pointed the other way.
+
+    So the assertion is inverted rather than dropped: the page must NOT claim
+    the list route is missing, and must read it. The invariant this test exists
+    for is unchanged — a gap is named and never filled in by the browser — and
+    the one genuinely open gap on this surface is asserted below, in the match
+    runs row.
     """
     code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
     text = STATS_PAGE.read_text(encoding="utf-8")
 
-    assert "GET /v1/review-items" in text, (
-        "the surface must name the missing list route rather than drawing an empty queue"
+    assert "GET /v1/review-items</code>" not in text, (
+        "the surface still claims the review-item list route is missing; it exists and "
+        "CoordinatorReviewQueue renders it"
     )
+    assert "fetchReviewItems" in code, (
+        "the surface must read the review queue it links to, so the count and the page "
+        "cannot disagree"
+    )
+    assert "/coordinator-portal/review-queue" in code, (
+        "the pending-review count must link through to the queue it counts"
+    )
+
+    # The one gap that is still real on this surface: match runs are fetched
+    # one at a time by id and nothing enumerates them, so the action queue row
+    # carries no number and says why.
+    assert "has no route that lists them" in text, (
+        "the match-runs row must say why it carries no count rather than showing a zero"
+    )
+
     assert "fetchUnitSpeakerFeedbackSummary" in code, (
         "the surface must read the unit feedback aggregate rather than merely naming its absence"
     )
@@ -547,21 +734,32 @@ def test_the_surface_claims_no_absence_for_a_dataset_it_now_reads() -> None:
     way: the reader is told a capability is absent while the page holds its
     answer.
 
-    Meeting bookings is the one coordinator dataset with no ``/v1`` route today,
-    so it keeps its panel. Deleting that one alongside the others would turn a
-    named absence into an unnamed one.
+    Addendum 10 September 2026: Meeting bookings used to be the one coordinator
+    dataset with no ``/v1`` route, so this test required its panel to stay.
+    ``GET``/``POST /v1/units/{unit_id}/meetings`` (migration ``0034``) are live
+    and ``CoordinatorMeetings`` has been reading and writing them, so the panel
+    was claiming an absence over a working route — exactly what this test
+    forbids for the other three. It joins them rather than keeping an
+    exemption, and the surface now renders no unavailable panel at all.
     """
     text = STATS_PAGE.read_text(encoding="utf-8")
     code = _code_only(text)
 
-    for retired in ("Your coordinator profile", "Hosted events and staffing", "Outreach threads"):
+    for retired in (
+        "Your coordinator profile",
+        "Hosted events and staffing",
+        "Outreach threads",
+        "Meeting bookings",
+    ):
         assert f'dataset="{retired}"' not in code, (
             f"the surface still renders an unavailable panel for {retired!r}, which it now "
             "reads from /v1"
         )
 
-    assert 'dataset="Meeting bookings"' in code, (
-        "meeting bookings has no /v1 answer yet; its absence stays named rather than silent"
+    assert "PortalDatasetUnavailable" not in code, (
+        "every dataset this surface once called absent is now served by /v1; an unavailable "
+        "panel left standing beside a working read is the same fabricated-equivalence defect "
+        "pointed the other way"
     )
 
 
