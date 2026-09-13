@@ -394,21 +394,34 @@ OQ-CBA-020 keeps its cells non-interactive).
    provenance label; and what attendance would earn.
 4. **The wildcard** — exactly one card per session drawn from outside the
    student's declared interests, **visibly labelled as such**, stating the pool it
-   was drawn from. It is never presented as a ranking result.
-5. **Points panel** — the server-authored balance and progress toward the nearest
+   was drawn from. It is never presented as a ranking result. Provide a **toggle
+   that removes it**, so a reviewer can compare the feed with and without the
+   exploration slot rather than be argued into one.
+5. **Employer line-up (FUTURE CONCEPT)** — each event pairs with the sector its
+   own tags imply, shown as two example guests and their employers. This exists
+   because "guest lecture" does not market an event and "an ML engineer from
+   Google is mentoring" does. Constraints: **every person is invented** — no real
+   individual is named; company names are **sector placeholders**, marked as
+   examples on the frame, with **no logo reproduced** and no implied partnership,
+   endorsement, or confirmed attendance.
+6. **Points panel** — the server-authored balance and progress toward the nearest
    *reachable* reward, with the earning rate marked provisional while D7 is
    unratified.
-6. **Aggregate demand** — the Connector-facing view of what a unit's students
+7. **Aggregate demand** — the Connector-facing view of what a unit's students
    declared, with suppression visible below the threshold.
-7. **The six non-happy states**, each reachable: loading, empty, unknown,
+8. **The six non-happy states**, each reachable: loading, empty, unknown,
    partial, denied, failed.
 
 **Exclude, deliberately, and annotate each exclusion with its citation in the
 design notes:**
 
-- **any speaker name or speaker id** — OQ-CBA-064 records that no
-  student-authorized route returns one, and OQ-CBA-051 that no record says who
-  appeared at which event;
+- **any speaker name or speaker id presented as a LIVE CONTRACT or PLANNED
+  BACKEND frame** — OQ-CBA-064 records that no student-authorized route returns
+  one, and OQ-CBA-051 that no record says who appeared at which event. An
+  event's **line-up** may appear as a **FUTURE CONCEPT** layer, annotated with
+  both question ids, because it is the strongest draw the card could carry and
+  showing it is what makes the case for closing them; if it appears, every
+  person named must be invented and the frame must say so;
 - **any overall score or match percentage** — ADR-0016 Proposal 8 and OQ-CBA-005.
   Relevance is a sentence plus the matched tags, never a number;
 - **points for scrolling, streaks, or logging in** — ADR-0013 derives every
@@ -566,7 +579,8 @@ row, and either way it needs resolving before the UI team reviews the pack.
 | Interest picker (closed G3 vocabulary) | 10 | PLANNED BACKEND |
 | Bounded weekly feed, snap-scrolled | 10 | PLANNED BACKEND |
 | Event card with why-sentence and matched tags | 10 | PLANNED BACKEND |
-| Wildcard / exploration card | 10 | PLANNED BACKEND |
+| Wildcard / exploration card, with an on/off toggle | 10 | PLANNED BACKEND |
+| Employer line-up on each card (invented people, placeholder companies) | 10 | FUTURE CONCEPT — OQ-CBA-064 + OQ-CBA-051 |
 | End-of-week card | 10 | PLANNED BACKEND |
 | Points panel with reachable-reward progress | 10 | LIVE CONTRACT (`GET /v1/units/{unit_id}/rewards`) |
 | Aggregate interest demand | 10 | PLANNED BACKEND |
@@ -645,7 +659,7 @@ nothing has been produced, not because someone forgot.
 |---|---|
 | Shareable prototype link (Prompt 10) | <https://claude.ai/code/artifact/455cb0c9-4223-46b4-9382-3cb546feff35> — "This Week at CBA" |
 | Screen inventory (Prompt 10) | The eight rows in the Prompt 10 coverage table above. The prototype's own screen switcher enumerates them, and every screen it shows maps to a row |
-| Flow map (Prompt 10) | Interests -> feed -> register, and feed -> end card -> points. Both are clickable in the artifact. The aggregate-demand screen is a Connector surface and joins no student flow |
+| Flow map (Prompt 10) | Interests -> feed -> register, and feed -> end card -> points. Both are clickable in the artifact. Two toggles cut across the feed flow: wildcard on/off, and reviewer annotations. The aggregate-demand screen is a Connector surface and joins no student flow |
 | Accessibility notes (Prompt 10) | Below |
 | Selected screenshots | *not yet produced* — the link is live, so a reviewer can take their own |
 | Prompts 1-9 artifacts | *not yet produced* |
@@ -663,7 +677,9 @@ nothing has been produced, not because someone forgot.
 - **Both themes** are token-defined: the bare `:root` carries the full light
   palette from `theme.css`, redefined under `prefers-color-scheme: dark` guarded
   against an explicit light choice, and again under `[data-theme="dark"]`.
-- **Not color-alone.** The wildcard carries a text badge, not just a gold border;
+- **Not color-alone.** The employer tiles carry the company name as text beside
+  the monogram, never the monogram alone; the wildcard carries a text badge, not
+  just a gold border;
   suppressed demand rows are labelled "withheld" as well as hatched; the matched
   tags differ in weight as well as fill.
 - **No horizontal overflow** at 360 / 768 / 1024 / 1440. The one wide element per
