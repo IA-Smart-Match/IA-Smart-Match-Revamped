@@ -69,7 +69,6 @@
  * different facts — which is exactly what the legacy "Topic Relevance 0%"
  * surface got wrong.
  */
-import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AlertCircle, Info } from "lucide-react";
 
@@ -77,6 +76,7 @@ import { AccountableValue } from "@/app/components/provenance";
 import { grantedPortal } from "@/app/components/PortalGate";
 import { usePortalAccess } from "@/app/hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "@/app/hooks/useSession";
+import { useScopedQuery } from "@/app/hooks/useScopedQuery";
 import {
   fetchMatchRun,
   hasSmartmatchAuth,
@@ -292,39 +292,23 @@ export function AIMatching() {
   const runId = runParam !== null && runParam.trim().length > 0 ? runParam.trim() : null;
   const authenticated = hasSmartmatchAuth();
 
-  const [run, setRun] = useState<MatchRunRead | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!unitId || !runId || !authenticated) {
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchMatchRun(unitId, runId)
-      .then((result) => {
-        if (!cancelled) {
-          setRun(result);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          // Surfaced, never swallowed into an empty shortlist: "no speakers
-          // matched" and "the request failed" are different facts.
-          setError(err instanceof Error ? err.message : "The match run could not be read.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [unitId, runId, authenticated]);
+  // The run read through the shared cache, keyed by the run id — a revisit
+  // to a shortlist already read renders it immediately. A failure is
+  // surfaced, never swallowed into an empty shortlist: "no speakers matched"
+  // and "the request failed" are different facts.
+  const runQuery = useScopedQuery({
+    resource: "match-run",
+    params: [unitId, runId],
+    queryFn: () => fetchMatchRun(unitId as string, runId as string),
+    enabled: unitId !== null && runId !== null && authenticated,
+  });
+  const run: MatchRunRead | null = runQuery.data ?? null;
+  const loading = runQuery.isPending && unitId !== null && runId !== null && authenticated;
+  const error = runQuery.isError
+    ? runQuery.error instanceof Error
+      ? runQuery.error.message
+      : "The match run could not be read."
+    : null;
 
   let body;
   if (!authenticated) {

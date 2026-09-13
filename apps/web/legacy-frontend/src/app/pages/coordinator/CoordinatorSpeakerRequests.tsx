@@ -46,41 +46,24 @@
  * than hiding the section — the posture every page in this shell takes.
  */
 
-import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Building2, Inbox } from "lucide-react";
 
 import {
-  ApiRequestError,
   fetchHostOrganizations,
   fetchSpeakerRequests,
   type HostOrganizationDirectory,
   type SpeakerRequest,
-  type SpeakerRequestList,
 } from "../../../lib/api";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
-
-/** `settled` keeps "has not come back" and "came back with nothing" apart. */
-type Loaded<T> = { data: T | null; error: string | null; settled: boolean };
-
-const PENDING: Loaded<SpeakerRequestList> = { data: null, error: null, settled: false };
-const DIRECTORY_PENDING: Loaded<HostOrganizationDirectory> = {
-  data: null,
-  error: null,
-  settled: false,
-};
-
-function describeFailure(cause: unknown): string {
-  // The server's own words where it gave any, including the refusal a `403`
-  // explains. Rephrasing here would be this page's opinion about someone
-  // else's decision.
-  return cause instanceof ApiRequestError
-    ? cause.message
-    : "The unit's speaker requests could not be read and the server gave no reason.";
-}
+import {
+  queryToLoaded,
+  useScopedQuery,
+  type Loaded,
+} from "../../hooks/useScopedQuery";
 
 /**
  * When a request's event happens, at the precision the server resolved.
@@ -341,58 +324,37 @@ export function CoordinatorSpeakerRequests() {
   const unitId = grant?.default_unit_id ?? null;
   const navigate = useNavigate();
 
-  const [requests, setRequests] = useState<Loaded<SpeakerRequestList>>(PENDING);
-  const [directory, setDirectory] = useState<Loaded<HostOrganizationDirectory>>(DIRECTORY_PENDING);
-
   // `?request={id}` selects the detail state. It names a row the server
   // already returned — never sent back, so a stale or foreign id is a display
   // question, not a permission question.
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedRequestId = searchParams.get("request");
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const listing = await fetchSpeakerRequests(unitId);
-      setRequests({ data: listing, error: null, settled: true });
-    } catch (cause) {
-      setRequests({ data: null, error: describeFailure(cause), settled: true });
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Same cache key the shell's badge count uses, so the sidebar's read is
+  // this page's warm-up — a click into here usually finds the listing already
+  // in the cache.
+  const requestsQuery = useScopedQuery({
+    resource: "speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchSpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const requests = queryToLoaded(requestsQuery, "The unit's speaker requests");
 
   // The directory loads only when a detail is open — it answers "who is
-  // asking", which is a detail question, not a list one.
-  useEffect(() => {
-    if (unitId === null || selectedRequestId === null) {
-      setDirectory(DIRECTORY_PENDING);
-      return;
-    }
-    let cancelled = false;
-    setDirectory(DIRECTORY_PENDING);
-    void fetchHostOrganizations(unitId)
-      .then((listing) => {
-        if (!cancelled) setDirectory({ data: listing, error: null, settled: true });
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setDirectory({
-            data: null,
-            error:
-              cause instanceof ApiRequestError
-                ? cause.message
-                : "The unit's host-organization directory could not be read and the server gave no reason.",
-            settled: true,
-          });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [unitId, selectedRequestId]);
+  // asking", which is a detail question, not a list one. `enabled` off while
+  // no detail is selected keeps the query pending, which is the same
+  // unsettled state the hand-rolled version held.
+  const directoryQuery = useScopedQuery({
+    resource: "host-organizations",
+    params: [unitId],
+    queryFn: () => fetchHostOrganizations(unitId as string),
+    enabled: unitId !== null && selectedRequestId !== null,
+  });
+  const directory = queryToLoaded(
+    directoryQuery,
+    "The unit's host-organization directory",
+  );
 
   // The shell renders `PortalGate` when the server granted no such portal, so
   // reaching here without a grant means the mapping is still resolving.

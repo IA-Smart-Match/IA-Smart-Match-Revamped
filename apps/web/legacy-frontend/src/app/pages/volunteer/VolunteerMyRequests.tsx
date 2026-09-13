@@ -67,7 +67,7 @@
  * returned row* to look at; it is never sent back to the server.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useSearchParams } from "react-router";
 import { ClipboardList, ShieldAlert } from "lucide-react";
 
@@ -80,6 +80,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /**
  * Turn a refusal into words a Host can act on, the same discipline
@@ -259,41 +260,34 @@ export function VolunteerMyRequests() {
   const grant = grantedPortal(portalAccess, "volunteer");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [requests, setRequests] = useState<SpeakerRequest[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
   // `?request={id}` selects the detail state. It names a row the server
   // already returned — it is never sent back to the server, so a stale or
   // foreign id is a display question, not a permission question.
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedRequestId = searchParams.get("request");
 
-  const reload = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const page = await fetchMySpeakerRequests(unitId);
-      setRequests(page.requests);
-      setTruncated(page.truncated);
-      setLoadError(null);
-    } catch (cause) {
-      setRequests([]);
-      setTruncated(false);
-      setLoadError(
-        refusalMessage(
-          cause,
-          "Your filed requests could not be read and the server gave no reason.",
-        ),
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId]);
+  // The same cache slot `VolunteerHome`'s recent-requests card reads, so the
+  // home page's read is this page's warm-up. A failed read shows no rows
+  // rather than stale ones — the same rule the hand-rolled version kept.
+  const listQuery = useScopedQuery({
+    resource: "my-speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchMySpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const requests: SpeakerRequest[] = listQuery.isSuccess ? listQuery.data.requests : [];
+  const truncated = listQuery.isSuccess ? listQuery.data.truncated : false;
+  const loaded = !listQuery.isPending;
+  const loadError = listQuery.isError
+    ? refusalMessage(
+        listQuery.error,
+        "Your filed requests could not be read and the server gave no reason.",
+      )
+    : null;
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const reload = useCallback(async () => {
+    await listQuery.refetch();
+  }, [listQuery]);
 
   // `VolunteerPortalLayout` already renders `PortalGate` when the server
   // granted no such portal, so reaching here without a grant means the

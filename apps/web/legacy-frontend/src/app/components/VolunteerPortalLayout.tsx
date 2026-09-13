@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   ListChecks,
@@ -14,6 +15,8 @@ import { SessionGate } from "./SessionGate";
 import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
+import { prefetchPortalRoute } from "../navPrefetch";
+import { usePrincipalKey } from "./PrincipalQueryProvider";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 
@@ -53,6 +56,9 @@ export function VolunteerPortalLayout() {
   const portalAccess = usePortalAccess();
   const signOut = useSignOut();
 
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+
   function handleSignOut() {
     signOut();
     navigate("/");
@@ -80,6 +86,9 @@ export function VolunteerPortalLayout() {
   // first, which for an account holding two roles could name the wrong one.
   const company = grant.org_unit_path;
   const initials = principalInitials(session.me);
+  // The unit the nav's hover prefetch scopes its reads to — the same
+  // `default_unit_id` every page behind these links reads.
+  const unitId = grant.default_unit_id;
 
   return (
     <div className="min-h-screen bg-background">
@@ -127,6 +136,12 @@ export function VolunteerPortalLayout() {
                   key={item.name}
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
+                  onMouseEnter={() =>
+                    prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                  }
+                  onFocus={() =>
+                    prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                  }
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive
                       ? "border border-primary/30 bg-primary/10 text-primary shadow-sm"

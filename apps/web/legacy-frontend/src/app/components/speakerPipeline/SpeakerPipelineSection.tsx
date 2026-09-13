@@ -25,10 +25,10 @@
  * would be a claim that the figures are filtered. The label and its
  * explanation both come from the server's `range`.
  */
-import { useCallback, useEffect, useState } from "react";
 import { BarChart3, CalendarDays } from "lucide-react";
 
-import { ApiRequestError, fetchSpeakerPipeline, type SpeakerPipelineResponse } from "@/lib/api";
+import { ApiRequestError, fetchSpeakerPipeline } from "@/lib/api";
+import { useScopedQuery } from "@/app/hooks/useScopedQuery";
 import { ConversionRatesCard } from "@/app/components/speakerPipeline/ConversionRatesCard";
 import { PipelineFunnelCard } from "@/app/components/speakerPipeline/PipelineFunnelCard";
 import { PipelineInsightsCard } from "@/app/components/speakerPipeline/PipelineInsightsCard";
@@ -79,34 +79,25 @@ export interface SpeakerPipelineSectionProps {
 }
 
 export function SpeakerPipelineSection({ unitId }: SpeakerPipelineSectionProps) {
-  const [payload, setPayload] = useState<SpeakerPipelineResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [settled, setSettled] = useState(false);
+  // Through the shared cache like every other page-load read — a revisit to
+  // the dashboard inside `staleTime` renders the funnel immediately.
+  const pipelineQuery = useScopedQuery({
+    resource: "speaker-pipeline",
+    params: [unitId],
+    queryFn: () => fetchSpeakerPipeline(unitId),
+  });
 
-  const load = useCallback(async () => {
-    setSettled(false);
-    try {
-      setPayload(await fetchSpeakerPipeline(unitId));
-      setError(null);
-    } catch (cause) {
-      // The server's own words where it gave any: `ApiRequestError.message`
-      // carries the API's error text, including the refusal a 403 explains,
-      // and a rephrasing here would be this page's opinion about someone
-      // else's decision.
-      setPayload(null);
-      setError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The speaker pipeline could not be read and the server gave no reason.",
-      );
-    } finally {
-      setSettled(true);
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const payload = pipelineQuery.data ?? null;
+  // The server's own words where it gave any: `ApiRequestError.message`
+  // carries the API's error text, including the refusal a 403 explains,
+  // and a rephrasing here would be this page's opinion about someone
+  // else's decision.
+  const error = pipelineQuery.isError
+    ? pipelineQuery.error instanceof ApiRequestError
+      ? pipelineQuery.error.message
+      : "The speaker pipeline could not be read and the server gave no reason."
+    : null;
+  const settled = !pipelineQuery.isPending;
 
   return (
     <section

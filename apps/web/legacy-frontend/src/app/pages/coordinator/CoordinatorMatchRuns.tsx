@@ -91,6 +91,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /**
  * The ratified portfolio bounds, as integers, because they are counts of
@@ -338,11 +339,37 @@ export function CoordinatorMatchRuns() {
   const unitId = grant?.default_unit_id ?? null;
   const navigate = useNavigate();
 
-  const [requests, setRequests] = useState<SpeakerRequest[]>([]);
-  const [requestsTruncated, setRequestsTruncated] = useState(false);
-  const [contacts, setContacts] = useState<SpeakerContact[]>([]);
-  const [contactsTruncated, setContactsTruncated] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Both listings come through the shared cache — `speaker-requests` is the
+  // slot the sidebar badge and the Requests page read, `speaker-contacts` the
+  // slot the Speakers page reads. A Connector who arrived via either finds
+  // this page already warm.
+  const queueQuery = useScopedQuery({
+    resource: "speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchSpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const rosterQuery = useScopedQuery({
+    resource: "speaker-contacts",
+    params: [unitId],
+    queryFn: () => fetchSpeakerContacts(unitId as string),
+    enabled: unitId !== null,
+  });
+  const requests: SpeakerRequest[] = queueQuery.data?.requests ?? [];
+  const requestsTruncated = queueQuery.data?.truncated ?? false;
+  const contacts: SpeakerContact[] = rosterQuery.data?.contacts ?? [];
+  const contactsTruncated = rosterQuery.data?.truncated ?? false;
+  const failedQuery = queueQuery.isError
+    ? queueQuery
+    : rosterQuery.isError
+      ? rosterQuery
+      : null;
+  const loadError =
+    failedQuery === null
+      ? null
+      : failedQuery.error instanceof ApiRequestError
+        ? failedQuery.error.message
+        : "The request queue and roster could not be loaded, and the server gave no reason.";
 
   // `?request={id}` is the door the Speaker Requests detail opens: it names
   // the request the Connector clicked "start a match" on. It is honoured only
@@ -363,40 +390,23 @@ export function CoordinatorMatchRuns() {
   const [jobState, setJobState] = useState<JobState | null>(null);
   const [followError, setFollowError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const [queue, roster] = await Promise.all([
-        fetchSpeakerRequests(unitId),
-        fetchSpeakerContacts(unitId),
-      ]);
-      setRequests(queue.requests);
-      setRequestsTruncated(queue.truncated);
-      setContacts(roster.contacts);
-      setContactsTruncated(roster.truncated);
-      setLoadError(null);
-      if (requestedRequestId !== null) {
-        if (queue.requests.some((request) => request.request_id === requestedRequestId)) {
-          setSelectedRequestId(requestedRequestId);
-          setRequestParamMiss(false);
-        } else {
-          setRequestParamMiss(true);
-        }
-      } else {
-        setRequestParamMiss(false);
-      }
-    } catch (cause) {
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The request queue and roster could not be loaded, and the server gave no reason.",
-      );
-    }
-  }, [unitId, requestedRequestId]);
-
+  // `?request={id}` resolves against the loaded queue once it arrives — a
+  // parameter the queue does not hold is a stale or foreign id, and
+  // pre-selecting it would submit a request the Connector cannot see on
+  // screen.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!queueQuery.isSuccess) return;
+    if (requestedRequestId !== null) {
+      if (queueQuery.data.requests.some((request) => request.request_id === requestedRequestId)) {
+        setSelectedRequestId(requestedRequestId);
+        setRequestParamMiss(false);
+      } else {
+        setRequestParamMiss(true);
+      }
+    } else {
+      setRequestParamMiss(false);
+    }
+  }, [queueQuery.isSuccess, queueQuery.data, requestedRequestId]);
 
   // Follow the accepted command's job. Nothing here infers progress from
   // elapsed time: each tick asks the server, and the loop stops the moment the

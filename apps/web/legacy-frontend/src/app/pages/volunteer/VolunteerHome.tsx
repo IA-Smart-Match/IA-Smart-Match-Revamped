@@ -32,7 +32,6 @@
  * query string.
  */
 
-import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Building2, ClipboardList, ShieldAlert } from "lucide-react";
 
@@ -47,27 +46,15 @@ import { PortalDatasetUnavailable, PortalIdentityCard } from "../../components/P
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import {
+  describeFailure,
+  queryToLoaded,
+  useScopedQuery,
+  type Loaded,
+} from "../../hooks/useScopedQuery";
 
 /** The home page shows the first few; the full list is one click away. */
 const RECENT_REQUEST_LIMIT = 5;
-
-/** `settled` keeps "has not come back" and "came back with nothing" apart. */
-type Loaded<T> = { data: T | null; error: string | null; settled: boolean };
-
-const REQUESTS_PENDING: Loaded<{ requests: SpeakerRequest[]; truncated: boolean }> = {
-  data: null,
-  error: null,
-  settled: false,
-};
-const ORGANIZATION_PENDING: Loaded<HostOwnOrganization | "none"> = {
-  data: null,
-  error: null,
-  settled: false,
-};
-
-function describeFailure(cause: unknown, fallback: string): string {
-  return cause instanceof ApiRequestError ? cause.message : fallback;
-}
 
 /**
  * When a request's event happens, at the precision the server resolved.
@@ -173,58 +160,38 @@ export function VolunteerHome() {
   const grant = grantedPortal(portalAccess, "volunteer");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [requests, setRequests] =
-    useState<Loaded<{ requests: SpeakerRequest[]; truncated: boolean }>>(REQUESTS_PENDING);
-  const [organization, setOrganization] =
-    useState<Loaded<HostOwnOrganization | "none">>(ORGANIZATION_PENDING);
+  // Each read settles on its own so one refusal cannot blank the other half
+  // of the page. Both go through the shared cache: `my-speaker-requests` is
+  // the same slot `VolunteerMyRequests` reads, and `own-host-organization` is
+  // the same slot `VolunteerOrganization` reads — the second page a host
+  // opens renders from cache.
+  const requestsQuery = useScopedQuery({
+    resource: "my-speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchMySpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const requests = queryToLoaded(requestsQuery, "Your speaker requests");
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-
-    // Each read settles on its own so one refusal cannot blank the other half
-    // of the page.
-    try {
-      const listing = await fetchMySpeakerRequests(unitId);
-      setRequests({
-        data: { requests: listing.requests, truncated: listing.truncated },
-        error: null,
-        settled: true,
-      });
-    } catch (cause) {
-      setRequests({
-        data: null,
-        error: describeFailure(
-          cause,
-          "Your speaker requests could not be read and the server gave no reason.",
-        ),
-        settled: true,
-      });
-    }
-
-    try {
-      const own = await fetchOwnHostOrganization(unitId);
-      setOrganization({ data: own, error: null, settled: true });
-    } catch (cause) {
-      // `host_organization_not_found` is a state — you have described none —
-      // branched on the error's code, never its text.
-      if (cause instanceof ApiRequestError && cause.code === "host_organization_not_found") {
-        setOrganization({ data: "none", error: null, settled: true });
-        return;
+  // `host_organization_not_found` is a state — you have described none —
+  // resolved inside the query so the cache holds `"none"` rather than an
+  // error, and branched on the error's code, never its text.
+  const organizationQuery = useScopedQuery({
+    resource: "own-host-organization",
+    params: [unitId],
+    queryFn: async (): Promise<HostOwnOrganization | "none"> => {
+      try {
+        return await fetchOwnHostOrganization(unitId as string);
+      } catch (cause) {
+        if (cause instanceof ApiRequestError && cause.code === "host_organization_not_found") {
+          return "none";
+        }
+        throw cause;
       }
-      setOrganization({
-        data: null,
-        error: describeFailure(
-          cause,
-          "Your organization could not be read and the server gave no reason.",
-        ),
-        settled: true,
-      });
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    },
+    enabled: unitId !== null,
+  });
+  const organization = queryToLoaded(organizationQuery, "Your organization");
 
   // `VolunteerPortalLayout` already renders `PortalGate` when the server granted
   // no such portal, so reaching here without a grant means the mapping is

@@ -83,7 +83,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { fetchReviewItems, fetchSpeakerRequests } from "@/lib/api";
 import { hasActiveRole } from "@/lib/roles";
@@ -93,6 +94,9 @@ import { SessionGate } from "./SessionGate";
 import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
+import { useScopedQuery } from "../hooks/useScopedQuery";
+import { prefetchPortalRoute } from "../navPrefetch";
+import { usePrincipalKey } from "./PrincipalQueryProvider";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 
@@ -128,10 +132,11 @@ interface NavGroup {
 /**
  * The two counts, read from the routes the pages behind them read.
  *
- * Plain `useEffect` rather than the shared query cache, matching every page in
- * this shell (`CoordinatorEvents`, `CoordinatorReviewQueue`): the shell mounts
- * once when the portal is entered and stays mounted across every child route,
- * so this is two requests per visit, not two per navigation.
+ * These go through the shared query cache under the same keys the pages use
+ * (`speaker-requests`, `review-items`/`pending`), so the badge read doubles
+ * as a warm-up: by the time a reader clicks either link the page's own query
+ * is already populated, and the shell mounts once per portal visit so this
+ * stays two requests per visit, not two per navigation.
  *
  * A failure is swallowed *here and only here*. The sidebar's job is to offer
  * the link; the page behind it owns reporting why its own read failed, and it
@@ -140,43 +145,26 @@ interface NavGroup {
  * reader who only wanted a different page.
  */
 function useInboxCounts(unitId: string | null) {
-  const [speakerRequests, setSpeakerRequests] = useState<NavCount | null>(null);
-  const [reviewItems, setReviewItems] = useState<NavCount | null>(null);
+  const requestsQuery = useScopedQuery({
+    resource: "speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchSpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const reviewQuery = useScopedQuery({
+    resource: "review-items",
+    params: [unitId, "pending"],
+    queryFn: () => fetchReviewItems(unitId as string, "pending"),
+    enabled: unitId !== null,
+  });
 
-  useEffect(() => {
-    if (unitId === null) {
-      setSpeakerRequests(null);
-      setReviewItems(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    void fetchSpeakerRequests(unitId)
-      .then((listing) => {
-        if (!cancelled) {
-          setSpeakerRequests({ value: listing.requests.length, atLeast: listing.truncated });
-        }
-      })
-      .catch(() => {
-        // No badge. See the note above: the page owns this failure.
-        if (!cancelled) setSpeakerRequests(null);
-      });
-
-    void fetchReviewItems(unitId, "pending")
-      .then((listing) => {
-        if (!cancelled) {
-          setReviewItems({ value: listing.items.length, atLeast: listing.truncated });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setReviewItems(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [unitId]);
+  // No badge on error — see the note above: the page owns this failure.
+  const speakerRequests: NavCount | null = requestsQuery.isSuccess
+    ? { value: requestsQuery.data.requests.length, atLeast: requestsQuery.data.truncated }
+    : null;
+  const reviewItems: NavCount | null = reviewQuery.isSuccess
+    ? { value: reviewQuery.data.items.length, atLeast: reviewQuery.data.truncated }
+    : null;
 
   return { speakerRequests, reviewItems };
 }
@@ -214,7 +202,11 @@ export function CoordinatorPortalLayout() {
   const signOut = useSignOut();
 
   const grant = grantedPortal(portalAccess, "coordinator");
-  const { speakerRequests, reviewItems } = useInboxCounts(grant?.default_unit_id ?? null);
+  const unitId = grant?.default_unit_id ?? null;
+  const { speakerRequests, reviewItems } = useInboxCounts(unitId);
+
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
 
   function handleSignOut() {
     signOut();
@@ -364,6 +356,12 @@ export function CoordinatorPortalLayout() {
                         <Link
                           to={item.href}
                           onClick={() => setSidebarOpen(false)}
+                          onMouseEnter={() =>
+                            prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                          }
+                          onFocus={() =>
+                            prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                          }
                           aria-current={isActive ? "page" : undefined}
                           /* `min-h-[40px]`: a nav row is a pointer target and
                              must stay comfortably hittable however the label
