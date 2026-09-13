@@ -411,6 +411,27 @@ OQ-CBA-020 keeps its cells non-interactive).
    declared, with suppression visible below the threshold.
 8. **The six non-happy states**, each reachable: loading, empty, unknown,
    partial, denied, failed.
+9. **Staff video update (PLANNED — media plane, OQ-SC-05)** — a short vertical
+   video between events, posted by a department or event staff (an Associate
+   Dean "news flash", per the 12 September session). Constraints, each a rule
+   rather than a taste: it plays **muted, captioned, and only on a tap** —
+   captions are WCAG 1.2.2 and mandatory under the ADA Title II rule, and
+   autoplay with sound is refused; it is **staff-posted only**, never a student
+   upload; and it is **never counted as one of the week's events**, so the
+   bounded count never inflates.
+10. **What's there** — food, merch, prizes, résumé drops, shown on every event
+    card as small labelled chips. These are **facts about the event**, styled
+    apart from points on purpose: ADR-0013 derives every ledger entry from a
+    recorded attendance, so a perk may be a reason to go and may never be a
+    reward the app mints. Source them from a small closed list on the event
+    creator's form so a card can render an icon and a student can filter.
+11. **Check-in (PLANNED — OQ-E04, behind S11 + D8)** — two paths on one screen:
+    scan the code at the door, or **type the six-character room code** beside
+    it. The code path is also the accessibility fallback for a camera. The
+    "what this records" statement is on the screen itself — that copy is a
+    disclosure statement and is D8's, which is why the flow is gated. Show the
+    recorded state only as a labelled prototype state, never as a completed
+    write.
 
 **Exclude, deliberately, and annotate each exclusion with its citation in the
 design notes:**
@@ -585,6 +606,9 @@ row, and either way it needs resolving before the UI team reviews the pack.
 | Points panel with reachable-reward progress | 10 | LIVE CONTRACT (`GET /v1/units/{unit_id}/rewards`) |
 | Aggregate interest demand | 10 | PLANNED BACKEND |
 | The six non-happy states | 10 | — |
+| Staff video update card (muted, captioned, tap to play) | 10 | PLANNED BACKEND — media plane, OQ-SC-05 |
+| "What's there" perks on each event card | 10 | PLANNED BACKEND — event creator form |
+| Check-in: QR scan or room code, with the disclosure statement | 10 | PLANNED BACKEND — OQ-E04 (S11 + D8) |
 
 **Prompt 9 produces no screens of its own.** It validates and connects the
 screens above and reports what is missing.
@@ -684,6 +708,13 @@ nothing has been produced, not because someone forgot.
   tags differ in weight as well as fill.
 - **No horizontal overflow** at 360 / 768 / 1024 / 1440. The one wide element per
   section is a table in its own `overflow-x: auto` container.
+- **Video.** The staff update is muted by default with captions on, and plays
+  only from a tap — `prefers-reduced-motion` skips the scrub animation entirely.
+  The play control carries an accessible name stating the length and that
+  captions are on.
+- **Check-in.** The typed room code is a full alternative to the camera, with a
+  visible label, an `aria-describedby` hint, and an `aria-live` error that says
+  what a valid code looks like.
 - **Known gap, unresolved:** the scroll-snap feed has not been tested against a
   screen reader's virtual cursor. Snap containers are a known weak point, and a
   real implementation should be verified with NVDA and VoiceOver before it is

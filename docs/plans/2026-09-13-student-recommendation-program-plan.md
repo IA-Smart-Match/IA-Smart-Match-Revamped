@@ -248,7 +248,21 @@ production history before it ever carries a recommendation.
 
 ---
 
-## 6. What this plan does not settle
+## 6. Follow-ups from the 13 September review, placed on their tracks
+
+Three asks arrived after the first prototype. None opens a new wave; each lands
+on a track that already exists, and each carries the rule it has to live under.
+
+| Ask | Track | Rule |
+|---|---|---|
+| **Staff video updates** — reel-style announcements from a department or event staff | The 12 September brief's registration track E3 (video/summary) — the media plane, **OQ-SC-05** | Muted, captioned (WCAG 1.2.2, mandatory under Title II), tap-to-play; staff-posted only; never counted as an event in the bounded feed |
+| **Perks** — food, merch, prizes on each event | Lisa's event-creator form (manual events); a small closed list beside the five approved categories | Facts about the event, never points — **ADR-0013** derives every ledger entry from a recorded attendance |
+| **Check-in by QR or room code** | E4 in the brief — `smartmatch_domain.checkin` is built and deliberately unwired; the flow is **OQ-E04**, behind **S11 + D8** | The screen's "what this records" copy is a disclosure statement and is D8's. The typed code is the accessibility fallback and the venue's one-code-per-room path (OQ-E06's reusable-token default) |
+
+The perks list is the only genuinely new field, and it is small enough to ride
+on the next manual-events change rather than take a wave of its own.
+
+## 7. What this plan does not settle
 
 - It does not ratify D7, and §3's OQ-SC-01 stays open until Ann and Yuka answer.
 - It does not write `student_profile`'s columns. W1 describes a shape; OQ-SC-02
