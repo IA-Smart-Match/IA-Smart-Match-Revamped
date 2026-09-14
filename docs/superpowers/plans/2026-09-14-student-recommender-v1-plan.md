@@ -1372,6 +1372,8 @@ def test_deflation_guard_fires_when_scored_keys_diverge(monkeypatch: pytest.Monk
 # tests/unit/test_student_recommend.py
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -1385,6 +1387,7 @@ from smartmatch_domain.factors.student_interest_overlap import (
 )
 from smartmatch_domain.student_recommender import registry as registry_module
 from smartmatch_domain.student_recommender.eligibility import DefaultEligibilityFilter
+from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
 from smartmatch_domain.student_recommender.ranker import ContentRanker
 from smartmatch_domain.student_recommender.recommend import recommend, student_inputs_hash
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
@@ -1417,6 +1420,23 @@ def _event(event_id: str, *tags: str) -> StudentEventCandidate:
     return StudentEventCandidate(
         event_id, False, T0 + timedelta(days=1), "exact", "published", False,
         EventTagEvidence(EventTagState.TAGGED, frozenset(tags), 0, V),
+    )
+
+
+VOCAB = V
+RUN = _run()
+
+
+def _catalog(*, tags: Mapping[str, set[str]]) -> tuple[StudentEventCandidate, ...]:
+    """One candidate per entry, insertion order preserved; the value is the event's mapped terms."""
+    return tuple(_event(event_id, *sorted(terms)) for event_id, terms in tags.items())
+
+
+def _approved_ranker() -> ContentRanker:
+    """A ranker over an approved copy of the registry; the shipped constant stays 'proposed'."""
+    return ContentRanker(
+        registry=replace(registry_module.STUDENT_REGISTRY, status="approved",
+                         approver="test", approved_on="2026-10-05"),
     )
 
 
@@ -1460,7 +1480,7 @@ def test_inputs_hash_covers_the_documented_tuple() -> None:
     h = student_inputs_hash(
         unit_id="u", subject_id="s", profile_version=1, interest_terms=frozenset({"b", "a"}),
         modality_preference="no_preference", vocabulary_version=V,
-        window=(T0, T0 + timedelta(days=7)), eligible_event_ids=frozenset({"y", "x"}),
+        window=(T0, T0 + timedelta(days=7)), eligible=(_event("y", "finance"), _event("x", "finance")),
         exclude_event_ids=frozenset(), registry_version="r", registry_hash="sha256:0",
         scoring_mode="m", scoring_mode_version="1", formula_version="f",
         model_artifact_hash=None, policy_version="p",
@@ -1468,12 +1488,30 @@ def test_inputs_hash_covers_the_documented_tuple() -> None:
     same_different_order = student_inputs_hash(
         unit_id="u", subject_id="s", profile_version=1, interest_terms=frozenset({"a", "b"}),
         modality_preference="no_preference", vocabulary_version=V,
-        window=(T0, T0 + timedelta(days=7)), eligible_event_ids=frozenset({"x", "y"}),
+        window=(T0, T0 + timedelta(days=7)), eligible=(_event("x", "finance"), _event("y", "finance")),
         exclude_event_ids=frozenset(), registry_version="r", registry_hash="sha256:0",
         scoring_mode="m", scoring_mode_version="1", formula_version="f",
         model_artifact_hash=None, policy_version="p",
     )
     assert h == same_different_order
+
+
+def test_changing_an_eligible_events_tags_changes_the_hash() -> None:
+    catalog = _catalog(tags={"e1": {"finance"}, "e2": {"hackathon"}})
+    edited = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"hackathon"}})
+    a = recommend(RUN, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    b = recommend(RUN, edited, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    assert a.inputs_hash != b.inputs_hash
+
+
+def test_candidate_evidence_covers_every_candidate_field() -> None:
+    from dataclasses import fields
+
+    from smartmatch_domain.student_recommender.recommend import candidate_evidence
+    from smartmatch_domain.student_recommender.run import StudentEventCandidate
+    names = {f.name for f in fields(StudentEventCandidate)}
+    assert names == {"event_id", "is_virtual", "starts_at", "time_precision", "publication_status", "already_registered", "tags"}
+    assert len(candidate_evidence(_catalog(tags={"e1": {"finance"}})[0])) == 10
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -1495,6 +1533,18 @@ from collections.abc import Iterable
 from datetime import datetime
 
 from smartmatch_domain.match_run import canonical_digest
+from smartmatch_domain.student_recommender.run import StudentEventCandidate
+
+
+def candidate_evidence(c: StudentEventCandidate) -> tuple:
+    """Every candidate field a ranker or policy may read; folded into inputs_hash (contracts §1.4)."""
+    return (
+        c.event_id, c.is_virtual,
+        None if c.starts_at is None else c.starts_at.isoformat(),
+        c.time_precision, c.publication_status, c.already_registered,
+        c.tags.state.value, sorted(c.tags.mapped_terms),
+        c.tags.quarantined_count, c.tags.vocabulary_version,
+    )
 
 
 def student_inputs_hash(
@@ -1506,7 +1556,7 @@ def student_inputs_hash(
     modality_preference: str,
     vocabulary_version: str,
     window: tuple[datetime, datetime],
-    eligible_event_ids: Iterable[str],
+    eligible: Iterable[StudentEventCandidate],
     exclude_event_ids: Iterable[str],
     registry_version: str,
     registry_hash: str,
@@ -1524,7 +1574,7 @@ def student_inputs_hash(
         "modality_preference": modality_preference,
         "vocabulary_version": vocabulary_version,
         "window": [window[0].isoformat(), window[1].isoformat()],
-        "eligible_event_ids": sorted(eligible_event_ids),
+        "eligible_evidence": sorted(candidate_evidence(c) for c in eligible),
         "exclude_event_ids": sorted(exclude_event_ids),
         "registry_version": registry_version,
         "registry_hash": registry_hash,
@@ -1675,12 +1725,12 @@ from dataclasses import dataclass
 
 from smartmatch_domain.factor_registry import assert_registry_approved
 from smartmatch_domain.student_recommender.eligibility import EligibilityFilter, EligibilityResult
-from smartmatch_domain.student_recommender.fingerprint import student_inputs_hash
+from smartmatch_domain.student_recommender.fingerprint import candidate_evidence, student_inputs_hash
 from smartmatch_domain.student_recommender.policy import FeedPolicy, StudentFeed
 from smartmatch_domain.student_recommender.ranker import StudentRanker
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
 
-__all__ = ["RecommendationOutcome", "recommend", "student_inputs_hash"]
+__all__ = ["RecommendationOutcome", "candidate_evidence", "recommend", "student_inputs_hash"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1711,7 +1761,7 @@ def recommend(
         modality_preference=run.modality_preference,
         vocabulary_version=run.interests.vocabulary_version,
         window=run.feed_window,
-        eligible_event_ids=(c.event_id for c in stage_a.eligible),
+        eligible=stage_a.eligible,
         exclude_event_ids=run.exclude_event_ids,
         registry_version=ranker.registry.version,
         registry_hash=ranker.registry.registry_hash,

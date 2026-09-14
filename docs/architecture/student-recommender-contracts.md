@@ -108,10 +108,23 @@ class StudentRecommendationsResponse(BaseModel):
 ```
 (unit_id, subject_id, profile_version, sorted(interest_terms), modality_preference,
  interest_vocabulary_version, feed_window.starts_at, feed_window.ends_at,
- sorted(eligible_event_ids), sorted(exclude_event_ids),
+ sorted(candidate_evidence(c) for c in eligible), sorted(exclude_event_ids),
  registry_version, registry_hash, scoring_mode, scoring_mode_version, formula_version,
  model_artifact_hash, policy_version)
+
+candidate_evidence(c) = (c.event_id, c.is_virtual, c.starts_at.isoformat(), c.time_precision,
+                         c.publication_status, c.already_registered,
+                         c.tags.state.value, sorted(c.tags.mapped_terms),
+                         c.tags.quarantined_count, c.tags.vocabulary_version)
 ```
+
+`candidate_evidence` is every candidate field any Stage B ranker or Stage C
+policy may read (contracts §2 and §4 — the V2 `FeatureSpec`s consume the same
+fields). Editing an eligible event's tags, modality, start time, or status
+therefore changes `inputs_hash`; two responses with equal hashes were computed
+from identical evidence. A future candidate field must be added here in the
+same change that adds it to `StudentEventCandidate` (the wiring test in V1 plan
+Task 5 asserts the dataclass fields and the evidence tuple agree).
 
 rendered as canonical JSON and digested by `smartmatch_domain.match_run.canonical_digest` (the same `sha256:`-prefixed digest `inputs_fingerprint` uses), not a second implementation.
 
@@ -445,7 +458,7 @@ OQ-SE-20 owner's role may submit.
 | `tests/unit/test_student_interest_overlap.py` | all six rows; version mismatch raises at construction; exact Jaccard values; anti-gaming property |
 | `tests/unit/test_student_eligibility.py` | each reason in `ELIGIBILITY_REASONS` produced exactly once by a purpose-built candidate; counts sum to `len(catalog) - len(eligible)` |
 | `tests/unit/test_student_feed_policy.py` | bound; diversity cap never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash` |
-| `tests/unit/test_student_recommend.py` | determinism (same inputs ⇒ same `inputs_hash` and order); `exclude_event_ids` changes the hash; proposed registry raises |
+| `tests/unit/test_student_recommend.py` | determinism (same inputs ⇒ same `inputs_hash` and order); `exclude_event_ids` changes the hash; proposed registry raises; editing an eligible event's tags changes the hash; evidence tuple covers every candidate field |
 | `tests/unit/test_feature_spec.py` | `FeatureSpec` with a prohibited key/source raises; `OUTCOME` source raises; required-unknown ⇒ `unknown_required_keys` non-empty |
 | `tests/unit/test_learned_ranker_fallback.py` | missing artifact ⇒ `ContentRanker`, `fallback_from="ltr-1"` |
 | `tests/golden/student/` + `tests/unit/test_student_golden.py` | every case in §5.1 |
