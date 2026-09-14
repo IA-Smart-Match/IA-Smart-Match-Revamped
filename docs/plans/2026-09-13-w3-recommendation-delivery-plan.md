@@ -60,7 +60,7 @@ number must be assigned current-head-plus-one at merge readiness.
 |---|---|
 | `id`, `tenant_id`, `owning_unit_id` | ADR-0004 composite discipline |
 | `subject_id` | Composite FK to `user_account`, `ON DELETE RESTRICT` |
-| `channel_kind` | CHECK-pinned. **`in_app` and `email` only** at this revision. `push` is not in the vocabulary — see §5 |
+| `channel_kind` | CHECK-pinned. **`email` only** in this proposal. Passive in-app reads are not a preference-table channel; push and any later active in-app notification remain separately gated — see §5 |
 | `state` | `opted_in` / `opted_out`. **Revocation is a state, not a delete** — ADR-0014's rule, and the reason the `disclosure_consent` design says so explicitly |
 | `decided_at`, `decided_by_user_id` | Who chose, and when |
 | `created_at`, `updated_at`, `version` | |
@@ -68,7 +68,7 @@ number must be assigned current-head-plus-one at merge readiness.
 `uq_student_contact_preference_channel` on `(tenant_id, subject_id, channel_kind)`.
 
 **The default is off.** A row's absence means no consent, and the digest command
-skips a student with no `opted_in` row rather than treating absence as
+skips outbound email for a student with no `opted_in` email row rather than treating absence as
 permission. A wrong refusal costs a student a reminder; a wrong send is a message
 to a student who never asked for one, and no later decision undoes it.
 
@@ -94,13 +94,18 @@ student on a timer.
 
 **Passive authenticated in-app content first.** A read surface a signed-in student
 chooses to open is not an outbound notification. It requires ordinary authorization
-and approved content, but not email opt-in.
+and approved content, but not email opt-in, and it **never consults
+`student_contact_preference`**.
 
 **Email is outbound and opt-in.** It may reuse the existing send machinery, and inherits its three
 institutional blockers (OQ-001 From domain, OQ-002 provider tenant, OQ-003
 reviewed copy). Those are not W3's to close, and W3 must not pretend otherwise:
 until they are, an email digest is composable and undeliverable, which the job
 should report as such rather than as a success.
+
+**Active in-app notifications are not decided here.** If later desired, they need
+a separate product/consent boundary and must not be inferred from passive reads or
+added to this proposal's vocabulary without that decision.
 
 **Push last, and not in this revision.** Push needs a client (deferred), a
 credential, a store presence, and a platform decision — and the session deferred

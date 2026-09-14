@@ -160,7 +160,9 @@ That is about **13–20 engineer-weeks at 40 hours/week**. The ranges assume reu
 of the existing PostgreSQL, API, React, authentication, and outbox foundations and
 include implementation plus slice-level tests. They exclude stakeholder/privacy/
 records decision wait time, cloud or vendor procurement, deployment approval, and
-native mobile. Legal review is also outside the internal-development critical path;
+native mobile. They also exclude supporting ranking implementation and rewards
+activation; estimate those separately only after their register decisions close.
+Legal review is outside the internal-development critical path;
 it becomes a gate only for the external-release cases in §3. Parallelism changes
 calendar time, not total engineering hours.
 

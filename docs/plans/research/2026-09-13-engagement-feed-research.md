@@ -15,8 +15,8 @@ infinite scroll work, and what should we copy?
 
 **Short answer:** copy the mechanics, refuse the endlessness. Every property that
 makes those feeds *good* is available to a bounded feed; the endlessness itself is
-the one property this product cannot have honestly, cannot have legally, and does
-not need.
+the one property this product cannot justify against its bounded catalog,
+accountability rules, and accessibility design constraints.
 
 **Parent:** [`../2026-09-13-student-recommendation-program-plan.md`](../2026-09-13-student-recommendation-program-plan.md).
 
@@ -62,14 +62,11 @@ exactly this class of dishonesty: an unknown is never rendered as a zero, and an
 omission is reported rather than hidden. There is no honest infinite feed over
 twelve events.
 
-**Accessibility is a legal mandate here, not a preference.** Cal Poly Pomona is a
-CSU campus. CSU's standard is **WCAG 2.1 Level AA**, and the U.S. Department of
-Justice's Title II final rule adopts WCAG 2.1 AA as the standard for web content
-and mobile applications provided by state and local government entities. Infinite
-scroll is a well-documented AA failure mode — an unreachable footer, keyboard
-traps, and screen-reader disorientation with no stable end. `apps/web/DESIGN.md`
-already sets a *higher* internal bar (WCAG 2.2 AA, keyboard-operable everything,
-44×44 px targets, visible focus) and adds a rule that decides this on its own:
+**Accessibility is a development constraint, not a conclusion this research
+settles.** Infinite scroll can create an unreachable footer, keyboard traps, and
+screen-reader disorientation with no stable end. `apps/web/DESIGN.md` sets the
+internal bar at WCAG 2.2 AA, keyboard-operable controls, 44×44 px targets, and
+visible focus, and adds a rule that decides this product choice on its own:
 **no required information may depend on animation.**
 
 **A bounded design is the program choice.** The prior draft cited unsupported

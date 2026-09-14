@@ -630,8 +630,10 @@ each identified in the flow map.
 | 5 | Import → job stream → failure → authorized redrive | 5, 6, 9 | ☐ |
 | 6 | Outcome feedback → shadow weight proposal → evaluation → human promotion → rollback | 5, 9 | ☐ |
 
-Boxes are unticked because **the prompts have not been run**. Nothing in this
-pack has been executed, and no prototype exists at the time of writing.
+Boxes are unticked because **Prompts 1–9 and all six cross-role flows remain
+unexecuted**. The external Prompt 10 prototype exists, but it covers only its
+non-authoritative student-recommendation exploration; it proves none of these six
+flows and is not implementation, approval, or end-to-end evidence.
 
 ---
 
