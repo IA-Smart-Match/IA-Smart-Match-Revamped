@@ -44,6 +44,22 @@ in [`../plans/remaining-foundation-r1-work.md`](../plans/remaining-foundation-r1
 Those documents remain the record of *why* each item was blocked; this one
 records the interim position taken while the block stands.
 
+## 2026-09-14 current scope note — tentative-development
+
+The canonical [student-engagement decision register](../plans/open-questions/student-engagement-deferred.md)
+now owns open student-program questions and their safe defaults. For internal
+CBA development, legal-team review is deferred and is **not** an engineering
+blocker. This does not make the work legally exempt: privacy, records,
+accessibility, and security constraints still apply, and the named owners in
+the register must make the decisions assigned to them.
+
+Legal review becomes a future gate before external deployment, public release,
+cross-unit expansion, or live-provider/live-data use. Older language below
+that treats legal review as an undifferentiated development gate is superseded
+only to that internal-versus-external extent. Historical decisions and their
+evidence remain unchanged. Current implementation truth is in the root
+[README](../../README.md); a dated decision record does not prove code exists.
+
 ---
 
 ## 2026-09-03 decision records
@@ -99,10 +115,10 @@ Consequences that follow directly:
 | **D2** | ELI formula parameters (decay half-life, window, caps) | The parameters implemented today stand as the tentative values. The open sub-question — whether committed future engagements count toward load — stays open; current behaviour refuses them explicitly rather than dropping them silently. | Confirmation or replacement of the parameters. |
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
-| **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
+| **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy/records owner decision on periods per table for internal development; legal review is a later gate for external/public/cross-unit/live-provider/live-data use. |
 | **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@BrooklynD23) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
-| **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
+| **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Named privacy/records owner decision remains required; legal review is deferred to the external/public/cross-unit/live-provider/live-data gate. |
 | **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
 
 ---
@@ -281,9 +297,11 @@ under IA West's own records policy, is a legal and institutional question that
 nobody here is qualified to answer.
 
 **Unmet adoption gate:** *formal institutional privacy and records review has
-not been performed.* It is a prerequisite for handling any real student data,
-and it is not satisfied by this decision, by the code, or by anyone's good
-intentions. Until it is done, the pilot runs on synthetic data only.
+not been performed.* The named privacy/records decisions remain constraints on
+internal development. Legal review is deferred during synthetic internal CBA
+development, but becomes a gate before external deployment, public release,
+cross-unit expansion, or live-provider/live-data use. This tentative decision,
+the code, and good intentions satisfy none of those future gates.
 
 ---
 

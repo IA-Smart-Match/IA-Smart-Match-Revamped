@@ -1,13 +1,24 @@
 # The engagement surface — attendance, points, rewards, and disclosure
 
+> **Historical design snapshot; partially implemented as of 2026-09-14.** This
+> document preserves the reasoning that shaped attendance, registration,
+> points, rewards, and disclosure. Registration/agenda routes, attendance
+> evidence, the server-owned points ledger/balance fold, funded-catalog reads,
+> redemption operations, and feedback QR now have implementation seams; other
+> target behavior here remains absent or gated. Use the root
+> [README](../../README.md) for current implementation truth. Use the canonical
+> [student-engagement program](../plans/2026-09-14-student-engagement-program-plan.md)
+> and [decision register](../plans/open-questions/student-engagement-deferred.md)
+> for current future-program authority and open blockers.
+
 The design for the one part of SmartMatch a student touches. It exists because
 the stakeholder test log of 19–20 August 2026 found four defects on this surface
 (Fix #9, #10, #11, #15) and the revamp had classified none of them — the surface
 was neither ported nor archived, it was simply absent.
 
-This document is a design, not an implementation. Nothing here ships in
-Foundation. The tables land in **R2**, alongside attendance and QR check-in
-(`MM-F02`), per the sequencing in `docs/plans/remaining-foundation-r1-work.md`.
+This document was a design, not an implementation report. Its original
+Foundation/R2 sequencing is retained as historical context; it is not a current
+statement that every table or route below is absent.
 
 **Decisions this document depends on and does not make:** D6 (a rewards budget
 owner), D7 (the economy calibration N), D8 (disclosure-consent policy, including

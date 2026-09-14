@@ -57,23 +57,12 @@ hard to locate:
   `IN (SELECT ... LIMIT n)` may re-execute and blow the batch size — is there
   rather than in the code.
 
-## Reserved numbers
+## ADR numbering
 
-**ADR-0016 is reserved** for agent-memory Slice 1
-(`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
-beside it). It has no file yet. Do not take that number for anything else.
-
-This reservation has now moved twice, for the same reason both times, and the
-reason is worth stating once rather than re-deriving: **a reservation with no
-file cannot hold its number**, because `test_adr_numbers_are_contiguous_from_one`
-refuses a gap. An ADR written while the reservation is unfilled therefore takes
-the next free number and the reservation moves up; the alternative is a failing
-lane, not a preserved number.
-
-It was **ADR-0010** until 25 August 2026, when the five ADRs arising from the
-stakeholder test-log audit took 0010–0014. It was **ADR-0015** until 25 August
-2026, when the J16 rate-limit decision took that number. Slice 1 had no file on
-either occasion, so nothing was displaced.
+No ADR number is reserved. A future ADR takes the next available contiguous
+number at merge time. Its file and this index must update together;
+`tests/unit/test_adr_index.py` rejects gaps, duplicate numbers, missing rows,
+and rows without files.
 
 ## This table is checked, not maintained by hope
 

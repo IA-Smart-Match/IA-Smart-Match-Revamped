@@ -4,7 +4,7 @@
 
 **Applies to:** `apps/web/legacy-frontend` and any replacement frontend created under `apps/web`
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-14
 
 This file is the implementation contract for people and coding agents changing the Smart Match frontend. Read it before editing a screen, component, route, or frontend API call. Existing code may not satisfy every rule yet; new work must move toward this standard and must not introduce a new exception.
 
@@ -160,7 +160,7 @@ Speaker Connector, Event Host, Speaker, and Student experiences share the same v
 ### Events and feedback QR codes
 
 - Manual event entry is the primary event source. Do not add crawler controls, crawler status, discovery feeds, or background-scraping language to a visible frontend path.
-- Speaker Connectors may create, edit, and publish events. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
+- Manual-event writes are limited to the `admin` role, displayed as **Speaker Connector (administrator)**. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
 - Preserve the event's IANA time zone. Convert a local form time using the selected zone, and display the saved instant in that same named zone.
 - Keep drafts usable when details are incomplete. Publishing must surface the backend's missing-field response without clearing the form.
 - Feedback QR management belongs only on the Speaker Connector event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.
@@ -320,13 +320,39 @@ Do not copy a component merely to change its colors or spacing. Extend the share
 
 Manual events are canonical `event` rows: a Speaker Connector-filed event is
 written into the same `event` table every other event lives in, carrying
-`origin="manual"` and `filed_by_user_id`, not a separate `managed_event`
+`origin="coordinator_entry"` and `filed_by_user_id`, not a separate `managed_event`
 table. `GET /v1/units/{unit_id}/events`, `CoordinatorEvents`, and
 `StudentEvents` therefore list a manually filed event exactly as they list a
 crawler-sourced one, with its provenance intact. Event-level detail specific
 to manual filing (staffing needs, publish state, the per-event feedback QR)
 lives in a side table keyed to the canonical event id, not in a parallel event
 model.
+
+## Planned and gated student-engagement target
+
+**PLANNED/GATED — documentation target, not current behavior.** The canonical
+[student-engagement program](../../docs/plans/2026-09-14-student-engagement-program-plan.md)
+and [student-engagement decision register](../../docs/plans/open-questions/student-engagement-deferred.md)
+define the future direction. They authorize no endpoint, role, schema, or
+frontend wiring. Until gated implementation lands, the OpenAPI contract and
+code win, manual-event writes remain `admin`-only, and the Event Host remains
+read-only.
+
+The approved target is:
+
+- Filer-scoped Event Host drafts whose submitted revisions are immutable;
+  edits after submission create a new revision.
+- Review and approval of the exact revision before it becomes student-visible.
+  The reviewer/approver role set is unresolved in OQ-SE-09 and OQ-SE-10 and
+  must not be inferred from `volunteer`, `coordinator`, `admin`, or host
+  organization provenance.
+- Approved accommodations and perks, plus private media/video with scanning,
+  authorization, moderation, retention, and captions/transcripts.
+- Approved, scoped announcements and a registration-QR deep link to the one
+  authenticated registration truth; neither is implemented today.
+- Responsive student web as the primary experience. Installable PWA behavior,
+  offline behavior, push, native mobile, and app-store distribution are
+  deferred pending their recorded decisions.
 
 ## Speaker roster and invitation workflow
 
