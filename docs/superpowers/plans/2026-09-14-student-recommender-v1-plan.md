@@ -2525,6 +2525,7 @@ git commit -m "feat: GET /student/recommendations behind the proposed-registry g
 **Interfaces:**
 - Consumes: `PROHIBITED_INPUTS`, Tasks 4–5 types.
 - Produces: `FeatureSource`, `FeatureSpec`, `STUDENT_FEATURE_REGISTRY_VERSION = "0.1.0-proposed-oq-se-19"`, `STUDENT_FEATURES`, `FeatureVector`, `build_feature_vector(run, candidate) -> FeatureVector`.
+- Deletion: no table is created in this plan. When OQ-SE-19 + OQ-SC-11 close, the `training_example` migration carries a `student_profile_id` FK with `ON DELETE CASCADE` and the three purge tests in contracts §5.4; the account-level FK alone is insufficient because the W1 profile DELETE leaves `user_account` intact.
 
 - [ ] **Step 1: Write the failing test**
 

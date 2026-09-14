@@ -384,7 +384,8 @@ evaluation permitted before OQ-SE-19.
 
 ```
 training_example(
-  id UUID PK, tenant_id UUID, subject_id UUID,     -- FK (tenant_id, subject_id) → user_account, ON DELETE CASCADE
+  id UUID PK, tenant_id UUID, subject_id UUID,     -- FK (tenant_id, subject_id) → user_account, ON DELETE CASCADE  (account removal)
+  student_profile_id UUID NOT NULL,                -- FK → student_profile(id), ON DELETE CASCADE                 (profile removal — the W1 DELETE route)
   event_id UUID, feature_registry_version TEXT,
   features JSONB,                                   -- FeatureVector.values at exposure time
   label SMALLINT CHECK (label IN (0,1,2)),          -- 0 shown, 1 registered, 2 attended
@@ -402,6 +403,20 @@ closes first with a "store, for training, with these fields and retention"
 decision, or the OQ-SE-19 decision explicitly resolves OQ-SC-11's scope for
 `training_example` rows and the register records that cross-closure. Deletion
 semantics are in §5.4.
+
+### 5.4 Deletion semantics for `training_example` (part of OQ-SE-19 closure evidence)
+
+Two independent cascades, both required:
+
+| Trigger | Mechanism | Test |
+|---|---|---|
+| `DELETE /v1/units/{unit_id}/student/profile` (W1; account intact) | `student_profile_id` FK `ON DELETE CASCADE` | `tests/integration/test_training_example_purge.py::test_profile_delete_purges_examples_and_keeps_account` — write two examples, call the W1 DELETE, assert zero rows for the subject **and** the `user_account` row still exists |
+| account removal | `(tenant_id, subject_id)` FK `ON DELETE CASCADE` | `::test_account_delete_purges_examples` |
+| profile re-created after deletion | new `student_profile.id`; old examples are already gone; no re-link | `::test_recreated_profile_starts_with_no_examples` |
+
+A `PUT` that changes `profile_version` does **not** purge (examples pin the
+feature vector at exposure time). The migration that creates this table ships
+with these three tests; none exist until both gate rows close (§5.3).
 
 ---
 
