@@ -174,11 +174,11 @@ def test_no_unit_is_its_own_state_and_carries_no_load_error(path: Path, constant
 
     * a *named* reason for "the grant carries no unit", separate from the
       credential failure, so the two are not one sentence again;
-    * ``setStatus("idle")`` rather than ``setStatus("unavailable")`` — nothing
-      was asked for, so nothing failed;
-    * ``setLoadError(null)`` on that branch — an error string here would be the
-      hook claiming a failure that did not happen, and the consumer would render
-      it beside the honest states as though it were one.
+    * the derived status selects ``"idle"`` rather than ``"unavailable"`` when
+      ``unresolved`` — nothing was asked for, so nothing failed;
+    * the derived load error selects ``null`` for that same state — an error
+      string here would be the hook claiming a failure that did not happen, and
+      the consumer would render it beside the honest states as though it were one.
     """
     source = path.read_text(encoding="utf-8")
     code = _code_only(source)
@@ -186,11 +186,11 @@ def test_no_unit_is_its_own_state_and_carries_no_load_error(path: Path, constant
     assert f"export const {constant} =" in source, (
         f"{path.name} must name the no-unit state separately from the credential failure"
     )
-    assert 'setStatus("idle")' in code, (
-        f"{path.name} must treat a missing unit as idle, not as a failed read"
+    assert re.search(r'const status(?::\s*\w+Status)?\s*=\s*unresolved\s*\?\s*"idle"', code), (
+        f"{path.name} must derive idle status from a missing unit"
     )
-    assert "setLoadError(null)" in code, (
-        f"{path.name} must report no error for a state in which nothing was attempted"
+    assert re.search(r"const loadError\s*=\s*unresolved\s*\?\s*null", code), (
+        f"{path.name} must derive no load error from a state in which nothing was attempted"
     )
 
 

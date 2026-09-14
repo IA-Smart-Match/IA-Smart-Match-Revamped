@@ -44,6 +44,7 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 API_LIB = FRONTEND_SRC / "lib" / "api.ts"
 STATS_PAGE = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorHome.tsx"
+SCOPED_QUERY_HOOK = FRONTEND_SRC / "app" / "hooks" / "useScopedQuery.ts"
 TOOLTIP_PRIMITIVE = FRONTEND_SRC / "app" / "components" / "ui" / "tooltip.tsx"
 
 #: Where one metric card is rendered, now that the six of them are the Speaker
@@ -770,11 +771,15 @@ def test_the_statistics_surface_renders_the_servers_refusal() -> None:
     unit. Hiding the panel on a refusal would tell a Connector the capability
     does not exist, which is a different and false statement.
     """
-    code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    page_code = _code_only(STATS_PAGE.read_text(encoding="utf-8"))
+    query_code = _code_only(SCOPED_QUERY_HOOK.read_text(encoding="utf-8"))
 
-    assert "ApiRequestError" in code
-    assert "cause.message" in code or "error.message" in code, (
-        "the server's own refusal text must be what a reader sees"
+    assert 'const feedback = queryToLoaded(feedbackQuery, "The unit feedback summary")' in page_code
+    assert "<StudentFeedbackPointer state={feedback} />" in page_code
+    assert "{state.error}" in page_code
+    assert "cause instanceof ApiRequestError" in query_code
+    assert "cause.message" in query_code, (
+        "the shared query helper must preserve the server's own refusal text"
     )
 
 
