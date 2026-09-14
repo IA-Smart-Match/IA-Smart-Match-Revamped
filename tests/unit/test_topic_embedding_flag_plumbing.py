@@ -19,7 +19,12 @@ produced by different engines.
 
 What the derivation currently finds, and why it is not obvious
 --------------------------------------------------------------
-Only ``services/api`` scores. A match run *looks* like worker work — it is
+Only ``services/api`` scores. One other container legitimately carries the
+flag without scoring: the ``dataset`` one-shot mounts the ``tools/`` scripts,
+and the verifier among them reads the flag from its own settings to judge
+whether the deployment it just verified could measure topic evidence — a
+reader, derived from the mounts, and required to say so in a comment. A match
+run *looks* like worker work — it is
 submitted as a command, and ``smartmatch_worker.handlers.handle_match_run_create``
 executes it — but the split is that the **API scores and the worker solves**:
 ``rank_cba_candidates`` runs in ``routers/match_runs.py`` before the command is
@@ -55,6 +60,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 SERVICES_DIR = REPO_ROOT / "services"
+TOOLS_DIR = REPO_ROOT / "tools"
 
 #: The environment variable under test, spelled once.
 FLAG = "SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED"
@@ -165,6 +171,38 @@ def _services_that_score_topics() -> set[str]:
     return scoring
 
 
+def _services_that_read_the_flag() -> set[str]:
+    """Compose services that run a ``tools/`` script which reads the flag.
+
+    The ``dataset`` one-shot mounts ``tools/*.py`` over the api image rather
+    than running a directory under ``services/``, so the scorer scan above
+    cannot see it. What it runs is still derivable: its volume list names the
+    mounted scripts, and a tool that reads
+    ``Settings.cba_topic_local_embedding_enabled`` — the verifier, which judges
+    the deployment's capability by this process's own settings — makes the
+    flag live configuration for the container, not dead configuration. The
+    reader set is derived rather than named: if the verifier stops reading
+    the flag this goes back to empty, and the compose variable becomes the
+    dead configuration the test below exists to refuse.
+    """
+    readers: set[str] = set()
+    mounted = {
+        line.split(":")[0].strip().lstrip("-").strip()
+        for line in _service_blocks().get("dataset", "").splitlines()
+        if "./tools/" in line
+    }
+    tools_read_flag = {
+        path.name
+        for path in TOOLS_DIR.glob("*.py")
+        if "cba_topic_local_embedding_enabled" in path.read_text(encoding="utf-8")
+    }
+    for mount in mounted:
+        if Path(mount).name in tools_read_flag:
+            readers.add("dataset")
+            break
+    return readers
+
+
 # ---------------------------------------------------------------------------
 # Which processes score
 # ---------------------------------------------------------------------------
@@ -231,13 +269,34 @@ def test_no_service_that_cannot_read_the_flag_is_given_it() -> None:
     ``smartmatch_worker.config.Settings`` has no field to receive it.
     """
     scoring = _services_that_score_topics()
+    readers = _services_that_read_the_flag()
     for service, block in sorted(_service_blocks().items()):
-        if service in scoring:
+        if service in scoring or service in readers:
             continue
         assert FLAG not in _assignments(block), (
             f"the `{service}` compose service sets {FLAG}, but nothing in "
-            f"services/{service} scores topics, so the value is read by "
-            "nothing. Remove it, or make the service actually score"
+            f"services/{service} scores topics and none of the tools it runs "
+            "reads it, so the value is read by nothing. Remove it, or make "
+            "the service actually use it"
+        )
+
+
+def test_a_reader_service_says_in_the_file_why_it_has_the_flag() -> None:
+    """A reader's presence must be legible, or the next reader will 'fix' it.
+
+    ``dataset`` carries the flag for the verifier's capability check, not for
+    scoring — the same kind of non-obvious correctness as the worker's absence
+    below. If a compose service that is not a scorer sets the flag without a
+    comment naming why, it reads as a mistake the next edit removes, and the
+    verifier goes back to reporting a deployment gap that is not one.
+    """
+    for service in sorted(_services_that_read_the_flag()):
+        block = _service_blocks()[service]
+        comments = "\n".join(line for line in block.splitlines() if line.strip().startswith("#"))
+        assert FLAG in comments, (
+            f"docker-compose.yml's `{service}` service sets {FLAG} without a "
+            "comment naming what reads it. It is a reader, not a scorer — say "
+            "which mounted tool consumes the value, alongside the assignment"
         )
 
 

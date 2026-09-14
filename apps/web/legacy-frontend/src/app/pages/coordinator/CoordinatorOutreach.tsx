@@ -55,7 +55,6 @@
  * {@link useOutreach} waiting for it.
  */
 
-import { useEffect, useState } from "react";
 import { AlertCircle, Clock, Mail, Send, UserCheck } from "lucide-react";
 
 import {
@@ -70,6 +69,7 @@ import {
   type QueuedSend,
 } from "../../hooks/useOutreach";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 import {
   INVITATIONS_NO_UNIT_REASON,
   useSpeakerInvitations,
@@ -260,7 +260,7 @@ function InvitationOutcomeRow({
             <button
               key={verb}
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs font-medium"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onClick={() => onRecord(outcome.invitation_id, verb)}
             >
               <UserCheck className="h-3 w-3" aria-hidden />
@@ -333,7 +333,7 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium"
+                className="min-h-11 shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={() => {
                   void invitations.openBatchById(summary.batch_id);
                 }}
@@ -362,7 +362,7 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
             </div>
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               disabled={invitations.dispatchState === "submitting"}
               onClick={() => {
                 void invitations.dispatchBatch(batch.batch_id);
@@ -479,36 +479,26 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
  * and there is no unit to make it about.
  */
 function UnitSends({ unitId }: { unitId: string | null }) {
-  const [sends, setSends] = useState<OutreachSendSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [settled, setSettled] = useState(false);
+  // The same cache slot `CoordinatorHome`'s sends read uses — the dashboard's
+  // count is this listing's warm-up. The slot holds the sends array itself,
+  // matching the dashboard's shape.
+  const sendsQuery = useScopedQuery({
+    resource: "outreach-sends",
+    params: [unitId],
+    queryFn: async () => (await fetchOutreachSends(unitId as string)).sends,
+    enabled: unitId !== null,
+  });
 
-  useEffect(() => {
-    if (unitId === null) {
-      setSettled(true);
-      return;
-    }
-
-    let cancelled = false;
-    fetchOutreachSends(unitId)
-      .then((listing) => {
-        if (cancelled) return;
-        setSends(listing.sends);
-        setSettled(true);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        // The list is left null rather than emptied. A read that failed says
-        // nothing about how many sends exist, and an empty list would be a
-        // claim this is not in a position to make (ADR-0011).
-        setError(cause instanceof Error ? cause.message : "The send listing failed.");
-        setSettled(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [unitId]);
+  // The list is left null rather than emptied. A read that failed says
+  // nothing about how many sends exist, and an empty list would be a
+  // claim this is not in a position to make (ADR-0011).
+  const sends: OutreachSendSummary[] | null = sendsQuery.data ?? null;
+  const error = sendsQuery.isError
+    ? sendsQuery.error instanceof Error
+      ? sendsQuery.error.message
+      : "The send listing failed."
+    : null;
+  const settled = unitId === null || !sendsQuery.isPending;
 
   return (
     <section className="space-y-3" aria-label="Outreach sends">
@@ -672,7 +662,7 @@ export function CoordinatorOutreach() {
 
                 <button
                   type="button"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                  className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   // Disabled for an unapproved draft, because the server would
                   // refuse it with a 409 — offering a button that cannot work
                   // is the shape this page exists to stop.

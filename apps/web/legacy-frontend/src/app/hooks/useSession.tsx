@@ -64,20 +64,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // can be served to another principal; card A2 wires the tracker to the real
   // sign-in/out flow when one exists.
   const signOut = useCallback(() => {
-    // `signOutOfSession` is asynchronous now, because it revokes the session
+    // `signOutOfSession` is asynchronous, because it revokes the session
     // server-side before clearing the local credential (see `lib/session.ts`).
     // The state moves to `loading` first so the UI cannot keep rendering a
     // portal while the revocation is still in flight.
     setState({ status: "loading" });
-    void signOutOfSession().then(({ stillAuthenticated }) => {
-      if (!stillAuthenticated) {
-        setState({ status: "signed-out", reason: "no-token" });
-        return;
-      }
-      // The bundle was built with VITE_SMARTMATCH_BEARER_TOKEN, so clearing
-      // sessionStorage revoked nothing. Ask the server again rather than
-      // showing a signed-out screen it would contradict.
-      loadSession().then(setState);
+    void signOutOfSession().then(() => {
+      // Signed out, unconditionally. This used to re-ask `GET /v1/me` whenever
+      // the browser could still authenticate afterwards — which, on a bundle
+      // built with VITE_SMARTMATCH_BEARER_TOKEN, it always could, because the
+      // fixture token survives in the bundle. The server then answered with
+      // the fixture's principal (the seeded coordinator) and sign-out handed a
+      // student the coordinator portal. A person who asked to be signed out is
+      // signed out; re-asking the server could only ever contradict them, and
+      // `signOutOfSession()` has recorded the sign-out so no later `/v1` call
+      // picks the fixture up either.
+      setState({ status: "signed-out", reason: "no-token" });
     });
   }, []);
 

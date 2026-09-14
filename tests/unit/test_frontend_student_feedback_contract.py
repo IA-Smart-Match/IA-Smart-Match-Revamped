@@ -284,7 +284,7 @@ def test_the_connector_page_never_reads_a_students_own_feedback_route() -> None:
 
     for forbidden in (
         "fetchMySpeakerFeedback",
-        "speaker-feedback",
+        "/student/events/",
         "submitSpeakerFeedback",
         "withdrawSpeakerFeedback",
     ):
@@ -292,6 +292,8 @@ def test_the_connector_page_never_reads_a_students_own_feedback_route() -> None:
             f"the Connector page references {forbidden!r}; its only feedback read is the "
             "aggregate (OQ-CBA-003 part 1)"
         )
+
+    assert "fetchSpeakerFeedbackSummary" in code
 
 
 def test_the_connector_page_renders_no_individual_rating_field() -> None:
@@ -743,9 +745,12 @@ def test_the_connector_page_still_reports_a_failed_summary_per_speaker() -> None
     )
     # The roster-level catch is separate and stays separate: it is the read
     # that failed *before* there were any speakers to attribute a failure to.
-    assert "setLoadError(" in code, (
+    assert "const loadError = rosterQuery.isError" in code, (
         "the roster-level failure path must remain distinct from the per-speaker one"
     )
+    assert "rosterQuery.error instanceof ApiRequestError" in code
+    assert "rosterQuery.error.message" in code
+    assert "{loadError}" in code
 
 
 def test_the_connector_page_does_not_borrow_the_dashboards_pooled_route() -> None:

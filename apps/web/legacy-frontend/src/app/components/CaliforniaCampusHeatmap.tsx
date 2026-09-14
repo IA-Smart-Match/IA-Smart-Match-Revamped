@@ -83,11 +83,11 @@ const KIND_STYLES: Record<
 
 export function CaliforniaCampusHeatmap() {
   return (
-    <div className="mt-8 overflow-hidden rounded-3xl border border-border/50 bg-white shadow-xl shadow-blue-500/5">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 bg-slate-50/50 px-6 py-4">
+    <div className="mt-8 overflow-hidden rounded-3xl border border-border/50 bg-card shadow-xl shadow-primary/5">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/40 bg-muted/50 px-6 py-4">
         <div>
-          <h4 className="font-[Inter_Tight] text-base font-bold text-slate-900">Regional Footprint</h4>
-          <p className="text-xs text-slate-500">Live campus engagements and CBA events</p>
+          <h4 className="font-[Inter_Tight] text-base font-bold text-foreground">Regional Footprint</h4>
+          <p className="text-xs text-muted-foreground">Live campus engagements and CBA events</p>
         </div>
         <div className="flex flex-wrap gap-4">
           {(Object.keys(KIND_STYLES) as CampusKind[]).map((k) => (
@@ -96,7 +96,7 @@ export function CaliforniaCampusHeatmap() {
                 className="h-2.5 w-2.5 rounded-full shadow-sm"
                 style={{ backgroundColor: KIND_STYLES[k].fill }}
               />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                 {KIND_STYLES[k].label}
               </span>
             </div>

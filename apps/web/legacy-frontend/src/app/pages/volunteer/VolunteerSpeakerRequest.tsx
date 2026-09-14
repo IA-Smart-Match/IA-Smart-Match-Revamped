@@ -315,17 +315,40 @@ export function VolunteerSpeakerRequest() {
         {/*
           The other end of this arrow (customer §6 step 9). Filing a request is
           the start of a workflow a Connector carries out elsewhere, and a host
-          who files one has no other way to find out how it ended.
+          who files one needs somewhere to watch it. The confirmed-speaker read
+          is Connector-scoped server-side — its old page 403'd the hosts it
+          named — so this link lands on the request list a host can read until
+          a host-readable answer exists.
         */}
         <p className="text-sm text-muted-foreground">
           Already filed one?{" "}
           <Link
-            to="/volunteer-portal/confirmed-speaker"
+            to="/volunteer-portal/my-requests"
             className="font-semibold text-primary underline"
           >
-            See who has agreed to speak
+            Track its status
           </Link>
           .
+        </p>
+        {/*
+          Migration `0036`'s stamp, made legible at the point it takes effect:
+          the create path records the filer's own organization on the event
+          row (`host_organization_id`) when they have one in this unit — and
+          publishes it on no read path yet, so the honest claim is "recorded",
+          not "the Connector can see it". A host who has not described one
+          files exactly as before — the stamp stays absent, which is "none
+          recorded", never "they have none".
+        */}
+        <p className="text-sm text-muted-foreground">
+          If you have{" "}
+          <Link
+            to="/volunteer-portal/organization"
+            className="font-semibold text-primary underline"
+          >
+            described your organization
+          </Link>
+          , requests you file are stamped with it — recorded on the request, though no screen
+          publishes that link to the Connector yet.
         </p>
       </header>
 

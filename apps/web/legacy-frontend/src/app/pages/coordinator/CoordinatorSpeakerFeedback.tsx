@@ -81,8 +81,8 @@
  * error handling, with at most `DEFAULT_READ_CONCURRENCY` in flight.
  */
 
-import { useCallback, useEffect, useState } from "react";
 import { Info, Users } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
@@ -92,10 +92,13 @@ import {
   type SpeakerFeedbackSummary,
 } from "../../../lib/api";
 import { DEFAULT_READ_CONCURRENCY, mapWithConcurrency } from "../../../lib/concurrency";
+import { scopedQueryKey } from "../../../lib/queryClient";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** One roster speaker beside whatever the server was willing to publish. */
 type RosterRow = {
@@ -186,31 +189,37 @@ export function CoordinatorSpeakerFeedback() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [rows, setRows] = useState<RosterRow[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const roster = await fetchSpeakerContacts(unitId);
-      setLoadError(null);
-
-      // One aggregate read per speaker, at most DEFAULT_READ_CONCURRENCY of
-      // them in flight. See "Why this page fans out, and why it is bounded"
-      // above for why there is no single call to make instead.
-      //
-      // Each read may still fail on its own — a speaker whose summary the
-      // server refused is reported on that speaker's card rather than
-      // replacing the whole roster with a banner. That is what the `catch`
-      // inside the worker is for: it turns a rejection into a value, so one
-      // refused speaker never discards the summaries that did come back.
-      const resolved = await mapWithConcurrency(
+  // The whole page is one cached read: the roster (shared with the
+  // `speaker-contacts` slot, so the Speakers page and the sidebar prefetch
+  // warm it) plus the bounded per-speaker fan-out. The fan-out stays inside
+  // one `queryFn` deliberately — `useQueries` would fire every speaker's read
+  // at once and re-open the pool exhaustion `mapWithConcurrency` was added to
+  // close (see "Why this page fans out, and why it is bounded" above).
+  //
+  // Each per-speaker read may still fail on its own — a speaker whose summary
+  // the server refused is reported on that speaker's card rather than
+  // replacing the whole roster with a banner. The `catch` inside the worker
+  // turns a rejection into a value, so one refused speaker never discards the
+  // summaries that did come back.
+  const rosterQuery = useScopedQuery({
+    resource: "speaker-feedback-roster",
+    params: [unitId],
+    enabled: unitId !== null && principalKey !== null,
+    queryFn: async (): Promise<RosterRow[]> => {
+      const id = unitId as string;
+      const roster = await queryClient.fetchQuery({
+        queryKey: scopedQueryKey(principalKey as string, "speaker-contacts", id),
+        queryFn: () => fetchSpeakerContacts(id),
+      });
+      return mapWithConcurrency(
         roster.contacts,
         DEFAULT_READ_CONCURRENCY,
         async (contact): Promise<RosterRow> => {
           try {
-            const summary = await fetchSpeakerFeedbackSummary(unitId, contact.professional_id);
+            const summary = await fetchSpeakerFeedbackSummary(id, contact.professional_id);
             return { contact, summary, error: null };
           } catch (cause) {
             return {
@@ -224,21 +233,16 @@ export function CoordinatorSpeakerFeedback() {
           }
         },
       );
-      setRows(resolved);
-    } catch (cause) {
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The roster could not be loaded and the server gave no reason.",
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId]);
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const rows: RosterRow[] = rosterQuery.isSuccess ? rosterQuery.data : [];
+  const loadError = rosterQuery.isError
+    ? rosterQuery.error instanceof ApiRequestError
+      ? rosterQuery.error.message
+      : "The roster could not be loaded and the server gave no reason."
+    : null;
+  const loaded = !rosterQuery.isPending;
 
   // `CoordinatorPortalLayout` already renders `PortalGate` when the server
   // granted no such portal, so reaching here without a grant means the mapping

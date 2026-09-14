@@ -31,6 +31,7 @@ import {
   clearStoredSmartmatchBearerToken,
   fetchMe,
   hasSmartmatchAuth,
+  markSmartmatchSignedOut,
   postLogout,
   type MeResponse,
 } from "@/lib/api";
@@ -146,21 +147,23 @@ export function resetSession(): void {
  * because the other half did not would leave them more signed in than they
  * asked to be. The outcome is reported rather than swallowed.
  *
+ * The sign-out is also **recorded** (`markSmartmatchSignedOut()`), and that is
+ * what makes it stick. Clearing storage alone left the build-time
+ * `VITE_SMARTMATCH_BEARER_TOKEN` as the only remaining credential on a
+ * compose/dev bundle, so `hasSmartmatchAuth()` stayed true and the next
+ * `/v1/me` signed the person back in as the fixture's principal — the seeded
+ * coordinator on the pilot appliance. A student who signed out of
+ * `/student-portal` was handed `/coordinator-portal`. The recorded sign-out
+ * suppresses the fixture (`src/lib/signOutMarker.ts`), so after this function
+ * returns the browser holds no credential at all.
+ *
  * Returns:
  *   `revoked` — whether the server confirmed it withdrew a live session.
  *     `false` for a dev fixture token (there is no row to revoke) and for a
- *     logout the server never received.
- *   `stillAuthenticated` — whether the browser can still authenticate
- *     afterwards. `true` when the running bundle was built with
- *     `VITE_SMARTMATCH_BEARER_TOKEN`: a compose/dev fixture build holds its
- *     token in the bundle, so clearing storage revokes nothing and the next
- *     `/v1/me` will succeed again. Callers show that outcome rather than a
- *     signed-out screen the server would disagree with.
+ *     logout the server never received. Reported, not acted on: either way the
+ *     person is signed out of this browser.
  */
-export async function signOutOfSession(): Promise<{
-  stillAuthenticated: boolean;
-  revoked: boolean;
-}> {
+export async function signOutOfSession(): Promise<{ revoked: boolean }> {
   let revoked = false;
   try {
     // Sent while the credential is still in storage — `postLogout()` reads it
@@ -173,6 +176,7 @@ export async function signOutOfSession(): Promise<{
   }
 
   clearStoredSmartmatchBearerToken();
+  markSmartmatchSignedOut();
   resetSession();
-  return { stillAuthenticated: hasSmartmatchAuth(), revoked };
+  return { revoked };
 }

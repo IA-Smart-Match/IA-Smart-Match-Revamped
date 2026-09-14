@@ -45,6 +45,8 @@ from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS  # noqa: E402
 from verify_pilot_dataset import (  # noqa: E402
     COUNTED_TABLES,
     DEMO_PORTAL_SURFACES,
+    FIXTURE_SUBJECT_SET,
+    LOGIN_SUBJECT_SET,
     PortalSurface,
 )
 
@@ -66,7 +68,13 @@ _REQUIRED_SURFACE_TABLES: dict[str, frozenset[str]] = {
         {"event", "speaker_request_classification", "match_run", "cba_meeting"}
     ),
     "compose-student": frozenset(
-        {"attendance_record", "event_registration", "point_ledger_entry", "redemption"}
+        {
+            "attendance_record",
+            "event_registration",
+            "point_ledger_entry",
+            "redemption",
+            "student_speaker_feedback",
+        }
     ),
     "compose-host": frozenset({"event"}),
     "compose-admin": frozenset({"cba_meeting", "reward_item"}),
@@ -111,21 +119,33 @@ def test_each_portal_declares_the_surfaces_it_lands_on(principal: Any) -> None:
 
 
 def test_a_person_scoped_surface_names_whose_rows_must_be_there() -> None:
-    """The ownership half: a subject-scoped surface must name its demo subject.
+    """The ownership half: a person-scoped surface must name a real demo account.
 
     This is the assertion the row counts could not make. ``point_ledger_entry``
-    holding 187 rows is not the student portal being full; it is 187 rows under
+    holding 182 rows is not the student portal being full; it is 182 rows under
     ``synthetic-student:*`` accounts that no demo login resolves to.
+
+    A surface now names a *role* and the subject is resolved late, because two
+    families of account can hold that role: the ``pilot-login-*`` accounts a
+    reviewer signs in as (the default) and the ``compose-pilot-*`` accounts the
+    local bearer tokens resolve to. Both families must answer for every role a
+    person-scoped surface names, or that surface would report a permanent zero
+    under one of them.
     """
-    subjects = {principal.subject for principal in COMPOSE_DEV_PRINCIPALS}
+    compose_subjects = {principal.subject for principal in COMPOSE_DEV_PRINCIPALS}
     for surface in DEMO_PORTAL_SURFACES:
-        if surface.subject_column is None:
+        if surface.owner is None:
             continue
-        assert surface.subject in subjects, (
-            f"surface {surface.table.name!r} for {surface.token} is scoped by "
-            f"{surface.subject_column!r} but names subject {surface.subject!r}, which is "
-            "not a subject any compose demo login resolves to — the rows would be "
-            "invisible to the person the portal is for"
+        login_subject = LOGIN_SUBJECT_SET.get(surface.role)
+        fixture_subject = FIXTURE_SUBJECT_SET.get(surface.role)
+        assert login_subject is not None, (
+            f"surface {surface.table.name!r} for {surface.token} is scoped by person "
+            f"but names role {surface.role!r}, which no pilot login holds — the rows "
+            "would be invisible to the person the portal is for"
+        )
+        assert fixture_subject in compose_subjects, (
+            f"surface {surface.table.name!r} names role {surface.role!r}, which no "
+            "compose dev principal holds"
         )
 
 

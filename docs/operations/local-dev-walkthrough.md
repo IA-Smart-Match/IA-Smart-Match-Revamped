@@ -94,11 +94,18 @@ needs filled in are:
   update. Add the line yourself if your checkout predates that merge; this
   walkthrough assumes it exists. Off by default (`False`), which keeps
   customer §9's Topic comparison on `FixtureSemanticTopicProvider` — a
-  deterministic playback fixture with no recording for most speaker
-  expertise text, so most candidates score `cba_semantic_topic: unknown` and
-  are reported unscorable. On, it reaches ADR-0017's offline, in-process
-  embedding model (averaged GloVe vectors, vendored, no network call, no
-  vendor, no credential) — never a live or external provider either way.
+  deterministic playback fixture with no recording for *any* speaker
+  expertise text, so every candidate carrying topic evidence scores
+  `cba_semantic_topic: unknown` and is reported unscorable. The practical
+  consequence on a generated dataset: only the members with no topic
+  evidence at all (about one roster member in eight, §9's neutral policy)
+  can enter a shortlist, so a hand-picked selection on "Run a match" is
+  refused with `match_run_insufficient_scorable_candidates` almost every
+  time. `make verify-pilot-dataset` now reports exactly this state as a
+  capability-check violation and names this flag as the remedy. On, the
+  flag reaches ADR-0017's offline, in-process embedding model (averaged
+  GloVe vectors, vendored, no network call, no vendor, no credential) —
+  never a live or external provider either way.
   See `docs/architecture/decisions/ADR-0017-offline-embedding-topic-semantics.md`.
 
 `SMARTMATCH_DEV_PRINCIPALS` also lives in `.env.example`, defaulting to `{}`.
@@ -203,11 +210,72 @@ process without you doing it by hand.
 
 ## 6. `tools/generate_pilot_dataset.py` — a dataset deep enough to measure
 
+Three routes run the same generator. Pick the one that matches the stack you
+have:
+
+```bash
+# Host-run stack (this walkthrough's route: `make run-api` + `make run-worker`).
+make generate-pilot-dataset \
+  GENERATE_PILOT_DATASET_ARGS="--bearer-token <token mapped to local-pilot-coordinator>"
+
+# Compose stack (INSTALL.md's route). Opt-in profile; never part of `up`.
+docker compose --profile dataset run --rm dataset
+
+# No stack yet, or a half-filled one: rebuild from an empty database.
+scripts/reset_pilot_dataset.sh
+```
+
+The Makefile target is the invocation below with `--api-base` defaulted to
+`http://127.0.0.1:8000` (override with `PILOT_DATASET_API_BASE`); every other
+flag passes through `GENERATE_PILOT_DATASET_ARGS`. Calling the script directly
+is still exactly equivalent:
+
 ```bash
 python3 tools/generate_pilot_dataset.py \
   --api-base http://127.0.0.1:8000 \
   --bearer-token <token mapped to local-pilot-coordinator in SMARTMATCH_DEV_PRINCIPALS>
 ```
+
+Whichever route, the generator needs **something driving dispatch** as well as
+an API and a worker: nothing moves a queued job to the worker on its own, so
+without it the imports sit queued and the run fails on its own poll rather than
+producing a dataset. On the compose route the `scheduler` sidecar is that
+something; on this one, drive the worker's own `/operations/dispatch`, which is
+what `scripts/reset_pilot_dataset.sh` does for you. The compose route
+additionally skips the generator's feedback cohort — see that service's note in
+`docker-compose.yml` — so `student_speaker_feedback` stays empty there and this
+route, the rebuild script, or the top-up in step 6b is what fills it.
+
+### 6b. Topping up a tenant that is already generated
+
+The generator wants an **empty** tenant: its repository phase resolves rows its
+import phase creates, so a second run against a half-filled one collides. On a
+tenant that generated cleanly and still has empty tables —
+`student_speaker_feedback`, `event_registration`, `cba_meeting`, `reward_item`,
+`redemption`, none of which any generator phase writes on the compose route —
+the additive path is:
+
+```bash
+export SMARTMATCH_PILOT_STUDENT_EMAIL=...      # the same two variables from
+export SMARTMATCH_PILOT_STUDENT_PASSWORD=...   # step 1 / `make seed-pilot-logins`
+make top-up-pilot-dataset PILOT_DATASET_API_BASE=http://127.0.0.1:8000
+```
+
+It needs a **running API** (the ratings are `POST`s the student's own session
+token makes, through `routers/student_speaker_feedback.py`, because that route
+takes `student_id` from the verified principal and from nowhere else) and it
+needs the four `pilot-login-*` accounts to exist. It does **not** need the
+generator's `--bearer-token`: nothing in the top-up goes through a
+`SMARTMATCH_DEV_PRINCIPALS` fixture, which is the point — the rows land on the
+accounts a browser can sign in as.
+
+There is no default password in this repository and the target invents none; an
+unset variable is a refusal naming the variable. Every step is idempotent, so a
+second run changes nothing. `outreach_send` and `event_feedback_qr` stay empty
+on purpose (dispatch gate G4; a QR is a coordinator's button press), and the
+reward catalogue values are illustrative, transcribed from
+`docs/pilot-data/rewards-catalog-worksheet.md`. See
+`docs/operations/pilot-dataset-rebuild.md` §3b.
 
 `--api-base` and `--bearer-token` are the two `required=True` arguments
 (`tools/generate_pilot_dataset.py`'s `parse_args`); everything else —

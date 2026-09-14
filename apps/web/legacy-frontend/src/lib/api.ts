@@ -1,4 +1,10 @@
 import { resolveBearerToken } from "./bearerToken.ts";
+import {
+  clearSignedOut,
+  hasSignedOut,
+  markSignedOut,
+  type MarkerStorage,
+} from "./signOutMarker.ts";
 
 export interface Specialist {
   name: string;
@@ -356,6 +362,21 @@ async function throwApiRequestError(response: Response): Promise<never> {
   throw new ApiRequestError(message, response.status, code, details);
 }
 
+/**
+ * `sessionStorage`, or `null` where the runtime has none (SSR, a test).
+ *
+ * Only for handing storage to `lib/signOutMarker.ts`, whose functions take it
+ * as an argument so they can be tested without a DOM. The bearer-token
+ * accessors below keep their own literal `sessionStorage.getItem/setItem/
+ * removeItem` calls on purpose: `tests/unit/test_frontend_auth_contract.py`
+ * greps the frontend for exactly those spellings to prove this file is the
+ * only one that touches browser storage, and hiding them behind a helper would
+ * quietly disarm that guard.
+ */
+function browserSessionStorage(): MarkerStorage | null {
+  return typeof sessionStorage !== "undefined" ? sessionStorage : null;
+}
+
 /** The sessionStorage key the browser may hold a `/v1` bearer token under. */
 export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
 
@@ -367,7 +388,9 @@ export const SMARTMATCH_BEARER_STORAGE_KEY = "smartmatch_bearer_token";
  * stored for this tab) and the build-time `VITE_SMARTMATCH_BEARER_TOKEN` (the
  * fixture token a compose/dev build is started with). The stored one wins —
  * see `resolveBearerToken()` in `src/lib/bearerToken.ts` for why the other
- * order sent every signed-in principal into the coordinator portal. Both are
+ * order sent every signed-in principal into the coordinator portal, and why an
+ * explicit sign-out (`src/lib/signOutMarker.ts`) suppresses the fixture
+ * outright rather than letting it inherit the session. Both are
  * *credentials* — the server decides what they mean. Nothing here, and nothing
  * downstream of here, lets the browser assert a tenant, user, or role; that is
  * the whole point of Fix #7. See `src/lib/session.ts` for the identity the
@@ -383,7 +406,7 @@ export function readSmartmatchBearerToken(): string | null {
       ? sessionStorage.getItem(SMARTMATCH_BEARER_STORAGE_KEY)
       : null;
 
-  return resolveBearerToken(envToken, sessionToken);
+  return resolveBearerToken(envToken, sessionToken, hasSignedOut(browserSessionStorage()));
 }
 
 /**
@@ -398,6 +421,20 @@ export function clearStoredSmartmatchBearerToken(): void {
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.removeItem(SMARTMATCH_BEARER_STORAGE_KEY);
   }
+}
+
+/**
+ * Records that the person deliberately signed out of this browser, so the
+ * build-time fixture token stops being offered as their credential.
+ *
+ * Without this, clearing the stored token on a compose/dev bundle simply
+ * promoted `VITE_SMARTMATCH_BEARER_TOKEN` to being the only credential left,
+ * and the next `GET /v1/me` signed the person back in as whoever that fixture
+ * maps to — the seeded coordinator on the pilot appliance. See
+ * `src/lib/signOutMarker.ts`.
+ */
+export function markSmartmatchSignedOut(): void {
+  markSignedOut(browserSessionStorage());
 }
 
 /**
@@ -417,6 +454,10 @@ export function storeSmartmatchBearerToken(token: string): void {
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.setItem(SMARTMATCH_BEARER_STORAGE_KEY, token);
   }
+  // Signing in is the one thing that supersedes an earlier sign-out, so it is
+  // also the only place the marker is dropped. Ordering matters: the mark goes
+  // once the credential that replaces it is in place.
+  clearSignedOut(browserSessionStorage());
 }
 
 function smartmatchAuthHeaders(): Record<string, string> {
@@ -1963,13 +2004,44 @@ export interface PortalUnit {
   path: string;
   unit_type: string;
   display_name: string;
+  /**
+   * The stored `membership.role`s held **over this unit**, highest reach first.
+   *
+   * Per unit, not per portal, because the two genuinely differ: one account can
+   * be `coordinator` over one subtree and `admin` over another, open a single
+   * shell, and still have different reach in each. Reading the descriptor's
+   * `role` for a unit would claim the stronger grant everywhere and offer an
+   * action the route then refuses.
+   */
+  roles: string[];
 }
 
 export interface PortalDescriptor {
   portal: string;
   display_name: string;
   home_path: string;
+  /** The highest-reach stored role that opened this portal — `roles[0]`. */
   role: string;
+  /**
+   * Every stored role the caller holds that opens this portal, highest reach
+   * first (`admin` > `coordinator` > `volunteer` > `student`).
+   *
+   * One shell can be opened by more than one role since `coordinator` and
+   * `admin` became one persona, so a reader that saw only `role` could not tell
+   * a connector who is also an administrator from one who is not.
+   *
+   * Do **not** gate the Administration section on this: use
+   * `hasActiveRole(me, "admin")` (`lib/roles.ts`) over `GET /v1/me`, which is
+   * the route that reports membership validity. This field describes the portal
+   * grant; that one describes the person.
+   */
+  roles: string[];
+  /**
+   * The granting membership's subtree — the same row `role` came from.
+   *
+   * Not a summary of everything this portal reaches. For that read `units`, and
+   * each unit's own `roles` for what is held over it.
+   */
   org_unit_path: string;
   /** Units the granting membership covers, shallowest first. May be empty. */
   units: PortalUnit[];
@@ -1978,6 +2050,14 @@ export interface PortalDescriptor {
 }
 
 export interface MyPortalsResponse {
+  /**
+   * One entry per *portal*, never two for one shell.
+   *
+   * `coordinator` and `admin` are one persona and open one descriptor between
+   * them; the server merges the caller's memberships deterministically and
+   * orders the list `coordinator`, `volunteer`, `student`, so the same account
+   * lands in the same place on every sign-in.
+   */
   portals: PortalDescriptor[];
   default_portal: string | null;
 }
@@ -2006,6 +2086,116 @@ export interface MetricSummary {
 export interface MetricsResponse {
   unit_id: string;
   metrics: MetricSummary[];
+}
+
+/**
+ * One lifecycle stage of the Speaker Pipeline funnel, as the server shaped it.
+ *
+ * `value` is the registered metric's measured count, or `null` when the
+ * register answered unknown — never a zero standing in for an absence.
+ * `share_of_baseline_pct` is the width this stage may be drawn at, relative to
+ * the baseline stage, and is `null` whenever it could not be calculated. A
+ * client that substitutes a default width for a `null` share is drawing a
+ * number nobody measured.
+ *
+ * `share_display` is the server's own rendering of that share. Render it;
+ * re-rounding `share_of_baseline_pct` here would be a second formatting rule.
+ */
+export interface SpeakerPipelineStage {
+  metric_name: string;
+  display_name: string;
+  /** This surface's short caption. Not the counting rule. */
+  description: string;
+  /**
+   * The register's own sentence for what this metric counts, and the
+   * authoritative one where it and `description` could be read as
+   * disagreeing. Shown behind the card's definition affordance.
+   */
+  definition: string;
+  value: number | null;
+  unknown_reason?: string | null;
+  share_of_baseline_pct: number | null;
+  share_display: string;
+}
+
+/**
+ * One cohort conversion between adjacent lifecycle stages.
+ *
+ * The server publishes a conversion only where the stored lifecycle defines
+ * one: `pipeline_record`'s stage-prefix constraint makes each stage's rows a
+ * subset of the previous stage's, which is what makes `numerator / denominator`
+ * a conversion rate rather than a quotient of two unrelated aggregates. There
+ * is deliberately no conversion to or from the review-queue metrics.
+ *
+ * `rate_pct` is `null` when there is no rate — an unmeasured stage on either
+ * side, or a denominator of zero — and `unavailable_reason` says which. Render
+ * `display` (an em dash in that case) rather than computing a fallback.
+ */
+export interface SpeakerPipelineConversion {
+  from_metric: string;
+  to_metric: string;
+  /** Panel label using an arrow. Visual shorthand — never an `aria-label`. */
+  label: string;
+  /** The same relation in prose, which is what a screen reader is given. */
+  accessible_label: string;
+  numerator: number | null;
+  denominator: number | null;
+  rate_pct: number | null;
+  display: string;
+  unavailable_reason?: string | null;
+}
+
+/**
+ * A registered metric shown beside the funnel but never inside it.
+ *
+ * `opportunities` and `pending_review_items` count `review_item` rows, not
+ * pipeline records. Neither is a subset of any funnel stage, so no ratio
+ * between either of them and a stage is a conversion. They are a separate
+ * field in this payload for exactly that reason: the shape refuses the mistake
+ * rather than relying on a comment not to make it.
+ */
+export interface SpeakerPipelineCompanion {
+  metric_name: string;
+  display_name: string;
+  description: string;
+  definition: string;
+  value: number | null;
+  unknown_reason?: string | null;
+}
+
+/** One deterministic sentence the server derived from the figures. */
+export interface SpeakerPipelineInsight {
+  /** Stable identifier; the client picks an icon from this, never from prose. */
+  code: string;
+  /** One of `attention`, `opportunity`, `strength`, `neutral`. */
+  tone: string;
+  title: string;
+  detail: string;
+}
+
+/**
+ * The window these figures cover, named by the server.
+ *
+ * `kind` is `all_time` today and the label travels with it, because none of
+ * the owning queries behind these metrics takes a date window. The range
+ * control renders `label`; it never invents one.
+ */
+export interface SpeakerPipelineRange {
+  kind: string;
+  label: string;
+  note: string;
+}
+
+/** Everything the Speaker Pipeline section renders, from one authorized read. */
+export interface SpeakerPipelineResponse {
+  unit_id: string;
+  range: SpeakerPipelineRange;
+  metrics: MetricSummary[];
+  baseline_metric: string;
+  stages: SpeakerPipelineStage[];
+  companions: SpeakerPipelineCompanion[];
+  conversions: SpeakerPipelineConversion[];
+  insights: SpeakerPipelineInsight[];
 }
 
 export interface MetricDrillDownResponse {
@@ -3135,6 +3325,166 @@ export async function fetchMySpeakerRequests(unitId: string): Promise<SpeakerReq
 }
 
 // ---------------------------------------------------------------------------
+// Host organizations (migration 0036, owner decision 4)
+//
+// What an Event Host is asking *on behalf of*. The same split
+// `speaker_requests.py` draws between a host's own filings and the
+// Connector's queue applies here, and for the same reason: the host routes
+// carry exactly one organization — the caller's — while the directory is
+// every host's record in the unit. The role sets are disjoint (`volunteer`
+// against `admin`/`coordinator`), so a page that called the wrong side of the
+// split would be refused server-side rather than quietly widened.
+//
+// Two things to know before rendering any of it:
+//
+// **A 404 is a state, not a failure.** A host who has not described an
+// organization gets `host_organization_not_found`, which is the honest answer
+// to "what is my organization in this department" — not an outage and not a
+// denial. A caller branches on `ApiRequestError.code` for it, never on the
+// message text.
+//
+// **Membership is asserted, not granted.** Every member row in this release
+// is self-asserted (`granted_by_user_id` is NULL and nothing can write it
+// otherwise), which is why `PUT` refuses to join the caller to an
+// organization somebody else already named — `409
+// host_organization_name_taken` — and refuses to move the caller's existing
+// organization across units — `409 host_organization_unit_conflict`. Both are
+// the server's own answers and both are rendered, never retried around.
+// ---------------------------------------------------------------------------
+
+/** One host organization, read back from the row that was written. */
+export interface HostOrganizationView {
+  unit_id: string;
+  organization_id: string;
+  name: string;
+  department: string | null;
+  default_location: string | null;
+  logistics_contact: string | null;
+  /**
+   * How many accounts belong — a count, never the accounts. Who belongs is a
+   * second question and neither host surface answers it.
+   */
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * The caller's organization plus what their own place in it is.
+ *
+ * `self_asserted` is `true` for every membership in this release — the member
+ * row's `granted_by_user_id` is NULL because nothing can grant a membership
+ * yet — so a screen that renders it must not present the flag as though a
+ * coordinator had approved anything.
+ */
+export interface HostOwnOrganization {
+  organization: HostOrganizationView;
+  self_asserted: boolean;
+  member_since: string;
+}
+
+/**
+ * What an Event Host may say about their organization — the whole of
+ * `HostOrganizationUpsert` in the contract. Note what is not here: no tenant,
+ * no unit, no user, no organization id, and no member list. The first three
+ * come from the verified principal and the authorized path; the fourth is
+ * decided by whether the account already has an organization; the fifth is a
+ * grant nothing in this release can make (MM-A01).
+ */
+export interface HostOrganizationUpsertPayload {
+  name: string;
+  /** The department inside the organization, when there is one. Omit to clear. */
+  department?: string;
+  /** Where this organization's events usually happen. Free text. */
+  default_location?: string;
+  /**
+   * Who to reach about logistics on the day. Free text — nothing sends to it,
+   * nothing treats it as an address, and it grants no consent.
+   */
+  logistics_contact?: string;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/host/organization` — this Event Host's own
+ * organization, `volunteer`-only server-side.
+ *
+ * Rejects with {@link ApiRequestError} carrying `host_organization_not_found`
+ * when the caller has none in this unit — including one that files into a
+ * different unit, which answers the same way on purpose. A `403` means the
+ * caller is not an Event Host here; a Connector is refused by design because
+ * they hold the wider directory below.
+ */
+export async function fetchOwnHostOrganization(
+  unitId: string,
+): Promise<HostOwnOrganization> {
+  return requestJson<HostOwnOrganization>(
+    `/v1/units/${encodeURIComponent(unitId)}/host/organization`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PUT /v1/units/{unit_id}/host/organization` — create or re-describe it.
+ *
+ * A `PUT` because the URL names one resource — the caller's organization in
+ * this unit — and this replaces its description. `201` when this call created
+ * it and wrote the caller's self-asserted member row, `200` when it updated a
+ * description that was already there; a caller may render the difference but
+ * the body is the stored row either way.
+ *
+ * Rejects with {@link ApiRequestError} carrying
+ * `host_organization_name_taken` (another host already created this name in
+ * this unit — joining is a grant nobody can make yet) or
+ * `host_organization_unit_conflict` (the caller's one organization files into
+ * a different department, and moving it would move every other member). Both
+ * `409`s are rendered from the server's message; neither is a retry.
+ */
+export async function upsertOwnHostOrganization(
+  unitId: string,
+  payload: HostOrganizationUpsertPayload,
+): Promise<HostOwnOrganization> {
+  return requestJson<HostOwnOrganization>(
+    `/v1/units/${encodeURIComponent(unitId)}/host/organization`,
+    { method: "PUT", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/**
+ * The unit's directory of host organizations, as a Speaker Connector reads
+ * it — `admin`/`coordinator` only server-side, disjoint from the host's own
+ * routes by the same argument the request queue draws.
+ *
+ * What it discloses is what each host typed about their own group — name,
+ * department, where they usually meet, who to ask about logistics, and how
+ * many accounts belong. What it does **not** disclose is which accounts, and
+ * it does not say which organization filed which request: the event's
+ * `host_organization_id` stamp is written on filing but published by no read
+ * model, so a caller must not present one row as a request's filer.
+ */
+export interface HostOrganizationDirectory {
+  unit_id: string;
+  organizations: HostOrganizationView[];
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/host-organizations` — the Connector's directory.
+ * Rejects with {@link ApiRequestError} on a 4xx; a `403` is the answer an
+ * Event Host gets, because the directory is every host's record.
+ */
+export async function fetchHostOrganizations(
+  unitId: string,
+): Promise<HostOrganizationDirectory> {
+  return requestJson<HostOrganizationDirectory>(
+    `/v1/units/${encodeURIComponent(unitId)}/host-organizations`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Speaker contacts (CBA-CONTACT-MANAGEMENT, customer §13)
 //
 // The other end of the arrow from Speaker Requests above. Those are an Event
@@ -4256,6 +4606,33 @@ export async function fetchCbaUnitMetrics(unitId: string): Promise<MetricsRespon
 }
 
 /**
+ * The Speaker Pipeline section's whole dataset, in one authorized read.
+ *
+ * One request rather than six, and the reason is correctness before it is
+ * latency: every metric here is measured inside one request against one
+ * session, so a conversion's numerator and denominator cannot be counted
+ * seconds apart and disagree.
+ *
+ * Nothing in this response is recomputed on the client. The counts are the
+ * same registered metrics `fetchCbaUnitMetrics` returns, through the same
+ * owning queries; the rates, the funnel widths, the percentage formatting and
+ * the insight sentences are the server's, because each of those is a published
+ * number too and a second copy in the browser is a second definition.
+ *
+ * A caller the server refuses gets {@link ApiRequestError} with status `403` —
+ * an answer to render, not a state to hide behind zeros.
+ */
+export async function fetchSpeakerPipeline(
+  unitId: string,
+): Promise<SpeakerPipelineResponse> {
+  return requestJson<SpeakerPipelineResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-pipeline`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
  * One unit's attendance evidence, counted. Never a roster.
  *
  * `total` is the sum of `by_method`, **folded server-side from the same counts
@@ -4674,6 +5051,216 @@ export async function createMeeting(unitId: string, input: NewMeeting): Promise<
   return requestJson<Meeting>(
     `/v1/units/${encodeURIComponent(unitId)}/meetings`,
     { method: "POST", body: JSON.stringify(input) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manual events (`/v1/units/{unit_id}/events/*`) and feedback QR
+// ---------------------------------------------------------------------------
+//
+// These adapters cover the Speaker Connector's manually-filed events —
+// `services/api/smartmatch_api/routers/manual_events.py` — which are `admin`
+// writes on top of the same `event` table `fetchUnitEvents` above reads back
+// (origin `coordinator_entry`). They are additive to `fetchUnitEvents`: that
+// route stays the unit's canonical, presentable event list; these routes let
+// an admin create, edit, and publish the rows behind it, and manage the
+// per-event feedback QR redirect. Never infer request/response shape here from
+// a mockup — see `contracts/openapi/smartmatch.json` and the router itself.
+
+/** Mirrors the router's `TimePrecision` literal. */
+export type ManualEventTimePrecision = "exact" | "date_only" | "unresolved";
+
+/** Mirrors the router's `EventStatus` literal. */
+export type ManualEventStatus = "draft" | "published";
+
+/**
+ * The body for `createManualEvent` / the full merged shape `updateManualEvent`
+ * validates against server-side (`EventWrite` in the router). A `null` here is
+ * "not set", never an empty string or a fabricated default — the router itself
+ * rejects a schedule that mixes precision with the wrong fields.
+ */
+export interface ManualEventInput {
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
+}
+
+/** `EventResponse` from the manual-events router. */
+export interface ManualEvent {
+  id: string;
+  unit_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  time_precision: ManualEventTimePrecision;
+  starts_at: string | null;
+  ends_at: string | null;
+  on_date: string | null;
+  time_zone: string | null;
+  location: string | null;
+  capacity: number | null;
+  volunteer_openings: number | null;
+  volunteer_needs: string | null;
+  audience: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  speaker_topics: string[];
+  region: string | null;
+  status: ManualEventStatus;
+  provenance: "observed";
+  created_at: string;
+  updated_at: string;
+  /** Optimistic-concurrency token; `updateManualEvent` must echo it back. */
+  version: number;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/events` — file one draft event.
+ *
+ * Carries an `Idempotency-Key` the same way {@link createMatchRun} does: a
+ * caller-generated key with `crypto.randomUUID()` unless the caller supplies
+ * its own (for a retry of one prior attempt, per the router's fingerprint
+ * check — a repeat of the same key with different details is a `409`).
+ */
+export async function createManualEvent(
+  unitId: string,
+  input: ManualEventInput,
+  idempotencyKey?: string,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey ?? crypto.randomUUID() },
+      body: JSON.stringify(input),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events/{event_id}` — one manual event.
+ *
+ * A draft is `admin`-only server-side regardless of the caller's role; a
+ * `coordinator` reading a draft here gets {@link ApiRequestError} with status
+ * `403`.
+ */
+export async function fetchManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/events/{event_id}` — edit a manual event.
+ *
+ * `version` must be the event's current `version` (from the last
+ * {@link ManualEvent} the caller read); a stale value is a `409` with code
+ * `stale_event`, never a silent overwrite. Only the fields present in `input`
+ * are changed — the router merges the patch over the stored row and
+ * re-validates the whole schedule, so a patch that only touches one field
+ * still gets checked against the others.
+ */
+export async function updateManualEvent(
+  unitId: string,
+  eventId: string,
+  version: number,
+  input: Partial<ManualEventInput>,
+): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ version, ...input }),
+    },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/units/{unit_id}/events/{event_id}/publish` — publish a draft.
+ *
+ * A `409` with code `event_not_publishable` carries `details.fields`, the
+ * list of missing required fields (plus `"schedule"` for an unresolved time);
+ * surface it without discarding the caller's in-progress form.
+ */
+export async function publishManualEvent(unitId: string, eventId: string): Promise<ManualEvent> {
+  return requestJson<ManualEvent>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/publish`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/** `FeedbackQrResponse` from the manual-events router. */
+export interface FeedbackQrAsset {
+  id: string;
+  event_id: string;
+  destination_url: string;
+  /** The `/q/{public_token}` link this event's QR code encodes. */
+  redirect_url: string;
+  open_count: number;
+  last_opened_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/events/{event_id}/feedback-qr` — the event's
+ * feedback QR redirect, if one has been configured.
+ *
+ * Throws {@link ApiRequestError} with status `404` and code
+ * `feedback_qr_not_found` when none has been saved yet — that is the normal,
+ * expected state for a new event, not a fetch failure; callers should treat
+ * it as "no QR configured" rather than surface it as an error banner.
+ */
+export async function fetchFeedbackQr(unitId: string, eventId: string): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PUT /v1/units/{unit_id}/events/{event_id}/feedback-qr` — create or replace
+ * the event's feedback QR destination.
+ *
+ * `destinationUrl` must be an absolute `https://` URL on a public DNS
+ * hostname (the router rejects `localhost`, bare IPs, embedded credentials,
+ * and control characters). The response's `redirect_url` is what the QR code
+ * itself must encode — `/q/{public_token}`, a stable link this router
+ * 302-redirects to `destinationUrl` and never a link this client renders as
+ * the destination.
+ */
+export async function saveFeedbackQr(
+  unitId: string,
+  eventId: string,
+  destinationUrl: string,
+): Promise<FeedbackQrAsset> {
+  return requestJson<FeedbackQrAsset>(
+    `/v1/units/${encodeURIComponent(unitId)}/events/${encodeURIComponent(eventId)}/feedback-qr`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ destination_url: destinationUrl }),
+    },
     { authenticated: true },
   );
 }

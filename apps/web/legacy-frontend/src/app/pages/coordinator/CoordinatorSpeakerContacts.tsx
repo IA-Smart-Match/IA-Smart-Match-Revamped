@@ -60,7 +60,7 @@
  * behind it is still authorized server-side, deny-by-default and tenant-scoped.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AlertCircle, Building2, Check, MapPin, ShieldAlert, UserPlus } from "lucide-react";
 
 import {
@@ -80,6 +80,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** The display name a released taxonomy gives a stored code, or the code itself. */
 function displayName(options: readonly TaxonomyOption[], code: string | null): string | null {
@@ -180,7 +181,7 @@ function ContactRow({
         <button
           type="button"
           onClick={() => setOpen((previous) => !previous)}
-          className="rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium"
+          className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {open ? "Cancel" : "Correct classification"}
         </button>
@@ -215,7 +216,7 @@ function ContactRow({
             type="button"
             disabled={correcting || unchanged}
             onClick={() => onCorrect(contact.professional_id, industry, role)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {correcting ? "Saving…" : "Save correction"}
           </button>
@@ -238,9 +239,22 @@ export function CoordinatorSpeakerContacts() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [contacts, setContacts] = useState<SpeakerContact[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // The roster read goes through the shared cache — the same key the
+  // sidebar's hover prefetch warms, and the same slot `CoordinatorSpeakerFeedback`
+  // reads for its picker.
+  const rosterQuery = useScopedQuery({
+    resource: "speaker-contacts",
+    params: [unitId],
+    queryFn: () => fetchSpeakerContacts(unitId as string),
+    enabled: unitId !== null,
+  });
+  const contacts: SpeakerContact[] = rosterQuery.isSuccess ? rosterQuery.data.contacts : [];
+  const truncated = rosterQuery.isSuccess ? rosterQuery.data.truncated : false;
+  const loadError = rosterQuery.isError
+    ? rosterQuery.error instanceof ApiRequestError
+      ? rosterQuery.error.message
+      : "The roster could not be loaded and the server gave no reason."
+    : null;
 
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
@@ -257,24 +271,8 @@ export function CoordinatorSpeakerContacts() {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const page = await fetchSpeakerContacts(unitId);
-      setContacts(page.contacts);
-      setTruncated(page.truncated);
-      setLoadError(null);
-    } catch (cause) {
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The roster could not be loaded and the server gave no reason.",
-      );
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+    await rosterQuery.refetch();
+  }, [rosterQuery]);
 
   // Why the button is disabled, in the words the server would use. A courtesy
   // and not a validation — every rule here is enforced server-side, and this
@@ -491,7 +489,7 @@ export function CoordinatorSpeakerContacts() {
               <button
                 type="submit"
                 disabled={submitting || blockingReason !== null}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {submitting ? "Adding…" : "Add contact"}
               </button>

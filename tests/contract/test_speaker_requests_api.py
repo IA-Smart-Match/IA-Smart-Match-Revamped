@@ -149,10 +149,16 @@ def request_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str
     yield client, unit_id, token, tenant_id
 
     with engine.begin() as conn:
+        # Delete order is foreign-key order: `event` references the
+        # organization RESTRICT (the 0036 stamp), the member rows reference
+        # both the organization and the account, and the account references
+        # nothing below it.
         for table in (
             "speaker_request_classification",
             "event_tag",
             "event",
+            "host_organization_member",
+            "host_organization",
             "membership",
             "resource_grant",
             "user_account",
@@ -166,6 +172,11 @@ def request_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str
 def _post(client: TestClient, path: str, token: str | None, body: dict[str, object]):
     headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
     return client.post(path, json=body, headers=headers)
+
+
+def _put(client: TestClient, path: str, token: str | None, body: dict[str, object]):
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
+    return client.put(path, json=body, headers=headers)
 
 
 def _get(client: TestClient, path: str, token: str | None):
@@ -872,3 +883,109 @@ def test_the_host_list_reports_truncation(monkeypatch: pytest.MonkeyPatch, reque
 
     assert len(body["requests"]) == 1
     assert body["truncated"] is True
+
+
+# ---------------------------------------------------------------------------
+# The organization stamp — event.host_organization_id (migration 0036)
+#
+# Owner decision 4: the organization is modelled now and enforcement stays
+# per-user. The stamp records which organization a request was filed under —
+# a fact about the filing, not a widening of any read. The contract here is
+# the column's *discipline*: written on creation, never on resubmission, and
+# never across a unit line, because a stamp that followed the filer's current
+# affiliation would be the reconstruction 0033 declined to make about filers.
+#
+# What the response itself cannot say is asserted at the row: `request_id` is
+# the event's id, and `host_organization_id` is read straight off `event`.
+# ---------------------------------------------------------------------------
+
+
+def _stamp(engine: Engine, tenant_id: uuid.UUID, request_id: str) -> str | None:
+    """The ``host_organization_id`` recorded on the event behind a request id."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text("SELECT host_organization_id FROM event WHERE tenant_id = :tid AND id = :eid"),
+            {"tid": tenant_id, "eid": request_id},
+        ).scalar_one()
+
+
+def _file_organization(client: TestClient, unit_id: uuid.UUID, token: str, name: str) -> str:
+    """PUT the caller's own organization into ``unit_id``; return its id."""
+    created = _put(
+        client,
+        f"/v1/units/{unit_id}/host/organization",
+        token,
+        {"name": name},
+    )
+    assert created.status_code == 201
+    return created.json()["organization"]["organization_id"]
+
+
+def test_a_request_filed_by_a_host_with_an_organization_is_stamped(
+    engine: Engine, request_context
+) -> None:
+    """The stamp is the organization the filer belonged to, in the filing unit."""
+    client, unit_id, host, tenant_id = request_context
+    organization_id = _file_organization(client, unit_id, host, "Accounting Society")
+
+    filed = _post(client, f"/v1/units/{unit_id}/speaker-requests", host, _body())
+
+    assert filed.status_code == 201
+    assert _stamp(engine, tenant_id, filed.json()["request_id"]) == uuid.UUID(organization_id)
+
+
+def test_a_resubmission_does_not_stamp_the_filers_new_organization(
+    engine: Engine, request_context
+) -> None:
+    """Filed first, organized second: the resubmission must not rewrite the fact.
+
+    The order is the load-bearing part. The first filing records ``NULL`` —
+    *no organization was recorded* — and the resubmission resolves onto that
+    row under ADR-0012's identity key, where ``result.created`` is false.
+    Stamping there would report today's affiliation as the one the request
+    was filed under, which is a reconstruction indistinguishable from a
+    recorded fact (ADR-0011 rule 1).
+    """
+    client, unit_id, host, tenant_id = request_context
+
+    first = _post(client, f"/v1/units/{unit_id}/speaker-requests", host, _body())
+    assert first.status_code == 201
+    _file_organization(client, unit_id, host, "Accounting Society")
+
+    second = _post(client, f"/v1/units/{unit_id}/speaker-requests", host, _body())
+
+    assert second.status_code == 200
+    assert second.json()["request_id"] == first.json()["request_id"]
+    assert _stamp(engine, tenant_id, first.json()["request_id"]) is None, (
+        "a resubmission stamped the filer's new organization onto a request "
+        "filed before it existed. `stamp_event` is guarded by "
+        "host_organization_id IS NULL and the route only calls it for a "
+        "request its own call created — one of those failed."
+    )
+
+
+def test_a_filer_whose_organization_is_in_another_unit_does_not_stamp(
+    engine: Engine, request_context
+) -> None:
+    """The stamp answers "filed under which organization *in this unit*".
+
+    A membership at the tenant root reaches both departments, so this host can
+    hold an organization in the sibling and still file here — and the request
+    keeps ``NULL``, because an organization that files into another department
+    is not the one this request was filed under.
+    """
+    client, unit_id, _, tenant_id = request_context
+    roving = _register_principal(
+        engine, client, tenant_id, role="volunteer", membership_path="iawest"
+    )
+    with engine.begin() as conn:
+        sibling_unit_id = conn.execute(
+            text("SELECT id FROM org_unit WHERE tenant_id = :tid AND path = CAST(:p AS ltree)"),
+            {"tid": tenant_id, "p": SIBLING_UNIT_PATH},
+        ).scalar_one()
+    _file_organization(client, sibling_unit_id, roving, "Sibling Club")
+
+    filed = _post(client, f"/v1/units/{unit_id}/speaker-requests", roving, _body())
+
+    assert filed.status_code == 201
+    assert _stamp(engine, tenant_id, filed.json()["request_id"]) is None

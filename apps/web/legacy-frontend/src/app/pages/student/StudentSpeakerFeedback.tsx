@@ -63,6 +63,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarX2, Info, MessageSquare } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
@@ -73,10 +74,13 @@ import {
   type StudentEvent,
   type StudentSpeakerFeedback as StoredFeedback,
 } from "../../../lib/api";
+import { scopedQueryKey } from "../../../lib/queryClient";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** The five points on the scale. There is no zero: see the module docstring. */
 const RATING_CHOICES = [1, 2, 3, 4, 5] as const;
@@ -384,26 +388,28 @@ export function StudentSpeakerFeedback() {
   const grant = grantedPortal(portalAccess, "student");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [events, setEvents] = useState<StudentEvent[]>([]);
-  const [byEvent, setByEvent] = useState<Record<string, StoredFeedback[]>>({});
-  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const agenda = await fetchStudentAgenda(unitId);
-      setEvents(agenda.events);
-      setLoadError(null);
-
-      // One read per event. Each is allowed to fail on its own — an event whose
-      // feedback could not be read is reported against that event rather than
-      // collapsing the whole page into a single banner.
+  // One cached composite: the agenda (shared with `useStudentPortalData`'s
+  // `student-agenda` slot, so Home/Events warm it) plus one read per event.
+  // Each per-event read is still allowed to fail on its own — an event whose
+  // feedback could not be read is reported against that event rather than
+  // collapsing the whole page into a single banner.
+  const pageQuery = useScopedQuery({
+    resource: "student-feedback-by-event",
+    params: [unitId],
+    enabled: unitId !== null && principalKey !== null,
+    queryFn: async () => {
+      const id = unitId as string;
+      const agenda = await queryClient.fetchQuery({
+        queryKey: scopedQueryKey(principalKey as string, "student-agenda", id),
+        queryFn: () => fetchStudentAgenda(id),
+      });
       const results = await Promise.all(
         agenda.events.map(async (event) => {
           try {
-            const list = await fetchMySpeakerFeedback(unitId, event.id);
+            const list = await fetchMySpeakerFeedback(id, event.id);
             return { id: event.id, rows: list.feedback, error: null as string | null };
           } catch (cause) {
             return {
@@ -417,29 +423,31 @@ export function StudentSpeakerFeedback() {
           }
         }),
       );
-
-      setByEvent(Object.fromEntries(results.map((result) => [result.id, result.rows])));
-      setReadErrors(
-        Object.fromEntries(
+      return {
+        events: agenda.events,
+        byEvent: Object.fromEntries(results.map((result) => [result.id, result.rows])),
+        readErrors: Object.fromEntries(
           results
             .filter((result) => result.error !== null)
             .map((result) => [result.id, result.error as string]),
         ),
-      );
-    } catch (cause) {
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "Your events could not be loaded and the server gave no reason.",
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId]);
+      };
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const events: StudentEvent[] = pageQuery.data?.events ?? [];
+  const byEvent: Record<string, StoredFeedback[]> = pageQuery.data?.byEvent ?? {};
+  const readErrors: Record<string, string> = pageQuery.data?.readErrors ?? {};
+  const loadError = pageQuery.isError
+    ? pageQuery.error instanceof ApiRequestError
+      ? pageQuery.error.message
+      : "Your events could not be loaded and the server gave no reason."
+    : null;
+  const loaded = !pageQuery.isPending;
+
+  const load = useCallback(async () => {
+    await pageQuery.refetch();
+  }, [pageQuery]);
 
   /** Events carrying at least one stored rating come first: they are the actionable ones. */
   const ordered = useMemo(() => {

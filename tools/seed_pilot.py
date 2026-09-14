@@ -4,6 +4,13 @@
 This is deliberately an operator tool, not an API endpoint. A caller cannot
 choose a tenant or role through a request: token verification yields only the
 stable subject, then the database supplies account and membership facts.
+
+One account may hold more than one role. Since the CBA pivot the Speaker
+Connector persona is ``coordinator`` **and** ``admin``, and a connector who
+administers is one person with two ``membership`` rows rather than two logins
+— so ``seed_pilot`` takes ``additional_roles`` and reconciles the set *upwards
+only*: missing rows are added, existing ones are verified, and nothing is ever
+deleted. See :func:`_ensure_membership_set`.
 """
 
 from __future__ import annotations
@@ -133,14 +140,44 @@ def _existing_or_insert_account(
     return uuid.UUID(str(row.id))
 
 
-def _existing_or_insert_membership(
+def _ensure_membership_set(
     connection: Connection,
     *,
     tenant_id: uuid.UUID,
     account_id: uuid.UUID,
     path: str,
-    role: str,
+    roles: Sequence[str],
 ) -> None:
+    """Give this account exactly ``roles`` over ``path``, adding only what is missing.
+
+    One account may legitimately hold more than one role: since the CBA pivot
+    the Speaker Connector persona is ``coordinator`` **and** ``admin``, and a
+    connector who administers is one person with two ``membership`` rows, not
+    two logins. The single-role check this replaces refused that outright — it
+    treated any second row as a tampered grant — so the seed could create the
+    pair on a fresh database and then fail on every re-run against the
+    database it had just written.
+
+    Idempotent, and deliberately conservative about which direction it is
+    idempotent in:
+
+    * A role in ``roles`` with no row gets one inserted.
+    * A role in ``roles`` whose row already matches is left exactly as it is.
+    * A row carrying a role **not** in ``roles``, or the right role over a
+      different path, or any validity window this seed did not write, is a
+      :class:`SeedConflictError`. Those are grants somebody else decided, and
+      an operator tool that quietly rewrote them would be the one thing a
+      server-assigned role must never be: editable from outside.
+    * Nothing is ever deleted. Reconciling *downwards* would mean this tool
+      could remove access, and no seed needs that power to do its job.
+
+    Raises:
+        SeedConflictError: on any existing row this seed did not ask for.
+    """
+    requested = sorted(set(roles))
+    if not requested:  # pragma: no cover - no caller asks for an empty set
+        raise SeedConflictError("a membership set must name at least one role")
+
     rows = connection.execute(
         sa.select(
             schema.membership.c.granted_path,
@@ -152,7 +189,27 @@ def _existing_or_insert_membership(
             schema.membership.c.user_id == account_id,
         )
     ).all()
-    if not rows:
+
+    unexpected = [
+        row
+        for row in rows
+        if row.role not in requested
+        or str(row.granted_path) != path
+        or row.valid_from is not None
+        or row.valid_until is not None
+    ]
+    if unexpected:
+        raise SeedConflictError(
+            "external subject already has a different membership "
+            f"({sorted((str(row.granted_path), row.role) for row in unexpected)}); "
+            f"this seed asks for {requested} over {path!r} and refuses to change "
+            "server-assigned roles"
+        )
+
+    held = {row.role for row in rows}
+    for role in requested:
+        if role in held:
+            continue
         connection.execute(
             sa.insert(schema.membership).values(
                 id=uuid.uuid4(),
@@ -162,18 +219,20 @@ def _existing_or_insert_membership(
                 role=role,
             )
         )
-        return
-    if len(rows) != 1 or any(
-        str(row.granted_path) != path
-        or row.role != role
-        or row.valid_from is not None
-        or row.valid_until is not None
-        for row in rows
-    ):
-        raise SeedConflictError(
-            "external subject already has a different membership; refusing to change "
-            "server-assigned roles"
-        )
+
+
+def _existing_or_insert_membership(
+    connection: Connection,
+    *,
+    tenant_id: uuid.UUID,
+    account_id: uuid.UUID,
+    path: str,
+    role: str,
+) -> None:
+    """The single-role case of :func:`_ensure_membership_set`."""
+    _ensure_membership_set(
+        connection, tenant_id=tenant_id, account_id=account_id, path=path, roles=(role,)
+    )
 
 
 def seed_pilot(
@@ -187,11 +246,20 @@ def seed_pilot(
     subject: str,
     email: str,
     role: str,
+    additional_roles: Sequence[str] = (),
 ) -> None:
     """Create the requested identity rows, or verify the exact existing rows.
 
     The operation is idempotent only for identical requested data. It refuses
     mismatches rather than silently changing a tenant, account, or role.
+
+    Args:
+        role: The membership role this identity must hold.
+        additional_roles: Further roles the *same* account holds over the same
+            path. Empty for every caller but the pilot-login seed, where the
+            Speaker Connector persona is ``coordinator`` and ``admin`` at once
+            — one person, one account, two ``membership`` rows. Adding a role
+            here never removes one; see :func:`_ensure_membership_set`.
     """
     tenant_id = _existing_or_insert_tenant(connection, slug=tenant_slug, display_name=tenant_name)
     _existing_or_insert_unit(
@@ -204,8 +272,12 @@ def seed_pilot(
     account_id = _existing_or_insert_account(
         connection, tenant_id=tenant_id, subject=subject, email=email
     )
-    _existing_or_insert_membership(
-        connection, tenant_id=tenant_id, account_id=account_id, path=unit_path, role=role
+    _ensure_membership_set(
+        connection,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        path=unit_path,
+        roles=(role, *additional_roles),
     )
 
 

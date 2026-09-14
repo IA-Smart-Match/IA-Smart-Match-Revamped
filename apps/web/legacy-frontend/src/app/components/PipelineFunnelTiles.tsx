@@ -175,7 +175,7 @@ export function PipelineFunnelTiles({
           return (
             <div
               key={metricName}
-              className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm"
+              className="bg-card rounded-xl p-6 border border-border shadow-sm"
             >
               <div className="flex items-center gap-3 mb-2">
                 <div
@@ -184,8 +184,8 @@ export function PipelineFunnelTiles({
                   <Icon className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm text-gray-600">{stageLabel}</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm text-muted-foreground">{stageLabel}</p>
+                  <p className="text-2xl font-semibold text-foreground">
                     <AccountableValue metric={metric} />
                   </p>
                 </div>

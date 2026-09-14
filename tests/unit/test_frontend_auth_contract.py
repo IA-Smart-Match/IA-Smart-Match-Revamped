@@ -121,11 +121,13 @@ ARCHIVED_SESSION_KEY = "iaw_session"
 #: The per-portal identities the archived reads fell back to.
 FALLBACK_IDENTITY_LITERALS = ("stu-001", "coord-001", "shana-demarinis")
 
+#: The three shells that exist. ``Layout.tsx`` — the second Speaker Connector
+#: shell — is deleted: ``admin`` and ``coordinator`` are one persona, and both
+#: stored roles land on ``CoordinatorPortalLayout`` now.
 PORTAL_SHELLS = (
     "app/components/StudentLayout.tsx",
     "app/components/CoordinatorPortalLayout.tsx",
     "app/components/VolunteerPortalLayout.tsx",
-    "app/components/Layout.tsx",
 )
 
 #: The pages that live inside a portal shell and therefore need the mapping
@@ -139,9 +141,12 @@ PORTAL_SHELLS = (
 #: dataset instead of a request that cannot succeed. They still need the seam,
 #: because they still render who the caller is and which unit they hold.
 #:
-#: Membership is decided by whether a page calls such an endpoint, not by which
-#: portal it lives in. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for the pages
-#: that need no mapping at all, and
+#: Membership is every page that lives inside a portal shell — a mounted one
+#: or, for the demoted ``VolunteerConfirmedSpeaker``/``VolunteerAssignments``
+#: and the retired-address ``AIMatching`` (now the match-runs route's ``?run=``
+#: detail state), a file that still carries the seam and must keep carrying it
+#: if it is ever mounted again. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for
+#: the pages that need no legacy portal id at all, and
 #: :func:`test_no_portal_page_reads_identity_locally` for the assertion that
 #: holds over every page either way.
 PORTAL_PAGES = (
@@ -149,13 +154,25 @@ PORTAL_PAGES = (
     "app/pages/student/StudentEvents.tsx",
     "app/pages/student/StudentHistory.tsx",
     "app/pages/student/StudentConnect.tsx",
+    "app/pages/student/StudentSpeakerFeedback.tsx",
     "app/pages/coordinator/CoordinatorHome.tsx",
     "app/pages/coordinator/CoordinatorEvents.tsx",
     "app/pages/coordinator/CoordinatorOutreach.tsx",
     "app/pages/coordinator/CoordinatorMeetings.tsx",
+    "app/pages/coordinator/CoordinatorMatchRuns.tsx",
+    "app/pages/coordinator/CoordinatorInvitations.tsx",
+    "app/pages/coordinator/CoordinatorMatchingWeights.tsx",
+    "app/pages/coordinator/CoordinatorReviewQueue.tsx",
+    "app/pages/coordinator/CoordinatorSpeakerContacts.tsx",
+    "app/pages/coordinator/CoordinatorSpeakerFeedback.tsx",
+    "app/pages/coordinator/CoordinatorSpeakerRequests.tsx",
     "app/pages/volunteer/VolunteerHome.tsx",
     "app/pages/volunteer/VolunteerAssignments.tsx",
+    "app/pages/volunteer/VolunteerConfirmedSpeaker.tsx",
+    "app/pages/volunteer/VolunteerMyRequests.tsx",
+    "app/pages/volunteer/VolunteerSpeakerRequest.tsx",
     "app/pages/volunteer/VolunteerProfile.tsx",
+    "app/pages/AIMatching.tsx",
 )
 
 #: Portal pages that need **no** legacy portal id, because every request they

@@ -23,32 +23,16 @@
  * unknown) so a measurement nobody took renders as unknown, never as zero.
  */
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import {
   Activity,
-  AlertTriangle,
-  BellRing,
   Briefcase,
-  CalendarDays,
   ClipboardList,
   LogOut,
   MapPinned,
-  MessageSquareHeart,
   RefreshCw,
-  ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  TrendingUp,
 } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import {
   emptyFeedbackStatsSummary,
@@ -73,18 +57,10 @@ import {
 } from "@/lib/metrics";
 import { summarizeCalendarCoverage } from "@/lib/calendarCoverage";
 import type { SignalThresholds } from "@/lib/signals";
-import {
-  DiscoveryFeed,
-  type DiscoveryFeedItem,
-} from "@/app/components/DiscoveryFeed";
-import { MetricCard } from "@/app/components/MetricCard";
-import { PipelineFunnelTiles } from "@/app/components/PipelineFunnelTiles";
+import { type DiscoveryFeedItem } from "@/app/components/DiscoveryFeed";
 import { isCapabilityEnabled } from "@/lib/productScope";
 import {
-  AccountableValue,
   MetricDrilldownSheet,
-  MetricValueDisplay,
-  unknownValue,
   type AccountableMetric,
 } from "@/app/components/provenance";
 import { grantedPortal } from "@/app/components/PortalGate";
@@ -96,6 +72,16 @@ import {
 import { DemoModeBadge } from "@/app/components/ui/DemoModeBadge";
 import { Button } from "@/app/components/ui/button";
 import { useSignOut } from "../hooks/useSession";
+import {
+  buildRegionalPulse,
+  calendarReach,
+  CalendarReachChart,
+  FailureState,
+  MatchingFeedbackPanel,
+  MetricCardsRow,
+  RecoveryCoverageSummary,
+  RegionalPulseAndDiscovery,
+} from "./DashboardSections";
 
 const MEMBER_INQUIRY_METRIC_NAME = "pipeline_member_inquiry";
 
@@ -178,153 +164,6 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function FailureState({
-  title = "We couldn't load this data",
-  message,
-  onRetry,
-}: {
-  title?: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-        <AlertTriangle className="h-5 w-5 text-red-600" />
-      </div>
-      <p className="mt-3 text-sm font-semibold text-red-800">{title}</p>
-      <p className="mt-1 text-sm text-red-700">{message}</p>
-      {onRetry ? (
-        <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" />
-          Retry
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-function monthLabel(dateString: string): string {
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date =
-    [year, month, day].every((part) => Number.isFinite(part) && !Number.isNaN(part))
-      ? new Date(year, month - 1, day)
-      : new Date(dateString);
-  if (Number.isNaN(date.getTime())) {
-    return dateString;
-  }
-  return date.toLocaleDateString("en-US", { month: "short" });
-}
-
-type RegionalPulseRow = {
-  region: string;
-  eventCount: number;
-  coveredCount: number;
-  openCount: number;
-  unknownCount: number;
-  assignmentCount: number;
-  uniqueVolunteers: number;
-  coveragePercent: number | null;
-  detail: string;
-};
-
-function calendarReach(records: CalendarEventSummary[]) {
-  const byMonth = new Map<string, { windows: number; covered: number }>();
-  for (const record of records) {
-    const label = monthLabel(record.event_date);
-    const current = byMonth.get(label) ?? { windows: 0, covered: 0 };
-    byMonth.set(label, {
-      windows: current.windows + 1,
-      covered: current.covered + (record.coverage_status === "covered" ? 1 : 0),
-    });
-  }
-  return Array.from(byMonth.entries()).map(([month, value]) => ({
-    month,
-    windows: value.windows,
-    covered: value.covered,
-  }));
-}
-
-/**
- * Rolls calendar windows and assignment overlays up by region.
- *
- * Both inputs come from the same calendar feed, so every count here is a count
- * of rows that feed actually returned — no cross-source join. `coveragePercent`
- * is `null` (not 0) for a region with no scheduled windows, because a coverage
- * ratio with no denominator is unknown, not zero percent.
- *
- * There is deliberately no "workload %" here. The tile used to divide overlay
- * rows by `eventCount * 3` — an invented capacity of three volunteers per
- * window that no contract, registry, or stakeholder ever set — and render the
- * quotient as a percentage. That is a heuristic score wearing an observed
- * measurement's clothes (DESIGN.md §1.1, ADR-0011), so it is gone rather than
- * relabelled; the honest counts it was built from are shown instead.
- */
-function buildRegionalPulse(
-  calendarEvents: CalendarEventSummary[],
-  calendarAssignments: CalendarAssignmentSummary[],
-): RegionalPulseRow[] {
-  const regions = Array.from(
-    new Set(
-      [
-        ...calendarEvents.map((event) => event.region),
-        ...calendarAssignments.map((assignment) => assignment.region),
-      ]
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  );
-
-  return regions
-    .map((region) => {
-      const eventsInRegion = calendarEvents.filter((event) => event.region === region);
-      const coverage = summarizeCalendarCoverage(
-        eventsInRegion.map((event) => event.coverage_status),
-      );
-      const assignmentsInRegion = calendarAssignments.filter(
-        (assignment) => assignment.region === region,
-      );
-      const eventCount = eventsInRegion.length;
-      const assignmentCount = assignmentsInRegion.length;
-      const uniqueVolunteers = new Set(
-        assignmentsInRegion.map((assignment) => assignment.volunteer_name),
-      ).size;
-      const coveragePercent =
-        coverage.coverageRatio === null
-          ? null
-          : Math.round(coverage.coverageRatio * 100);
-      const detail = `${eventCount} calendar window${eventCount === 1 ? "" : "s"} and ${assignmentCount} assignment overlay${assignmentCount === 1 ? "" : "s"}.${coverage.unknown ? ` ${coverage.unknown} window${coverage.unknown === 1 ? " has" : "s have"} unresolved coverage.` : ""}`;
-
-      return {
-        region,
-        eventCount,
-        coveredCount: coverage.covered,
-        openCount: coverage.explicitlyOpen,
-        unknownCount: coverage.unknown,
-        assignmentCount,
-        uniqueVolunteers,
-        coveragePercent,
-        detail,
-      };
-    })
-    .sort((left, right) => {
-      if (right.eventCount !== left.eventCount) {
-        return right.eventCount - left.eventCount;
-      }
-      if (right.assignmentCount !== left.assignmentCount) {
-        return right.assignmentCount - left.assignmentCount;
-      }
-      return left.region.localeCompare(right.region);
-    })
-    .slice(0, 6);
-}
-
-function formatFactorName(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -772,16 +611,16 @@ export function Dashboard() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="h-10 w-48 animate-pulse rounded bg-gray-200" />
+        <div className="h-10 w-48 animate-pulse rounded bg-muted" />
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }, (_, index) => (
             <div
               key={index}
-              className="h-36 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-sm"
+              className="h-36 animate-pulse rounded-2xl border border-border bg-card shadow-sm"
             />
           ))}
         </div>
-        <div className="h-80 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-sm" />
+        <div className="h-80 animate-pulse rounded-2xl border border-border bg-card shadow-sm" />
       </div>
     );
   }
@@ -789,10 +628,10 @@ export function Dashboard() {
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-3xl font-semibold text-gray-900">
+        <h1 className="text-3xl font-semibold text-foreground">
           Dashboard{isMockData && <DemoModeBadge />}
         </h1>
-        <p className="mt-1 text-gray-600">
+        <p className="mt-1 text-muted-foreground">
           Opportunity and pipeline numbers come from the registered metrics API; coverage and
           feedback sections report what their own feed returned.
         </p>
@@ -811,7 +650,7 @@ export function Dashboard() {
           type="button"
           onClick={handleLogout}
           aria-label="Log out and return to portal login"
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-gray-400 hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:border-border hover:bg-muted"
         >
           <LogOut className="h-4 w-4" aria-hidden />
           Log out
@@ -858,455 +697,52 @@ export function Dashboard() {
         />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard
-          title="Opportunities"
-          value={
-            <AccountableValue
-              metric={opportunities.metric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
-          changeType="neutral"
-          icon={Briefcase}
-          iconColor="bg-[#e6effb] text-[#005394]"
-        />
-        {OFFERS_MEMBER_INQUIRY ? (
-          <MetricCard
-            title="Member Inquiry"
-            value={
-              <AccountableValue
-                metric={memberInquiry.metric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            }
-            change={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
-            changeType="neutral"
-            icon={TrendingUp}
-            iconColor="bg-[#e6effb] text-[#005394]"
-          />
-        ) : null}
-        <MetricCard
-          title="Upcoming Events"
-          value={
-            <AccountableValue
-              metric={upcomingEventsMetric}
-              formatNumber={(value) => value.toLocaleString("en-US")}
-            />
-          }
-          change="Calendar dataset"
-          changeType="neutral"
-          icon={CalendarDays}
-          iconColor="bg-[#e6effb] text-[#005394]"
-          href="/calendar"
-        />
-      </div>
+      <MetricCardsRow
+        opportunitiesMetric={opportunities.metric}
+        opportunitiesCaption={caption(opportunities.summary, OPPORTUNITIES_METRIC_NAME)}
+        offersMemberInquiry={OFFERS_MEMBER_INQUIRY}
+        memberInquiryMetric={memberInquiry.metric}
+        memberInquiryCaption={caption(memberInquiry.summary, MEMBER_INQUIRY_METRIC_NAME)}
+        upcomingEventsMetric={upcomingEventsMetric}
+        unitId={unitId}
+        unitResolving={unitResolving}
+        reloadToken={reloadToken}
+      />
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Pipeline funnel</h2>
-        <PipelineFunnelTiles
-          unitId={unitId}
-          unitResolving={unitResolving}
-          reloadToken={reloadToken}
-        />
-        <p className="mt-3 text-sm text-gray-600">
-          These are the same registered names the Pipeline page subscribes to, so the two surfaces
-          cannot show different numbers for the same metric.
-        </p>
-      </div>
+      <RecoveryCoverageSummary
+        coveredEventsMetric={coveredEventsMetric}
+        coverageRateMetric={coverageRateMetric}
+        openEventsMetric={openEventsMetric}
+        averageFatigueMetric={averageFatigueMetric}
+        restRecommendedMetric={restRecommendedMetric}
+      />
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-[#005394]" />
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Recovery and coverage summary</h3>
-              <p className="text-sm text-gray-600">
-                A compact view of event coverage and volunteers needing to recover.
-              </p>
-            </div>
-          </div>
-          <Link
-            to="/calendar"
-            className="shrink-0 text-xs font-medium text-[#005394] hover:underline"
-          >
-            View calendar →
-          </Link>
-        </div>
+      <MatchingFeedbackPanel
+        feedbackRowsMetric={feedbackRowsMetric}
+        feedbackAcceptanceMetric={feedbackAcceptanceMetric}
+        feedbackPainMetric={feedbackPainMetric}
+        feedbackMembershipMetric={feedbackMembershipMetric}
+        feedbackAvailable={feedbackAvailable}
+        feedbackStats={feedbackStats}
+        leadAdjustment={leadAdjustment}
+      />
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Covered Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={coveredEventsMetric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              <AccountableValue
-                metric={coverageRateMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}% covered`}
-              />
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Open Events</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={openEventsMetric}
-                formatNumber={(value) => value.toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">Still need volunteer coverage</p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Avg fatigue</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={averageFatigueMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">From the assignment overlay data</p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Rest Recommended</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue metric={restRecommendedMetric} />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">Volunteers the matcher should avoid</p>
-          </div>
-        </div>
-      </div>
+      <RegionalPulseAndDiscovery
+        regionalPulse={regionalPulse}
+        discoveryFeed={discoveryFeed}
+        regionMemberInquiryUnknownReason={REGION_MEMBER_INQUIRY_UNKNOWN_REASON}
+      />
 
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <MessageSquareHeart className="h-5 w-5 text-[#005394]" />
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Matching Algorithm Feedback</h3>
-              <p className="text-sm text-gray-600">
-                Coordinator feedback drives a bounded weight snapshot and pain-score trend.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="rounded-full border border-[#d5e0f7] bg-[#f7f9fc] px-3 py-1 text-xs font-medium text-[#005394]">
-              <AccountableValue
-                metric={feedbackRowsMetric}
-                formatNumber={(value) => `${value.toLocaleString("en-US")} feedback rows`}
-              />
-            </div>
-            <Link to="/ai-matching" className="text-xs font-medium text-[#005394] hover:underline">
-              View matches →
-            </Link>
-          </div>
-        </div>
+      <CalendarReachChart reachTrend={reachTrend} />
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Acceptance rate</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackAcceptanceMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable &&
-              feedbackStats.accepted !== null &&
-              feedbackStats.declined !== null
-                ? `${feedbackStats.accepted} accepted / ${feedbackStats.declined} declined`
-                : "Coordinator feedback breakdown unavailable."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Pain score</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackPainMetric}
-                formatNumber={(value) => Math.round(value).toLocaleString("en-US")}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              A lower score indicates a healthier matching loop.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Membership interest</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              <AccountableValue
-                metric={feedbackMembershipMetric}
-                formatNumber={(value) => `${Math.round(value * 100)}%`}
-              />
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {feedbackAvailable && feedbackStats.membership_interest_count !== null
-                ? `${feedbackStats.membership_interest_count} attributed follow-through signals.`
-                : "Membership interest signals unavailable."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-500">Lead adjustment</p>
-            <p className="mt-2 text-lg font-semibold text-gray-900">
-              {leadAdjustment
-                ? formatFactorName(leadAdjustment.factor)
-                : feedbackAvailable
-                  ? "No adjustment yet"
-                  : "Unknown"}
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              {leadAdjustment
-                ? `${leadAdjustment.delta > 0 ? "+" : ""}${(leadAdjustment.delta * 100).toFixed(1)} pts`
-                : feedbackAvailable
-                  ? "Collect more coordinator outcomes to unlock recommendations."
-                  : "Feedback optimizer stats are unavailable."}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_0.95fr]">
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <h4 className="mb-3 font-semibold text-gray-900">Acceptance trend</h4>
-            {feedbackStats.trend.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                {feedbackAvailable
-                  ? "Trend data will appear once coordinators submit feedback from the React workflow."
-                  : "Feedback optimizer stats are unavailable."}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart
-                  data={feedbackStats.trend.map((point) => ({
-                    ...point,
-                    acceptance_percent: Math.round(point.acceptance_rate * 100),
-                  }))}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-                  <XAxis dataKey="date" tick={{ fill: "#5a6472", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="acceptance_percent"
-                    stroke="#005394"
-                    strokeWidth={3}
-                    name="Acceptance %"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-[#d5e0f7] bg-[#f7f9fc] p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-[#005394]" />
-              <h4 className="font-semibold text-gray-900">Recommended weight shifts</h4>
-            </div>
-            <div className="space-y-3">
-              {feedbackStats.recommended_adjustments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-white p-6 text-sm text-gray-600">
-                  {feedbackAvailable
-                    ? "No weight deltas yet. The optimizer is waiting for stronger coordinator signal."
-                    : "Feedback optimizer stats are unavailable."}
-                </div>
-              ) : (
-                feedbackStats.recommended_adjustments.slice(0, 4).map((adjustment) => (
-                  <div
-                    key={adjustment.factor}
-                    className="rounded-2xl border border-[#d5e0f7] bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-semibold text-gray-900">
-                        {formatFactorName(adjustment.factor)}
-                      </p>
-                      <span className="text-sm font-semibold text-[#005394]">
-                        {adjustment.delta > 0 ? "+" : ""}
-                        {(adjustment.delta * 100).toFixed(1)} pts
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-gray-600">{adjustment.rationale}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <MapPinned className="h-5 w-5 text-[#005394]" />
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#005394]/70">
-                  Regional coverage pulse
-                </p>
-              </div>
-              <h3 className="mt-2 text-xl font-semibold text-gray-900">
-                Coordinator coverage pulse
-              </h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Rollup of calendar coverage and assignment overlays from the same feed.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {regionalPulse.length ? (
-              regionalPulse.map((region) => (
-                <div
-                  key={region.region}
-                  className="rounded-2xl border border-[#d5e0f7] bg-[linear-gradient(180deg,#fafdff_0%,#edf4ff_100%)] p-5 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold text-gray-900">{region.region}</p>
-                      <p className="mt-1 text-sm text-gray-600">{region.detail}</p>
-                    </div>
-                    <span className="rounded-full border border-[#d5e0f7] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#005394]">
-                      {region.coveragePercent === null
-                        ? "Coverage unknown"
-                        : `${region.coveragePercent}% covered`}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-medium uppercase tracking-[0.18em] text-[#5a6472]">
-                      <span>Coverage</span>
-                      <span>
-                        {region.coveredCount}/{region.eventCount} windows
-                      </span>
-                    </div>
-                    {/* An unknown ratio gets a hatched, empty track rather than a
-                        zero-width fill: a bar drawn at 0% reads as a measurement
-                        of nothing covered, which is not what "unknown" means
-                        (ADR-0011 rule 1). */}
-                    {region.coveragePercent === null ? (
-                      <div
-                        className="h-2 rounded-full border border-dashed border-[#cfd8e5] bg-white/80"
-                        role="img"
-                        aria-label={
-                          region.unknownCount
-                            ? `Coverage ratio unknown — ${region.unknownCount} window${region.unknownCount === 1 ? " has" : "s have"} unresolved coverage.`
-                            : "Coverage ratio unknown — this region has no scheduled windows to measure against."
-                        }
-                      />
-                    ) : (
-                      <div className="h-2 rounded-full bg-white/80">
-                        <div
-                          className="h-2 rounded-full bg-[#005394]"
-                          style={{ width: `${region.coveragePercent}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-gray-700">
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Explicitly open
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">{region.openCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Volunteers
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.uniqueVolunteers}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Overlay rows
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {region.assignmentCount}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#5a6472]">
-                        Member inquiry
-                      </p>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
-                        <MetricValueDisplay
-                          value={unknownValue(REGION_MEMBER_INQUIRY_UNKNOWN_REASON)}
-                        />
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600 lg:col-span-2">
-                Regional coverage summaries appear once live calendar and overlay data are
-                available.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-2">
-            <BellRing className="h-5 w-5 text-[#005394]" />
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900">Discovery feed</h3>
-              <p className="text-sm text-gray-600">
-                Registered metrics from <code>/v1/units/&#123;unit_id&#125;/metrics</code>, graded
-                red / yellow / green by the stated threshold rule. An unmeasured value is
-                &ldquo;Not measured&rdquo;, never green and never zero.
-              </p>
-            </div>
-          </div>
-
-          <DiscoveryFeed items={discoveryFeed} className="mt-6" />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Calendar Reach Trend</h3>
-        {reachTrend.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600">
-            No calendar windows in the current feed, so there is no reach trend to plot.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={reachTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6eef7" />
-              <XAxis dataKey="month" tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#5a6472", fontSize: 12 }} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="windows"
-                stroke="#005394"
-                strokeWidth={3}
-                name="IA windows"
-              />
-              <Line
-                type="monotone"
-                dataKey="covered"
-                stroke="#56a4e4"
-                strokeWidth={3}
-                name="Covered windows"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      <div className="rounded-2xl border border-[#d5e0f7] bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-6 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[#005394]" />
-          <h3 className="text-lg font-semibold text-gray-900">Top Recommended Matches</h3>
+          <Sparkles className="h-5 w-5 text-primary" />
+          <h3 className="text-lg font-semibold text-foreground">Top Recommended Matches</h3>
         </div>
 
-        <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-center text-gray-600">
-          <p className="text-sm font-semibold text-gray-900">Matching unavailable</p>
+        <div className="rounded-2xl border border-dashed border-border bg-muted p-8 text-center text-muted-foreground">
+          <p className="text-sm font-semibold text-foreground">Matching unavailable</p>
           <p className="mt-2 text-sm leading-6">{MATCHING_UNAVAILABLE_REASON}</p>
           <p className="mt-2 text-sm leading-6">
             Ranked recommendations and match scores stay off this dashboard until gate G1 closes.

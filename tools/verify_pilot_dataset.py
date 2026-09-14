@@ -44,6 +44,53 @@ could be mistaken for doing:
 This tool therefore never reports a *fraction* as zero and never asks a
 repository for a score. It counts rows in tables and nothing else.
 
+What it asserts beyond counts
+-----------------------------
+A count of rows is the weakest thing that can be said about a dataset, and it
+was not enough. Sixty-four events, three match runs and nine invitations is a
+healthy-looking table that says nothing about whether those nine invitations
+belong to those three runs, whether those runs belong to those events, or
+whether any speaker named on them is on this unit's roster. A demo does not
+fail because a table is empty; it fails because a page shows a row whose
+neighbours are missing.
+
+So this tool runs four passes and every one of them can fail the run:
+
+1. :data:`COUNTED_TABLES` — is the table empty for this tenant?
+2. :data:`DEMO_PORTAL_SURFACES` — does the person who *signs in* own enough
+   rows on the screens their portal lands on? Each surface carries a floor
+   (:attr:`PortalSurface.minimum_rows`), because one row is a screen with one
+   row on it and a reviewer clicking through can tell.
+3. :data:`CROSS_TABLE_CHECKS` — does every row point at a row that exists?
+   Each check reports a *population* (the rows the question is about) and a
+   *violation* count, and a population of zero fails as loudly as a violation
+   does. "Every invitation names a roster speaker" is trivially true of no
+   invitations, and a check that can only pass is not a check.
+4. :func:`run_capability_checks` — can the rows that *are* present actually be
+   scored by the deployment running them? The first three passes all passed on
+   an appliance whose "Run a match" page refused nearly every selection: the
+   roster was full and connected, but the §9 topic comparison ran on the empty
+   playback fixture, so every member carrying topic evidence was ``unknown``
+   and unscorable. That is a property of the deployment's provider
+   configuration meeting this dataset, which no count of rows can see — so it
+   is checked here, against ``Settings.cba_topic_local_embedding_enabled``,
+   rather than left for a reviewer to find by clicking.
+
+Whose rows: the logins, not the fixtures
+----------------------------------------
+Two families of account exist in a pilot tenant and only one of them can be
+signed in as from a browser. ``pilot-login-*`` are the accounts
+``tools/seed_pilot_logins.py`` creates for the four ``@``-addressed credentials
+a reviewer types into the login form. ``compose-pilot-*`` are the accounts the
+``SMARTMATCH_DEV_PRINCIPALS`` bearer tokens resolve to — a local-only fixture
+that no deployed surface may carry.
+
+The person-scoped surfaces here therefore default to **the logins**
+(:data:`LOGIN_SUBJECT_SET`), and ``--subjects fixture`` selects the bearer-token
+accounts for a stack being driven by tokens alone. It was the other way round,
+and the consequence was a tool that reported a healthy student portal for an
+account nobody could sign in as while ``student@`` saw a blank page.
+
 Dev-only
 --------
 :func:`~seed_pilot.require_development_fixture_settings` — imported from
@@ -60,14 +107,20 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Protocol
 
 import sqlalchemy as sa
 from seed_demo_pipeline import resolve_tenant_id, resolve_unit_id
 from seed_pilot import SeedConfigurationError, require_development_fixture_settings
+from seed_pilot_logins import ROLE_CREDENTIALS
+from seed_pilot_principals import COMPOSE_DEV_PRINCIPALS
 from smartmatch_api.config import Settings
+from smartmatch_domain.cba_classification import CLASSIFICATION_SOURCE_HUMAN
+from smartmatch_domain.cba_role_categories import CBA_ROLE_TAXONOMY_VERSION
+from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION
+from smartmatch_domain.synthetic_pilot import synthetic_opportunity_event_id
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_session_factory
 from sqlalchemy.exc import SQLAlchemyError
@@ -75,16 +128,32 @@ from sqlalchemy.orm import Session
 
 __all__ = [
     "COUNTED_TABLES",
+    "CROSS_TABLE_CHECKS",
+    "DEFAULT_SUBJECT_SET",
     "DEMO_PORTAL_SURFACES",
+    "FIXTURE_SUBJECT_SET",
+    "LOGIN_SUBJECT_SET",
+    "SUBJECT_SETS",
+    "CheckResult",
     "CountedTable",
+    "JoinCheck",
+    "OwnedByColumn",
+    "OwnedByLedgerCause",
+    "OwnerScope",
+    "PipelineOpportunityCheck",
     "PortalSurface",
+    "ReferenceCheck",
     "SurfaceCount",
     "TableCount",
+    "check_report_lines",
     "count_dataset",
     "count_portal_surfaces",
     "main",
     "portal_report_lines",
     "report_lines",
+    "run_capability_checks",
+    "run_checks",
+    "subjects_for",
 ]
 
 
@@ -146,6 +215,7 @@ COUNTED_TABLES: Final[tuple[CountedTable, ...]] = (
     CountedTable(schema.import_batch, "owning_unit_id", "generator Phase A (HTTP import)"),
     CountedTable(schema.review_item, None, "generator Phase A (worker -> review)"),
     CountedTable(schema.speaker_profile, "owning_unit_id", "generator Phase A (review accept)"),
+    CountedTable(schema.contact_channel, "owning_unit_id", "generator Phase A (review accept)"),
     CountedTable(schema.pipeline_record, "owning_unit_id", "generator Phase B"),
     CountedTable(schema.attendance_record, "owning_unit_id", "generator Phase B"),
     CountedTable(schema.point_ledger_entry, None, "generator Phase B"),
@@ -171,137 +241,299 @@ COUNTED_TABLES: Final[tuple[CountedTable, ...]] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Whose rows: the two families of pilot account
+# ---------------------------------------------------------------------------
+#
+# Neither list is restated here. ``ROLE_CREDENTIALS`` and
+# ``COMPOSE_DEV_PRINCIPALS`` are the seeds that write these accounts, so they
+# are the only places a subject string is allowed to be decided; a third copy
+# in this file would be a fourth thing to keep in step and the first to drift.
+
+#: ``membership.role`` -> ``user_account.external_subject`` for the four
+#: accounts a reviewer can actually sign in as (``pilot@``, ``student@``,
+#: ``admin@``, ``volunteer@``). Derived from ``tools/seed_pilot_logins.py``.
+LOGIN_SUBJECT_SET: Final[Mapping[str, str]] = {
+    entry.role: entry.subject for entry in ROLE_CREDENTIALS
+}
+
+#: ``membership.role`` -> ``external_subject`` for the local-only accounts the
+#: compose ``SMARTMATCH_DEV_PRINCIPALS`` bearer tokens resolve to. A fixture,
+#: never a deployed identity. Derived from ``tools/seed_pilot_principals.py``.
+FIXTURE_SUBJECT_SET: Final[Mapping[str, str]] = {
+    principal.role: principal.subject for principal in COMPOSE_DEV_PRINCIPALS
+}
+
+#: The selectable families, by the value ``--subjects`` takes.
+SUBJECT_SETS: Final[Mapping[str, Mapping[str, str]]] = {
+    "login": LOGIN_SUBJECT_SET,
+    "fixture": FIXTURE_SUBJECT_SET,
+}
+
+#: The default, and the correction this module carries: a person-scoped surface
+#: is about the person who signs in, and that is a login.
+DEFAULT_SUBJECT_SET: Final[str] = "login"
+
+
+def subjects_for(name: str = DEFAULT_SUBJECT_SET) -> Mapping[str, str]:
+    """The ``role -> external_subject`` map named by ``name``.
+
+    Raises:
+        KeyError: ``name`` is not a declared family. Raised rather than
+            defaulted, because silently falling back to the fixture accounts is
+            the exact failure this parameter exists to end.
+    """
+    return SUBJECT_SETS[name]
+
+
+# ---------------------------------------------------------------------------
+# Ownership: how a row is attached to the person who reads it
+# ---------------------------------------------------------------------------
+
+
+class OwnerScope(Protocol):
+    """How to ask a table "which of these rows belong to this account?".
+
+    A column on the row is the ordinary answer and is not the only one. A
+    ``point_ledger_entry`` carries no subject at all — it names its *cause*, and
+    the cause names the student. Modelling that as a column was the second half
+    of the defect in this file: the first spelling tried was ``subject_id``,
+    which does not exist on that table, and the second candidate ``actor_id``
+    exists but is NULL for every attendance credit, because a derived credit has
+    no author. Either spelling would have reported an empty student surface as
+    an error in the tool rather than as a fact about the data.
+    """
+
+    def predicate(self, table: sa.Table, subject_id: uuid.UUID) -> sa.ColumnElement[bool]:
+        """The WHERE clause selecting ``subject_id``'s rows of ``table``."""
+        ...  # pragma: no cover - structural
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedByColumn:
+    """The row carries the owner directly, in ``column``."""
+
+    column: str
+
+    def predicate(self, table: sa.Table, subject_id: uuid.UUID) -> sa.ColumnElement[bool]:
+        """``table.column == subject_id``."""
+        return table.c[self.column] == subject_id
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedByLedgerCause:
+    """The row names a cause, and the cause names the owner.
+
+    ``point_ledger_entry`` only. The predicate is the same disjunction
+    :meth:`RewardsRepository.ledger_entries_for_subject` folds a balance over —
+    ``coalesce(attendance.subject_id, redemption.subject_id)`` — written as two
+    ``IN`` clauses rather than two outer joins so it composes with the other
+    criteria as a plain WHERE term. ``ck_point_ledger_entry_kind`` guarantees
+    exactly one of the two source columns is set on any row, so the disjunction
+    selects and never double-counts.
+    """
+
+    def predicate(self, table: sa.Table, subject_id: uuid.UUID) -> sa.ColumnElement[bool]:
+        """Rows whose attendance or whose redemption belongs to ``subject_id``."""
+        attended = sa.select(schema.attendance_record.c.id).where(
+            schema.attendance_record.c.subject_id == subject_id
+        )
+        redeemed = sa.select(schema.redemption.c.id).where(
+            schema.redemption.c.subject_id == subject_id
+        )
+        return sa.or_(
+            table.c.source_attendance_id.in_(attended),
+            table.c.source_redemption_id.in_(redeemed),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class PortalSurface:
     """One screen a demo principal lands on, and whose rows must be behind it.
 
     The second class of hollowness, and the one a row count alone cannot see.
     :data:`COUNTED_TABLES` answers "is this table empty for the pilot tenant?".
-    That question has a healthy answer for ``point_ledger_entry`` — 187 rows —
+    That question has a healthy answer for ``point_ledger_entry`` — 182 rows —
     while the student portal is still blank, because every one of those rows
     belongs to a ``synthetic-student:*`` account and the person signing in is
-    ``compose-pilot-student``. Three surfaces are scoped by
-    ``principal.user_id`` and not by unit, so for those the owner *is* the
-    question.
+    ``student@``. Several surfaces are scoped by ``principal.user_id`` and not
+    by unit, so for those the owner *is* the question.
 
     Attributes:
-        token: The ``SMARTMATCH_DEV_PRINCIPALS`` bearer that opens this portal.
-            Recorded so ``tests/unit/test_demo_portal_surfaces.py`` can compare
-            this table against ``seed_pilot_principals.COMPOSE_DEV_PRINCIPALS``
-            and fail on a principal with no declared surface at all.
-        subject: The ``user_account.external_subject`` that token resolves to.
+        token: The ``SMARTMATCH_DEV_PRINCIPALS`` bearer that opens this portal
+            on a token-driven stack. Recorded so
+            ``tests/unit/test_demo_portal_surfaces.py`` can compare this table
+            against ``seed_pilot_principals.COMPOSE_DEV_PRINCIPALS`` and fail on
+            a principal with no declared surface at all.
+        role: The ``membership.role`` whose account owns this surface. A role
+            and not a subject string, because which *account* holds that role
+            depends on whether the stack is being driven by logins or by bearer
+            tokens — see :data:`SUBJECT_SETS`. Resolving late is what makes
+            ``--subjects`` a real switch rather than a documented warning.
         surface: The screen, in the words a reader of the report would use.
             Documentation for the operator; it scopes nothing.
         table: The table behind that screen, from the shipped metadata for
             :class:`CountedTable`'s reason.
-        subject_column: The column carrying the owner, for a surface scoped by
-            person — ``None`` for one scoped by unit alone, where membership
-            rather than authorship decides who sees the rows. When it is not
-            ``None``, :attr:`subject` is load-bearing and a count is taken for
-            that subject specifically.
+        owner: How this table attaches a row to a person, or ``None`` for a
+            surface scoped by unit alone, where membership rather than
+            authorship decides who sees the rows.
         unit_column: The owning-unit column, or ``None`` for tenant-wide.
             Three spellings are in use across the schema, so it is recorded per
             surface rather than guessed.
+        minimum_rows: The floor below which this surface is reported as thin.
+            A floor and never a target: it is the number under which a reviewer
+            clicking this page would see something they would call broken. One
+            row is a list with one row in it.
         writer: What fills it, printed beside the count.
     """
 
     token: str
-    subject: str
+    role: str
     surface: str
     table: sa.Table
-    subject_column: str | None
+    owner: OwnerScope | None
     unit_column: str | None
+    minimum_rows: int
     writer: str
 
 
-#: Every demo portal's primary surfaces, with the account whose rows must be there.
+#: Every demo portal's primary surfaces, with the role whose rows must be there.
 #:
 #: "Primary" is the screen the portal lands on and the screen it exists for, not
 #: every table a route touches. A portal is not demonstrable because its API
 #: answers ``200``; it is demonstrable when the person who signs in sees rows.
 #:
-#: The ``subject_column`` entries are the ones that were invisibly empty. Each
-#: names ``compose-pilot-student`` or ``compose-pilot-volunteer`` — the accounts
-#: the demo logins actually resolve to — and *not* the ``synthetic-student:*``
-#: accounts the generator writes under, which is the whole point of recording an
-#: owner here rather than trusting a tenant-wide count.
+#: The ``owner`` entries are the ones that were invisibly empty. Each names a
+#: *role*, resolved against :data:`SUBJECT_SETS` at count time and defaulting to
+#: the ``pilot-login-*`` accounts the browser logins resolve to — *not* the
+#: ``synthetic-student:*`` accounts the generator writes under, and no longer
+#: the ``compose-pilot-*`` fixtures either, which is the whole point of
+#: recording an owner here rather than trusting a tenant-wide count.
 DEMO_PORTAL_SURFACES: Final[tuple[PortalSurface, ...]] = (
     # Coordinator — the Speaker Request queue, the runs it drives, the meetings
     # page. All unit-scoped: a coordinator sees their unit's rows, not their own.
     PortalSurface(
         token="compose-api",
-        subject="compose-pilot-coordinator",
+        role="coordinator",
         surface="Speaker Request queue",
         table=schema.event,
-        subject_column=None,
+        owner=None,
         unit_column="host_org_unit_id",
+        minimum_rows=10,
         writer="generator Phase A/B",
     ),
     PortalSurface(
         token="compose-api",
-        subject="compose-pilot-coordinator",
+        role="coordinator",
         surface="Speaker Request targets (§7/§8)",
         table=schema.speaker_request_classification,
-        subject_column=None,
+        owner=None,
         unit_column=None,
+        minimum_rows=10,
         writer="generator Phase A (request)",
     ),
     PortalSurface(
         token="compose-api",
-        subject="compose-pilot-coordinator",
+        role="coordinator",
         surface="Match runs",
         table=schema.match_run,
-        subject_column=None,
+        owner=None,
         unit_column="owning_unit_id",
+        minimum_rows=1,
         writer="generator Phase A (match runs)",
     ),
     PortalSurface(
         token="compose-api",
-        subject="compose-pilot-coordinator",
+        role="coordinator",
+        surface="Speaker contacts",
+        table=schema.contact_channel,
+        owner=None,
+        unit_column="owning_unit_id",
+        minimum_rows=10,
+        writer="generator Phase A (review accept)",
+    ),
+    PortalSurface(
+        token="compose-api",
+        role="coordinator",
         surface="Meetings with the CBA team",
         table=schema.cba_meeting,
-        subject_column=None,
+        owner=None,
         unit_column="owning_unit_id",
-        writer="make seed-pilot-engagement",
+        minimum_rows=1,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
+    ),
+    PortalSurface(
+        token="compose-api",
+        role="coordinator",
+        surface="Speaker feedback (Speakers page)",
+        table=schema.student_speaker_feedback,
+        owner=None,
+        unit_column="owning_unit_id",
+        # Nine, not one: a per-speaker aggregate publishes only at three
+        # distinct submitted responses, so below nine rows at most two speakers
+        # can publish and the page reads as a column of "not enough responses
+        # yet" — the thin state the cohort leg of seed-pilot-student-feedback
+        # exists to end. A floor and never a target; it says nothing about the
+        # spread, only that several aggregates *could* be showing.
+        minimum_rows=9,
+        writer="make top-up-pilot-dataset (student feedback cohort, through the API)",
     ),
     # Student — every one of these is scoped by `principal.user_id`, and every
     # one of them was empty for the demo login while the tenant-wide count was
     # healthy. This block is the ownership trap, written down.
     PortalSurface(
         token="compose-student",
-        subject="compose-pilot-student",
+        role="student",
         surface="My agenda (attended)",
         table=schema.attendance_record,
-        subject_column="subject_id",
+        owner=OwnedByColumn("subject_id"),
         unit_column="owning_unit_id",
-        writer="make seed-pilot-engagement",
+        minimum_rows=3,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
     PortalSurface(
         token="compose-student",
-        subject="compose-pilot-student",
+        role="student",
         surface="My agenda (registered)",
         table=schema.event_registration,
-        subject_column="subject_id",
+        owner=OwnedByColumn("subject_id"),
         unit_column="owning_unit_id",
-        writer="make seed-pilot-engagement",
+        minimum_rows=2,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
     PortalSurface(
         token="compose-student",
-        subject="compose-pilot-student",
+        role="student",
         surface="Points balance",
         table=schema.point_ledger_entry,
-        subject_column="subject_id",
+        # Not a column. See OwnedByLedgerCause: this table names its cause and
+        # the cause names the student, and the two column spellings that look
+        # like an owner (`subject_id`, `actor_id`) are respectively absent and
+        # NULL for every derived credit.
+        owner=OwnedByLedgerCause(),
         unit_column=None,
-        writer="make seed-pilot-engagement",
+        minimum_rows=3,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
     PortalSurface(
         token="compose-student",
-        subject="compose-pilot-student",
+        role="student",
         surface="My redemptions",
         table=schema.redemption,
-        subject_column="subject_id",
+        owner=OwnedByColumn("subject_id"),
         unit_column=None,
-        writer="make seed-pilot-engagement",
+        minimum_rows=2,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
+    ),
+    PortalSurface(
+        token="compose-student",
+        role="student",
+        surface="Speakers I rated",
+        table=schema.student_speaker_feedback,
+        owner=OwnedByColumn("student_id"),
+        unit_column="owning_unit_id",
+        minimum_rows=1,
+        writer="make top-up-pilot-dataset (student feedback, through the API)",
     ),
     # Event Host — one read route and one predicate on it,
     # `filed_by_user_id == principal.user_id` (OQ-CBA-014). The generator files
@@ -309,34 +541,37 @@ DEMO_PORTAL_SURFACES: Final[tuple[PortalSurface, ...]] = (
     # construction however many requests exist.
     PortalSurface(
         token="compose-host",
-        subject="compose-pilot-volunteer",
+        role="volunteer",
         surface="My filed Speaker Requests",
         table=schema.event,
-        subject_column="filed_by_user_id",
+        owner=OwnedByColumn("filed_by_user_id"),
         unit_column="host_org_unit_id",
-        writer="make seed-pilot-engagement",
+        minimum_rows=1,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
     # Administration — the meetings page (#130) and the catalog whose budget
     # this account owns. Both unit- or tenant-scoped; `reward_item` carries a
     # `budget_owner_id`, which is an accountability record and not a read scope,
-    # so it is not a `subject_column` here.
+    # so it is not an `owner` here.
     PortalSurface(
         token="compose-admin",
-        subject="compose-pilot-admin",
+        role="admin",
         surface="Meetings with the CBA team",
         table=schema.cba_meeting,
-        subject_column=None,
+        owner=None,
         unit_column="owning_unit_id",
-        writer="make seed-pilot-engagement",
+        minimum_rows=1,
+        writer="make top-up-pilot-dataset (seed-pilot-engagement)",
     ),
     PortalSurface(
         token="compose-admin",
-        subject="compose-pilot-admin",
+        role="admin",
         surface="Rewards catalog",
         table=schema.reward_item,
-        subject_column=None,
+        owner=None,
         unit_column=None,
-        writer="make seed-pilot-rewards (owner-supplied)",
+        minimum_rows=3,
+        writer="make top-up-pilot-dataset (seed-pilot-rewards worksheet rows)",
     ),
 )
 
@@ -350,12 +585,802 @@ class SurfaceCount:
     name: str
     owner: str
     rows: int
+    minimum_rows: int
     writer: str
 
     @property
     def empty(self) -> bool:
         """Whether this surface holds nothing for the person the portal is for."""
         return self.rows == 0
+
+    @property
+    def short(self) -> bool:
+        """Whether this surface is below its floor — empty included."""
+        return self.rows < self.minimum_rows
+
+
+# ---------------------------------------------------------------------------
+# The third pass: does every row point at a row that exists?
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CheckResult:
+    """One cross-table question and the two numbers that answer it.
+
+    Attributes:
+        name: A stable identifier, so a failure can be grepped for.
+        question: The property in a sentence, as the report prints it.
+        population: How many rows the question is *about*. Zero is a failure in
+            its own right and is reported as ``VACUOUS``: a rule about rows that
+            do not exist is satisfied by nothing having happened, which is
+            precisely the state this tool exists to refuse to call healthy.
+        violations: How many of them break it.
+        remedy: What an operator does about it.
+    """
+
+    name: str
+    question: str
+    population: int
+    violations: int
+    remedy: str
+
+    @property
+    def vacuous(self) -> bool:
+        """Whether the question was asked of no rows at all."""
+        return self.population == 0
+
+    @property
+    def failed(self) -> bool:
+        """Whether this check is a finding: a violation, or nothing to check."""
+        return self.vacuous or self.violations > 0
+
+    @property
+    def verdict(self) -> str:
+        """``OK``, ``VACUOUS`` or ``BROKEN``, for the printed column."""
+        if self.vacuous:
+            return "VACUOUS"
+        return "BROKEN" if self.violations else "OK"
+
+
+def _scope(
+    table: sa.Table, *, tenant_id: uuid.UUID, unit_id: uuid.UUID, unit_column: str | None
+) -> list[sa.ColumnElement[bool]]:
+    """Tenant always, unit where the table carries one. Never guessed."""
+    criteria: list[sa.ColumnElement[bool]] = [table.c.tenant_id == tenant_id]
+    if unit_column is not None:
+        criteria.append(table.c[unit_column] == unit_id)
+    return criteria
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceCheck:
+    """ "Every row of ``table`` names a row of ``target``" — the common shape.
+
+    Most of what makes a dataset *connected* rather than merely *present* is
+    this one property repeated: a foreign key the schema does not enforce, or
+    enforces only within a tenant, and which a seeding tool can therefore leave
+    dangling. Written once as a factory rather than a dozen times as SQL,
+    because a dozen hand-written ``NOT EXISTS`` clauses is a dozen chances to
+    scope one of them to the wrong tenant.
+
+    Attributes:
+        column: The referencing column on :attr:`table`.
+        target_column: The referenced column on :attr:`target`.
+        target_unit_column: When set, the referenced row must also belong to the
+            same unit — "a speaker on *this* unit's roster", not any speaker.
+        cast_target_to_text: ``match_run.event_need_id`` is ``sa.Text`` and
+            deliberately not a foreign key (it is a need identifier, not an
+            event id, in the domain's own terms). The pilot generator puts an
+            event id in it, so the correlation is real and is checked — as a
+            text comparison, which is what the column is.
+        nullable: Skip rows whose :attr:`column` is NULL. A NULL is "nobody has
+            said", which is a state, not a dangling reference.
+    """
+
+    name: str
+    question: str
+    remedy: str
+    table: sa.Table
+    unit_column: str | None
+    column: str
+    target: sa.Table
+    target_column: str
+    target_unit_column: str | None = None
+    cast_target_to_text: bool = False
+    nullable: bool = False
+
+    def counts(self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> CheckResult:
+        """Population and violations, in two counts over the same scope."""
+        scope = _scope(
+            self.table, tenant_id=tenant_id, unit_id=unit_id, unit_column=self.unit_column
+        )
+        source = self.table.c[self.column]
+        if self.nullable:
+            scope.append(source.is_not(None))
+
+        target_key: sa.ColumnElement[object] = self.target.c[self.target_column]
+        if self.cast_target_to_text:
+            target_key = sa.cast(target_key, sa.Text)
+        resolves = sa.select(sa.literal(1)).where(
+            self.target.c.tenant_id == tenant_id,
+            target_key == source,
+            *(
+                [self.target.c[self.target_unit_column] == unit_id]
+                if self.target_unit_column is not None
+                else []
+            ),
+        )
+
+        population = session.execute(
+            sa.select(sa.func.count()).select_from(self.table).where(*scope)
+        ).scalar_one()
+        violations = session.execute(
+            sa.select(sa.func.count()).select_from(self.table).where(*scope, ~resolves.exists())
+        ).scalar_one()
+        return CheckResult(
+            name=self.name,
+            question=self.question,
+            population=int(population),
+            violations=int(violations),
+            remedy=self.remedy,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class JoinCheck:
+    """A cross-table property whose SQL is its own: two counts, supplied.
+
+    For the questions :class:`ReferenceCheck` cannot phrase — the ones with a
+    correlated subquery two tables deep, or a predicate over a *pair* of
+    columns. ``population`` and ``violations`` are each a ``SELECT count(*)``
+    built from ``(tenant_id, unit_id)``, so the scope stays the caller's and not
+    the closure's.
+    """
+
+    name: str
+    question: str
+    remedy: str
+    population_query: object
+    violations_query: object
+
+    def counts(self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> CheckResult:
+        """Run both supplied counts over this tenant and unit."""
+        population = session.execute(
+            self.population_query(tenant_id, unit_id)  # type: ignore[operator]
+        ).scalar_one()
+        violations = session.execute(
+            self.violations_query(tenant_id, unit_id)  # type: ignore[operator]
+        ).scalar_one()
+        return CheckResult(
+            name=self.name,
+            question=self.question,
+            population=int(population),
+            violations=int(violations),
+            remedy=self.remedy,
+        )
+
+
+def _events_with_a_match_run(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Count the unit's events that a match run was driven from."""
+    run = sa.select(sa.literal(1)).where(
+        schema.match_run.c.tenant_id == tenant_id,
+        schema.match_run.c.owning_unit_id == unit_id,
+        schema.match_run.c.event_need_id == sa.cast(schema.event.c.id, sa.Text),
+    )
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.event)
+        .where(
+            schema.event.c.tenant_id == tenant_id,
+            schema.event.c.host_org_unit_id == unit_id,
+            run.exists(),
+        )
+    )
+
+
+def _events_with_a_run_but_no_invitation(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Of those, count the ones no invitation was ever composed for."""
+    run = sa.select(sa.literal(1)).where(
+        schema.match_run.c.tenant_id == tenant_id,
+        schema.match_run.c.owning_unit_id == unit_id,
+        schema.match_run.c.event_need_id == sa.cast(schema.event.c.id, sa.Text),
+    )
+    invited = (
+        sa.select(sa.literal(1))
+        .select_from(
+            schema.cba_invitation.join(
+                schema.cba_invitation_batch,
+                schema.cba_invitation_batch.c.id == schema.cba_invitation.c.batch_id,
+            ).join(
+                schema.match_run,
+                schema.match_run.c.id == schema.cba_invitation_batch.c.match_run_id,
+            )
+        )
+        .where(
+            schema.cba_invitation.c.tenant_id == tenant_id,
+            schema.match_run.c.owning_unit_id == unit_id,
+            schema.match_run.c.event_need_id == sa.cast(schema.event.c.id, sa.Text),
+        )
+    )
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.event)
+        .where(
+            schema.event.c.tenant_id == tenant_id,
+            schema.event.c.host_org_unit_id == unit_id,
+            run.exists(),
+            ~invited.exists(),
+        )
+    )
+
+
+def _feedback_rows(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Count this unit's student ratings."""
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.student_speaker_feedback)
+        .where(
+            schema.student_speaker_feedback.c.tenant_id == tenant_id,
+            schema.student_speaker_feedback.c.owning_unit_id == unit_id,
+        )
+    )
+
+
+def _feedback_without_attendance(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Ratings with no attendance record behind them, by student *and* event.
+
+    The pair is the point. A rating whose student attended *some* event and
+    whose event *somebody* attended is still a rating nobody was entitled to
+    write; ``StudentSpeakerFeedbackRepository.eligibility`` checks the pair, and
+    so does this.
+    """
+    attended = sa.select(sa.literal(1)).where(
+        schema.attendance_record.c.tenant_id == tenant_id,
+        schema.attendance_record.c.subject_id == schema.student_speaker_feedback.c.student_id,
+        schema.attendance_record.c.event_id == schema.student_speaker_feedback.c.event_id,
+    )
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.student_speaker_feedback)
+        .where(
+            schema.student_speaker_feedback.c.tenant_id == tenant_id,
+            schema.student_speaker_feedback.c.owning_unit_id == unit_id,
+            ~attended.exists(),
+        )
+    )
+
+
+def _accepted_events_review_items(tenant_id: uuid.UUID) -> sa.Select:
+    """Every *accepted* ``events`` review item in the tenant, as a select.
+
+    ``dataset = 'events'`` is the import contract's own spelling
+    (``pipeline_provisioning.EVENTS_DATASET``); the composite join on
+    ``(tenant_id, id)`` is ``review_item``'s own foreign key.
+    """
+    return (
+        sa.select(schema.review_item.c.id)
+        .select_from(
+            schema.review_item.join(
+                schema.import_batch,
+                sa.and_(
+                    schema.import_batch.c.tenant_id == schema.review_item.c.tenant_id,
+                    schema.import_batch.c.id == schema.review_item.c.import_batch_id,
+                ),
+            )
+        )
+        .where(
+            schema.review_item.c.tenant_id == tenant_id,
+            schema.review_item.c.status == "accepted",
+            schema.import_batch.c.dataset == "events",
+        )
+    )
+
+
+def _derived_fanout_opportunities(
+    session: Session, *, tenant_id: uuid.UUID
+) -> frozenset[uuid.UUID]:
+    """The ``opportunity_event_id`` values ``pipeline_provisioning`` can mint.
+
+    Accepting an in-list ``events`` review item fans out one journey per linked
+    professional under ``synthetic_opportunity_event_id(tenant, review_item)``
+    — a ``uuid5`` that is *about* the review item and that no ``event`` row ever
+    carries. That is the design, not a dangling reference:
+    ``pipeline_record.opportunity_event_id`` predates the ``event`` table and
+    deliberately has no foreign key.
+
+    Recomputing the set here, rather than filtering on ``matched_provenance``,
+    is what keeps the audit honest: **every** writer of ``pipeline_record``
+    stores the same ``synthetic / coordinator-accepted`` provenance — the
+    generated Phase-B journeys, the CBA hand-off (which verifies its event
+    before opening), and this fan-out — so the column cannot tell them apart.
+    The derivation is the only signature the fan-out actually has.
+
+    The set is computed over every *accepted* ``events`` review item, not only
+    the in-list ones: an out-of-list accept derives nothing, but an id that
+    matches no journey changes no count, and re-implementing the in-list rule
+    here would buy a marginally smaller set at the price of a second copy of
+    it.
+    """
+    rows = session.execute(_accepted_events_review_items(tenant_id)).all()
+    return frozenset(
+        synthetic_opportunity_event_id(tenant_id=tenant_id, review_item_id=uuid.UUID(str(row.id)))
+        for row in rows
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineOpportunityCheck:
+    """One half of the ``pipeline_record.opportunity_event_id`` audit.
+
+    Neither :class:`ReferenceCheck` nor :class:`JoinCheck` can phrase this one:
+    the column's legitimate referent is computed in Python (a ``uuid5``), so the
+    derived set has to be read out of ``review_item`` and rebuilt before either
+    count can run — which is what :meth:`counts` does.
+
+    Two instances split the one question by which referent is legal:
+
+    * ``fanout=False`` audits the journeys that must name a real ``event`` —
+      every record whose opportunity is **not** a review-item-derived id. Those
+      are the generated Phase-B journeys and the Event Host hand-offs, both of
+      which open only against verified events. A hand-off journey that dangles
+      still fails here.
+    * ``fanout=True`` audits the other half: every journey that names no event
+      must name an id the accepted-``events`` population actually derives. A
+      record naming neither is corruption, not fan-out.
+    """
+
+    name: str
+    question: str
+    remedy: str
+    fanout: bool
+
+    def queries(
+        self,
+        derived: frozenset[uuid.UUID],
+        tenant_id: uuid.UUID,
+        unit_id: uuid.UUID,
+    ) -> tuple[sa.Select, sa.Select]:
+        """The population and violation counts, over the given derived set."""
+        record = schema.pipeline_record
+        scope = _scope(
+            record,
+            tenant_id=tenant_id,
+            unit_id=unit_id,
+            unit_column="owning_unit_id",
+        )
+        names_event = sa.exists(
+            sa.select(sa.literal(1)).where(
+                schema.event.c.tenant_id == tenant_id,
+                schema.event.c.id == record.c.opportunity_event_id,
+            )
+        )
+        is_derived = record.c.opportunity_event_id.in_(sorted(derived)) if derived else sa.false()
+        if self.fanout:
+            population_q = (
+                sa.select(sa.func.count()).select_from(record).where(*scope, ~names_event)
+            )
+            violations_q = (
+                sa.select(sa.func.count())
+                .select_from(record)
+                .where(*scope, ~names_event, ~is_derived)
+            )
+        else:
+            population_q = sa.select(sa.func.count()).select_from(record).where(*scope, ~is_derived)
+            violations_q = (
+                sa.select(sa.func.count())
+                .select_from(record)
+                .where(*scope, ~is_derived, ~names_event)
+            )
+        return population_q, violations_q
+
+    def counts(self, session: Session, *, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> CheckResult:
+        """Population and violations, with the derived set rebuilt per run."""
+        derived = _derived_fanout_opportunities(session, tenant_id=tenant_id)
+        population_q, violations_q = self.queries(derived, tenant_id=tenant_id, unit_id=unit_id)
+        return CheckResult(
+            name=self.name,
+            question=self.question,
+            population=int(session.execute(population_q).scalar_one()),
+            violations=int(session.execute(violations_q).scalar_one()),
+            remedy=self.remedy,
+        )
+
+
+def _ledger_rows(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Count the tenant's ledger entries. Tenant-wide: the table carries no unit."""
+    del unit_id
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.point_ledger_entry)
+        .where(schema.point_ledger_entry.c.tenant_id == tenant_id)
+    )
+
+
+def _ledger_without_a_cause(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """Ledger entries whose named cause is not there.
+
+    ADR-0013: points derive from recorded attendance and nothing else, and a
+    debit derives from a redemption. ``ck_point_ledger_entry_kind`` makes
+    exactly one of the two source columns non-NULL per row, so an entry whose
+    non-NULL source resolves to nothing is a balance with no history behind it —
+    the legacy defect ADR-0013 exists to have removed.
+    """
+    del unit_id
+    attendance = sa.select(sa.literal(1)).where(
+        schema.attendance_record.c.tenant_id == tenant_id,
+        schema.attendance_record.c.id == schema.point_ledger_entry.c.source_attendance_id,
+    )
+    redemption = sa.select(sa.literal(1)).where(
+        schema.redemption.c.tenant_id == tenant_id,
+        schema.redemption.c.id == schema.point_ledger_entry.c.source_redemption_id,
+    )
+    return (
+        sa.select(sa.func.count())
+        .select_from(schema.point_ledger_entry)
+        .where(
+            schema.point_ledger_entry.c.tenant_id == tenant_id,
+            sa.or_(
+                sa.and_(
+                    schema.point_ledger_entry.c.source_attendance_id.is_not(None),
+                    ~attendance.exists(),
+                ),
+                sa.and_(
+                    schema.point_ledger_entry.c.source_redemption_id.is_not(None),
+                    ~redemption.exists(),
+                ),
+                sa.and_(
+                    schema.point_ledger_entry.c.source_attendance_id.is_(None),
+                    schema.point_ledger_entry.c.source_redemption_id.is_(None),
+                ),
+            ),
+        )
+    )
+
+
+#: Every cross-table property this tool asserts, in the order a reader would ask
+#: them: the match funnel first, then the people surfaces, then the ledger.
+#:
+#: Each is a question with a population. A check whose population is zero is a
+#: failure, and that is the difference between this pass and the two above it: a
+#: dataset can satisfy every count and every ownership floor and still be a set
+#: of unrelated islands, and the only way to tell is to ask a question that
+#: needs two tables to answer.
+CROSS_TABLE_CHECKS: Final[tuple[ReferenceCheck | JoinCheck | PipelineOpportunityCheck, ...]] = (
+    JoinCheck(
+        name="event_with_a_match_run_has_invitations",
+        question="every event a match run was driven from has invitations composed for it",
+        remedy="the generator's invitation phase did not run for this event; see its report",
+        population_query=_events_with_a_match_run,
+        violations_query=_events_with_a_run_but_no_invitation,
+    ),
+    ReferenceCheck(
+        name="match_run_names_a_real_event",
+        question="every match run's event_need_id names an event in this tenant",
+        remedy="a run was written against an event that does not exist; regenerate",
+        table=schema.match_run,
+        unit_column="owning_unit_id",
+        column="event_need_id",
+        target=schema.event,
+        target_column="id",
+        cast_target_to_text=True,
+    ),
+    ReferenceCheck(
+        name="invitation_belongs_to_a_batch",
+        question="every invitation belongs to an invitation batch",
+        remedy="an invitation was written without its batch; regenerate",
+        table=schema.cba_invitation,
+        unit_column="owning_unit_id",
+        column="batch_id",
+        target=schema.cba_invitation_batch,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="invitation_batch_names_a_match_run",
+        question="every invitation batch names the match run it was composed from",
+        remedy="a batch was written without its run; regenerate",
+        table=schema.cba_invitation_batch,
+        unit_column="owning_unit_id",
+        column="match_run_id",
+        target=schema.match_run,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="invitation_names_a_roster_speaker",
+        question="every invitation names a speaker on this unit's §13 roster",
+        remedy="an invitation names a professional with no speaker_profile here; regenerate",
+        table=schema.cba_invitation,
+        unit_column="owning_unit_id",
+        column="professional_id",
+        target=schema.speaker_profile,
+        target_column="professional_id",
+        target_unit_column="owning_unit_id",
+    ),
+    ReferenceCheck(
+        name="contact_channel_names_a_roster_speaker",
+        question="every contact channel belongs to a speaker on this unit's roster",
+        remedy="a channel outlived its speaker profile; regenerate",
+        table=schema.contact_channel,
+        unit_column="owning_unit_id",
+        column="professional_id",
+        target=schema.speaker_profile,
+        target_column="professional_id",
+        target_unit_column="owning_unit_id",
+    ),
+    PipelineOpportunityCheck(
+        name="pipeline_record_names_an_event",
+        question=(
+            "every pipeline journey that is not a review-accept fan-out names the "
+            "event it is a journey towards"
+        ),
+        remedy="a hand-off or generated journey names an event that does not exist; regenerate",
+        fanout=False,
+    ),
+    PipelineOpportunityCheck(
+        name="synthetic_fanout_names_a_derived_opportunity",
+        question=(
+            "every pipeline journey that names no event is the synthetic fan-out of an "
+            "accepted events review item"
+        ),
+        remedy=(
+            "a journey names neither an event nor a review-item-derived opportunity; regenerate"
+        ),
+        fanout=True,
+    ),
+    ReferenceCheck(
+        name="attendance_names_an_event",
+        question="every attendance record names an event in this tenant",
+        remedy="attendance was recorded against a missing event; regenerate",
+        table=schema.attendance_record,
+        unit_column="owning_unit_id",
+        column="event_id",
+        target=schema.event,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="attendance_names_an_account",
+        question="every attendance record names a user_account in this tenant",
+        remedy="attendance was recorded for a subject with no account; regenerate",
+        table=schema.attendance_record,
+        unit_column="owning_unit_id",
+        column="subject_id",
+        target=schema.user_account,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="registration_names_an_event",
+        question="every event registration names an event in this tenant",
+        remedy="run `make top-up-pilot-dataset`; a registration outlived its event",
+        table=schema.event_registration,
+        unit_column="owning_unit_id",
+        column="event_id",
+        target=schema.event,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="registration_names_an_account",
+        question="every event registration names a user_account in this tenant",
+        remedy="run `make top-up-pilot-dataset`",
+        table=schema.event_registration,
+        unit_column="owning_unit_id",
+        column="subject_id",
+        target=schema.user_account,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="feedback_names_an_event",
+        question="every student rating names the event it was given at",
+        remedy="run `make top-up-pilot-dataset`; a rating outlived its event",
+        table=schema.student_speaker_feedback,
+        unit_column="owning_unit_id",
+        column="event_id",
+        target=schema.event,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="feedback_names_a_roster_speaker",
+        question="every student rating names a speaker on this unit's §13 roster",
+        remedy="run `make top-up-pilot-dataset`; a rating names a speaker who is not here",
+        table=schema.student_speaker_feedback,
+        unit_column="owning_unit_id",
+        column="speaker_professional_id",
+        target=schema.speaker_profile,
+        target_column="professional_id",
+        target_unit_column="owning_unit_id",
+    ),
+    ReferenceCheck(
+        name="feedback_names_a_student_account",
+        question="every student rating names a user_account in this tenant",
+        remedy="run `make top-up-pilot-dataset`",
+        table=schema.student_speaker_feedback,
+        unit_column="owning_unit_id",
+        column="student_id",
+        target=schema.user_account,
+        target_column="id",
+    ),
+    JoinCheck(
+        name="feedback_is_backed_by_attendance",
+        question="every student rating is backed by that student's attendance at that event",
+        remedy=(
+            "run `make top-up-pilot-dataset`; a rating written around the route's "
+            "eligibility check is the defect POST .../student/.../feedback prevents"
+        ),
+        population_query=_feedback_rows,
+        violations_query=_feedback_without_attendance,
+    ),
+    JoinCheck(
+        name="ledger_entry_has_a_cause",
+        question="every point ledger entry names an attendance or a redemption that exists",
+        remedy="run `make top-up-pilot-dataset`; a balance with no history is ADR-0013's defect",
+        population_query=_ledger_rows,
+        violations_query=_ledger_without_a_cause,
+    ),
+    ReferenceCheck(
+        name="redemption_names_a_catalog_item",
+        question="every redemption names a reward_item in this tenant",
+        remedy="run `make top-up-pilot-dataset`; the catalog is seeded from the worksheet",
+        table=schema.redemption,
+        unit_column=None,
+        column="item_id",
+        target=schema.reward_item,
+        target_column="id",
+        nullable=True,
+    ),
+    ReferenceCheck(
+        name="redemption_names_an_account",
+        question="every redemption names a user_account in this tenant",
+        remedy="run `make top-up-pilot-dataset`",
+        table=schema.redemption,
+        unit_column=None,
+        column="subject_id",
+        target=schema.user_account,
+        target_column="id",
+    ),
+    ReferenceCheck(
+        name="meeting_names_its_author",
+        question="every meeting names the account that recorded it",
+        remedy="run `make top-up-pilot-dataset`",
+        table=schema.cba_meeting,
+        unit_column="owning_unit_id",
+        column="created_by_user_id",
+        target=schema.user_account,
+        target_column="id",
+        nullable=True,
+    ),
+    ReferenceCheck(
+        name="reward_item_names_a_budget_owner",
+        question="every reward item names the account accountable for its budget",
+        remedy="run `make top-up-pilot-dataset`; D6 forbids an ownerless catalog row",
+        table=schema.reward_item,
+        unit_column=None,
+        column="budget_owner_id",
+        target=schema.user_account,
+        target_column="id",
+        nullable=True,
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# The fourth pass: can the deployment score what the dataset holds?
+# ---------------------------------------------------------------------------
+#
+# Not a cross-table property, and deliberately not in CROSS_TABLE_CHECKS: the
+# violation predicate turns on ``Settings.cba_topic_local_embedding_enabled``,
+# a deployment fact no row can express. ``tests/unit/\
+# test_verify_pilot_dataset_checks.py`` treats every entry in that tuple as a
+# pair of compilable counts, which stays true because this check lives beside
+# it rather than inside it.
+
+
+def _match_eligible_profiles(tenant_id: uuid.UUID, unit_id: uuid.UUID) -> sa.Select:
+    """The unit's roster members §19 allows into matching — a run's real pool.
+
+    The same gate ``smartmatch_api.match_run_evidence.assemble_cba_pool``
+    applies: both §7/§8 codes present, both classifications set by a person,
+    and both resolved against the taxonomy versions this release scores. A
+    member failing any of it is *excluded* before scoring — reported, never
+    evaluated — so it is not part of this population either: these are the
+    candidates a shortlist can actually be filled from.
+    """
+    profile = schema.speaker_profile
+    return (
+        sa.select(sa.func.count())
+        .select_from(profile)
+        .where(
+            profile.c.tenant_id == tenant_id,
+            profile.c.owning_unit_id == unit_id,
+            profile.c.primary_industry_code.is_not(None),
+            profile.c.industry_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.primary_role_code.is_not(None),
+            profile.c.role_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.industry_taxonomy_version == NAICS_TAXONOMY_VERSION,
+            profile.c.role_taxonomy_version == CBA_ROLE_TAXONOMY_VERSION,
+        )
+    )
+
+
+def _topic_evidence_unmeasurable(
+    tenant_id: uuid.UUID, unit_id: uuid.UUID, *, local_embedding_enabled: bool
+) -> sa.Select:
+    """Eligible members whose §9 topic evidence this deployment cannot measure.
+
+    ``topic_text`` and ``prior_talk`` are CHECK-constrained non-blank, so
+    ``IS NOT NULL`` is the whole "usable evidence" test
+    (``SpeakerTopicEvidence.usable_text``). Whether that evidence can be
+    *measured* is decided by the provider the API builds per run, not by the
+    row: under ``cba_topic_local_embedding_enabled`` every pair reaches
+    ADR-0017's offline embedding model and is measured; under the default
+    ``FixtureSemanticTopicProvider`` none is — the fixture replays recorded
+    comparisons and no writer can put one there, so every usable pair raises
+    ``TopicComparisonUnavailable``, the factor is ``unknown``, and ADR-0011
+    makes the whole composite unknown. Each such member is a selection that
+    cannot enter a shortlist.
+
+    The flag-off count is exact; the flag-on count is ``false`` rather than a
+    narrower query deliberately: the embedding model measures any pair with an
+    in-vocabulary word, and whether a given text clears that bar is a model
+    property a SQL predicate cannot honestly restate.
+    """
+    usable_evidence = sa.or_(
+        schema.speaker_profile.c.topic_text.is_not(None),
+        schema.speaker_profile.c.prior_talk.is_not(None),
+    )
+    unmeasurable = usable_evidence if not local_embedding_enabled else sa.false()
+    profile = schema.speaker_profile
+    return (
+        sa.select(sa.func.count())
+        .select_from(profile)
+        .where(
+            profile.c.tenant_id == tenant_id,
+            profile.c.owning_unit_id == unit_id,
+            profile.c.primary_industry_code.is_not(None),
+            profile.c.industry_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.primary_role_code.is_not(None),
+            profile.c.role_classification_source == CLASSIFICATION_SOURCE_HUMAN,
+            profile.c.industry_taxonomy_version == NAICS_TAXONOMY_VERSION,
+            profile.c.role_taxonomy_version == CBA_ROLE_TAXONOMY_VERSION,
+            unmeasurable,
+        )
+    )
+
+
+def run_capability_checks(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    local_embedding_enabled: bool,
+) -> tuple[CheckResult, ...]:
+    """Whether this deployment can score the dataset it serves, per check.
+
+    Args:
+        local_embedding_enabled: The API's own
+            ``Settings.cba_topic_local_embedding_enabled``. The caller passes
+            it rather than this function reading it, so the question asked is
+            "what did the *deployment* configure" — ``Settings`` reads
+            ``.env`` from the project directory, which is the same file
+            ``docker compose`` resolves the api container's flag from.
+    """
+    check = JoinCheck(
+        name="topic_evidence_measurable",
+        question=(
+            "every §19-eligible roster member's §9 topic evidence can be measured "
+            "by the provider this deployment runs"
+        ),
+        remedy=(
+            "set SMARTMATCH_CBA_TOPIC_LOCAL_EMBEDDING_ENABLED=true for the api "
+            "(ADR-0017's offline embedding model — .env, not an export, so it "
+            "survives the next `docker compose up`); under the playback fixture "
+            "these members are unscorable on every run and only roster members "
+            "with no topic evidence at all can fill a shortlist"
+        ),
+        population_query=_match_eligible_profiles,
+        violations_query=lambda tenant, unit: _topic_evidence_unmeasurable(
+            tenant, unit, local_embedding_enabled=local_embedding_enabled
+        ),
+    )
+    return (check.counts(session, tenant_id=tenant_id, unit_id=unit_id),)
 
 
 def count_dataset(
@@ -378,9 +1403,9 @@ def count_dataset(
     """
     counted: list[TableCount] = []
     for entry in tables:
-        criteria = [entry.table.c.tenant_id == tenant_id]
-        if entry.unit_column is not None:
-            criteria.append(entry.table.c[entry.unit_column] == unit_id)
+        criteria = _scope(
+            entry.table, tenant_id=tenant_id, unit_id=unit_id, unit_column=entry.unit_column
+        )
         rows = session.execute(
             sa.select(sa.func.count()).select_from(entry.table).where(*criteria)
         ).scalar_one()
@@ -393,53 +1418,72 @@ def count_portal_surfaces(
     *,
     tenant_id: uuid.UUID,
     unit_id: uuid.UUID,
+    subjects: Mapping[str, str] = LOGIN_SUBJECT_SET,
     surfaces: Sequence[PortalSurface] = DEMO_PORTAL_SURFACES,
 ) -> tuple[SurfaceCount, ...]:
     """Count each demo portal's primary surfaces **as the person who signs in**.
 
     The difference from :func:`count_dataset` is one predicate, and it is the
-    whole reason this function exists: where a surface carries a
-    ``subject_column``, the count is filtered to the ``user_account`` that
-    surface's demo login resolves to. A tenant-wide count of
-    ``point_ledger_entry`` says 187 and the student's screen says nothing,
-    because all 187 belong to accounts nobody can sign in as.
+    whole reason this function exists: where a surface carries an ``owner``, the
+    count is filtered to the ``user_account`` that surface's role resolves to
+    under ``subjects``. A tenant-wide count of ``point_ledger_entry`` says 182
+    and the student's screen says nothing, because all 182 belong to accounts
+    nobody can sign in as.
 
-    A subject that resolves to no ``user_account`` at all is reported as **zero
-    rows**, not skipped and not raised on. That is a count of rows and not a
-    measurement, so ADR-0011 has nothing to say about it: an unseeded principal
-    genuinely has no rows, and the report naming the surface and its writer is
-    exactly the instruction the operator needs.
+    ``subjects`` defaults to :data:`LOGIN_SUBJECT_SET` — the four ``@``-addressed
+    browser logins — and that default is the correction this module carries. A
+    role with no entry in ``subjects``, and a subject that resolves to no
+    ``user_account`` at all, are both reported as **zero rows** rather than
+    skipped or raised on. That is a count of rows and not a measurement, so
+    ADR-0011 has nothing to say about it: an unseeded principal genuinely has no
+    rows, and the report naming the surface and its writer is exactly the
+    instruction the operator needs.
     """
     resolved: dict[str, uuid.UUID | None] = {}
     counted: list[SurfaceCount] = []
     for surface in surfaces:
-        criteria = [surface.table.c.tenant_id == tenant_id]
-        if surface.unit_column is not None:
-            criteria.append(surface.table.c[surface.unit_column] == unit_id)
+        criteria = _scope(
+            surface.table, tenant_id=tenant_id, unit_id=unit_id, unit_column=surface.unit_column
+        )
 
-        if surface.subject_column is not None:
-            if surface.subject not in resolved:
+        if surface.owner is not None:
+            subject = subjects.get(surface.role)
+            if subject is None:
+                counted.append(
+                    SurfaceCount(
+                        token=surface.token,
+                        surface=surface.surface,
+                        name=surface.table.name,
+                        owner=f"(no {surface.role} subject declared)",
+                        rows=0,
+                        minimum_rows=surface.minimum_rows,
+                        writer=surface.writer,
+                    )
+                )
+                continue
+            if subject not in resolved:
                 found = session.execute(
                     sa.select(schema.user_account.c.id).where(
                         schema.user_account.c.tenant_id == tenant_id,
-                        schema.user_account.c.external_subject == surface.subject,
+                        schema.user_account.c.external_subject == subject,
                     )
                 ).scalar_one_or_none()
-                resolved[surface.subject] = None if found is None else uuid.UUID(str(found))
-            subject_id = resolved[surface.subject]
+                resolved[subject] = None if found is None else uuid.UUID(str(found))
+            subject_id = resolved[subject]
             if subject_id is None:
                 counted.append(
                     SurfaceCount(
                         token=surface.token,
                         surface=surface.surface,
                         name=surface.table.name,
-                        owner=f"{surface.subject} (NO ACCOUNT)",
+                        owner=f"{subject} (NO ACCOUNT)",
                         rows=0,
+                        minimum_rows=surface.minimum_rows,
                         writer=surface.writer,
                     )
                 )
                 continue
-            criteria.append(surface.table.c[surface.subject_column] == subject_id)
+            criteria.append(surface.owner.predicate(surface.table, subject_id))
 
         rows = session.execute(
             sa.select(sa.func.count()).select_from(surface.table).where(*criteria)
@@ -449,12 +1493,47 @@ def count_portal_surfaces(
                 token=surface.token,
                 surface=surface.surface,
                 name=surface.table.name,
-                owner=surface.subject if surface.subject_column is not None else "(unit-scoped)",
+                owner=(
+                    subjects.get(surface.role, surface.role)
+                    if surface.owner is not None
+                    else "(unit-scoped)"
+                ),
                 rows=int(rows),
+                minimum_rows=surface.minimum_rows,
                 writer=surface.writer,
             )
         )
     return tuple(counted)
+
+
+def run_checks(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+    checks: Sequence[ReferenceCheck | JoinCheck | PipelineOpportunityCheck] = CROSS_TABLE_CHECKS,
+) -> tuple[CheckResult, ...]:
+    """Answer every cross-table question, in declaration order."""
+    return tuple(check.counts(session, tenant_id=tenant_id, unit_id=unit_id) for check in checks)
+
+
+def check_report_lines(results: Sequence[CheckResult]) -> tuple[str, ...]:
+    """The join table: verdict, the two numbers, and the question in words.
+
+    The numbers are printed even when the verdict is ``OK``, for the reason the
+    counts above are: "every invitation names a roster speaker" over nine
+    invitations and over nine hundred are the same verdict about very different
+    datasets, and a reviewer deciding whether a demo is worth giving needs the
+    population as much as the pass.
+    """
+    if not results:
+        return ()
+    name_width = max(len(result.name) for result in results)
+    return tuple(
+        f"  {result.verdict:<7}  {result.name:<{name_width}}  "
+        f"{result.violations:>6} bad / {result.population:>6} rows  {result.question}"
+        for result in results
+    )
 
 
 def portal_report_lines(counts: Sequence[SurfaceCount]) -> tuple[str, ...]:
@@ -476,10 +1555,16 @@ def portal_report_lines(counts: Sequence[SurfaceCount]) -> tuple[str, ...]:
         if previous is not None and count.token != previous:
             lines.append("")
         previous = count.token
+        if count.empty:
+            flag = "EMPTY  "
+        elif count.short:
+            flag = "THIN   "
+        else:
+            flag = "       "
         lines.append(
             f"  {count.token:<{token_width}}  {count.surface:<{surface_width}}  "
-            f"{count.owner:<{owner_width}}  {count.rows:>7}  "
-            f"{'EMPTY  ' if count.empty else '       '}{count.writer}"
+            f"{count.owner:<{owner_width}}  {count.rows:>7}/{count.minimum_rows:<3}  "
+            f"{flag}{count.writer}"
         )
     return tuple(lines)
 
@@ -504,19 +1589,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tenant-slug", default="pilot", help="Synthetic tenant slug")
     parser.add_argument("--unit-path", default="pilot", help="ltree path owning the dataset")
+    parser.add_argument(
+        "--subjects",
+        choices=sorted(SUBJECT_SETS),
+        default=DEFAULT_SUBJECT_SET,
+        help=(
+            "Which family of account owns the person-scoped surfaces. 'login' (the "
+            "default) is the four pilot-login-* accounts a reviewer signs in as; "
+            "'fixture' is the compose-pilot-* accounts the local SMARTMATCH_DEV_PRINCIPALS "
+            "bearer tokens resolve to, for a stack driven by tokens and no browser."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Print the table and exit non-zero if any counted table is empty.
+    """Print the four report sections and exit non-zero on any finding.
 
     Three distinguishable failures, three distinguishable exits: ``2`` for a
     configuration refusal (this is not a dev fixture appliance), ``1`` for a
     missing tenant or unit or a database that could not be read, and ``1`` again
-    for the finding this tool exists for — an empty table. The last one prints
-    the empty tables by name and says which writer was supposed to fill each,
-    because "the dataset is incomplete" without that list is a sentence nobody
-    can act on.
+    for the findings this tool exists for — an empty table, a portal surface
+    below its floor, or a cross-table or capability property that is broken or
+    that no row exists to satisfy. Each is printed by name with the writer or
+    the remedy beside it, because "the dataset is incomplete" without that list
+    is a sentence nobody can act on.
     """
     args = parse_args(argv)
     try:
@@ -525,6 +1622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"verify-pilot-dataset: configuration error: {exc}", file=sys.stderr)
         return 2
 
+    subjects = subjects_for(args.subjects)
     session_factory = create_session_factory(settings.database_url)
     with session_factory() as session:
         try:
@@ -545,7 +1643,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 return 1
             counts = count_dataset(session, tenant_id=tenant_id, unit_id=unit_id)
-            surfaces = count_portal_surfaces(session, tenant_id=tenant_id, unit_id=unit_id)
+            surfaces = count_portal_surfaces(
+                session, tenant_id=tenant_id, unit_id=unit_id, subjects=subjects
+            )
+            checks = run_checks(session, tenant_id=tenant_id, unit_id=unit_id)
+            capability_checks = run_capability_checks(
+                session,
+                tenant_id=tenant_id,
+                unit_id=unit_id,
+                local_embedding_enabled=settings.cba_topic_local_embedding_enabled,
+            )
         except SQLAlchemyError as exc:
             print(
                 "verify-pilot-dataset: database read failed; the database must be migrated "
@@ -559,14 +1666,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(line)
 
     print("")
-    print("verify-pilot-dataset: per-portal surfaces, counted as the account that signs in")
+    print(
+        "verify-pilot-dataset: per-portal surfaces, counted as the account that signs in "
+        f"(--subjects {args.subjects}: {', '.join(sorted(subjects.values()))})"
+    )
     for line in portal_report_lines(surfaces):
         print(line)
 
+    print("")
+    print(
+        "verify-pilot-dataset: capability checks (whether this deployment can score "
+        "the rows it holds)"
+    )
+    for line in check_report_lines(capability_checks):
+        print(line)
+
+    print("")
+    print("verify-pilot-dataset: cross-table checks (rows that point at rows)")
+    for line in check_report_lines(checks):
+        print(line)
+
     empty = [count for count in counts if count.empty]
-    empty_surfaces = [surface for surface in surfaces if surface.empty]
-    if not empty and not empty_surfaces:
-        print("verify-pilot-dataset: every counted table holds rows, for every demo portal.")
+    thin_surfaces = [surface for surface in surfaces if surface.short]
+    failed_checks = [check for check in (*capability_checks, *checks) if check.failed]
+    if not empty and not thin_surfaces and not failed_checks:
+        print(
+            "verify-pilot-dataset: every counted table holds rows, every demo portal's "
+            "surfaces clear their floor, and every cross-table and capability check "
+            "passes."
+        )
         return 0
 
     if empty:
@@ -574,27 +1702,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         for count in empty:
             print(f"  {count.name} — filled by {count.writer}", file=sys.stderr)
 
-    if empty_surfaces:
+    if thin_surfaces:
         # Reported separately, and separately worded, because it is a different
         # defect with a different fix. A table above is empty. A surface here can
         # be empty over a table that is *full* — the rows are there and they
         # belong to somebody nobody can sign in as.
         print(
-            "verify-pilot-dataset: INCOMPLETE. These demo portals land on an empty "
+            "verify-pilot-dataset: INCOMPLETE. These demo portals land on an empty or thin "
             "surface — note that the table above may be full, in which case the rows "
             "exist under an account no demo login resolves to:",
             file=sys.stderr,
         )
-        for surface in empty_surfaces:
+        for surface in thin_surfaces:
             print(
                 f"  {surface.token} -> {surface.surface} ({surface.name}, owner "
-                f"{surface.owner}) — filled by {surface.writer}",
+                f"{surface.owner}) has {surface.rows} of {surface.minimum_rows} — "
+                f"filled by {surface.writer}",
+                file=sys.stderr,
+            )
+
+    if failed_checks:
+        # The third and newest wording. A count says a table is empty; a surface
+        # says a person owns nothing; this says the rows are there, belong to the
+        # right people, and do not refer to each other.
+        print(
+            "verify-pilot-dataset: DISCONNECTED. These cross-table or capability properties "
+            "do not hold (VACUOUS means no row exists for the question to be about, which "
+            "a dataset meant to demonstrate the property does not get to call a pass):",
+            file=sys.stderr,
+        )
+        for check in failed_checks:
+            print(
+                f"  {check.verdict} {check.name}: {check.question} — "
+                f"{check.violations} violating of {check.population} rows. {check.remedy}",
                 file=sys.stderr,
             )
 
     print(
-        "verify-pilot-dataset: a demo run over this database will show empty surfaces, not "
-        "unknown values. Rebuild with scripts/reset_pilot_dataset.sh.",
+        "verify-pilot-dataset: a demo run over this database will show empty or disconnected "
+        "surfaces, not unknown values. Top up an existing tenant with "
+        "`make top-up-pilot-dataset`; rebuild a fresh one with "
+        "scripts/reset_pilot_dataset.sh.",
         file=sys.stderr,
     )
     return 1

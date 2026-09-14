@@ -95,18 +95,18 @@ export function Opportunities() {
     <div className="mx-auto max-w-7xl space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900">Speaker Requests</h1>
-        <p className="mt-1 text-gray-600">
+        <p className="mt-1 text-muted-foreground">
           The count and the list both come from the registered <code>opportunities</code> metric and
           its drill-down. Nothing on this page is merged or counted in the browser.
         </p>
       </div>
 
       <div
-        className="rounded-2xl border border-[#d5e0f7] bg-white p-8 shadow-sm"
+        className="rounded-2xl border border-border bg-card p-8 shadow-sm"
         aria-labelledby="opportunities-metric-heading"
       >
         <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eef4ff] text-[#005394]">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary">
             {summary ? (
               <Briefcase className="h-5 w-5" aria-hidden="true" />
             ) : (
@@ -115,33 +115,33 @@ export function Opportunities() {
           </div>
           <div className="space-y-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#005394]/70">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/70">
                 Registered metric · {OPPORTUNITIES_METRIC_NAME}
               </p>
               <h2
                 id="opportunities-metric-heading"
-                className="mt-2 text-2xl font-semibold text-gray-900"
+                className="mt-2 text-2xl font-semibold text-foreground"
               >
                 {summary?.display_name ?? "Speaker Requests"}
               </h2>
             </div>
-            <p className="text-3xl font-semibold tracking-tight text-gray-900">
+            <p className="text-3xl font-semibold tracking-tight text-foreground">
               <AccountableValue
                 metric={opportunitiesMetric}
                 formatNumber={(value) => value.toLocaleString("en-US")}
               />
             </p>
-            <p className="text-sm leading-6 text-gray-600">{definition}</p>
+            <p className="text-sm leading-6 text-muted-foreground">{definition}</p>
             {summary?.value === null ? (
-              <p className="text-sm leading-6 text-gray-600">
+              <p className="text-sm leading-6 text-muted-foreground">
                 {summary.unknown_reason ??
                   "The server reported this metric as unknown. Unknown is not zero."}
               </p>
             ) : null}
             {summary ? null : (
-              <p className="text-sm leading-6 text-gray-600">{unavailableReason}</p>
+              <p className="text-sm leading-6 text-muted-foreground">{unavailableReason}</p>
             )}
-            <p className="text-sm leading-6 text-gray-600">
+            <p className="text-sm leading-6 text-muted-foreground">
               Clicking the value lists exactly the rows the aggregate was calculated from. Match
               scores stay off this page: {MATCHING_UNAVAILABLE_REASON}
             </p>

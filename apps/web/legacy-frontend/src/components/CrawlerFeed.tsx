@@ -16,8 +16,8 @@ export function CrawlerFeed({ className }: CrawlerFeedProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md bg-gray-50 px-3 py-3 text-sm text-muted-foreground">
-          <p className="font-medium text-[#394454]">Web-crawler surface retired</p>
+        <div className="rounded-md bg-muted px-3 py-3 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground/80">Web-crawler surface retired</p>
           <p className="mt-1">
             This crawler is archived (MM-A08) and gated behind G3. No crawl data is shown here, and
             none is being collected.

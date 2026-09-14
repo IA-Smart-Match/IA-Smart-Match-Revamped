@@ -100,7 +100,7 @@ export function DiscoveryFeed({ items, className }: DiscoveryFeedProps) {
 
   if (graded.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-[#cfd8e5] bg-[#f7f9fc] p-8 text-sm text-gray-600">
+      <div className="rounded-2xl border border-dashed border-border bg-muted p-8 text-sm text-muted-foreground">
         No registered metric is currently readable, so there is nothing this feed can report.
       </div>
     );

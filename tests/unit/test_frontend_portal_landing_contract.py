@@ -8,7 +8,10 @@ host, or an administrator gets a real session token in ``sessionStorage`` — an
 if the fixture outranks it, every ``/v1`` request still authenticates as the
 coordinator. Nothing downstream is wrong in that state and nothing reports an
 error: ``GET /v1/me/portals`` truthfully answers "coordinator" and
-``pages/Home.tsx`` truthfully forwards to ``/coordinator-portal``. The sign-in
+``pages/Home.tsx`` truthfully forwards to ``/coordinator-portal``. (An
+administrator now lands in that same shell *legitimately* — one persona, one
+door — which is precisely why the student and event-host halves below are the
+ones that still catch the fixture bug.) The sign-in
 appears to succeed and changes nothing, which is the fake-success shape applied
 to identity.
 
@@ -19,6 +22,19 @@ proof lives next to the code it guards
 the pure resolver); this file is the static half — it holds ``api.ts`` to
 delegating that decision rather than re-inlining a second, drifting copy of it,
 which is how the reversed order got there in the first place.
+
+The same fixture produced a second, worse failure from the other end: clearing
+the stored credential on **sign-out** left the fixture as the only credential
+in the bundle, so the next ``GET /v1/me`` re-authenticated the person as the
+seeded coordinator and a student who pressed "Sign out" in ``/student-portal``
+was handed ``/coordinator-portal``. Signing out escalated privileges. The
+ordering alone cannot prevent that — there is no stored token left to outrank
+anything — so the resolver also takes a *deliberately signed out* flag
+(``apps/web/legacy-frontend/src/lib/signOutMarker.ts``), and that suppression
+is pinned here beside the ordering, for the same reason: both are one-line
+decisions that a plausible-looking edit can reverse without failing anything
+else. Its behavioural half is
+``apps/web/legacy-frontend/tests/signOutEscalation.test.ts``.
 
 Read as text rather than executed, for ``test_frontend_auth_contract.py``'s
 reason: what has to be true is that the literal in the shipped file says this,
@@ -47,16 +63,40 @@ from smartmatch_api.routers.portals import _PORTAL_FOR_ROLE  # noqa: E402
 def test_the_signed_in_credential_outranks_the_build_time_fixture() -> None:
     """The stored token is consulted first, and the fixture is the fallback.
 
-    Asserted as an exact expression because the ordering *is* the contract: the
-    two candidate spellings differ only in which operand comes first, and a
+    Asserted as exact expressions because the ordering *is* the contract: the
+    candidate spellings differ only in which source is consulted first, and a
     looser assertion (both names appear) would pass against the reversed one.
     """
     source = BEARER_TOKEN_MODULE.read_text(encoding="utf-8")
 
-    assert "return usableCredential(sessionToken) ?? usableCredential(envToken);" in source, (
-        "resolveBearerToken() no longer prefers the signed-in credential: with the "
-        "fixture first, every principal signing in to the pilot appliance "
-        "authenticates as the seeded coordinator and lands in /coordinator-portal"
+    for expression in (
+        "const stored = usableCredential(sessionToken);",
+        "return stored;",
+    ):
+        assert expression in source, (
+            "resolveBearerToken() no longer prefers the signed-in credential: with the "
+            "fixture first, every principal signing in to the pilot appliance "
+            "authenticates as the seeded coordinator and lands in /coordinator-portal"
+        )
+
+
+def test_an_explicit_sign_out_suppresses_the_build_time_fixture() -> None:
+    """Sign-out must not fall through to the fixture, at any ordering.
+
+    Pinned as an exact expression for the ordering test's reason, and pinned
+    *here* because the failure it prevents is the ordering bug's mirror image:
+    with no stored credential left to win, the fixture wins by default, and
+    what it wins is somebody else's session. Dropping the flag would restore a
+    sign-out button that promotes a student to coordinator, and every other
+    test in the suite would still pass.
+    """
+    source = BEARER_TOKEN_MODULE.read_text(encoding="utf-8")
+
+    assert "return signedOutDeliberately ? null : usableCredential(envToken);" in source, (
+        "resolveBearerToken() no longer suppresses the fixture after an explicit "
+        "sign-out: clearing sessionStorage then leaves the bundle's fixture token as "
+        "the only credential, and the next GET /v1/me signs the person back in as "
+        "the principal it maps to — the seeded coordinator on the pilot appliance"
     )
 
 
@@ -72,9 +112,13 @@ def test_api_delegates_the_credential_choice_rather_than_re_inlining_it() -> Non
     source = API_MODULE.read_text(encoding="utf-8")
 
     assert 'from "./bearerToken.ts"' in source
-    assert "return resolveBearerToken(envToken, sessionToken);" in source, (
+    assert (
+        "return resolveBearerToken(envToken, sessionToken, hasSignedOut(browserSessionStorage()));"
+        in source
+    ), (
         "readSmartmatchBearerToken() no longer delegates to resolveBearerToken(): "
-        "the credential precedence must stay in one testable place"
+        "the credential precedence must stay in one testable place, and it must "
+        "still be told whether this browser deliberately signed out"
     )
 
 
@@ -95,25 +139,34 @@ def test_home_navigates_to_the_server_reported_path_and_composes_none() -> None:
         )
 
 
-def test_each_compose_dev_principal_opens_a_distinct_portal_path() -> None:
+def test_each_compose_dev_principal_lands_where_its_own_role_says() -> None:
     """The server side is not the fault, and this is what says so.
 
-    Four seeded principals, four stored roles, four different shells. If this
-    ever collapses, the symptom is identical to the credential bug above and
-    the fix is somewhere else entirely — so the two are separated here rather
-    than left to be told apart by clicking.
+    Four seeded principals, four stored roles, and each landing decided by its
+    *own* role rather than by the bundle's fixture. If this ever collapses,
+    the symptom is identical to the credential bug above and the fix is
+    somewhere else entirely — so the two are separated here rather than left
+    to be told apart by clicking.
+
+    Four roles are now **three** shells, on purpose: ``coordinator`` and
+    ``admin`` are one persona and land in one connector dashboard, with
+    Administration a section inside it rather than a portal of its own. That
+    is a deliberate merge, so what is pinned is the partition itself — which
+    tokens share a landing and which must not — and not a bare "all different"
+    count, which would pass again the moment two more collapsed by accident.
     """
     home_paths = {
         principal.token: _PORTAL_FOR_ROLE[principal.role][1] for principal in COMPOSE_DEV_PRINCIPALS
     }
 
-    assert len(set(home_paths.values())) == len(home_paths), (
-        f"two compose dev principals share a portal path: {home_paths}"
-    )
-    coordinator_paths = [
-        token for token, path in home_paths.items() if path == "/coordinator-portal"
-    ]
-    assert coordinator_paths == ["compose-api"], (
-        "only the seeded coordinator token may resolve to /coordinator-portal, "
-        f"but these do: {coordinator_paths}"
-    )
+    assert home_paths == {
+        # One persona, one shell. `compose-admin` is still a separate account
+        # with a separate, tenant-wide role; what it shares is the door.
+        "compose-api": "/coordinator-portal",
+        "compose-admin": "/coordinator-portal",
+        # And these two are still emphatically their own, which is the half of
+        # the original assertion that still carries the fixture bug's weight:
+        # a student who lands in the connector dashboard is the bug.
+        "compose-student": "/student-portal",
+        "compose-host": "/volunteer-portal",
+    }, f"the compose principals no longer land where their stored roles say: {home_paths}"

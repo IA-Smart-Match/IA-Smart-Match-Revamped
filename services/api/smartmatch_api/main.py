@@ -54,8 +54,10 @@ from smartmatch_api.routers import (
     cba_invitations,
     engagement,
     events,
+    host_organizations,
     imports,
     jobs,
+    manual_events,
     match_runs,
     matching_weights,
     me,
@@ -68,6 +70,7 @@ from smartmatch_api.routers import (
     redrive,
     review,
     rewards,
+    speaker_pipeline,
     speaker_requests,
     student_events,
     student_speaker_feedback,
@@ -285,6 +288,12 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (imports.router, Capability.OPERATOR_RECORD_IMPORT),
     (me.router, Capability.AUTHENTICATED_LOGIN),
     (metrics.router, Capability.DISCOVERY_METRICS),
+    # The same register, presented as a funnel. `DISCOVERY_METRICS` and not a
+    # capability of its own: this router measures nothing `metrics.router` does
+    # not already measure, through the same owning queries and the same
+    # authorization, so a deployment that offered one and withheld the other
+    # would be offering and withholding the identical numbers.
+    (speaker_pipeline.router, Capability.DISCOVERY_METRICS),
     (events.router, Capability.EVENT_READS),
     # The .ics download, classified with `events` because that is what it is:
     # the same event, in a second representation, behind the same roles
@@ -342,6 +351,25 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # A host filing a request is a person stating a new intention, and it has no
     # review queue in front of it — see `routers/speaker_requests.py`.
     (speaker_requests.router, Capability.SPEAKER_REQUEST_INTAKE),
+    # The Event Host's own organization and the Connector's directory of them
+    # (migration 0036). `SPEAKER_REQUEST_INTAKE` rather than a capability of
+    # its own, and the argument is the one the student-registration line above
+    # makes rather than the one the line it sits under makes.
+    #
+    # That capability's own docstring says what it covers: "An Event Host
+    # filing a Speaker Request, and a Speaker Connector reading the queue of
+    # them." An organization is the "on behalf of" half of exactly that
+    # filing, and a deployment with intake off has no page these routes could
+    # be opened from -- the host portal is the request form and the record of
+    # what was requested. A separate flag would make "hosts may file requests
+    # but may not say who they are" a supported configuration, which is a
+    # degraded state rather than a smaller product.
+    #
+    # Not `SPEAKER_CONTACT_MANAGEMENT`: that is the Connector's roster of
+    # *professionals* they might send to. This is the other side of the table
+    # entirely -- who is asking, not who might answer -- and no route here
+    # reads or writes a contact_channel, an address, or a consent.
+    (host_organizations.router, Capability.SPEAKER_REQUEST_INTAKE),
     # The other side of the same match: a Speaker Connector's roster of
     # professional contacts (customer §13, and §§7-8 for the correction). Its
     # own capability rather than a share of the line above it, because the two
@@ -488,6 +516,12 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # and attaching it to that flag would place it inside a funnel it stands
     # outside of.
     (meetings.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # Manually filed events (migration 0035) and their per-event feedback QR.
+    # Classified with `events`/`calendar` above: a manual event is a row in
+    # the same `event` table those routes read, gated behind the same flag
+    # a deployment already uses to decide whether it shows events at all.
+    (manual_events.router, Capability.EVENT_READS),
+    (manual_events.public_router, Capability.EVENT_READS),
 )
 
 for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:

@@ -30,6 +30,12 @@ const PRESERVED: readonly Capability[] = [
   // Connector reads the queue). Its own capability rather than a share of
   // `event_reads` because it is a write — see `product_scope.py`.
   "speaker_request_intake",
+  // Customer §13 (a Speaker Connector keeps the unit's roster of professional
+  // contacts) and §§7-8 (correcting a classification). The other end of the same
+  // arrow as `speaker_request_intake` and a separate decision from it, so it is
+  // its own capability. Not `consented_outreach`: a contact record is not a
+  // contact channel (OQ-CBA-011).
+  "speaker_contact_management",
   "match_runs",
   "discovery_metrics",
   "consented_outreach",

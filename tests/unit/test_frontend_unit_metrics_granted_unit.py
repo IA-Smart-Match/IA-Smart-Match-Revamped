@@ -31,19 +31,23 @@ pass them today. The invariant is shared; the source shape is not.
 
 ## Why these are portal surfaces, which is the part that needed deciding
 
-``Dashboard.tsx``, ``Pipeline.tsx`` and ``Opportunities.tsx`` sit under the
-pathless ``Layout`` route rather than one of the three portal shells, so
-"leave the build variable, it is a legitimate deployment input for an admin
-surface" was a real option rather than a cop-out. It is wrong, and
-``services/api/smartmatch_api/routers/portals.py`` is what settles it:
-``_PORTAL_FOR_ROLE`` maps the stored ``admin`` role to the portal ``admin``
-with ``home_path: "/dashboard"``. ``PortalGate`` renders that ``home_path`` as
-a link. ``/dashboard`` is the admin portal's home screen, reachable by an
-ordinary signed-in pilot account, and ``PortalKind`` in ``lib/principal.ts``
-has carried ``"admin"`` since the mapping existed. So the unit these screens
-are about is the unit the server granted the account, exactly as for the other
-three portals — and the assertions below pin that resolution rather than
-merely forbidding the old one.
+``Dashboard.tsx``, ``Pipeline.tsx`` and ``Opportunities.tsx`` used to sit under
+the retired admin shell's pathless ``Layout`` route rather than one of the
+portal shells, so "leave the build variable, it is a legitimate deployment
+input for an admin surface" was a real option rather than a cop-out. It was
+wrong, and ``services/api/smartmatch_api/routers/portals.py`` is what settled
+it: the server maps each stored role to a granted portal, and the unit these
+screens are about is the unit the server granted the account — never a value
+the browser composes.
+
+Addendum — after the Connector Dashboard consolidation, the argument is
+stronger and the mount is gone. The stored ``admin`` and ``coordinator``
+roles are one persona (``role_presentation.py``); the admin shell is deleted
+and ``/dashboard`` is a redirect onto ``/coordinator-portal``, so these three
+pages are mounted nowhere. They remain in the repository — retired is not
+deleted — and the assertions below still hold their unit resolution to the
+grant-based shape, because a page that recomposes a unit in the browser is
+the defect this file exists to stop, wherever the page is mounted or not.
 
 Assertions are over source text for ``test_frontend_granted_unit_contract.py``'s
 reason: the frontend has its own DOM runner, and what Python can own without a
@@ -146,7 +150,7 @@ def test_the_page_resolves_the_unit_from_the_server_granted_admin_portal(path: P
     assert "usePortalAccess" in code, f"{path.name} must read the portal mapping"
     assert 'grantedPortal(portalAccess, "admin")' in code, (
         f"{path.name} must resolve the admin grant the way the portal pages do; "
-        "_PORTAL_FOR_ROLE maps the stored `admin` role to home_path /dashboard"
+        "the unit is read off the server's grant, never composed in the browser"
     )
     assert "grant?.default_unit_id ?? null" in code, (
         f"{path.name} must take the unit off the grant, not compose one"

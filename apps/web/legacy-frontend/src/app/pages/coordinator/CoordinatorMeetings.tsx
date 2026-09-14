@@ -72,7 +72,7 @@
  * answer it is, rather than hiding them and implying the capability is absent.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { CalendarClock, Info } from "lucide-react";
 
 import {
@@ -86,6 +86,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** The server's own bound, asked for explicitly so the page states what it requested. */
 const PAGE_LIMIT = 50;
@@ -181,10 +182,6 @@ export function CoordinatorMeetings() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [listing, setListing] = useState<MeetingList | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
   const [title, setTitle] = useState("");
   const [localTime, setLocalTime] = useState("");
   const [locationOrLink, setLocationOrLink] = useState("");
@@ -193,25 +190,25 @@ export function CoordinatorMeetings() {
 
   const timeZone = browserTimeZone();
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      setListing(await fetchMeetings(unitId, PAGE_LIMIT));
-      setLoadError(null);
-    } catch (cause) {
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The meetings could not be loaded and the server gave no reason.",
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId]);
+  // Cached like every other page-load read in this shell: a revisit inside
+  // `staleTime` renders the listing immediately.
+  const listQuery = useScopedQuery({
+    resource: "meetings",
+    params: [unitId, PAGE_LIMIT],
+    queryFn: () => fetchMeetings(unitId as string, PAGE_LIMIT),
+    enabled: unitId !== null,
+  });
+  const listing: MeetingList | null = listQuery.isSuccess ? listQuery.data : null;
+  const loadError = listQuery.isError
+    ? listQuery.error instanceof ApiRequestError
+      ? listQuery.error.message
+      : "The meetings could not be loaded and the server gave no reason."
+    : null;
+  const loaded = !listQuery.isPending;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const load = useCallback(async () => {
+    await listQuery.refetch();
+  }, [listQuery]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -378,7 +375,7 @@ export function CoordinatorMeetings() {
             <button
               type="submit"
               disabled={submitting || timeZone === null}
-              className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground disabled:opacity-50"
+              className="min-h-11 inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <CalendarClock className="h-4 w-4" aria-hidden="true" />
               {submitting ? "Recording…" : "Record meeting"}

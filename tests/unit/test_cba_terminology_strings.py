@@ -169,7 +169,18 @@ def test_cba_visible_copy_carries_no_retired_terminology() -> None:
 
 
 def test_the_admin_shell_names_cba() -> None:
-    assert "CBA" in _read("app/components/Layout.tsx")
+    """The stored ``admin`` role names the one connector shell it lands in.
+
+    There is no admin shell any more — ``admin`` and ``coordinator`` are one
+    persona, and ``Layout.tsx`` is deleted — so the role's portal descriptor
+    deliberately carries the same display name as ``coordinator``'s:
+    "CBA Administration" named a second dashboard that no longer exists, and
+    Administration is a section inside the Connector Dashboard now
+    (``role_presentation.py`` says why at length). What this assertion still
+    pins is that the name comes from the one map — a literal back in a shell
+    would be a second naming authority.
+    """
+    assert portal_display_name_for_role("admin") == "Connector Dashboard"
 
 
 # A portal's name is no longer a literal in its shell. `CBA-ROLE-PRESENTATION`
@@ -193,11 +204,28 @@ def test_the_connector_dashboard_is_named() -> None:
     assert "{grant.display_name}" in _read("app/components/CoordinatorPortalLayout.tsx")
 
 
+def test_the_event_host_portal_keeps_its_customer_approved_name() -> None:
+    """The volunteer shell is the Event Host's, and the server names it so.
+
+    It used to render the literal "Speaker portal" — the leftover from before
+    the host portal was separated from the speaker pages beside it. The brand
+    is now the granted descriptor's ``display_name``, exactly like the other
+    two shells.
+    """
+    assert portal_display_name_for_role("volunteer") == "Event Host Portal", (
+        "customer §4: Volunteer — Event Host when referring to the event-requesting role"
+    )
+    assert "{grant.display_name}" in _read("app/components/VolunteerPortalLayout.tsx")
+
+
 def test_speaker_requests_replace_volunteer_opportunities_in_visible_copy() -> None:
     page = _read("app/pages/Opportunities.tsx")
-    nav = _read("app/components/Layout.tsx")
+    # The admin shell is deleted; the Connector shell carries the entry now,
+    # in sentence case per the writing rules ("Speaker requests", not
+    # "Speaker Requests").
+    nav = _read("app/components/CoordinatorPortalLayout.tsx")
     assert "Speaker Requests" in page
-    assert "Speaker Requests" in nav
+    assert "Speaker requests" in nav
     # The registered metric name is a fact about the server, not a label, so it
     # is still shown verbatim next to the renamed heading.
     assert "OPPORTUNITIES_METRIC_NAME" in page

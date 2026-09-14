@@ -1,11 +1,11 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
-  ClipboardList,
   ListChecks,
-  UserCheck,
   UserCircle,
   Briefcase,
+  Building2,
   Menu,
   X,
 } from "lucide-react";
@@ -15,25 +15,33 @@ import { SessionGate } from "./SessionGate";
 import { PortalGate, grantedPortal } from "./PortalGate";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
+import { prefetchPortalRoute } from "../navPrefetch";
+import { usePrincipalKey } from "./PrincipalQueryProvider";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
+import { BrandLogo } from "./BrandLogo";
 
+// One entry per mounted page — nothing here links a retired address. Two
+// entries this sidebar used to carry were removed rather than repointed,
+// because their successors are already on this list: "Confirmed speaker" was
+// folded into My requests (its only data routes are `admin`/`coordinator`
+// server-side, so it answered the hosts it named with a 403), and "My
+// Assignments" was folded into Home, which names the absent assignments
+// dataset honestly instead of opening a page for it.
 const navigation = [
   { name: "Home", href: "/volunteer-portal", icon: LayoutDashboard, exact: true },
   // Customer §12: the Event Host's own capability, backed by a `/v1` route
   // rather than by the absent legacy portal API — as is the page below it.
-  { name: "Request a Speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
-  // Customer §6 step 9: the other end of the intake above, so it sits beside
-  // it. `GET .../cba/confirmed-speakers` and the hand-off `POST` are
-  // `admin`/`coordinator` server-side whatever this shell renders — the page
-  // shows the refusal as an answer rather than hiding the control.
-  { name: "Confirmed speaker", href: "/volunteer-portal/confirmed-speaker", icon: UserCheck },
+  // Sentence case per DESIGN.md's navigation rule.
+  { name: "Request a speaker", href: "/volunteer-portal/speaker-request", icon: Briefcase },
   // OQ-CBA-014, closed 7 September 2026: the Event Host's own read of what
   // they filed, over `GET .../host/speaker-requests` — `volunteer`-scoped
   // server-side, and a different query from the Connector's queue, not a
   // wider permit on it.
-  { name: "My Requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
-  { name: "My Assignments", href: "/volunteer-portal/assignments", icon: ClipboardList },
-  { name: "My Profile", href: "/volunteer-portal/profile", icon: UserCircle },
+  { name: "My requests", href: "/volunteer-portal/my-requests", icon: ListChecks },
+  // Migration `0036`: the host's own organization, self-asserted until a
+  // coordinator grant exists (owner decision 4).
+  { name: "Organization", href: "/volunteer-portal/organization", icon: Building2 },
+  { name: "Profile", href: "/volunteer-portal/profile", icon: UserCircle },
 ];
 
 export function VolunteerPortalLayout() {
@@ -47,6 +55,9 @@ export function VolunteerPortalLayout() {
   // portal, which is what the pages inside it rendered a banner about.
   const portalAccess = usePortalAccess();
   const signOut = useSignOut();
+
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
 
   function handleSignOut() {
     signOut();
@@ -75,6 +86,9 @@ export function VolunteerPortalLayout() {
   // first, which for an account holding two roles could name the wrong one.
   const company = grant.org_unit_path;
   const initials = principalInitials(session.me);
+  // The unit the nav's hover prefetch scopes its reads to — the same
+  // `default_unit_id` every page behind these links reads.
+  const unitId = grant.default_unit_id;
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,18 +108,12 @@ export function VolunteerPortalLayout() {
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex items-center justify-between border-b border-sidebar-border p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Briefcase className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="font-semibold text-sidebar-foreground">Smart Match</h1>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  {grant.display_name}
-                </p>
-              </div>
-            </div>
+          <div className="flex min-h-[104px] items-center justify-between border-b border-sidebar-border px-5 py-4">
+            {/* The portal descriptor's own `display_name` ("Event Host
+                Portal") — the server names this shell, the way it names the
+                Connector Dashboard for the coordinator grant. A literal here
+                was how this sidebar came to call event hosts "speakers". */}
+            <BrandLogo label={grant.display_name} />
             <button
               onClick={() => setSidebarOpen(false)}
               className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:hidden"
@@ -128,6 +136,12 @@ export function VolunteerPortalLayout() {
                   key={item.name}
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
+                  onMouseEnter={() =>
+                    prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                  }
+                  onFocus={() =>
+                    prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
+                  }
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive
                       ? "border border-primary/30 bg-primary/10 text-primary shadow-sm"
@@ -150,6 +164,7 @@ export function VolunteerPortalLayout() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-sidebar-foreground">{displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">{company}</p>
+                <p className="truncate text-xs text-muted-foreground">{grant.display_name}</p>
               </div>
             </div>
             <button
@@ -174,12 +189,7 @@ export function VolunteerPortalLayout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Briefcase className="h-5 w-5" />
-              </div>
-              <span className="font-semibold text-sidebar-foreground">{grant.display_name}</span>
-            </div>
+            <BrandLogo compact className="w-[145px]" />
             <div className="w-6" />
           </div>
         </header>
