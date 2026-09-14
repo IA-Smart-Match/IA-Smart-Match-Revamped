@@ -129,12 +129,16 @@ Consequences that follow directly:
 `docs/plans/workshops/g1-workshop-output-worksheet.md` per Dr. Wang program
 direction.
 
+The artifact table and factor summary below are the historical closure snapshot
+from 2026-09-03. For the current CBA registry and scoring implementation state,
+see the root [`README`](../../README.md).
+
 | Artifact | State |
 |---|---|
 | `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.1-approved-g1-m6j"` |
 | `assert_registry_approved()` | succeeds |
 | `test_registry_is_approved_after_g1` | passes |
-| Match scoring in API/UI | **M2+** — registry approved; implementations and routes pending |
+| Match scoring in API/UI | **M2+** — registry was approved; implementations and routes were pending at this snapshot |
 
 **Approved scoring factors:** `topic_relevance` (0.70), `travel_burden` (0.30).
 **Stage A:** `availability` after shortlist. **Presentation:** 2–3 speakers, no %.
@@ -336,7 +340,7 @@ the reverse.
 ## D-0 and the frontend decisions D-1..D-11 — split scope (2026-09-03)
 
 **D-0 (assign a `DESIGN.md` owner) is partially closed for legacy-only work.**
-Danny Tran (@BrooklynD23) is named owner in
+Danny Tran (@BrooklynD23) is named here as owner of the linked
 [`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) for **legacy frontend**
 engineering (synthetic pilot: metrics truthfulness, discovery feed, events
 calendar). **New product UI** under `apps/web/` stays blocked until Part 2's
@@ -344,9 +348,9 @@ eleven open decisions (D-1..D-11) are ratified. This document does not answer
 any of D-1..D-11.
 
 Nothing in this file, and nothing in
-[`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), closes
-D-0 or any of D-1..D-11. The prompt pack is input for that conversation; it is
-not a design decision and it is not authoritative.
+[`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), fully
+closes D-0 or closes any of D-1..D-11. The prompt pack is input for that
+conversation; it is not a design decision and it is not authoritative.
 
 **The copied legacy frontend is development-only.** Its standing is:
 

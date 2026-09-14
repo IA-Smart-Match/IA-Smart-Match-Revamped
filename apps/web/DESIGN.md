@@ -157,7 +157,7 @@ a non-account contact persona, not a stored role and not a signed-in shell.
 - Use one `h1` for the page name. Do not place a generic category label such as “Volunteer management” or “Master calendar” above it.
 - Do not place decorative icons beside page headings. Icons are appropriate inside actions, statuses, empty states, or navigation when they improve recognition.
 - Put the action queue before summary statistics on Speaker Connector and Event Host home pages. For a small count, name the people or records rather than hiding them behind an average.
-- Mobile layouts use a compact header and a usable navigation drawer. Student and Speaker tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
+- Mobile layouts use a compact header and a usable navigation drawer. Student tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
 
 ### Events and feedback QR codes
 

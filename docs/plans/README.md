@@ -24,7 +24,9 @@ hops of the repository root.
 
 - Student engagement: [canonical OQ-SC/OQ-SE register](open-questions/student-engagement-deferred.md).
 - CBA matching: [CBA phase deferred register](open-questions/cba-phase-deferred.md).
-- Attendance/disclosure: [engagement deferred register](open-questions/engagement-deferred.md).
+- Historical attendance/disclosure register: [engagement deferred register](open-questions/engagement-deferred.md),
+  preserved as a point-in-time record; current student decisions live in the
+  [canonical OQ-SC/OQ-SE register](open-questions/student-engagement-deferred.md).
 - Other scoped registers remain in [`open-questions/`](open-questions/); their
   safe defaults stay active until attributed closure evidence lands.
 
