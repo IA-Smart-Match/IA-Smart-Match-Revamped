@@ -15,6 +15,7 @@ target capability exists.
 | Accepted architecture decisions | [ADR index](../architecture/decisions/README.md) |
 | Tentative development direction | [Pilot decisions](../decisions/pilot-decisions.md); tentative is not organizational ratification |
 | Current student-engagement program | [2026-09-14 student-engagement program](2026-09-14-student-engagement-program-plan.md) and its canonical [open-question register](open-questions/student-engagement-deferred.md) |
+| Student→event recommender (slice 6, proposed) | [ADR-0018](../architecture/decisions/ADR-0018-staged-student-event-recommender.md) (Proposed), [decision record](../decisions/student-recommender-decision-record.md) (draft), [contracts](../architecture/student-recommender-contracts.md), [implementation plan](../superpowers/plans/2026-09-14-student-recommender-v1-plan.md); gated on OQ-SC-02, OQ-SE-01, OQ-SE-02 |
 
 These links put implementation truth, the active frontend contract, accepted
 decisions, tentative direction, and the current student program within two
