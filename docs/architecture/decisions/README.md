@@ -31,6 +31,12 @@ that is worth seeing from the index.
 | [ADR-0015](ADR-0015-charge-quota-before-refusal.md) | Charge quota before the route can refuse the request | Accepted | 25 August 2026 | Every command route charges quota as its **first** statement — ahead of the resource load, the authorization, and the header and body validators — and the charge commits in a transaction of its own, so a `403`, `404` or `400` costs the caller what they spent producing it. Decides that an authenticated caller pays for requests they were never allowed to make, and for ids that do not exist. Refines ADR-0006's *timing*, not its counting. | 31 August 2026 — Amendment A1 ratified as session policy: monetary spend gets reserve-before-paid-call semantics, distinct from quota counting; live-provider estimate A3, credentials, and production ceilings remain external dependencies, not ratified by this entry (see the ADR's Amendment A1 section) | — | — |
 | [ADR-0016](ADR-0016-cba-scoring-policy.md) | CBA scoring policy: neutral Topic, proximity bands, and virtual redistribution | Accepted | Drafted 5 September 2026; accepted 5 September 2026 | **Accepted — closes OQ-CBA-001, OQ-CBA-002 and OQ-CBA-004.** Ten proposals, all approved as drafted by Danny Tran, Development Lead / program owner of record. Establishes a third evidence state, `policy_neutral`, separating the customer's §9 neutral Topic score from a genuine `unknown`, so that only `unknown` makes a composite unscorable and weights are never re-spread per candidate. Sets the neutral value at `0.50` as the versioned constant `CBA_NEUTRAL_TOPIC_VALUE` (`cba-neutral-topic 1.0.0`) carried on every score that used it. Fixes proximity as a step function on raw miles — Near `<25` → `1.00`, Mid `25–<75` → `0.60`, Far `≥75` → `0.20` — lower-inclusive and upper-exclusive, with a missing address as `unknown` rather than Far. Handles virtual events as pinned scoring modes (`cba-physical-1` / `cba-virtual-1`) with proportional redistribution to `0.428571` / `0.357143` / `0.214286`. Moves `REGISTRY_VERSION` to `2.0.0-approved-oq-cba-004`, with 1.x runs readable but never compared across the bump. Refines ADR-0011 without amending it. | — | — | — |
 | [ADR-0017](ADR-0017-offline-embedding-topic-semantics.md) | An offline, in-process embedding model is approved for §9 Topic | Accepted | 7 September 2026 | **Accepted — closes OQ-CBA-026 and dissolves OQ-CBA-061.** Approves averaged GloVe word-vector embeddings (Public Domain Dedication, ~4.2 MB vendored), run in-process with no network egress and no vendor, for customer §9's Topic comparison. `LocalEmbeddingSemanticTopicProvider.is_semantic_model` is genuinely `True`. `build_semantic_topic_provider` keeps the deterministic playback fixture as the default for every caller who does not opt in with `use_local_embedding=True`, and the refusal of a live, external vendor client is unchanged. | — | — | — |
+| [ADR-0018](ADR-0018-service-packages-under-import-linter.md) | Service packages are governed by import-linter | Proposed | 8 September 2026 | `smartmatch_api` and `smartmatch_worker` — 28,080 lines, 40% of production Python — join the four `python/` packages in `[tool.importlinter].root_packages`, with two new contracts: routers may not import sibling routers, and the two services may not import each other. `smartmatch-persistence` is declared in both service manifests first, because a contract over a package whose manifest omits a dependency it imports in 43 files governs a graph only CI can reproduce. The two existing router→router imports land as named `ignore_imports` lines and are removed within the same increment by promoting the shared authorization helpers into an owned module, on `job_authz.py`'s pattern. | — | — | — |
+| [ADR-0019](ADR-0019-declared-table-ownership.md) | Table ownership is declared as data before any schema split | Proposed | 8 September 2026 | Every one of the 44 tables names one owning bounded context, one owning repository module and a declared writing-service set in `smartmatch_persistence/ownership.py`, checked both ways against `schema.py` and against `tools/derive_table_writers.py` by a test. More than one writing service is permitted only with a declared reason — five command-path tables (`job`, `job_event`, `outbox_record`, `idempotency_record`, `spend_reservation`) name both services under ADR-0005. Resolves match-run ownership explicitly — the worker alone writes the `match_run` snapshot — and turns ADR-0013's unasserted single-writer premise for `attendance_record` into an assertion. **Does not decide the `schema.py` split**, which is permitted only along declared ownership lines and only after this map is green. | — | — | — |
+| [ADR-0020](ADR-0020-generated-typescript-client-and-drift-gate.md) | A generated TypeScript client, with a drift gate | Proposed | 8 September 2026 | `clients/typescript` is generated from `contracts/openapi/smartmatch.json` by a pinned generator, committed, and regenerated-and-diffed by the CI gate already listed as deferred at the bottom of `verify.yml`. The tool is an implementation detail bound by three criteria — deterministic output, no browser runtime, types first. One page is migrated as the pattern and `lib/api.ts` becomes an adapter; the other 48 follow later. The FastAPI `description` that already claims a generated client becomes true in the same change. | — | — | — |
+| [ADR-0021](ADR-0021-worker-task-delivery-contract.md) | The worker task-delivery contract is the acceptance test for any queue adapter | Proposed | 8 September 2026 | The `worker/main.py` docstring's semantics — at-least-once tolerated, duplicate delivery answers `200` and executes nothing twice, pre-dispatch race answers `503` and is redelivered, task names deterministic from the job (ADR-0007), OIDC verified before the body is read so an unauthenticated malformed request answers `401` and never `422`, and an unconfigured queue answers `501` rather than falling back to an in-memory double — become a parameterized contract suite. It runs today against `FixtureTaskQueue` and the PostgreSQL loopback queue and must pass **unchanged** against any live adapter. No live adapter is built here. | — | — | — |
+| [ADR-0022](ADR-0022-appliance-is-production-topology.md) | The Docker Compose appliance is the production topology | Proposed | 8 September 2026 | The Compose appliance on a VM is the topology of record, and its answers to rollback, log destination and deploy-time migration are the system's answers. The GCP Terraform is a forward design record whose non-applyability — enforced by `tools/env_isolation_check.py` — is a property to preserve, not a limitation to remove; it is not deleted. Any move toward GCP first satisfies ADR-0021's contract suite and closes OQ-F5-001…004, whose answers belong to the program and security owners rather than to engineering. | — | — | — |
+| [ADR-0023](ADR-0023-command-registry-completeness.md) | Every submittable command type is registered or explicitly refused | Proposed | 8 September 2026 | A test derives every command type any router passes to `submit_command` and asserts each is in the **composed** production registry — `default_registry()` plus the root compositions in `worker/main.py`, checked with and without spend ceilings — or on an explicit `INTENTIONALLY_REFUSED` list, empty today. The three idempotency-scope names (`speaker_contact.create`, `job.redrive`, `job.abandon`) are listed as such so the test does not mistake them for commands. Records that root-composed handlers are legitimate — they take collaborators a zero-argument factory cannot supply — but must be visible to the test. | — | — | — |
 
 ## Two pointers worth having
 
@@ -59,21 +65,30 @@ hard to locate:
 
 ## Reserved numbers
 
-**ADR-0016 is reserved** for agent-memory Slice 1
+**There is no reserved number.** Agent-memory Slice 1
 (`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
-beside it). It has no file yet. Do not take that number for anything else.
+beside it) still has no file, and it now holds no number either. When it is
+written it takes the next free one.
 
-This reservation has now moved twice, for the same reason both times, and the
-reason is worth stating once rather than re-deriving: **a reservation with no
+The reason is worth stating once rather than re-deriving: **a reservation with no
 file cannot hold its number**, because `test_adr_numbers_are_contiguous_from_one`
 refuses a gap. An ADR written while the reservation is unfilled therefore takes
 the next free number and the reservation moves up; the alternative is a failing
 lane, not a preserved number.
 
-It was **ADR-0010** until 25 August 2026, when the five ADRs arising from the
-stakeholder test-log audit took 0010–0014. It was **ADR-0015** until 25 August
-2026, when the J16 rate-limit decision took that number. Slice 1 had no file on
-either occasion, so nothing was displaced.
+The reservation has now been displaced three times, for the same reason each
+time. It was **ADR-0010** until 25 August 2026, when the five ADRs arising from
+the stakeholder test-log audit took 0010–0014. It was **ADR-0015** until 25
+August 2026, when the J16 rate-limit decision took that number. It was
+**ADR-0016** until 5 September 2026, when the CBA scoring policy took that number
+— and this section went on naming 0016 as reserved and file-less for three days
+after `ADR-0016-cba-scoring-policy.md` was committed, which is the fourth
+documentation drift of the kind `risk-register.md` R-15 records, in the one file
+whose whole purpose is to be an accurate index.
+
+Slice 1 had no file on any of the three occasions, so nothing was displaced but
+the reservation itself. It is tracked in `adr-backlog.md` as B-09, which is where
+a decision with no evidence and no number belongs.
 
 ## This table is checked, not maintained by hope
 
