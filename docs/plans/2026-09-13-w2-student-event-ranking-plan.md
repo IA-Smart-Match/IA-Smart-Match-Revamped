@@ -109,10 +109,9 @@ APPROVED_STUDENT_SCORING_KEYS   = frozenset({"student_interest_overlap"})
 OQ-SE-01 in the canonical register is the distinct registry-approval question;
 OQ-SC-09 governs skip persistence and grants no scoring authority.
 `status = "proposed"` means `assert_registry_approved(STUDENT_REGISTRY)`
-**raises**, so the whole student scoring path fails closed until a named human
-approves it — the mechanism gate G1 used. That is what lets W2 and W3 merge
-*before* the owner decision, with the gate visible in a test rather than in a
-checklist.
+**raises**. Historical correction: this does not authorize W2 or W3 to merge
+before approval. This superseded document supplies no execution gate; use the
+canonical program, and close OQ-SE-01 before the ranking slice proceeds.
 
 `PROHIBITED_INPUTS` is **imported, not copied.** It already names
 `unrelated_student_feedback` and `llm_generated_assumption`; both bind here.

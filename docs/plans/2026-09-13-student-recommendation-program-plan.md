@@ -49,14 +49,16 @@ never degrading to a default (ADR-0011 rule 1), `ALLOW_LIVE_PROVIDERS` and
 
 | Wave | Deliverable | Blocked by | Migration | Runs |
 |---|---|---|---|---|
-| **W0** | **Turn the points economy on.** Ratify D7; seed a funded catalog for the pilot unit | Ann + Yuka (OQ-SC-01) | none | **Now** |
-| **W1a** | `smartmatch_domain/student_interests.py` — the vocabulary binding and nothing else | none | none | **Now** |
-| **W1b** | `student_profile` + `student_profile_interest`, and the three student-owned routes | OQ-SC-02 | **current-head-plus-one at merge readiness** | On OQ-SC-02 |
-| **W2a** | Parameterise `factor_registry` so two registries can coexist | none | none | **Now** |
-| **W2b** | The student registry, the factors, the composition, golden cases, ADR-0018 | W1a + W2a | none | After W2a |
-| **W3** | The weekly digest: student channel consent plus a separate producer before dispatch | OQ-SC-03 | **current-head-plus-one at merge readiness** | Parallel |
-| **W4** | The aggregate demand read | W1b | none | After W1b |
-| **W5** | Naming a speaker on a student-facing card | OQ-CBA-064 **and** OQ-CBA-051 | — | **Not scheduled** |
+| **W0** | Historical proposal: ratify D7 and seed a funded catalog for the pilot unit | Ann + Yuka (OQ-SC-01) | none | **Do not start from this table** |
+| **W1a** | `smartmatch_domain/student_interests.py` — the vocabulary binding and nothing else | none | none | **Historical proposal; use canonical entry gates** |
+| **W1b** | `student_profile` + `student_profile_interest`, and the three student-owned routes | OQ-SC-02 | **current-head-plus-one at merge readiness** | **Historical proposal; use canonical entry gates** |
+| **W2a** | Parameterise `factor_registry` so two registries can coexist | none | none | **Historical proposal; use canonical entry gates** |
+| **W2b** | The student registry, the factors, the composition, golden cases, ADR-0018 | W1a + W2a | none | **Historical proposal; use canonical entry gates** |
+| **W3** | The weekly digest: student channel consent plus a separate producer before dispatch | OQ-SC-03 | **current-head-plus-one at merge readiness** | **Historical proposal; use canonical entry gates** |
+| **W4** | The aggregate demand read | W1b | none | **STOPPED — canonical OQ-SE-04 through OQ-SE-08** |
+| **W5** | Naming a speaker on a student-facing card | OQ-CBA-064 **and** OQ-CBA-051 | — | **Historical and not scheduled** |
+
+**Historical dependency sketch — non-executable:**
 
 ```
   OQ-SC-01 ──► W0                                   (decision only; no code)
@@ -65,23 +67,21 @@ never degrading to a default (ADR-0011 rule 1), `ALLOW_LIVE_PROVIDERS` and
   W2a ─────────────┘              │
                                   ▼
   OQ-SC-02 ──► W1b ──┬───────► the feed is real
-                     └──► W4 ──► the demand read
+                     └──► W4 [STOPPED; canonical OQ-SE-04..08]
 
   OQ-SC-03 ──► W3                                   (digest drives registrations)
 
   OQ-CBA-064 + OQ-CBA-051 ──► W5                    (not scheduled)
 ```
 
-**W1a and W2a start today.** Neither is blocked on a decision, and W2a is the
-long-pole review because it edits an owner-approved file. Splitting the vocabulary
-binding out of W1 is deliberate: it is the only W1 artifact W2 needs, so the
-scoring work proceeds while the table and routes are still in review.
+**Historical sequencing only; do not execute it.** The 2026-09-13 draft proposed
+starting W1a and W2a immediately. That instruction is withdrawn. Executors must
+use the canonical program's entry gates and register; W4 is STOPPED.
 
-**Gate 1 — the owner approves the student registry.** W2b ships with
-`STUDENT_REGISTRY_STATUS = "proposed"`, which makes `assert_registry_approved`
-raise and the whole scoring path fail closed. The owner reviews ADR-0018 and the
-golden cases, then flips one constant. **A one-constant-plus-tests pull request by
-design** — which is the point of shipping with the gate shut rather than waiting.
+**Historical Gate 1 design note — non-executable.** W2b was proposed with
+`STUDENT_REGISTRY_STATUS = "proposed"`, making `assert_registry_approved` raise.
+This records the earlier fail-closed idea; it does not authorize a preapproval
+merge or a constant flip. Use canonical OQ-SE-01 and its closure evidence.
 
 **Historical migration estimate: two revisions across the programme.** W1b and W3
 were each expected to need one. A single migration-queue owner assigns
@@ -234,23 +234,20 @@ the canonical register. W4 is STOPPED.
 
 ## 5. Sequencing constraints
 
-The migration budget and the parallelism are stated in §1 with the wave table.
-Three sequencing facts are worth repeating here because they are what let this
-programme move while decisions are still open:
+The migration budget and parallelism below preserve the 2026-09-13 reasoning only.
+They are non-executable history and do not supersede the canonical entry gates.
 
-**W1a and W2a are unblocked today** and should start first. W2a in particular is
-the long-pole review, because it edits an owner-approved file and its whole pin is
-that `tests/unit/test_factor_registry.py` is not modified by a single line.
+**Historical proposal, withdrawn:** W1a and W2a were described as unblocked and
+first. Do not start them from this document; use the canonical supporting-ranking
+entry gates.
 
-**W2b merges before Gate 1.** The route and the scoring path exist and *refuse*,
-which is this repository's own idiom for a gated capability — the same shape as
-the JWKS verifier that ships with no signature backend and the outreach path that
-composes but cannot send. A closed gate is visible in a test; a checklist item is
-not.
+**Historical proposal, withdrawn:** W2b was described as mergeable before Gate 1.
+It is not authorized here. OQ-SE-01 must close before the canonical ranking slice
+may proceed.
 
-**W3 is independent of W1 and W2.** A digest of a student's *registered* agenda is
-useful before any ranking exists, and shipping it early gives the reminder path a
-production history before it ever carries a recommendation.
+**Historical dependency observation only:** W3 can be designed without ranking,
+but may not execute from this plan. Use the canonical outbound-consent/digest entry
+gates, including producer, schedule, consent, idempotency, and operations decisions.
 
 ---
 

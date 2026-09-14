@@ -31,7 +31,7 @@ register is closed with explicit authority.
 | Area | CURRENT PILOT | TARGET PROGRAM |
 |---|---|---|
 | Student access | Responsive student web; published-event browse; registration and agenda; attendance and rewards seams | Responsive-web parity for the complete approved engagement flow; optional PWA installation only after OQ-SE-15 |
-| Event creation | Host can file a Speaker Request. Connector manually creates, edits, and publishes an event | Host filer owns a draft and immutable submitted revisions; Connector reviews, approves, and publishes; students see approved content only |
+| Event creation | Host can file a Speaker Request. The Speaker Connector (administrator), role `admin`, manually creates, edits, and publishes an event | Host filer owns a draft and immutable submitted revisions; the future reviewer/approver role set remains undecided by OQ-SE-09; students see approved content only |
 | Publication control | Current publication checks completeness/publishability, not reviewer approval | Review approval is a separate required state before publication; host organization metadata is never authorization |
 | Registration | Authenticated registration action exists | Approved-event QR/deep link enters the same authenticated registration action, with registered measurement |
 | Attendance and rewards | Attendance evidence and rewards seams exist; feedback QR exists | Keep attendance evidence distinct from registration; operate approved rewards in parallel without making points the recommendation objective |
@@ -47,8 +47,8 @@ register is closed with explicit authority.
 | Order | Slice | Owner | Entry gate | Completion evidence |
 |---|---|---|---|---|
 | 1 | Registration QR/deep link to the existing authenticated registration action | Student-engagement product owner + API/web owners | OQ-SE-03 | Link threat model; route and UI tests; QR and ordinary-link registrations reconcile under one registered definition |
-| 2 | Host-owned draft, immutable submitted revisions, Connector review/approval/publication, accommodations and perks | Program owner + Connector operations + records owner | OQ-SE-09, OQ-SE-10, OQ-SE-13 | Authorization matrix; revision/audit tests; publication refuses unapproved content; host organization grants no access |
-| 3 | One host-to-review-to-student vertical flow | Same owners as slice 2 | Slices 1–2 | Host files → Connector reviews → approved event becomes student-visible → student registers, proven end to end |
+| 2 | Host-owned draft, immutable submitted revisions, authorized review/approval/publication, accommodations and perks | Program owner + Connector operations + records owner | OQ-SE-09, OQ-SE-10, OQ-SE-13 | Authorization matrix; revision/audit tests; publication refuses unapproved content; host organization grants no access |
+| 3 | One host-to-review-to-student vertical flow | Same owners as slice 2 | Slices 1–2 | Host files → reviewer authorized by OQ-SE-09 reviews → approved event becomes student-visible → student registers, proven end to end |
 | 4 | Private media/video | Program owner + records, security, accessibility owners | OQ-SC-05, OQ-SE-11, OQ-SE-12 | Upload, scan, moderation, captions, authorization, retention, and failure-path evidence |
 | 5 | Approved announcements and responsive student portal parity | Program owner + web/accessibility owners | OQ-SE-14, OQ-SE-15 | Keyboard, screen-reader, responsive, non-happy-state, and authorization checks |
 | 6 | Supporting interest profile and event ranking | Program owner + records owner | OQ-SC-02, OQ-SE-01, OQ-SE-02 | Approved registry and golden cases; unknowns remain unknown; no speaker identity in student cards |
@@ -72,7 +72,8 @@ The target state separates authorship, review, publication, and visibility:
 
 1. An authenticated, authorized filer creates a draft for their host scope.
 2. Submission freezes an immutable revision; later edits create another revision.
-3. A Connector reviews that revision and records approval or refusal with reason.
+3. A reviewer authorized by the still-open OQ-SE-09/OQ-SE-10 role decisions
+   reviews that revision and records approval or refusal with reason.
 4. Publication requires both completeness and approval of the exact revision.
 5. Student reads return only the approved, published revision and its approved
    accommodations, perks, media, and announcements.
