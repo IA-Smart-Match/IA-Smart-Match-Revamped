@@ -1,11 +1,17 @@
 # W3 — delivering recommendations to students (2026-09-13)
 
+> **HISTORICAL — SUPERSEDED 2026-09-14.** Retained as delivery-design evidence;
+> it is not implementation authority. Use the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md).
+
 **Status:** planning only. No source file changes, no route, no migration, no
 provider authorized.
 
 **Parent:** [`2026-09-13-student-recommendation-program-plan.md`](2026-09-13-student-recommendation-program-plan.md).
 **Blocked on:** **OQ-SC-03** — on what basis may SmartMatch contact a student.
-**Migration:** `0038`. One revision.
+**Migration:** if authorized, current-head-plus-one assigned by the single
+migration-queue owner after rebase; preserve one migration head.
 **Independent of W1 and W2** — a digest of a student's own registered agenda is
 useful before any ranking exists.
 
@@ -21,12 +27,13 @@ What does exist, and what W3 rides on:
 | | |
 |---|---|
 | A durable job state machine + transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher`, `outbox_record` |
-| An external clock calling `POST /operations/dispatch` | `smartmatch_worker.local_scheduler` (dev appliance; Cloud Scheduler in a real deployment, still open F5) |
+| A dispatcher that drains existing outbox work | `POST /operations/dispatch`; it does not create scheduled digest commands |
 | A working precedent for a consent-gated durable send | `outreach.send`, its `outreach_draft` / `outreach_send` / `delivery_event` chain, and the gate **re-checked by the worker at delivery time, not only at compose time** |
 
-So a reminder is **a scheduled durable command dispatched through the path that
-already exists** — not a new subsystem. That framing is the main content of this
-plan.
+So outbound delivery needs **a separate producer that submits a durable command,
+then the existing dispatcher drains it**. Before implementation, decide the
+producer's system identity and quota owner; per-unit schedule, IANA zone, and
+default-disabled state; deterministic idempotency; and retry/late/DST behavior.
 
 ## 2. Why the existing consent model cannot be reused
 
@@ -44,7 +51,8 @@ different. Widening `consent` to cover both would make one module answer two
 questions, which is the argument ADR-0014 already makes for `disclosure_consent`
 not being `smartmatch_domain.consent` widened.
 
-**`student_contact_preference` is its own table**, migration `0038`.
+**`student_contact_preference` was proposed as its own table** in a revision whose
+number must be assigned current-head-plus-one at merge readiness.
 
 ## 3. The table
 
@@ -82,13 +90,13 @@ student on a timer.
   the same way and is promoted only when someone has reviewed the words —
   **OQ-SC-10** names the owner.
 
-## 5. Channel order: in-app, then email, then push
+## 5. Passive in-app content versus outbound channels
 
-**In-app first.** A read surface on the student portal — no consent question
-beyond being signed in, no credential, no deliverability, no store. It is also the
-only channel that can ship while mobile is deferred.
+**Passive authenticated in-app content first.** A read surface a signed-in student
+chooses to open is not an outbound notification. It requires ordinary authorization
+and approved content, but not email opt-in.
 
-**Email second.** Reuses the existing send machinery, and inherits its three
+**Email is outbound and opt-in.** It may reuse the existing send machinery, and inherits its three
 institutional blockers (OQ-001 From domain, OQ-002 provider tenant, OQ-003
 reviewed copy). Those are not W3's to close, and W3 must not pretend otherwise:
 until they are, an email digest is composable and undeliverable, which the job

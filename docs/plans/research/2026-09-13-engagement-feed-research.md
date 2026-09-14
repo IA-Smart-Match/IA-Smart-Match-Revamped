@@ -1,5 +1,11 @@
 # Engagement feed research — what to borrow from TikTok, and what to refuse
 
+> **NON-AUTHORITATIVE REFERENCE — supporting scope as of 2026-09-14.** Preserve
+> this research as evidence only. Student engagement, registration, attendance,
+> and service uptake are primary; recommendation is supporting. Use the canonical
+> [`student-engagement program`](../2026-09-14-student-engagement-program-plan.md)
+> and [`decision register`](../open-questions/student-engagement-deferred.md).
+
 **Status:** research only. No source file changes. Closes no decision, and closes
 none of **D-1..D-11**.
 
@@ -32,9 +38,9 @@ signup and people skip or abandon.
 rather than a comparison across a grid. It removes choice paralysis, and it is why
 a feed feels lighter than a listing of the same items.
 
-**The gesture never blocks.** TikTok pre-fetches roughly 10–20 items so the next
-card is already there. Latency at the moment of the swipe is what breaks the
-rhythm; nothing else about the design matters if that fails.
+**The gesture should not block.** Comparable feeds preload upcoming content so
+the next card is ready. This research does not assert or prescribe an unsupported
+prefetch count.
 
 **Fast in-session adaptation.** The feed visibly changes within the session in
 response to what you did, which is what makes the interaction feel like it is
@@ -66,11 +72,10 @@ already sets a *higher* internal bar (WCAG 2.2 AA, keyboard-operable everything,
 44×44 px targets, visible focus) and adds a rule that decides this on its own:
 **no required information may depend on animation.**
 
-**Bounded designs retain better.** Reported figures put ethical designs at ~75%
-retention against ~65% churn for dark-pattern designs, and infinite scroll is named
-among the patterns that "make it difficult for users to find a natural stopping
-point," with documented anxiety, fatigue and guilt effects. Duolingo is the
-standing counter-example that gamification without deception still works.
+**A bounded design is the program choice.** The prior draft cited unsupported
+retention/churn percentages; they are removed and are not a pilot baseline. The
+case here is product and accessibility fit: a finite event window exposes the end,
+preserves choice, and does not optimize for attention as the outcome.
 
 The Baymard finding is worth adding because it is about utility rather than
 ethics: infinite scroll prevents users from finding specific items, comparing
@@ -138,9 +143,10 @@ because the mechanics in §3 are the mechanics that optimize for attention, and 
 team that ships them without naming the target will get attention. The chapter
 does not want attention; it wants students in rooms.
 
-`pipeline_record` already measures the second half — Attended cites a real
-`attendance_record` or is refused — so the metric is answerable from evidence the
-platform keeps rather than from a new counter.
+Historical correction: `pipeline_record` measures the CBA speaker-handoff journey,
+not student registration-to-attendance. The candidate metric requires a registered
+definition and owning query joining `event_registration` and `attendance_record`,
+plus an ADR-0011-compatible exact-row and privacy decision. W4 remains STOPPED.
 
 ## 5. What this means for the interface
 

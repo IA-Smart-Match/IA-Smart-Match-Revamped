@@ -1,5 +1,12 @@
 # Student-centric prioritization brief — stakeholder meeting, 12 September 2026
 
+> **HISTORICAL — SUPERSEDED 2026-09-14.** This meeting brief preserves source
+> evidence but is not implementation authority. Use the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md). Student
+> engagement, registration, attendance, and service uptake are primary;
+> recommendation supports them and rewards is a parallel secondary track.
+
 **Status:** research and planning only. This document changes no source file, adds
 no route, writes no migration, and closes no open question. It exists so that the
 next implementation plan can be written from a true statement of what already
@@ -138,10 +145,12 @@ professional whose address the research pipeline found, and it must not be built
 by widening `smartmatch_domain.consent` — the same argument ADR-0014 makes for
 `disclosure_consent` being its own table.
 
-The infrastructure that *does* exist and that reminders should ride on: the
-transactional outbox and dispatcher, the durable job state machine, and
-`POST /operations/dispatch` driven by an external clock. A reminder is a scheduled
-outbox row, not a new subsystem.
+The infrastructure that *does* exist and that reminders could reuse includes the
+transactional outbox, dispatcher, and durable job state machine. Historical
+correction: `POST /operations/dispatch` drains existing work; it does not produce
+scheduled reminder or digest commands. A separately authorized producer, system
+identity, quota, per-unit schedule/IANA zone, default-disabled state, idempotency,
+and retry/late/DST policy are required before dispatch.
 
 ### 2.4 QR — Lisa's ask is roughly two-thirds built, in the wrong place
 
@@ -273,7 +282,7 @@ available later without committing to it now.
 1. A **student channel consent** record — its own table, not a widening of
    `smartmatch_domain.consent`.
 2. Reminders as scheduled rows on the **existing outbox**, dispatched by the
-   existing `POST /operations/dispatch` clock. Two triggers only: *you registered
+   separately approved digest producer before `POST /operations/dispatch`. Two triggers only: *you registered
    and it is tomorrow*, and *registration for a thing you saved closes soon*.
 3. **Channel order: in-app first, email second, push last.** Push requires a mobile
    client or a service worker, a credential, and a store presence; in-app requires

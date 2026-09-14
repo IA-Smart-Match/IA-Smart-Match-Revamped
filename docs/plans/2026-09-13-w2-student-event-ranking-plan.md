@@ -1,5 +1,11 @@
 # W2 — student → event ranking (2026-09-13)
 
+> **HISTORICAL — SUPERSEDED 2026-09-14.** Retained as ranking-design evidence;
+> it is not implementation authority. Use the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md). Ranking is
+> supporting scope after engagement foundations, not the program spine.
+
 **Status:** planning only. No source file changes, no route, no migration.
 
 **Parent:** [`2026-09-13-student-recommendation-program-plan.md`](2026-09-13-student-recommendation-program-plan.md).
@@ -92,7 +98,7 @@ forbids, and duplication is how the legacy deflation defect recurs.
 ## 3. W2b — the student registry, shipped with the gate shut
 
 ```
-STUDENT_REGISTRY_VERSION        = "0.1.0-proposed-oq-sc-09"
+STUDENT_REGISTRY_VERSION        = "0.1.0-proposed-oq-se-01"
 STUDENT_REGISTRY_STATUS         = "proposed"          # <-- the gate
 STUDENT_SCORING_MODE            = "student-event-1"
 STUDENT_SCORING_MODE_VERSION    = "1.0.0"
@@ -100,6 +106,8 @@ STUDENT_STAGE_B_FORMULA_VERSION = "1.0.0"
 APPROVED_STUDENT_SCORING_KEYS   = frozenset({"student_interest_overlap"})
 ```
 
+OQ-SE-01 in the canonical register is the distinct registry-approval question;
+OQ-SC-09 governs skip persistence and grants no scoring authority.
 `status = "proposed"` means `assert_registry_approved(STUDENT_REGISTRY)`
 **raises**, so the whole student scoring path fails closed until a named human
 approves it — the mechanism gate G1 used. That is what lets W2 and W3 merge

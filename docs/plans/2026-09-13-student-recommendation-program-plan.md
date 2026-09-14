@@ -1,5 +1,10 @@
 # Student recommendation program — the prioritized workflow (2026-09-13)
 
+> **HISTORICAL — SUPERSEDED 2026-09-14.** Retained as recommendation-design
+> evidence; it is not implementation authority. Use the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md).
+
 **Status:** planning only. This document changes no source file, adds no route,
 writes no migration, and closes no register row.
 
@@ -46,10 +51,10 @@ never degrading to a default (ADR-0011 rule 1), `ALLOW_LIVE_PROVIDERS` and
 |---|---|---|---|---|
 | **W0** | **Turn the points economy on.** Ratify D7; seed a funded catalog for the pilot unit | Ann + Yuka (OQ-SC-01) | none | **Now** |
 | **W1a** | `smartmatch_domain/student_interests.py` — the vocabulary binding and nothing else | none | none | **Now** |
-| **W1b** | `student_profile` + `student_profile_interest`, and the three student-owned routes | OQ-SC-02 | **`0037`** | On OQ-SC-02 |
+| **W1b** | `student_profile` + `student_profile_interest`, and the three student-owned routes | OQ-SC-02 | **current-head-plus-one at merge readiness** | On OQ-SC-02 |
 | **W2a** | Parameterise `factor_registry` so two registries can coexist | none | none | **Now** |
 | **W2b** | The student registry, the factors, the composition, golden cases, ADR-0018 | W1a + W2a | none | After W2a |
-| **W3** | The weekly digest: student channel consent, then a durable command on the existing dispatch path | OQ-SC-03 | **`0038`** | Parallel |
+| **W3** | The weekly digest: student channel consent plus a separate producer before dispatch | OQ-SC-03 | **current-head-plus-one at merge readiness** | Parallel |
 | **W4** | The aggregate demand read | W1b | none | After W1b |
 | **W5** | Naming a speaker on a student-facing card | OQ-CBA-064 **and** OQ-CBA-051 | — | **Not scheduled** |
 
@@ -78,11 +83,10 @@ raise and the whole scoring path fail closed. The owner reviews ADR-0018 and the
 golden cases, then flips one constant. **A one-constant-plus-tests pull request by
 design** — which is the point of shipping with the gate shut rather than waiting.
 
-**Migration budget: two revisions across the programme.** `0037` (W1b — both
-tables and both indexes) and `0038` (W3). W2 and W4 are schema-free *by
-construction*, which is a design property worth stating rather than an accident.
-If W1b and W3 are in flight together, whichever merges first takes `0037` and the
-other rebases — a revision number is a consequence of merge order, never reserved.
+**Historical migration estimate: two revisions across the programme.** W1b and W3
+were each expected to need one. A single migration-queue owner assigns
+current-head-plus-one at merge readiness; concurrent schema work rebases and the
+repository retains one head. No revision number is reserved by this plan.
 
 ### Why W0 is first even though the session ranked matching first
 
@@ -220,9 +224,11 @@ anything is built because the mechanics W2 borrows are the mechanics that optimi
 for attention, and a team that ships them without naming the target will get
 attention. The chapter does not want attention; it wants students in rooms.
 
-`pipeline_record` already measures the second half of that — Attended cites a real
-`attendance_record` or is refused — so the metric is answerable from evidence the
-platform already keeps rather than from a new counter.
+Historical correction: `pipeline_record` measures the CBA speaker-handoff journey,
+not student registration-to-attendance. This metric remains a candidate pending a
+registered definition and owning query joining `event_registration` and
+`attendance_record`, plus the ADR-0011 exact-row reconciliation/privacy decision in
+the canonical register. W4 is STOPPED.
 
 ---
 

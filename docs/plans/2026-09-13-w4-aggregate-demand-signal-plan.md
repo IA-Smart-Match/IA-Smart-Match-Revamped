@@ -1,5 +1,12 @@
 # W4 — the aggregate student demand signal (2026-09-13)
 
+> **HISTORICAL — SUPERSEDED AND STOPPED 2026-09-14.** Retained as demand-design
+> evidence; it is not implementation authority. Do not implement its counts-only
+> proposal. Use the canonical [`student-engagement program`](2026-09-14-student-engagement-program-plan.md)
+> and [`decision register`](open-questions/student-engagement-deferred.md). Accepted
+> ADR-0011 still requires exact-row reconciliation; population, threshold,
+> aggregate/exact-row roles, fields, and privacy treatment remain open.
+
 **Status:** planning only. No source file changes, no route, no migration.
 
 **Parent:** [`2026-09-13-student-recommendation-program-plan.md`](2026-09-13-student-recommendation-program-plan.md).

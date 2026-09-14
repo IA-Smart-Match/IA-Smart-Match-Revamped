@@ -1,5 +1,12 @@
 # The `AI_Hackathon_CPP` Flutter prototype as a pilot mobile base
 
+> **NON-AUTHORITATIVE REFERENCE — deferred 2026-09-14.** Native mobile and PWA
+> installation are outside the default student-engagement flow. Preserve this
+> assessment as evidence for a later platform decision; do not use its recommendation
+> as implementation authority. Start with the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md).
+
 **Status:** assessment only. No source file changes in either repository. Mobile
 was **deferred** by the 12 September 2026 stakeholder session; this document
 exists so that when it is undeferred, the question "do we start from that
@@ -128,7 +135,9 @@ Worth deciding once rather than by inheritance.
 | **React Native / Expo** | Shares TypeScript with `apps/web/legacy-frontend`; component and type reuse; Expo removes most of the store toolchain | Discards the prototype entirely |
 | **A PWA** — installable, from the existing web frontend | Cheapest by a wide margin; no store review; one deployment; the existing frontend already renders QR codes client-side with `qrcode` | Web push on iOS requires the user to add the app to the Home Screen, and camera and background behaviour are weaker than native |
 
-**Recommendation for a *pilot*: the PWA, and keep the prototype in reserve.**
+**Historical recommendation for a later platform decision:** prefer evaluating a
+PWA before native mobile, and keep the prototype in reserve. The 2026-09-14
+canonical program instead defaults to responsive web and defers PWA installation.
 
 The reasoning is the reminders track, not the client. The parent brief's Track D
 puts reminders on the existing outbox with **in-app first, email second, push

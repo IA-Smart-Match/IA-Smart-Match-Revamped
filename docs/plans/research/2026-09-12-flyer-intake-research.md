@@ -1,5 +1,11 @@
 # Flyer intake — a photographed poster as an event candidate
 
+> **NON-AUTHORITATIVE REFERENCE — deferred 2026-09-14.** Preserve this research
+> for possible post-engagement work. OCR and flyer intake are outside the default
+> flow and authorize no implementation. Start with the canonical
+> [`student-engagement program`](../2026-09-14-student-engagement-program-plan.md)
+> and [`decision register`](../open-questions/student-engagement-deferred.md).
+
 **Status:** research only. No source file changes, no route, no migration, no
 dependency added, no provider authorized.
 

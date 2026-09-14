@@ -1,5 +1,11 @@
 # Pilot prototype prompt pack — NON-AUTHORITATIVE
 
+> **Authority note — 2026-09-14.** This prototype remains non-authoritative and
+> proves no implementation. Its student-recommendation material is historical
+> exploration subordinate to the canonical
+> [`student-engagement program`](../plans/2026-09-14-student-engagement-program-plan.md)
+> and [`decision register`](../plans/open-questions/student-engagement-deferred.md).
+
 > **This document is not a design, not a specification, and not a decision.**
 >
 > - **No generated UI code is merged through this work.** None. Not as a
@@ -394,16 +400,13 @@ OQ-CBA-020 keeps its cells non-interactive).
    provenance label; and what attendance would earn.
 4. **The wildcard** — exactly one card per session drawn from outside the
    student's declared interests, **visibly labelled as such**, stating the pool it
-   was drawn from. It is never presented as a ranking result. Provide a **toggle
-   that removes it**, so a reviewer can compare the feed with and without the
-   exploration slot rather than be argued into one.
-5. **Employer line-up (FUTURE CONCEPT)** — each event pairs with the sector its
-   own tags imply, shown as two example guests and their employers. This exists
-   because "guest lecture" does not market an event and "an ML engineer from
-   Google is mentoring" does. Constraints: **every person is invented** — no real
-   individual is named; company names are **sector placeholders**, marked as
-   examples on the frame, with **no logo reproduced** and no implied partnership,
-   endorsement, or confirmed attendance.
+   was drawn from. It is never presented as a ranking result. Provide a
+   **prototype-local reviewer toggle that removes it**; this is not a proposed
+   backend toggle or production control, which requires OQ-SE-02 approval.
+5. **No speaker or employer line-up** — the prototype must not invent people,
+   employers, partnerships, or attendance. A future approved-content design may
+   show a confirmed participant only after an authoritative student-visible
+   contract and the applicable OQ-CBA decisions exist.
 6. **Points panel** — the server-authored balance and progress toward the nearest
    *reachable* reward, with the earning rate marked provisional while D7 is
    unratified.
@@ -436,13 +439,9 @@ OQ-CBA-020 keeps its cells non-interactive).
 **Exclude, deliberately, and annotate each exclusion with its citation in the
 design notes:**
 
-- **any speaker name or speaker id presented as a LIVE CONTRACT or PLANNED
-  BACKEND frame** — OQ-CBA-064 records that no student-authorized route returns
-  one, and OQ-CBA-051 that no record says who appeared at which event. An
-  event's **line-up** may appear as a **FUTURE CONCEPT** layer, annotated with
-  both question ids, because it is the strongest draw the card could carry and
-  showing it is what makes the case for closing them; if it appears, every
-  person named must be invented and the frame must say so;
+- **any speaker or employer line-up, name, or id** — OQ-CBA-064 records that no
+  student-authorized route returns a speaker id, and OQ-CBA-051 that no record
+  says who appeared at which event. Do not invent a line-up to fill the gap;
 - **any overall score or match percentage** — ADR-0016 Proposal 8 and OQ-CBA-005.
   Relevance is a sentence plus the matched tags, never a number;
 - **points for scrolling, streaks, or logging in** — ADR-0013 derives every
@@ -600,8 +599,8 @@ row, and either way it needs resolving before the UI team reviews the pack.
 | Interest picker (closed G3 vocabulary) | 10 | PLANNED BACKEND |
 | Bounded weekly feed, snap-scrolled | 10 | PLANNED BACKEND |
 | Event card with why-sentence and matched tags | 10 | PLANNED BACKEND |
-| Wildcard / exploration card, with an on/off toggle | 10 | PLANNED BACKEND |
-| Employer line-up on each card (invented people, placeholder companies) | 10 | FUTURE CONCEPT — OQ-CBA-064 + OQ-CBA-051 |
+| Wildcard / exploration card, with a prototype-local reviewer toggle | 10 | PLANNED BACKEND; no backend toggle without OQ-SE-02 |
+| Explicit absence of speaker/employer line-ups | 10 | NON-AUTHORITATIVE CONSTRAINT — OQ-CBA-064 + OQ-CBA-051 |
 | End-of-week card | 10 | PLANNED BACKEND |
 | Points panel with reachable-reward progress | 10 | LIVE CONTRACT (`GET /v1/units/{unit_id}/rewards`) |
 | Aggregate interest demand | 10 | PLANNED BACKEND |
@@ -682,7 +681,7 @@ nothing has been produced, not because someone forgot.
 | Artifact | Location |
 |---|---|
 | Shareable prototype link (Prompt 10) | <https://claude.ai/code/artifact/455cb0c9-4223-46b4-9382-3cb546feff35> — "This Week at CBA" |
-| Screen inventory (Prompt 10) | The eight rows in the Prompt 10 coverage table above. The prototype's own screen switcher enumerates them, and every screen it shows maps to a row |
+| Screen inventory (Prompt 10) | The twelve rows in the Prompt 10 coverage table above. Eight are switcher-level views in the external artifact; four are embedded components/states. Every item maps to a row, and the distinction prevents the table from claiming twelve separate screens |
 | Flow map (Prompt 10) | Interests -> feed -> register, and feed -> end card -> points. Both are clickable in the artifact. Two toggles cut across the feed flow: wildcard on/off, and reviewer annotations. The aggregate-demand screen is a Connector surface and joins no student flow |
 | Accessibility notes (Prompt 10) | Below |
 | Selected screenshots | *not yet produced* — the link is live, so a reviewer can take their own |

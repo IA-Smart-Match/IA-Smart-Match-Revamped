@@ -1,12 +1,17 @@
 # W1 — the student interest profile (2026-09-13)
 
+> **HISTORICAL — SUPERSEDED 2026-09-14.** Retained as profile-design evidence;
+> it is not implementation authority. Use the canonical
+> [`student-engagement program`](2026-09-14-student-engagement-program-plan.md) and
+> [`decision register`](open-questions/student-engagement-deferred.md).
+
 **Status:** planning only. No source file changes, no route, no migration written
 by this document.
 
 **Parent:** [`2026-09-13-student-recommendation-program-plan.md`](2026-09-13-student-recommendation-program-plan.md).
 **Blocked on:** **OQ-SC-02** — what a student may be asked, and what may be stored.
-**Migration:** `0037_student_profile`, `down_revision = "0036_host_organization"`.
-One revision, and the **only** revision in the whole programme.
+**Migration:** if authorized, one revision assigned current-head-plus-one by the
+single migration-queue owner after rebase; preserve one migration head.
 
 ---
 
@@ -118,7 +123,7 @@ the overlap wants a set intersection against `event_tag` in SQL; each interest
 needs its own `vocabulary_version` stamp, which a JSONB array of strings cannot
 carry per member; and W4's per-term aggregate is a `GROUP BY` on a column.
 
-**Both indexes land in `0037`, not later:** `ix_student_profile_interest_term` on
+**Both indexes land in the same profile revision, not later:** `ix_student_profile_interest_term` on
 `(tenant_id, term)` for W4's `GROUP BY`, and `ix_student_profile_interest_profile`
 on `(tenant_id, profile_id)` for the feed read. Spending a second revision on an
 index whose query is already written wastes the one-per-PR budget.
@@ -210,7 +215,7 @@ against that row's path. `charge_quota` on `PUT` and `DELETE`, not on `GET`.
 |---|---|
 | unit `test_student_interest_vocabulary.py` | The term set **is** `G3_VOCABULARY.terms` (equality against the imported object, never a re-typed literal); both version constants exist and differ; **structural pin — the module source does not reference `TERM_CONCEPTS`** |
 | unit `test_student_profile_models.py` | **Structural pin:** iterate `model_fields` on every request model and fail on any of `{user_id, student_id, subject_id, external_subject, email}`. MM-A01 made mechanical. Plus `extra="forbid"`, off-vocabulary term rejected, empty list rejected, unknown modality rejected |
-| integration | `0037` up and down; both composite FKs targeting the named unique constraints; both CASCADEs; three unique constraints by name; both indexes |
+| integration | profile revision up and down; both composite FKs targeting the named unique constraints; both CASCADEs; three unique constraints by name; both indexes |
 | integration | Extend `test_check_constraints.py` — pin the exact `ck_student_profile_modality` expression text, **both directions** |
 | contract | `GET` absent → `200` + `"absent"`, not `404`; the twelve terms served; `PUT` idempotent and re-read; off-vocabulary → `422`; `DELETE` then `GET` says absent; coordinator → `403`; no parameter exists by which one student reaches another's row |
 | authz | Rows in `test_policy_matrix.py` (**mandatory** — it fails if an authenticated route has no row, and it compares the named authorizer and role constant against the live objects), `test_route_roles.py`, negatives in `test_policy_negatives.py` |
