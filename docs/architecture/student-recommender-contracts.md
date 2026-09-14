@@ -12,7 +12,7 @@ Five contracts, in dependency order:
 4. **Feature registry** — `FeatureSpec`, `STUDENT_FEATURE_REGISTRY` (V2, learned ranker)
 5. **Evaluation data** — golden cases, gold sets, `training_example` (gated)
 
-Contracts 1–3 are V1. Contract 4 and the `training_example` half of 5 are V2 and stay unimplemented until OQ-SE-19/20; their shape is fixed now so V1 does not have to be reopened to admit them.
+Contracts 1–3 are V1. Contract 4 and the `training_example` half of 5 are V2 and stay unimplemented until OQ-SE-19/20 (and, for `training_example`, OQ-SC-11); their shape is fixed now so V1 does not have to be reopened to admit them.
 
 ---
 
@@ -306,7 +306,7 @@ def score_student_interest_overlap(interests: StudentInterestEvidence,
 
 ---
 
-## 4. Feature registry (V2 — shape fixed now, empty until OQ-SE-19)
+## 4. Feature registry (V2 — shape fixed now, empty until OQ-SE-19; real examples also need OQ-SC-11)
 
 ```python
 class FeatureSource(StrEnum):
@@ -380,7 +380,7 @@ The evaluator (`tools/evaluate_student_ranker.py`) reports NDCG@5 and
 agreement@5 for any `StudentRanker` against `content-1`. This is the only
 evaluation permitted before OQ-SE-19.
 
-### 5.3 `training_example` (gated on OQ-SE-19; shape only)
+### 5.3 `training_example` (gated on OQ-SE-19 **and OQ-SC-11**; shape only)
 
 ```
 training_example(
@@ -393,8 +393,15 @@ training_example(
 )
 ```
 
-Not created until the register row closes; `ON DELETE CASCADE` from
-`user_account` is the deletion semantics OQ-SE-19 must confirm.
+Not created until **both** register rows close. Every row here — including a
+label-`0` "shown, not acted on" row — is an exposure record: it says which
+event was recommended to which student at which time. OQ-SC-11's current
+default ("do not store what was recommended to whom") therefore forbids this
+table outright. Closure of OQ-SE-19 alone does not admit it; either OQ-SC-11
+closes first with a "store, for training, with these fields and retention"
+decision, or the OQ-SE-19 decision explicitly resolves OQ-SC-11's scope for
+`training_example` rows and the register records that cross-closure. Deletion
+semantics are in §5.4.
 
 ---
 

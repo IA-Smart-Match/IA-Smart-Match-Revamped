@@ -124,11 +124,19 @@ rows (`event_registration.status = 'registered'`, `attendance_record`), with wha
 retention, what deletion semantics when a profile is deleted, and is the label
 ever joined to anything beyond `(subject_id, event_id, feature vector at
 exposure time)`?
+
+**Prerequisite:** a training example *is* an exposure record. OQ-SC-11 (do not
+store what was recommended to whom) must close, or be explicitly scoped by the
+OQ-SE-19 decision, before a single real example is written. Gold sets and
+synthetic pilot personas carry no exposure and are unaffected.
+
 **Safe default:** no. The learned ranker trains on authored gold sets and
 synthetic pilot data only, and is never promoted.
 **Owner:** records/privacy + program owner + scoring-registry owner.
 **Closure evidence:** field classification, retention/deletion decision, a
-`training_example` schema, and tests that a deleted profile's rows are purged.
+`training_example` schema, and tests that a deleted profile's rows are purged,
+and an OQ-SC-11 closure or an explicit OQ-SC-11 scope statement inside the
+OQ-SE-19 decision.
 
 ### 4.7 OQ-SE-20 — who promotes a learned ranker, and how is it rolled back? (new)
 

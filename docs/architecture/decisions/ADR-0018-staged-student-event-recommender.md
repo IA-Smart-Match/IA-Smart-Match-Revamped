@@ -155,9 +155,11 @@ when all four hold:
    It is not the same act as reading it at request time (which
    `PROHIBITED_INPUTS` bars), but it is not free either. **OQ-SE-19** decides
    whether, on what retention, and with what deletion semantics outcome rows may
-   become training labels. Until it closes, the learned ranker may be trained
-   and evaluated **only** on authored gold sets and synthetic pilot data
-   (`tests/golden/student/`, `docs/pilot-data/fixtures`), and never promoted.
+   become training labels. Because each example records an exposure, OQ-SC-11
+   must close or be scoped by that decision as well. Until it closes, the
+   learned ranker may be trained and evaluated **only** on authored gold sets
+   and synthetic pilot data (`tests/golden/student/`,
+   `docs/pilot-data/fixtures`), and never promoted.
 4. **Promotion is shadow-first and owner-signed.** A learned model runs in shadow
    beside D3 on the same eligible set, its offline NDCG@5 against the gold set
    and its live agreement rate are reported to the owner, and **OQ-SE-20** names
