@@ -38,6 +38,10 @@ fresh readiness report and not evidence that their target capabilities exist.
 | 2026-09-04 | [2026-09-04-audit-status-report.md](2026-09-04-audit-status-report.md) | Pilot readiness audit, self-hosted vs cloud; supersedes 09-02. Predates the CBA matching pivot |
 | 2026-09-02 | [2026-09-02-audit-status-report.md](2026-09-02-audit-status-report.md) | Consolidated audit; third pass (review API, O3 binding, compose scheduler, CI smoke) |
 
-**Authoritative blocker index** (between reports): `docs/decisions/2026-08-31-session-ratification.md`
+**Historical blocker index for these dated reports:**
+[`2026-08-31-session-ratification.md`](../decisions/2026-08-31-session-ratification.md).
+For current blocker navigation, use the [planning index](../plans/README.md) and
+the canonical registers it links, including the
+[student-engagement register](../plans/open-questions/student-engagement-deferred.md).
 
 **How to request a fresh report:** Ask Cursor to use the **smartmatch-status-report** skill (project skill in `.cursor/skills/smartmatch-status-report/`).

@@ -265,8 +265,12 @@ Two consequences that must survive into any implementation:
   tickets.** Deactivation is not deletion; an in-flight fulfilment ticket must
   still be able to say what it is for.
 
-**None of this exists in code.** There is no points ledger, no reward catalog,
-and no attendance record in this repository today.
+**Historical PR #3 implementation state (superseded 2026-09-14):** none of this
+existed in code at that snapshot; there was no points ledger, reward catalog,
+or attendance record. Preserve that statement as the boundary of the decision
+then, but do not use it as current implementation truth. The root
+[README](../../README.md) now records the implemented attendance, server-ledger,
+funded-catalog-read, and redemption seams and the capabilities still gated.
 
 ---
 
@@ -360,13 +364,15 @@ and W5.
 
 ---
 
-## Follow-up implementation phases — explicitly NOT PR #3 code
+## Historical PR #3 follow-up implementation snapshot
 
-The following are recorded as **future phases**. None of them is in PR #3, and
-none of them exists in this repository today. Listing them here is scope
-control, not a commitment to a date.
+The following table records what was outside PR #3 and the implementation state
+at that historical snapshot. Listing it preserves PR #3 scope control, not a
+current-state claim or a commitment to a date. For current implementation,
+including matching, outreach, attendance, rewards, and the full HTTP contract,
+use the root [README](../../README.md).
 
-| Phase | What it covers | State in code |
+| Phase | What it covers | Historical PR #3 state |
 |---|---|---|
 | Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Registry approved (D1 / G1 closed 2026-09-03); M2 implements factors. |
 | Rewards | Catalog, point ledger, redemption, fulfilment tickets | Not implemented. |
@@ -377,10 +383,12 @@ control, not a commitment to a date.
 | Research Scout | Source discovery, extraction, quarantine, entity resolution | Not implemented. Future concept. |
 | Jarvis | Typed-intent accelerator over ordinary workflows | Not implemented. Future concept. |
 
-What **is** implemented is the durable command path — unit-scoped import
+At the PR #3 snapshot, what **was** implemented was the durable command path — unit-scoped import
 submission, `202` plus a job id, job status, a resumable SSE event stream, and
-re-drive / abandon for parked work. That is the whole of the live surface, and
-`contracts/openapi/smartmatch.json` describes it in seven operations.
+re-drive / abandon for parked work. That was the whole HTTP surface at the time,
+described by seven OpenAPI operations. This statement is historical and was
+superseded by the current implementation table and contract counts in the root
+[README](../../README.md).
 
 ---
 

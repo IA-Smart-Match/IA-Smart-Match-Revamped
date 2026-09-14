@@ -147,7 +147,9 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 
 ### Signed-in shells
 
-Speaker Connector, Event Host, Speaker, and Student experiences share the same visual language but may expose different navigation based on server-authorized roles.
+Speaker Connector, Event Host, and Student signed-in experiences share the same
+visual language but expose navigation from server-authorized roles. A Speaker is
+a non-account contact persona, not a stored role and not a signed-in shell.
 
 - The left sidebar owns the product identity, current section navigation, profile summary, and sign-out action.
 - Place sign out directly beneath the profile area on desktop. Use the corresponding account area on mobile.
@@ -338,7 +340,7 @@ frontend wiring. Until gated implementation lands, the OpenAPI contract and
 code win, manual-event writes remain `admin`-only, and the Event Host remains
 read-only.
 
-The approved target is:
+The planned target is:
 
 - Filer-scoped Event Host drafts whose submitted revisions are immutable;
   edits after submission create a new revision.
@@ -366,8 +368,13 @@ use cases are also being carried forward for a possible future agentic
 service offering; no such service exists yet, and this document does not
 define one.
 
-- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`; display them as Speaker Connector, Event Host, Speaker, and Student.
-- Speaker Connectors maintain private contact details in `speaker_contacts` and read/write them from `CoordinatorSpeakerContacts`. Event Hosts and Speakers never see raw email or phone; they see only the fields the granting endpoint publishes.
+- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`.
+  Display `admin` and `coordinator` as Speaker Connector, `volunteer` as Event
+  Host, and `student` as Student. There is no stored Speaker role or Speaker
+  account; a Speaker is a contact record.
+- Speaker Connectors maintain private contact details in `speaker_contacts` and
+  read/write them from `CoordinatorSpeakerContacts`. Event Hosts never see raw
+  speaker email or phone; they see only fields the granting endpoint publishes.
 - A match run (`CoordinatorMatchRuns`, `/coordinator-portal/match-runs`) scores stored speaker contacts against a filed Speaker Request and produces a shortlist. Explain relevant topics and regional service in words; never display internal weights, scores, percentages, or confidence (OQ-CBA-005).
 - Submitting a shortlist opens `CoordinatorInvitations` (`/coordinator-portal/invitations`), which composes and sends an **approved, consented invitation batch** — real email/batch send controls, gated on `cold_unknown_contact_outreach` / `external_speaker_acquisition` for the legacy admin `/outreach` surface, and on `CONSENTED_OUTREACH` for the coordinator-portal compose path. A draft is sent only to a contact whose consent is already on record, re-checked at delivery.
 - Both roles use one shared speaker-event record, notes, and append-only history. Render only actions authorized for the signed-in role and current status.
