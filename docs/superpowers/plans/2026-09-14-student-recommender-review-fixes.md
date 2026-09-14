@@ -643,7 +643,7 @@ git commit -m "docs: bounded factor transforms so LearnedRanker.rank returns Sta
 - [ ] **Step 1: Grep for stale names**
 
 ```bash
-grep -n "TaggedPolicy\|_primary_tags\|eligible_event_ids\|datetime.now(tz=UTC)\|candidate_primary_tags" docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md docs/architecture/student-recommender-contracts.md
+grep -n "TaggedPolicy\|_primary_tags\|eligible_event_ids\|window = (now\|candidate_primary_tags" docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md docs/architecture/student-recommender-contracts.md
 ```
 Expected: no output (each name was removed in Tasks 3, 4, 6).
 
