@@ -1891,14 +1891,23 @@ def test_wildcard_is_never_unscorable_and_is_hash_deterministic() -> None:
     assert one.withheld_unscorable == 2
 
 
-def test_diversity_cap_reorders_without_promoting_unscorables() -> None:
-    ranked = _ranked(("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("u", None))
-    tags = {"f1": "finance", "f2": "finance", "f3": "finance", "f4": "finance", "h1": "hackathon", "u": None}
+def test_diversity_preference_defers_same_tag_items_but_still_fills_the_feed() -> None:
+    ranked = _ranked(("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("f5", 0.4), ("u", None))
+    tags = {"f1": "finance", "f2": "finance", "f3": "finance", "f4": "finance", "h1": "hackathon", "f5": "finance", "u": None}
     feed = DefaultFeedPolicy().select(RUN, ranked, HASH, primary_tag_by_event=tags)
-    ids = [s.subject_id for s in feed.items]
-    assert ids[:STUDENT_FEED_MAX_PER_PRIMARY_TAG] == ["f1", "f2", "f3"]
-    assert ids[3] == "h1"
-    assert "u" not in ids
+    assert [s.subject_id for s in feed.items] == ["f1", "f2", "f3", "h1", "f4"]
+    assert feed.wildcard is not None and feed.wildcard.subject_id == "f5"
+    assert feed.wildcard_pool_size == 1
+    assert "u" not in [s.subject_id for s in feed.items]
+    assert feed.withheld_unscorable == 1
+
+
+def test_diversity_preference_never_shortens_the_feed() -> None:
+    ranked = _ranked(("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("f5", 0.5))
+    tags = {k: "finance" for k in ("f1", "f2", "f3", "f4", "f5")}
+    feed = DefaultFeedPolicy().select(RUN, ranked, HASH, primary_tag_by_event=tags)
+    assert [s.subject_id for s in feed.items] == ["f1", "f2", "f3", "f4", "f5"]
+    assert feed.wildcard is None and feed.truncated is False
 
 
 def test_empty_ranked_gives_empty_feed() -> None:
@@ -1961,7 +1970,7 @@ class FeedPolicy(Protocol):
 def _apply_diversity_cap(
     scorable: list[StageBScore], primary_tag_by_event: Mapping[str, str | None], cap: int
 ) -> list[StageBScore]:
-    """Stable re-order: an item past the per-tag cap is deferred, never dropped."""
+    """Soft preference (ADR-0018 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""
     taken: dict[str, int] = {}
     kept: list[StageBScore] = []
     deferred: list[StageBScore] = []
@@ -2120,7 +2129,7 @@ One file each, `tests/golden/student/proposed/SE-GC-00N.json`. All use `window_s
 | 004 | zero_or_unknown | interests `[finance]`; `e1` `[hackathon]`, `e2` `[finance]` | `order: [e2, e1]`, `factor_states.e1 = measured`, `withheld_unscorable: 0` |
 | 005 | tie | interests `[finance]`; `b` `[finance]`, `a` `[finance]` | `order: [a, b]` |
 | 006 | anti_gaming | interests = all twelve vocabulary terms; `e1` `[finance, hackathon]`; second run with `[finance, hackathon]` encoded as a second case 007 | 006: `order: [e1]` and the runner asserts `value == round(2/12, 4)`; 007: `value == 1.0` |
-| 008 | diversity | interests `[finance, hackathon]`; `f1..f4` `[finance]`, `h1` `[hackathon]` | `order: [f1, f2, f3, h1, f4]` |
+| 008 | diversity | interests `[finance, hackathon]`; `f1..f4` `[finance]` with descending scores, `h1` `[hackathon]` scoring below `f4` | `order: [f1, f2, f3, h1, f4]`, `wildcard: null`, `withheld_unscorable: 0`, `withheld_untagged: 0` |
 | 009 | wildcard | interests `[finance]`; `e1..e8` `[finance]` | `order: [e1..e5]`, `wildcard` = the id the runner computes from the hash (author it by running once and pinning), `withheld_unscorable: 0` |
 | 010 | eligibility | `in_person`; `exclude_event_ids: [skip]`; catalog of `ok`, `virtual`, `late (2026-10-20)`, `undated (unresolved, starts_at null)`, `mine (already_registered)`, `skip`, `unpub` | `order: [ok]`, `excluded: {not_published:1, unresolved_date:1, outside_window:1, modality_mismatch:1, already_registered:1, session_excluded:1}` |
 

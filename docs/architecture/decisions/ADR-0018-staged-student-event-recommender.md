@@ -201,9 +201,11 @@ derived from `inputs_hash` with the seed returned.
 Stage C applies, in this order: (1) bounded window and size
 (`STUDENT_FEED_WINDOW_DAYS = 7`, `STUDENT_FEED_MAX_ITEMS = 5`,
 `STUDENT_FEED_WILDCARD_SLOTS = 1`, domain constants); (2) session exclusions;
-(3) a **diversity cap** — no more than `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`
-ranked items sharing the same primary tag, stated as a constant, applied as a
-stable re-order that never promotes an unscorable item; (4) the declared
+(3) a **diversity preference** — items beyond `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`
+sharing one primary tag are deferred behind every other scorable item and then
+fill any ranked slots still open, so the feed stays full whenever enough
+scorable items exist; stated as a constant, applied as a stable re-order that
+never promotes an unscorable item and never shortens the feed; (4) the declared
 wildcard from the scorable pool outside the ranked list, or `null`; (5)
 governance: unscorable events counted under `withheld_unscorable`, events with
 no mapped tag counted under `withheld_untagged` (OQ-SC-12 default), and a
@@ -258,7 +260,7 @@ against gold sets before any student datum is stored, so the engineering risk
 and the privacy decision are decoupled. Nothing in the CBA path moves.
 
 **Bad, accepted.** V1 has one scored factor, so ties are common and the
-tie-break (event id ascending) does real work; the diversity cap and the
+tie-break (event id ascending) does real work; the diversity preference and the
 wildcard are what keep the top five from being five near-identical events. V2
 cannot be promoted on synthetic labels alone, so the calendar to a learned
 ranker is bounded by OQ-SE-19/20, not by engineering. Parameterising the

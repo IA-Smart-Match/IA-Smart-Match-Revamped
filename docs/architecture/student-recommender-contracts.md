@@ -212,7 +212,7 @@ def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> s
 STUDENT_FEED_WINDOW_DAYS: Final[int] = 7
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
 STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
-STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3
+STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3   # soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0018 D7)
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
 ```
 
@@ -388,7 +388,7 @@ Schema `tests/golden/student/golden_case.schema.json`, mirroring
 ```
 
 Minimum set the owner reviews to close OQ-SE-01: one case per row of §3.3's
-table, one tie broken by event id, one diversity-cap re-order, one wildcard
+table, one tie broken by event id, one diversity re-order where deferred same-tag items still fill the feed, one wildcard
 drawn / one `null`, one `proposed`-status refusal, one anti-gaming case (12
 declared interests vs 2 accurate).
 
@@ -464,7 +464,7 @@ OQ-SE-20 owner's role may submit.
 | `tests/unit/test_student_scoring_inputs_wiring.py` | no module under `student_recommender/` imports `student_speaker_feedback`, `attendance`, `event_registration`, or `feedback` |
 | `tests/unit/test_student_interest_overlap.py` | all six rows; version mismatch raises at construction; exact Jaccard values; anti-gaming property |
 | `tests/unit/test_student_eligibility.py` | each reason in `ELIGIBILITY_REASONS` produced exactly once by a purpose-built candidate; counts sum to `len(catalog) - len(eligible)` |
-| `tests/unit/test_student_feed_policy.py` | bound; diversity cap never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash` |
+| `tests/unit/test_student_feed_policy.py` | bound; diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash` |
 | `tests/unit/test_student_recommend.py` | determinism (same inputs ⇒ same `inputs_hash` and order); `exclude_event_ids` changes the hash; proposed registry raises; editing an eligible event's tags changes the hash; evidence tuple covers every candidate field |
 | `tests/unit/test_feature_spec.py` | `FeatureSpec` with a prohibited key/source raises; `OUTCOME` source raises; required-unknown ⇒ `unknown_required_keys` non-empty |
 | `tests/unit/test_learned_ranker_fallback.py` | missing artifact ⇒ `ContentRanker`, `fallback_from="ltr-1"` |
