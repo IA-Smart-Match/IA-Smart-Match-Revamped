@@ -350,6 +350,7 @@ class FeatureSpec:
     required: bool                               # True: unknown ⇒ composite unknown (ADR-0011). False: encoded as missing
     admitted_by: str                             # register row id, e.g. "OQ-SE-01"
     rationale: str
+    factor_transform: Callable[[float], float] | None = None   # raw → [0,1] for FactorScore provenance; None ⇒ raw is already bounded and __post_init__ verifies the declared range
     # __post_init__: raises ValueError if key or source names any PROHIBITED_INPUTS entry,
     #                or if source is OUTCOME (labels are not features).
 
@@ -369,6 +370,10 @@ class FeatureVector:
     values: Mapping[str, float | None]           # None = missing; never imputed here
     unknown_required_keys: tuple[str, ...]       # non-empty ⇒ LearnedRanker returns value=None
 ```
+
+`FeatureVector.values` are raw model inputs. `StageBScore.factor_scores` are
+the same features rendered through `factor_transform`. A spec with an unbounded
+raw range and no transform fails at registry construction, not at rank time.
 
 `LearnedRanker.rank` builds one `FeatureVector` per candidate through
 `build_feature_vector(run, candidate)`, predicts with `xgboost.XGBRanker` loaded

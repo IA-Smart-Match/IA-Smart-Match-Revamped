@@ -2699,6 +2699,17 @@ def test_required_unknown_is_reported_not_imputed() -> None:
     assert vector.values["student_interest_overlap"] is None
     assert "student_interest_overlap" in vector.unknown_required_keys
     assert vector.values["days_until_event"] == 2.0
+
+
+def test_unbounded_feature_without_transform_is_rejected() -> None:
+    with pytest.raises(ValueError, match="factor_transform"):
+        FeatureSpec("raw_count", FeatureSource.EVENT, True, "OQ-SE-01", "x")
+
+
+@pytest.mark.parametrize("key,raw,expected", [("interest_count", 2.0, 2 / 12), ("event_tag_count", 12.0, 1.0), ("event_tag_count", 30.0, 1.0), ("days_until_event", 3.5, 0.5)])
+def test_as_factor_is_bounded(key: str, raw: float, expected: float) -> None:
+    spec = next(f for f in STUDENT_FEATURES if f.key == key)
+    assert spec.as_factor(raw) == pytest.approx(expected)
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -2714,7 +2725,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -2723,6 +2734,7 @@ from typing import Final
 from smartmatch_domain.factor_registry import PROHIBITED_INPUTS
 from smartmatch_domain.factors.student_interest_overlap import score_student_interest_overlap
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
+from smartmatch_domain.student_recommender.student_feed import STUDENT_FEED_WINDOW_DAYS
 
 
 class FeatureSource(StrEnum):
@@ -2740,6 +2752,12 @@ class FeatureSpec:
     required: bool
     admitted_by: str
     rationale: str
+    factor_transform: Callable[[float], float] | None = None
+    raw_bounded: bool = False          # True when raw values are already in [0, 1]
+
+    def as_factor(self, raw: float) -> float:
+        value = raw if self.factor_transform is None else self.factor_transform(raw)
+        return min(1.0, max(0.0, value))
 
     def __post_init__(self) -> None:
         if self.key in PROHIBITED_INPUTS or self.source.value in PROHIBITED_INPUTS:
@@ -2748,16 +2766,21 @@ class FeatureSpec:
             raise ValueError(f"{self.key}: an outcome is a label, never a feature (OQ-SE-19)")
         if not self.admitted_by.startswith("OQ-"):
             raise ValueError("admitted_by: must name a register row")
+        if self.factor_transform is None and not self.raw_bounded:
+            raise ValueError(f"{self.key}: unbounded raw feature needs a factor_transform")
 
 
 STUDENT_FEATURE_REGISTRY_VERSION: Final[str] = "0.1.0-proposed-oq-se-19"
 
+STUDENT_INTEREST_VOCABULARY_SIZE: Final[int] = 12     # W1: the twelve G3 terms
+STUDENT_MAX_TAGS_PER_EVENT: Final[int] = 12          # same vocabulary
+
 STUDENT_FEATURES: Final[tuple[FeatureSpec, ...]] = (
-    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, True, "OQ-SE-01", "Jaccard, the V1 factor."),
-    FeatureSpec("interest_count", FeatureSource.STUDENT_PROFILE, True, "OQ-SE-01", "How many interests were declared."),
-    FeatureSpec("event_tag_count", FeatureSource.EVENT, True, "OQ-SE-01", "How many mapped tags the event carries."),
-    FeatureSpec("modality_match", FeatureSource.DERIVED, True, "OQ-SE-01", "1.0 when modality is compatible, else 0.0."),
-    FeatureSpec("days_until_event", FeatureSource.EVENT, False, "OQ-SE-01", "Days from window start; missing when unresolved."),
+    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, True, "OQ-SE-01", "Jaccard, the V1 factor.", raw_bounded=True),
+    FeatureSpec("interest_count", FeatureSource.STUDENT_PROFILE, True, "OQ-SE-01", "How many interests were declared.", factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE),
+    FeatureSpec("event_tag_count", FeatureSource.EVENT, True, "OQ-SE-01", "How many mapped tags the event carries.", factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT),
+    FeatureSpec("modality_match", FeatureSource.DERIVED, True, "OQ-SE-01", "1.0 when modality is compatible, else 0.0.", raw_bounded=True),
+    FeatureSpec("days_until_event", FeatureSource.EVENT, False, "OQ-SE-01", "Days from window start; missing when unresolved.", factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS),
 )
 
 
@@ -2818,7 +2841,42 @@ git commit -m "feat: V2 feature registry shape with prohibited-source refusal (A
 # tests/unit/test_learned_ranker_fallback.py
 from __future__ import annotations
 
-from smartmatch_domain.student_recommender.learned import ArtifactUnavailable, build_student_ranker
+from collections.abc import Mapping
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from smartmatch_domain.event_vocabulary import VOCABULARY_VERSION as VOCAB
+from smartmatch_domain.factors.student_interest_overlap import (
+    EventTagEvidence,
+    EventTagState,
+    StudentInterestEvidence,
+    StudentInterestState,
+)
+from smartmatch_domain.student_recommender.learned import (
+    ArtifactUnavailable,
+    LearnedRanker,
+    build_student_ranker,
+)
+from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
+
+T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
+RUN = StudentRankingRun(
+    "unit-1", "stu-1",
+    StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), VOCAB),
+    "no_preference", (T0, T0 + timedelta(days=7)), frozenset(), 1,
+)
+
+
+def _catalog(*, tags: Mapping[str, set[str]]) -> tuple[StudentEventCandidate, ...]:
+    """Same helper Task 5's tests define; one candidate per entry, insertion order preserved."""
+    return tuple(
+        StudentEventCandidate(
+            event_id, False, T0 + timedelta(days=1), "exact", "published", False,
+            EventTagEvidence(EventTagState.TAGGED, frozenset(terms), 0, VOCAB),
+        )
+        for event_id, terms in tags.items()
+    )
 
 
 def _broken():
@@ -2845,6 +2903,19 @@ def test_a_loaded_artifact_yields_the_learned_ranker() -> None:
     ranker, fallback_from = build_student_ranker(learned_artifact=lambda: _Constant())
     assert ranker.ranker_id == "ltr-1" and fallback_from is None
     assert ranker.formula_version.startswith("ltr-")
+
+
+def test_learned_ranker_ranks_multi_interest_multi_tag_candidates() -> None:
+    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), VOCAB))
+    candidates = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"finance"}, "e3": set()})
+    ranker = LearnedRanker(predictor=_Constant(), model_artifact_hash=None)
+    ranked = ranker.rank(run, candidates)
+    assert [s.subject_id for s in ranked][:2] == ["e1", "e2"]            # constant margin ⇒ event-id tie-break
+    e1 = next(s for s in ranked if s.subject_id == "e1")
+    assert e1.value is not None
+    assert all(0.0 <= f.value <= 1.0 for f in e1.factor_scores if f.value is not None)
+    assert next(f for f in e1.factor_scores if f.factor_key == "interest_count").value == pytest.approx(2 / 12)
+    assert next(s for s in ranked if s.subject_id == "e3").value is None   # untagged ⇒ unscorable, not raised
 ```
 
 ```python
@@ -2929,8 +3000,13 @@ class LearnedRanker:
 
     def _score(self, event_id: str, vector, value: float | None) -> StageBScore:
         required = tuple(f.key for f in STUDENT_FEATURES if f.required)
+        specs = {f.key: f for f in STUDENT_FEATURES}
         factor_scores = tuple(
-            FactorScore(factor_key=k, value=vector.values[k], basis=f"Feature {k} from registry {vector.feature_registry_version}.")
+            FactorScore(
+                factor_key=k,
+                value=None if vector.values[k] is None else specs[k].as_factor(vector.values[k]),
+                basis=f"Feature {k} (raw {vector.values[k]}) from registry {vector.feature_registry_version}.",
+            )
             for k in required
         )
         return StageBScore(
