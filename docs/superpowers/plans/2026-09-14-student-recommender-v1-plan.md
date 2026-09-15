@@ -1841,6 +1841,7 @@ git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (AD
 **Files:**
 - Modify: `python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py`
 - Test: `tests/unit/test_student_feed_policy.py`
+- Modify: `tests/unit/test_student_recommend.py` (append the Stage-C pipeline case)
 
 **Interfaces:**
 - Consumes: Task 4 constants, `StageBScore`, Task 5's `RecommendationOutcome` unchanged.
@@ -2093,7 +2094,7 @@ Expected: all PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py tests/unit/test_student_feed_policy.py
+git add python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py tests/unit/test_student_feed_policy.py tests/unit/test_student_recommend.py
 git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and declared wildcard (ADR-0018 D7)"
 ```
 
@@ -2331,7 +2332,7 @@ git commit -m "test: ten proposed student golden cases for OQ-SE-01 review"
 - Modify: `services/api/smartmatch_api/main.py` (include router, same pattern as `student_events`)
 - Modify: `tests/unit/test_matching_fail_closed.py:133-150` (widen `_G1_FORBIDDEN_SEGMENTS` with `"recommendation"`, `"recommendations"`, `"suggest"`; add the exact path to the existing allowlist beside `match-runs`)
 - Modify: `tests/authz/test_policy_matrix.py` (new row: route → `{student}`)
-- Create: `tests/contract/conftest.py` (the four fixtures below; no contract conftest exists yet)
+- Create: `tests/contract/conftest.py` (the fixtures below; no contract conftest exists yet)
 - Test: `tests/contract/test_student_recommendations_api.py`
 - Regenerate: `contracts/openapi/smartmatch.json` via `make openapi`
 
@@ -2834,7 +2835,7 @@ Expected: PASS; `contracts/openapi/smartmatch.json` gains the route and models.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add services/api/smartmatch_api/routers/student_recommendations.py services/api/smartmatch_api/student_profile_reader.py services/api/smartmatch_api/main.py services/api/smartmatch_api/routers/student_events.py tests/contract/test_student_recommendations_api.py tests/unit/test_matching_fail_closed.py tests/authz/test_policy_matrix.py contracts/openapi/smartmatch.json
+git add services/api/smartmatch_api/routers/student_recommendations.py services/api/smartmatch_api/student_profile_reader.py services/api/smartmatch_api/main.py services/api/smartmatch_api/routers/student_events.py tests/contract/conftest.py tests/contract/test_student_recommendations_api.py tests/unit/test_matching_fail_closed.py tests/authz/test_policy_matrix.py contracts/openapi/smartmatch.json
 git commit -m "feat: GET /student/recommendations behind the proposed-registry gate (ADR-0018 D8)"
 ```
 
