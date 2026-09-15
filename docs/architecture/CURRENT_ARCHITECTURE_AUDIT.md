@@ -16,24 +16,37 @@ Companion documents (evidence lives there; this report summarises and links):
 ## 0. Baseline, and what has moved since
 
 **This report is a snapshot pinned to `c72dced`.** Every count and line reference
-below was read at that commit. `main` has since advanced to `5fca118`
-(~12,000 insertions across 57 files, PRs #126–#139), so the following counted
-facts are stale *as statements about `main`* while remaining correct as
-statements about the audited baseline:
+below was read at that commit. `main` has advanced four times since, so the
+counted facts below are stale *as statements about `main`* while remaining
+correct as statements about the audited baseline. The progression, re-measured
+at each move rather than carried forward:
 
-| Fact | At `c72dced` (this report) | On `main` at `5fca118` |
-|---|---|---|
-| Alembic revisions | 33 (head `0033_match_run_scoring_mode`) | **34** (head `0034_cba_meeting`) |
-| Tables in `schema.py` | 44 | **45** (`cba_meeting`) |
-| API router modules | 26 | **27** (`routers/meetings.py`, 518 lines) |
-| OpenAPI paths / schemas | 57 / 120 | **59 / 125** |
+| Fact | `c72dced` (this report) | `5fca118` | `793678b` | `13ebaf2` | `a8398b0` | `8104a24` (current) |
+|---|---|---|---|---|---|---|
+| Alembic revisions | 33 (head `0033_event_filed_by`) | 34 | 34 | 34 | 34 | **36** (head `0036_host_organization`) |
+| Tables in `schema.py` | 44 | 45 | 45 | 45 | 45 | **50** |
+| API router modules | 26 | 27 | 27 | 27 | 27 | **31** |
+| OpenAPI paths / schemas | 57 / 120 | 59 / 125 | 59 / 125 | 59 / 125 | 59 / 125 | **66 / 140** |
+
+The head at `c72dced` is `0033_event_filed_by`; an earlier revision of this table
+named it `0033_match_run_scoring_mode`, which conflated `0032`'s name with
+`0033`'s number. Corrected here, and recorded rather than silently fixed for the
+reason the table-count correction below is.
 
 **What the drift does *not* change.** The structural findings are about shape,
 not counts, and each was re-checked against `5fca118`:
 
-* **R-09 still stands, unchanged and still P0.** The `web` job on `main` still
-  runs only `npm ci`, `npm run build` and `npm audit`. `npm test` is still
-  invoked by no workflow.
+* **R-09 still stands, still P0, and `8104a24` sharpens it.** The `web` job on
+  `main` still runs only `npm ci`, `npm run build` and `npm audit`; `npm test`
+  is invoked by no workflow. What changed is the stakes: PR #157 (`ac9d32e`)
+  ships a **principal-scoped query cache**, and the untested file
+  `apps/web/legacy-frontend/tests/queryClient.principal-isolation.test.ts` is by
+  its name the guard for exactly that property. The accompanying commit
+  (`f7c207e`, *"align frontend contracts with query cache"*) aligned the
+  **Python-side** contract tests instead. So the repository now has a guard
+  written for the precise invariant a just-shipped change touches, and it is
+  still not executed. That is the strongest evidence yet that the one-line fix
+  is worth making before anything else in this register.
 * **R-05 / R-06** — the service manifests and `root_packages` are untouched.
 * The new work *narrows* R-02 without closing it: `main` adds five Python-side
   frontend contract tests (`tests/unit/test_frontend_{auth,granted_unit,
@@ -92,6 +105,12 @@ Counted facts unchanged again. One finding, and one miss of this audit's own:
   boundary. The code's identity handling was and is sound — `FixtureTokenVerifier`
   did exactly what it says — and the hole was entirely in what the deployment
   handed it.
+
+**Fourth move, `a8398b0` → `8104a24`** (PRs #156–#157, 2026-09-15). The first
+move in five days to change the counted facts, and the largest: two migrations
+(`0035`, `0036_host_organization`), five tables, four routers, seven API paths.
+The table above is re-measured; the structural findings were re-checked and hold
+— R-05, R-06, R-02 and R-21 are untouched, and R-09 is sharpened as noted above.
 
 **One correction to this report.** Earlier revisions of these documents said
 "43 tables" throughout. The count at `c72dced` was **44** — the error was a
