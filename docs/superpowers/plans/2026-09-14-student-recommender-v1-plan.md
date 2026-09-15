@@ -10,6 +10,8 @@
 
 **Spec:** `docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md`, `docs/architecture/student-recommender-contracts.md`, `docs/decisions/student-recommender-decision-record.md`.
 
+**Review amendments (2026-09-14):** see `docs/superpowers/plans/2026-09-14-student-recommender-review-fixes.md` — soft diversity preference (owner decision), hour-anchored window, candidate evidence in `inputs_hash`, in-pipeline primary tags, bounded learned factors, and OQ-SC-11 as a training prerequisite.
+
 ## Global Constraints
 
 - `tests/unit/test_factor_registry.py` is **not edited by one line** in any task. It is the pin that the CBA path did not move.

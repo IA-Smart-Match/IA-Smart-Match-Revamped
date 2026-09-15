@@ -125,6 +125,8 @@ candidate_evidence(c) = (c.event_id, c.is_virtual, c.starts_at.isoformat(), c.ti
                          c.tags.quarantined_count, c.tags.vocabulary_version)
 ```
 
+rendered as canonical JSON and digested by `smartmatch_domain.match_run.canonical_digest` (the same `sha256:`-prefixed digest `inputs_fingerprint` uses), not a second implementation.
+
 `candidate_evidence` is every candidate field any Stage B ranker or Stage C
 policy may read (contracts §2 and §4 — the V2 `FeatureSpec`s consume the same
 fields). Editing an eligible event's tags, modality, start time, or status
@@ -132,8 +134,6 @@ therefore changes `inputs_hash`; two responses with equal hashes were computed
 from identical evidence. A future candidate field must be added here in the
 same change that adds it to `StudentEventCandidate` (the wiring test in V1 plan
 Task 5 asserts the dataclass fields and the evidence tuple agree).
-
-rendered as canonical JSON and digested by `smartmatch_domain.match_run.canonical_digest` (the same `sha256:`-prefixed digest `inputs_fingerprint` uses), not a second implementation.
 
 ---
 
