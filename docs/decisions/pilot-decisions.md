@@ -44,6 +44,22 @@ in [`../plans/remaining-foundation-r1-work.md`](../plans/remaining-foundation-r1
 Those documents remain the record of *why* each item was blocked; this one
 records the interim position taken while the block stands.
 
+## 2026-09-14 current scope note — tentative-development
+
+The canonical [student-engagement decision register](../plans/open-questions/student-engagement-deferred.md)
+now owns open student-program questions and their safe defaults. For internal
+CBA development, legal-team review is deferred and is **not** an engineering
+blocker. This does not make the work legally exempt: privacy, records,
+accessibility, and security constraints still apply, and the named owners in
+the register must make the decisions assigned to them.
+
+Legal review becomes a future gate before external deployment, public release,
+cross-unit expansion, or live-provider/live-data use. Older language below
+that treats legal review as an undifferentiated development gate is superseded
+only to that internal-versus-external extent. Historical decisions and their
+evidence remain unchanged. Current implementation truth is in the root
+[README](../../README.md); a dated decision record does not prove code exists.
+
 ---
 
 ## 2026-09-03 decision records
@@ -99,10 +115,10 @@ Consequences that follow directly:
 | **D2** | ELI formula parameters (decay half-life, window, caps) | The parameters implemented today stand as the tentative values. The open sub-question — whether committed future engagements count toward load — stays open; current behaviour refuses them explicitly rather than dropping them silently. | Confirmation or replacement of the parameters. |
 | **D3** | Route-matrix provider terms and per-run call budget | Deferred with the rest of production procurement. No provider is contracted, so `travel_burden` has no live provider. | A procurement decision, once there is a deployment to procure for. |
 | **D4** | Domain registration and DNS control | Deferred. See "Standing assumptions" — custom domains, DNS, and production Google Workspace are explicitly out of scope for the pilot. | Institutional IT ownership of a domain and its DNS. |
-| **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy / legal / records decision on periods per table. |
+| **D5** | Retention periods per evidence table | Deferred to the retention implementation phase listed below. No retention class is enforced in code today. | A privacy/records owner decision on periods per table for internal development; legal review is a later gate for external/public/cross-unit/live-provider/live-data use. |
 | **D6** | Rewards budget owner | **Named 2026-09-02:** Danny Tran (@BrooklynD23) as institutional budget owner; IA West Coordinator operational administrator; **$5,000** placeholder ceiling (pending institutional funding confirmation). D6 gate **closed** for pilot scope. | Currency confirmation; funded balance; catalog seeding when plan authorizes. |
 | **D7** | Points-economy calibration | Decided tentatively, in full, below. | Review of the earn rate, the bands, and N. |
-| **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Formal institutional privacy review. Recorded below as an unmet adoption gate. |
+| **D8** | Disclosure-consent policy, and what "FERPA-aware" asserts | Decided tentatively, in full, below: minimum-disclosure handling, and **no claim of FERPA compliance**. | Named privacy/records owner decision remains required; legal review is deferred to the external/public/cross-unit/live-provider/live-data gate. |
 | **D9** | Licensing / whether the repository may be open-sourced | Decided tentatively, in full, below: **private pilot, no open-source license, no `LICENSE` file**. **31 Aug 2026 ratification status: CANNOT CLOSE** (see `docs/decisions/2026-08-31-session-ratification.md`) — stays open for D9/licensing/open-source purposes, and is explicitly **non-blocking** for current private-repository engineering. | A licensing decision, which stays gated by the Q1 archive-history exposure above. |
 
 ---
@@ -113,12 +129,16 @@ Consequences that follow directly:
 `docs/plans/workshops/g1-workshop-output-worksheet.md` per Dr. Wang program
 direction.
 
+The artifact table and factor summary below are the historical closure snapshot
+from 2026-09-03. For the current CBA registry and scoring implementation state,
+see the root [`README`](../../README.md).
+
 | Artifact | State |
 |---|---|
 | `factor_registry.py` | `REGISTRY_STATUS = "approved"`; `REGISTRY_VERSION = "1.1.1-approved-g1-m6j"` |
 | `assert_registry_approved()` | succeeds |
 | `test_registry_is_approved_after_g1` | passes |
-| Match scoring in API/UI | **M2+** — registry approved; implementations and routes pending |
+| Match scoring in API/UI | **M2+** — registry was approved; implementations and routes were pending at this snapshot |
 
 **Approved scoring factors:** `topic_relevance` (0.70), `travel_burden` (0.30).
 **Stage A:** `availability` after shortlist. **Presentation:** 2–3 speakers, no %.
@@ -249,8 +269,12 @@ Two consequences that must survive into any implementation:
   tickets.** Deactivation is not deletion; an in-flight fulfilment ticket must
   still be able to say what it is for.
 
-**None of this exists in code.** There is no points ledger, no reward catalog,
-and no attendance record in this repository today.
+**Historical PR #3 implementation state (superseded 2026-09-14):** none of this
+existed in code at that snapshot; there was no points ledger, reward catalog,
+or attendance record. Preserve that statement as the boundary of the decision
+then, but do not use it as current implementation truth. The root
+[README](../../README.md) now records the implemented attendance, server-ledger,
+funded-catalog-read, and redemption seams and the capabilities still gated.
 
 ---
 
@@ -281,9 +305,11 @@ under IA West's own records policy, is a legal and institutional question that
 nobody here is qualified to answer.
 
 **Unmet adoption gate:** *formal institutional privacy and records review has
-not been performed.* It is a prerequisite for handling any real student data,
-and it is not satisfied by this decision, by the code, or by anyone's good
-intentions. Until it is done, the pilot runs on synthetic data only.
+not been performed.* The named privacy/records decisions remain constraints on
+internal development. Legal review is deferred during synthetic internal CBA
+development, but becomes a gate before external deployment, public release,
+cross-unit expansion, or live-provider/live-data use. This tentative decision,
+the code, and good intentions satisfy none of those future gates.
 
 ---
 
@@ -314,7 +340,7 @@ the reverse.
 ## D-0 and the frontend decisions D-1..D-11 — split scope (2026-09-03)
 
 **D-0 (assign a `DESIGN.md` owner) is partially closed for legacy-only work.**
-Danny Tran (@BrooklynD23) is named owner in
+Danny Tran (@BrooklynD23) is named here as owner of the linked
 [`../../apps/web/DESIGN.md`](../../apps/web/DESIGN.md) for **legacy frontend**
 engineering (synthetic pilot: metrics truthfulness, discovery feed, events
 calendar). **New product UI** under `apps/web/` stays blocked until Part 2's
@@ -322,9 +348,9 @@ eleven open decisions (D-1..D-11) are ratified. This document does not answer
 any of D-1..D-11.
 
 Nothing in this file, and nothing in
-[`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), closes
-D-0 or any of D-1..D-11. The prompt pack is input for that conversation; it is
-not a design decision and it is not authoritative.
+[`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), fully
+closes D-0 or closes any of D-1..D-11. The prompt pack is input for that
+conversation; it is not a design decision and it is not authoritative.
 
 **The copied legacy frontend is development-only.** Its standing is:
 
@@ -342,13 +368,15 @@ and W5.
 
 ---
 
-## Follow-up implementation phases — explicitly NOT PR #3 code
+## Historical PR #3 follow-up implementation snapshot
 
-The following are recorded as **future phases**. None of them is in PR #3, and
-none of them exists in this repository today. Listing them here is scope
-control, not a commitment to a date.
+The following table records what was outside PR #3 and the implementation state
+at that historical snapshot. Listing it preserves PR #3 scope control, not a
+current-state claim or a commitment to a date. For current implementation,
+including matching, outreach, attendance, rewards, and the full HTTP contract,
+use the root [README](../../README.md).
 
-| Phase | What it covers | State in code |
+| Phase | What it covers | Historical PR #3 state |
 |---|---|---|
 | Dynamic matching | Match runs, ranked results, factor explanations, scenario comparison | Not implemented. Registry approved (D1 / G1 closed 2026-09-03); M2 implements factors. |
 | Rewards | Catalog, point ledger, redemption, fulfilment tickets | Not implemented. |
@@ -359,10 +387,12 @@ control, not a commitment to a date.
 | Research Scout | Source discovery, extraction, quarantine, entity resolution | Not implemented. Future concept. |
 | Jarvis | Typed-intent accelerator over ordinary workflows | Not implemented. Future concept. |
 
-What **is** implemented is the durable command path — unit-scoped import
+At the PR #3 snapshot, what **was** implemented was the durable command path — unit-scoped import
 submission, `202` plus a job id, job status, a resumable SSE event stream, and
-re-drive / abandon for parked work. That is the whole of the live surface, and
-`contracts/openapi/smartmatch.json` describes it in seven operations.
+re-drive / abandon for parked work. That was the whole HTTP surface at the time,
+described by seven OpenAPI operations. This statement is historical and was
+superseded by the current implementation table and contract counts in the root
+[README](../../README.md).
 
 ---
 
