@@ -82,7 +82,7 @@ Stage B  StudentRanker            V1 ContentRanker   (STUDENT_REGISTRY, Jaccard)
         │                         V2 LearnedRanker   (LambdaMART, same protocol, same StageBScore)
         │                         unknown stays unknown; unscorable sorts last
         ▼
-Stage C  FeedPolicy               bounded top-N · one declared wildcard · diversity cap
+Stage C  FeedPolicy               bounded top-N · one declared wildcard · diversity preference
         │                         · session exclusions supplied by the caller · governance
         ▼
 StudentFeed (items, wildcard, withheld counts, provenance pins, inputs_hash)

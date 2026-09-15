@@ -35,7 +35,7 @@ floored to the hour (UTC), `ends_at = starts_at + STUDENT_FEED_WINDOW_DAYS`.
 Two requests in the same clock hour with the same profile, exclusions and
 eligible catalog therefore return the same `inputs_hash` and the same wildcard.
 The anchor is `student_feed.feed_window_for(now)`; the router never builds the
-tuple itself.
+tuple itself. The anchor is UTC regardless of the unit's display `time_zone`.
 
 ### 1.2 Response — `StudentRecommendationsResponse`
 
@@ -119,7 +119,8 @@ class StudentRecommendationsResponse(BaseModel):
  registry_version, registry_hash, scoring_mode, scoring_mode_version, formula_version,
  model_artifact_hash, policy_version)
 
-candidate_evidence(c) = (c.event_id, c.is_virtual, c.starts_at.isoformat(), c.time_precision,
+candidate_evidence(c) = (c.event_id, c.is_virtual,
+                         None if c.starts_at is None else c.starts_at.isoformat(), c.time_precision,
                          c.publication_status, c.already_registered,
                          c.tags.state.value, sorted(c.tags.mapped_terms),
                          c.tags.quarantined_count, c.tags.vocabulary_version)
@@ -208,7 +209,7 @@ class FeedPolicy(Protocol):
     def select(self, run: StudentRankingRun,
                ranked: tuple[StageBScore, ...],
                inputs_hash: str, *,
-               primary_tag_by_event: Mapping[str, str | None] = {},   # event_id → first matched interest, for the diversity cap
+               primary_tag_by_event: Mapping[str, str | None] = {},   # event_id → first matched interest, for the diversity preference
                ) -> StudentFeed: ...
 
 # student_recommender/policy.py
@@ -226,9 +227,15 @@ STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
 **Composition (one function, the seam every test targets):**
 
 ```python
+@dataclass(frozen=True, slots=True)
+class RecommendationOutcome:
+    feed: StudentFeed
+    eligibility: EligibilityResult
+    inputs_hash: str
+
 def recommend(run: StudentRankingRun, catalog: Sequence[StudentEventCandidate], *,
               eligibility: EligibilityFilter, ranker: StudentRanker, policy: FeedPolicy,
-              ) -> tuple[StudentFeed, EligibilityResult, str]:   # (feed, exclusions, inputs_hash)
+              ) -> RecommendationOutcome:
 ```
 
 `recommend` computes `primary_tag_by_event = {c.event_id: primary_tag(run.interests, c.tags) for c in eligible}`
@@ -484,10 +491,12 @@ OQ-SE-20 owner's role may submit.
 | `tests/unit/test_student_interest_overlap.py` | all six rows; version mismatch raises at construction; exact Jaccard values; anti-gaming property |
 | `tests/unit/test_student_eligibility.py` | each reason in `ELIGIBILITY_REASONS` produced exactly once by a purpose-built candidate; counts sum to `len(catalog) - len(eligible)` |
 | `tests/unit/test_student_feed_policy.py` | bound; diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash` |
+| `tests/unit/test_student_feed_window.py` | two requests in the same clock hour share a window; crossing the hour boundary moves it; a naive clock raises |
 | `tests/unit/test_student_recommend.py` | determinism (same inputs ⇒ same `inputs_hash` and order); `exclude_event_ids` changes the hash; proposed registry raises; editing an eligible event's tags changes the hash; evidence tuple covers every candidate field |
 | `tests/unit/test_feature_spec.py` | `FeatureSpec` with a prohibited key/source raises; `OUTCOME` source raises; required-unknown ⇒ `unknown_required_keys` non-empty |
 | `tests/unit/test_learned_ranker_fallback.py` | missing artifact ⇒ `ContentRanker`, `fallback_from="ltr-1"` |
 | `tests/golden/student/` + `tests/unit/test_student_golden.py` | every case in §5.1 |
 | `tests/unit/test_matching_fail_closed.py` | forbidden segments widened to `recommendation(s)`, `ranking`, `suggest`; exact path allowlisted |
 | `tests/contract/test_student_recommendations_api.py` | schema walk (no numeric score); every `reason` one sentence; wildcard distinct; refusal is 409 not 200; `exclude_event_ids` > 50 is 422 |
+| `tests/contract/test_student_recommendations_api.py` (determinism) | two requests in one clock hour return the same `inputs_hash`, the same `wildcard`, and the same `feed_window` |
 | `tests/authz/test_policy_matrix.py` | route allowed to `student` only |

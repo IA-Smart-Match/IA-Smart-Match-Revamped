@@ -1836,7 +1836,7 @@ git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (AD
 
 ---
 
-### Task 6: Stage C — `DefaultFeedPolicy`: bound, diversity cap, declared wildcard
+### Task 6: Stage C — `DefaultFeedPolicy`: bound, diversity preference, declared wildcard
 
 **Files:**
 - Modify: `python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py`
@@ -1844,7 +1844,7 @@ git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (AD
 
 **Interfaces:**
 - Consumes: Task 4 constants, `StageBScore`, Task 5's `RecommendationOutcome` unchanged.
-- Produces: `DefaultFeedPolicy(policy_version=STUDENT_FEED_POLICY_VERSION)`, `primary_tag(score) -> str | None` (the alphabetically first matched interest, from `FactorScore.basis`-free evidence: policy reads `score.factor_scores[0]` value only for scorability; the primary tag comes from `primary_tag(run.interests, candidate.tags)` computed inside `recommend()` (Task 5); no router involvement). To keep Stage C pure, `select` gains a keyword argument `primary_tag_by_event: Mapping[str, str | None] = {}` — recorded in the contracts doc §2 as an amendment.
+- Produces: `DefaultFeedPolicy(policy_version=STUDENT_FEED_POLICY_VERSION)`. This task produces no `primary_tag`: Task 5 defines `primary_tag(interests, tags)` in `policy.py` and `recommend()` calls it per eligible candidate; Stage C only reads `score.factor_scores[0]` for scorability and receives the tags as an argument, and the router is never involved. To keep Stage C pure, `select` gains a keyword argument `primary_tag_by_event: Mapping[str, str | None] = {}` — recorded in the contracts doc §2 as an amendment.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1861,7 +1861,6 @@ from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
 from smartmatch_domain.student_recommender.run import StudentRankingRun
 from smartmatch_domain.student_recommender.student_feed import (
     STUDENT_FEED_MAX_ITEMS,
-    STUDENT_FEED_MAX_PER_PRIMARY_TAG,
     STUDENT_FEED_POLICY_VERSION,
 )
 
@@ -2028,7 +2027,7 @@ def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> s
     return matched[0] if matched else None
 
 
-def _apply_diversity_cap(
+def _apply_diversity_preference(
     scorable: list[StageBScore], primary_tag_by_event: Mapping[str, str | None], cap: int
 ) -> list[StageBScore]:
     """Soft preference (ADR-0018 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""
@@ -2064,7 +2063,7 @@ class DefaultFeedPolicy:
     ) -> StudentFeed:
         scorable = [s for s in ranked if s.value is not None]
         unscorable = [s for s in ranked if s.value is None]
-        ordered = _apply_diversity_cap(scorable, primary_tag_by_event, STUDENT_FEED_MAX_PER_PRIMARY_TAG)
+        ordered = _apply_diversity_preference(scorable, primary_tag_by_event, STUDENT_FEED_MAX_PER_PRIMARY_TAG)
         items = tuple(ordered[:STUDENT_FEED_MAX_ITEMS])
         pool = ordered[STUDENT_FEED_MAX_ITEMS:]
         seed = inputs_hash.removeprefix("sha256:")[:16]
@@ -2095,7 +2094,7 @@ Expected: all PASS
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py tests/unit/test_student_feed_policy.py
-git commit -m "feat: DefaultFeedPolicy with bound, diversity cap, and declared wildcard (ADR-0018 D7)"
+git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and declared wildcard (ADR-0018 D7)"
 ```
 
 ---
