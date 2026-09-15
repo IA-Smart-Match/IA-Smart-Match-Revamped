@@ -997,11 +997,11 @@ git commit -m "feat: STUDENT_REGISTRY 0.1.0 shipped proposed and failing closed 
 - Create: `python/smartmatch_domain/smartmatch_domain/student_recommender/student_feed.py`
 - Create: `python/smartmatch_domain/smartmatch_domain/student_recommender/run.py`
 - Create: `python/smartmatch_domain/smartmatch_domain/student_recommender/eligibility.py`
-- Test: `tests/unit/test_student_eligibility.py`
+- Test: `tests/unit/test_student_eligibility.py`, `tests/unit/test_student_feed_window.py`
 
 **Interfaces:**
 - Consumes: Task 2's `StudentInterestEvidence`, `EventTagEvidence`.
-- Produces: constants above; `StudentRankingRun`, `StudentEventCandidate` (contracts §2); `ELIGIBILITY_REASONS`, `EligibilityResult`, `EligibilityFilter` (Protocol), `DefaultEligibilityFilter` with `version = "eligibility-1.0.0"`.
+- Produces: constants above; `feed_window_for(now)` (contracts §1.1, hour-anchored); `StudentRankingRun`, `StudentEventCandidate` (contracts §2); `ELIGIBILITY_REASONS`, `EligibilityResult`, `EligibilityFilter` (Protocol), `DefaultEligibilityFilter` with `version = "eligibility-1.0.0"`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1104,6 +1104,7 @@ Expected: FAIL with `ModuleNotFoundError`
 # python/smartmatch_domain/smartmatch_domain/student_recommender/student_feed.py
 """Feed bounds. Domain constants, never router literals (ADR-0018 D7)."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 STUDENT_FEED_WINDOW_DAYS: Final[int] = 7
@@ -1112,6 +1113,38 @@ STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
 STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
 STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 50
+STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"   # documented in contracts §1.1
+
+
+def feed_window_for(now: datetime) -> tuple[datetime, datetime]:
+    """Anchor the window to the top of the UTC hour so refreshes within an hour share an inputs_hash."""
+    if now.tzinfo is None:
+        raise ValueError("feed_window_for: now must be tz-aware")
+    start = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=STUDENT_FEED_WINDOW_DAYS)
+```
+
+```python
+# tests/unit/test_student_feed_window.py
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from smartmatch_domain.student_recommender.student_feed import STUDENT_FEED_WINDOW_DAYS, feed_window_for
+
+
+def test_requests_in_the_same_hour_share_a_window() -> None:
+    a = feed_window_for(datetime(2026, 10, 5, 14, 3, 7, 123456, tzinfo=UTC))
+    b = feed_window_for(datetime(2026, 10, 5, 14, 59, 59, 999999, tzinfo=UTC))
+    assert a == b == (datetime(2026, 10, 5, 14, tzinfo=UTC), datetime(2026, 10, 5, 14, tzinfo=UTC) + timedelta(days=STUDENT_FEED_WINDOW_DAYS))
+
+
+def test_crossing_the_hour_moves_the_window() -> None:
+    assert feed_window_for(datetime(2026, 10, 5, 14, 59, tzinfo=UTC)) != feed_window_for(datetime(2026, 10, 5, 15, 0, tzinfo=UTC))
+
+
+def test_naive_clock_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        feed_window_for(datetime(2026, 10, 5, 14))
 ```
 
 ```python
@@ -2286,6 +2319,7 @@ git commit -m "test: ten proposed student golden cases for OQ-SE-01 review"
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -2341,9 +2375,24 @@ def test_more_than_fifty_exclusions_is_a_422(student_client: TestClient, unit_id
     params = [("exclude_event_ids", f"00000000-0000-0000-0000-{i:012d}") for i in range(51)]
     response = student_client.get(f"/v1/units/{unit_id}/student/recommendations", params=params)
     assert response.status_code == 422
+
+
+def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(
+    student_client: TestClient, unit_id: str, approved_registry, seeded_catalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import smartmatch_api.routers.student_recommendations as mod
+
+    url = f"/v1/units/{unit_id}/student/recommendations"
+    clock = iter([datetime(2026, 10, 5, 14, 3, tzinfo=UTC), datetime(2026, 10, 5, 14, 41, tzinfo=UTC)])
+    monkeypatch.setattr(mod, "_now", lambda: next(clock))
+    first = student_client.get(url).json()
+    second = student_client.get(url).json()
+    assert first["provenance"]["inputs_hash"] == second["provenance"]["inputs_hash"]
+    assert first["wildcard"] == second["wildcard"]
+    assert first["feed_window"] == second["feed_window"]
 ```
 
-Use whatever `student_client` / `unit_id` fixtures `tests/contract/test_student_events_api.py` already uses; if it has none, copy its client construction verbatim into this file.
+Use whatever `student_client` / `unit_id` fixtures `tests/contract/test_student_events_api.py` already uses; if it has none, copy its client construction verbatim into this file. `approved_registry` flips the gate the way Task 5's fixture does; `seeded_catalog` gives the unit enough published events for a wildcard.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -2392,7 +2441,7 @@ def absent_evidence() -> StudentInterestEvidence:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -2411,7 +2460,7 @@ from smartmatch_domain.student_recommender.recommend import recommend
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
 from smartmatch_domain.student_recommender.student_feed import (
     STUDENT_FEED_MAX_SESSION_EXCLUSIONS,
-    STUDENT_FEED_WINDOW_DAYS,
+    feed_window_for,
 )
 
 from smartmatch_api.errors import ApiError  # the standard envelope helper the other routers raise
@@ -2419,6 +2468,10 @@ from smartmatch_api.routers.student_events import StudentEventSummary, load_publ
 from smartmatch_api.student_profile_reader import StudentProfileReader, absent_evidence
 
 router = APIRouter(tags=["student"])
+
+
+def _now() -> datetime:                    # the test seam; the only clock read in this router
+    return datetime.now(tz=UTC)
 
 
 class StudentRecommendationItem(BaseModel):
@@ -2500,8 +2553,7 @@ def get_student_recommendations(
     session=Depends(get_session),
     profiles: StudentProfileReader = Depends(get_student_profile_reader),
 ) -> StudentRecommendationsResponse:
-    now = datetime.now(tz=UTC)
-    window = (now, now + timedelta(days=STUDENT_FEED_WINDOW_DAYS))
+    window = feed_window_for(_now())
     profile = profiles.read(unit_id=str(unit_id), subject_id=str(ctx.subject_id))
     interests = profile.interests if profile else absent_evidence()
     run = StudentRankingRun(

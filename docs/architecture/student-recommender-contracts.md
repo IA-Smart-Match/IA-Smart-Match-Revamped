@@ -30,6 +30,13 @@ Rate limit: yes (the only student read whose work is proportional to the catalog
 `exclude_event_ids` is the whole of session adaptation (ADR-0018 D6). It is
 never stored; it is folded into `inputs_hash` so two identical calls agree.
 
+`feed_window` is anchored, not sampled: `starts_at` is the request clock
+floored to the hour (UTC), `ends_at = starts_at + STUDENT_FEED_WINDOW_DAYS`.
+Two requests in the same clock hour with the same profile, exclusions and
+eligible catalog therefore return the same `inputs_hash` and the same wildcard.
+The anchor is `student_feed.feed_window_for(now)`; the router never builds the
+tuple itself.
+
 ### 1.2 Response — `StudentRecommendationsResponse`
 
 ```python
