@@ -2190,7 +2190,7 @@ One file each, `tests/golden/student/proposed/SE-GC-00N.json`. All use `window_s
 | 004 | zero_or_unknown | interests `[finance]`; `e1` `[hackathon]`, `e2` `[finance]` | `order: [e2, e1]`, `factor_states.e1 = measured`, `withheld_unscorable: 0` |
 | 005 | tie | interests `[finance]`; `b` `[finance]`, `a` `[finance]` | `order: [a, b]` |
 | 006 | anti_gaming | interests = all twelve vocabulary terms; `e1` `[finance, hackathon]`; second run with `[finance, hackathon]` encoded as a second case 007 | 006: `order: [e1]` and the runner asserts `value == round(2/12, 4)`; 007: `value == 1.0` |
-| 008 | diversity | interests `[finance, hackathon]`; `f1..f4` `[finance]` with descending scores, `h1` `[hackathon]` scoring below `f4` | `order: [f1, f2, f3, h1, f4]`, `wildcard: null`, `withheld_unscorable: 0`, `withheld_untagged: 0` |
+| 008 | diversity | interests `[finance, hackathon]`; `f1..f4` `[finance]`, `h1` `[hackathon]`; all five tie at 1/2 and break by event id | `order: [f1, f2, f3, h1, f4]`, `wildcard: null`, `withheld_unscorable: 0`, `withheld_untagged: 0` |
 | 009 | wildcard | interests `[finance]`; `e1..e8` `[finance]` | `order: [e1..e5]`, `wildcard` = the id the runner computes from the hash (author it by running once and pinning), `withheld_unscorable: 0` |
 | 010 | eligibility | `in_person`; `exclude_event_ids: [skip]`; catalog of `ok`, `virtual`, `late (2026-10-20)`, `undated (unresolved, starts_at null)`, `mine (already_registered)`, `skip`, `unpub` | `order: [ok]`, `excluded: {not_published:1, unresolved_date:1, outside_window:1, modality_mismatch:1, already_registered:1, session_excluded:1}` |
 
@@ -2332,6 +2332,7 @@ git commit -m "test: ten proposed student golden cases for OQ-SE-01 review"
 - Modify: `services/api/smartmatch_api/main.py` (include router, same pattern as `student_events`)
 - Modify: `tests/unit/test_matching_fail_closed.py:133-150` (widen `_G1_FORBIDDEN_SEGMENTS` with `"recommendation"`, `"recommendations"`, `"suggest"`; add the exact path to the existing allowlist beside `match-runs`)
 - Modify: `tests/authz/test_policy_matrix.py` (new row: route → `{student}`)
+- Create: `tests/contract/conftest.py` (the four fixtures below; no contract conftest exists yet)
 - Test: `tests/contract/test_student_recommendations_api.py`
 - Regenerate: `contracts/openapi/smartmatch.json` via `make openapi`
 
@@ -2420,7 +2421,181 @@ def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(
     assert first["feed_window"] == second["feed_window"]
 ```
 
-Use whatever `student_client` / `unit_id` fixtures `tests/contract/test_student_events_api.py` already uses; if it has none, copy its client construction verbatim into this file. `approved_registry` flips the gate the way Task 5's fixture does; `seeded_catalog` gives the unit enough published events for a wildcard.
+`student_client`, `unit_id`, `approved_registry` and `seeded_catalog` **are new in
+this task**. `tests/contract/test_student_events_api.py` exists but exposes no such
+fixtures — it builds a `_World` helper object instead — and `tests/contract/` has no
+`conftest.py` at all, so write this one:
+
+```python
+# tests/contract/conftest.py — new in this task
+"""Fixtures for the student recommendation contract suite.
+
+The insert shapes are taken from ``tests/contract/test_student_events_api.py``
+(``tenant``, ``org_unit``, ``user_account``, ``membership``, ``event``,
+``event_tag``) so the same table constraints hold; the fixtures themselves are
+new, because that file keeps its world in a ``_World`` helper rather than in
+named fixtures.
+"""
+from __future__ import annotations
+
+import os
+import uuid
+from collections.abc import Iterator
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from fastapi.testclient import TestClient
+from smartmatch_api.main import app
+from smartmatch_domain.event_vocabulary import VOCABULARY_VERSION
+from smartmatch_domain.student_recommender import registry as registry_module
+from smartmatch_persistence.engine import create_session_factory
+from smartmatch_providers import FixtureTokenVerifier
+from sqlalchemy import Engine, create_engine, text
+
+DATABASE_URL = os.getenv(
+    "SMARTMATCH_DATABASE_URL",
+    "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
+)
+UNIT_PATH = "iawest.studentrecs"
+#: Inside the window feed_window_for(2026-10-05T14:xx UTC) opens.
+CATALOG_START = datetime(2026, 10, 6, 17, 0, tzinfo=UTC)
+
+
+@pytest.fixture(scope="module")
+def engine() -> Engine:
+    try:
+        eng = create_engine(DATABASE_URL, future=True)
+        with eng.connect() as conn:
+            conn.execute(text("SELECT ends_at FROM event LIMIT 1"))
+    except Exception as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"no migrated PostgreSQL available at {DATABASE_URL}: {exc}")
+    return eng
+
+
+@pytest.fixture
+def tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
+    """One tenant, deleted table by table in FK order afterwards."""
+    tid = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenant (id, slug, display_name) VALUES (:id, :slug, :slug)"),
+            {"id": tid, "slug": f"test-sr-{tid.hex[:12]}"},
+        )
+    yield tid
+    with engine.begin() as conn:
+        for table in ("event_tag", "event", "membership", "user_account", "org_unit", "rate_limit_counter"):
+            conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid})
+        conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tid})
+
+
+@pytest.fixture
+def unit_id(engine: Engine, tenant_id: uuid.UUID) -> uuid.UUID:
+    """The department every request in this suite addresses."""
+    uid = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                "VALUES (:id, :tid, CAST(:path AS ltree), 'department', 'Student Recs')"
+            ),
+            {"id": uid, "tid": tenant_id, "path": UNIT_PATH},
+        )
+    return uid
+
+
+@pytest.fixture
+def student_client(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> TestClient:
+    """A TestClient whose every request carries the student role in ``unit_id``."""
+    user_id = uuid.uuid4()
+    subject = f"sub-sr-{uuid.uuid4().hex}"
+    token = f"tok-sr-{uuid.uuid4().hex}"
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :tid, :sub, :email)"
+            ),
+            {"id": user_id, "tid": tenant_id, "sub": subject, "email": f"{subject}@example.edu"},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'student')"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": UNIT_PATH},
+        )
+    client = TestClient(app)
+    client.app.state.session_factory = create_session_factory(
+        engine.url.render_as_string(hide_password=False)
+    )
+    client.app.state.token_verifier = FixtureTokenVerifier()
+    client.app.state.token_verifier.register(token, subject)
+    client.headers["Authorization"] = f"Bearer {token}"
+    return client
+
+
+@pytest.fixture
+def approved_registry(monkeypatch: pytest.MonkeyPatch):
+    """Flip the gate for one test; the shipped constant stays "proposed".
+
+    The router constructs a fresh ``ContentRanker()`` per request, and that
+    dataclass's ``registry`` default reads ``registry_module.STUDENT_REGISTRY``
+    **at call time**. Patching the module attribute is therefore what the route
+    sees; patching a ranker object the test holds would never reach it.
+    """
+    approved = replace(
+        registry_module.STUDENT_REGISTRY,
+        status="approved",
+        approver="test",
+        approved_on="2026-10-05",
+    )
+    monkeypatch.setattr(registry_module, "STUDENT_REGISTRY", approved)
+    return approved
+
+
+@pytest.fixture
+def seeded_catalog(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> list[uuid.UUID]:
+    """Six published, exact-dated, in-window, mapped-tag events.
+
+    Five fill the feed and the sixth keeps the wildcard pool non-empty, so the
+    determinism test has a wildcard to compare across the two requests.
+    """
+    terms = ("finance", "finance", "finance", "hackathon", "hackathon", "finance")
+    event_ids: list[uuid.UUID] = []
+    with engine.begin() as conn:
+        for index, term in enumerate(terms):
+            event_id = uuid.uuid4()
+            starts_at = CATALOG_START + timedelta(hours=index)
+            conn.execute(
+                text(
+                    "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+                    "starts_at, ends_at, time_zone, time_precision, resolved_date, "
+                    "publication_status, quarantined_tag_count, origin) "
+                    "VALUES (:id, :tid, :unit, :title, :norm, :starts, :ends, 'UTC', 'exact', "
+                    ":resolved, 'published', 0, 'coordinator_entry')"
+                ),
+                {
+                    "id": event_id, "tid": tenant_id, "unit": unit_id,
+                    "title": f"Recommendable {index}", "norm": f"recommendable {index}",
+                    "starts": starts_at, "ends": starts_at + timedelta(minutes=90),
+                    "resolved": starts_at.date(),
+                },
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO event_tag (id, tenant_id, event_id, resolution, term, raw_value, "
+                    "vocabulary_version) "
+                    "VALUES (:id, :tid, :eid, 'mapped', :term, :raw, :version)"
+                ),
+                {
+                    "id": uuid.uuid4(), "tid": tenant_id, "eid": event_id,
+                    "term": term, "raw": term.title(), "version": VOCABULARY_VERSION,
+                },
+            )
+            event_ids.append(event_id)
+    return event_ids
+```
 
 - [ ] **Step 2: Run to verify it fails**
 

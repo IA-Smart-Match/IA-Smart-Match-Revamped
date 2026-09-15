@@ -350,17 +350,19 @@ class FeatureSpec:
     required: bool                               # True: unknown ⇒ composite unknown (ADR-0011). False: encoded as missing
     admitted_by: str                             # register row id, e.g. "OQ-SE-01"
     rationale: str
-    factor_transform: Callable[[float], float] | None = None   # raw → [0,1] for FactorScore provenance; None ⇒ raw is already bounded and __post_init__ verifies the declared range
+    factor_transform: Callable[[float], float] | None = None   # raw → [0,1] for FactorScore provenance; None ⇒ the spec must declare `raw_bounded=True`; otherwise construction raises
+    raw_bounded: bool = False                    # True when the raw value is already in [0, 1]
     # __post_init__: raises ValueError if key or source names any PROHIBITED_INPUTS entry,
-    #                or if source is OUTCOME (labels are not features).
+    #                if source is OUTCOME (labels are not features),
+    #                or if factor_transform is None and raw_bounded is False.
 
 STUDENT_FEATURE_REGISTRY_VERSION: Final[str] = "0.1.0-proposed-oq-se-19"
 STUDENT_FEATURES: Final[tuple[FeatureSpec, ...]] = (
-    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=...),
-    FeatureSpec("interest_count",           FeatureSource.STUDENT_PROFILE, required=True, admitted_by="OQ-SE-01", rationale=...),
-    FeatureSpec("event_tag_count",          FeatureSource.EVENT,   required=True,  admitted_by="OQ-SE-01", rationale=...),
-    FeatureSpec("modality_match",           FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=...),
-    FeatureSpec("days_until_event",         FeatureSource.EVENT,   required=False, admitted_by="OQ-SE-01", rationale=...),
+    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=..., raw_bounded=True),
+    FeatureSpec("interest_count",           FeatureSource.STUDENT_PROFILE, required=True, admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE),
+    FeatureSpec("event_tag_count",          FeatureSource.EVENT,   required=True,  admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT),
+    FeatureSpec("modality_match",           FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=..., raw_bounded=True),
+    FeatureSpec("days_until_event",         FeatureSource.EVENT,   required=False, admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS),
     # ("collaborative_affinity", INTERACTION, required=False, admitted_by="OQ-SE-21") — absent until that row closes
 )
 
@@ -373,7 +375,8 @@ class FeatureVector:
 
 `FeatureVector.values` are raw model inputs. `StageBScore.factor_scores` are
 the same features rendered through `factor_transform`. A spec with an unbounded
-raw range and no transform fails at registry construction, not at rank time.
+raw range and no transform fails at spec construction (`FeatureSpec.__post_init__`),
+not at rank time.
 
 `LearnedRanker.rank` builds one `FeatureVector` per candidate through
 `build_feature_vector(run, candidate)`, predicts with `xgboost.XGBRanker` loaded
@@ -417,7 +420,7 @@ evaluation permitted before OQ-SE-19.
 ```
 training_example(
   id UUID PK, tenant_id UUID, subject_id UUID,     -- FK (tenant_id, subject_id) → user_account, ON DELETE CASCADE  (account removal)
-  student_profile_id UUID NOT NULL,                -- FK → student_profile(id), ON DELETE CASCADE                 (profile removal — the W1 DELETE route)
+  student_profile_id UUID NOT NULL,                -- FK (tenant_id, student_profile_id) → student_profile(tenant_id, id), ON DELETE CASCADE  (profile removal — the W1 DELETE route)
   event_id UUID, feature_registry_version TEXT,
   features JSONB,                                   -- FeatureVector.values at exposure time
   label SMALLINT CHECK (label IN (0,1,2)),          -- 0 shown, 1 registered, 2 attended
@@ -442,9 +445,13 @@ Two independent cascades, both required:
 
 | Trigger | Mechanism | Test |
 |---|---|---|
-| `DELETE /v1/units/{unit_id}/student/profile` (W1; account intact) | `student_profile_id` FK `ON DELETE CASCADE` | `tests/integration/test_training_example_purge.py::test_profile_delete_purges_examples_and_keeps_account` — write two examples, call the W1 DELETE, assert zero rows for the subject **and** the `user_account` row still exists |
+| `DELETE /v1/units/{unit_id}/student/profile` (W1; account intact) | `(tenant_id, student_profile_id)` FK `ON DELETE CASCADE` | `tests/integration/test_training_example_purge.py::test_profile_delete_purges_examples_and_keeps_account` — write two examples, call the W1 DELETE, assert zero rows for the subject **and** the `user_account` row still exists |
 | account removal | `(tenant_id, subject_id)` FK `ON DELETE CASCADE` | `::test_account_delete_purges_examples` |
 | profile re-created after deletion | new `student_profile.id`; old examples are already gone; no re-link | `::test_recreated_profile_starts_with_no_examples` |
+
+If the OQ-SC-11 closure converts the W1 `DELETE` into a status flip, the purge
+is an explicit transactional delete in the route, not a cascade; the three tests
+assert a zero row count for the subject regardless of mechanism.
 
 A `PUT` that changes `profile_version` does **not** purge (examples pin the
 feature vector at exposure time). The migration that creates this table ships
